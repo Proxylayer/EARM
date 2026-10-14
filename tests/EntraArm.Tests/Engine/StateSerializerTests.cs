@@ -197,6 +197,16 @@ public sealed class StateSerializerTests
         Assert.Null(operation.Duration);
     }
 
+    [Fact]
+    public void Deserialize_ALoneSurrogateEscapeInTheState_IsReadAsTheReplacementCharacter()
+    {
+        var loaded = StateSerializer.Deserialize("{ \"schemaVersion\": 1, \"deploymentName\": \"x\", \"resources\": {}, \"operations\": [ { \"resourceId\": \"r\", \"type\": \"t\", \"status\": \"Failed\", \"error\": \"name \\ud800 broke\" } ] }", "x");
+
+        var operation = Assert.Single(loaded.Operations);
+        Assert.Equal("name � broke", operation.Error);
+        Assert.Equal("name � broke", Assert.Single(StateSerializer.Deserialize(StateSerializer.Serialize(loaded), "x").Operations).Error);
+    }
+
     // ---- resource ids ----
 
     [Theory]

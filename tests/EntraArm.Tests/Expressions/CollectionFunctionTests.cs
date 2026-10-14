@@ -124,6 +124,14 @@ public sealed class CollectionFunctionTests
     }
 
     [Fact]
+    public void Json_ALoneSurrogateEscape_BecomesTheReplacementCharacter_InsteadOfFailingLater()
+    {
+        Assert.Equal("a\uFFFDb", Expr.Eval("[json('{\"s\": \"a\\ud800b\"}').s]")!.GetValue<string>());
+        Assert.Equal("\uFFFD", Expr.Eval("[first(json('[\"\\udc00\"]'))]")!.GetValue<string>());
+        Assert.Equal("\uD83D\uDE00", Expr.Eval("[json('\"\\ud83d\\ude00\"')]")!.GetValue<string>());
+    }
+
+    [Fact]
     public void Json_AcceptsCommentsAndTrailingCommas()
     {
         Expr.AssertJson("{\"a\":1}", Expr.Eval("[json('{ /* c */ \"a\": 1, }')]"));

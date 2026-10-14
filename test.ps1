@@ -13,6 +13,8 @@
     (for example "FullyQualifiedName~CliSmokeTests").
     EntraArm.Integration.Tests (real tenant) is skipped unless the ENTRAARM_IT_TENANT environment variable is
     set, or it is named explicitly via -Target.
+    -Coverage adds Microsoft.Testing.Extensions.CodeCoverage collection and writes one Cobertura XML per project to
+    artifacts/test-results/<project>.cobertura.xml (dev-time measurement; see tests/COVERAGE.md).
     A project with zero tests is reported as NO TESTS and does not fail the run (MTP exit code 8 is ignored).
     Exit code is non-zero when the build fails or any selected project has failing tests.
 .EXAMPLE
@@ -27,6 +29,7 @@ param(
     [switch]$Detailed,
     [string]$Target,
     [string]$Filter,
+    [switch]$Coverage,
     [ValidateSet('Debug', 'Release')]
     [string]$Configuration = 'Debug'
 )
@@ -173,6 +176,9 @@ foreach ($project in $projects) {
     )
     if ($Filter) {
         $testArgs += @('--filter', $Filter)
+    }
+    if ($Coverage) {
+        $testArgs += @('--coverage', '--coverage-output-format', 'cobertura', '--coverage-output', "$projectName.cobertura.xml")
     }
 
     if ($Detailed) {

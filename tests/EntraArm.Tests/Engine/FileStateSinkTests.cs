@@ -295,6 +295,124 @@ public sealed class FileStateSinkTests
         Assert.Contains("secret", secret.Message);
     }
 
+    /// <summary>A store that refuses to save under a cancelled token (as a real file store would) and remembers the tokens it saw.</summary>
+    private sealed class TokenSensitiveStore : IStateStore
+    {
+        public List<bool> TokenWasCancellable { get; } = [];
+
+        public int Saves { get; private set; }
+
+        public Task SaveAsync(StateFile state, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            TokenWasCancellable.Add(cancellationToken.CanBeCanceled);
+            Saves++;
+            return Task.CompletedTask;
+        }
+
+        public Task<StateFile?> LoadAsync(string deploymentName, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<bool> DeleteAsync(string deploymentName, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<IReadOnlyList<string>> ListAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<IAsyncDisposable> LockAsync(string deploymentName, TimeSpan wait, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<StateLockInfo?> GetLockAsync(string deploymentName, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<StateLockInfo?> ForceUnlockAsync(string deploymentName, CancellationToken cancellationToken) => throw new NotSupportedException();
+    }
+
+    private static async Task<(FileStateSink Sink, TokenSensitiveStore Store, StateFile State, DeploymentPlan Plan, EngineHost Host)> NewSinkAsync()
+    {
+        var host = new EngineHost();
+        var plan = await host.ExpandAsync(await Templates.FixtureAsync());
+        var store = new TokenSensitiveStore();
+        var state = StateFile.CreateNew(EngineHost.DeploymentName, null, Start);
+        var sink = new FileStateSink(store, state, plan, timeProvider: new FakeTimeProvider(Start));
+        await sink.BeginAsync(Ct);
+        return (sink, store, state, plan, host);
+    }
+
+    [Fact]
+    public async Task ResourceAppliedAsync_UnderACancelledToken_StillSavesTheEntry()
+    {
+        var (sink, store, state, plan, host) = await NewSinkAsync();
+        var user = EngineHost.Evaluated(plan, Fixture.User);
+        var key = host.Provider(Fixture.UserType).ResolveKey(user);
+        var change = new ResourceChange { Id = user.Id, ResourceType = Fixture.UserType, Type = ChangeType.Create, Mode = ChangeMode.Create };
+        using var cancelled = new CancellationTokenSource();
+        await cancelled.CancelAsync();
+        int savesBefore = store.Saves;
+
+        await sink.ResourceAppliedAsync(user, change, new AppliedResource(user.Id, "U1", new JsonObject(), key), cancelled.Token);
+
+        Assert.Equal(savesBefore + 1, store.Saves);
+        Assert.Equal("U1", state.GraphIdOf(Fixture.User));
+        Assert.Contains(state.Operations, o => o.ResourceId == Fixture.User && o.Status == OperationStatus.Succeeded);
+    }
+
+    [Fact]
+    public async Task EveryOtherRecord_UnderACancelledToken_IsStillSaved()
+    {
+        var (sink, store, state, plan, host) = await NewSinkAsync();
+        var user = EngineHost.Evaluated(plan, Fixture.User);
+        var key = host.Provider(Fixture.UserType).ResolveKey(user);
+        var change = new ResourceChange { Id = user.Id, ResourceType = Fixture.UserType, Type = ChangeType.Create, Mode = ChangeMode.Create };
+        await sink.ResourceAppliedAsync(user, change, new AppliedResource(user.Id, "U1", new JsonObject(), key), Ct);
+        var entry = state.Find(Fixture.User)!;
+        using var cancelled = new CancellationTokenSource();
+        await cancelled.CancelAsync();
+        var token = cancelled.Token;
+        int before = store.Saves;
+
+        await sink.ResourceFailedAsync(user, "boom", token);
+        await sink.ResourceSkippedAsync(user, "skipped", token);
+        await sink.ResourceIgnoredAsync(user, "ignored", token);
+        await sink.ResourceEdgesAppliedAsync(user, new JsonObject(), token);
+        await sink.ResourceEdgesFailedAsync(user, "edge boom", token);
+        await sink.ResourceDeleteFailedAsync(entry, "delete boom", token);
+        await sink.ResourceDetachedAsync(entry, token);
+        await sink.ResourceDeletedAsync(entry, token);
+        await sink.CompletedAsync(DeploymentStatus.Failed, token);
+
+        Assert.Equal(before + 9, store.Saves);
+        Assert.Equal(StateFile.StatusFailed, state.LastStatus);
+        Assert.Null(state.Find(Fixture.User));
+    }
+
+    [Fact]
+    public async Task TheSaveAfterACompletedWrite_IsNotTiedToTheCallersToken()
+    {
+        var (sink, store, _, plan, host) = await NewSinkAsync();
+        var user = EngineHost.Evaluated(plan, Fixture.User);
+        var key = host.Provider(Fixture.UserType).ResolveKey(user);
+        var change = new ResourceChange { Id = user.Id, ResourceType = Fixture.UserType, Type = ChangeType.Create, Mode = ChangeMode.Create };
+        using var source = new CancellationTokenSource();
+
+        await sink.ResourceAppliedAsync(user, change, new AppliedResource(user.Id, "U1", new JsonObject(), key), source.Token);
+        source.Cancel();
+
+        // BeginAsync saved under the caller's token, ResourceAppliedAsync under a private, bounded one.
+        Assert.Equal(2, store.TokenWasCancellable.Count);
+        Assert.True(store.TokenWasCancellable[1], "a bounded (timeout) token, not CancellationToken.None");
+    }
+
+    [Fact]
+    public async Task BeginAsync_UnderACancelledToken_StillStopsBeforeStartingTheRun()
+    {
+        var host = new EngineHost();
+        var plan = await host.ExpandAsync(Templates.Resources(string.Empty));
+        var store = new TokenSensitiveStore();
+        var sink = new FileStateSink(store, StateFile.CreateNew("x", null, Start), plan);
+        using var cancelled = new CancellationTokenSource();
+        await cancelled.CancelAsync();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => sink.BeginAsync(cancelled.Token));
+
+        Assert.Equal(0, store.Saves);
+    }
+
     [Fact]
     public async Task InMemoryStateStore_RoundTripsThroughTheSerializer_AndLocks()
     {
