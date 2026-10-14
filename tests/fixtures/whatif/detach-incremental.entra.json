@@ -1,0 +1,11 @@
+{
+  "$schema": "https://entraarm.dev/schemas/2026-10-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": { "description": "WI-17 golden fixture: the state records a group the template no longer declares (Delete in Complete, Ignore in Incremental); one unchanged group remains." },
+  "resources": [
+    {
+      "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01", "name": "contoso-dev-orders-ops",
+      "properties": { "displayName": "Orders Ops", "mailEnabled": false, "mailNickname": "orders-ops", "securityEnabled": true }
+    }
+  ]
+}

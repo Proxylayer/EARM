@@ -1,0 +1,133 @@
+{
+  "status": "Succeeded",
+  "deploymentName": "create-incremental",
+  "tenantId": "11111111-1111-1111-1111-111111111111",
+  "mode": "Incremental",
+  "changes": [
+    {
+      "resourceId": "/providers/Microsoft.Entra/applications/contoso-dev-api",
+      "changeType": "Create",
+      "after": {
+        "name": "contoso-dev-api",
+        "type": "Microsoft.Entra/applications",
+        "apiVersion": "2026-10-01",
+        "properties": {
+          "displayName": "Orders API",
+          "signInAudience": "AzureADMyOrg",
+          "identifierUris": [
+            "api://contoso-dev-api"
+          ],
+          "web": {
+            "redirectUris": [
+              "https://orders.contoso.com/signin"
+            ]
+          },
+          "appRoles": [
+            {
+              "id": "6d2f1c0e-2b7a-4c1e-9a1b-4f3f1f6a0002",
+              "value": "Orders.Admin",
+              "displayName": "Orders admin",
+              "description": "Full order management",
+              "allowedMemberTypes": [
+                "User"
+              ],
+              "isEnabled": true
+            }
+          ]
+        }
+      },
+      "unsupportedReason": null
+    },
+    {
+      "resourceId": "/providers/Microsoft.Entra/conditionalAccess/namedLocations/Contoso offices",
+      "changeType": "Ignore",
+      "unsupportedReason": null,
+      "reasons": [
+        "condition evaluated to false"
+      ]
+    },
+    {
+      "resourceId": "/providers/Microsoft.Entra/users/bg-orders@contoso.com",
+      "changeType": "Create",
+      "after": {
+        "name": "bg-orders@contoso.com",
+        "type": "Microsoft.Entra/users",
+        "apiVersion": "2026-10-01",
+        "properties": {
+          "displayName": "Break Glass (Orders)",
+          "mailNickname": "bg-orders",
+          "accountEnabled": true,
+          "usageLocation": "GB",
+          "passwordProfile": {
+            "password": "***",
+            "forceChangePasswordNextSignIn": true
+          },
+          "manager": "U-CIO",
+          "memberOf": [
+            "(deploy-time)"
+          ]
+        }
+      },
+      "unsupportedReason": null
+    },
+    {
+      "resourceId": "/providers/Microsoft.Entra/servicePrincipals/ref(/providers/Microsoft.Entra/applications/contoso-dev-api).appId",
+      "changeType": "Create",
+      "after": {
+        "name": "ref(/providers/Microsoft.Entra/applications/contoso-dev-api).appId",
+        "type": "Microsoft.Entra/servicePrincipals",
+        "apiVersion": "2026-10-01",
+        "properties": {
+          "appRoleAssignmentRequired": true,
+          "accountEnabled": true
+        }
+      },
+      "unsupportedReason": null,
+      "reasons": [
+        "the name is only known once '/providers/Microsoft.Entra/applications/contoso-dev-api' exists"
+      ]
+    },
+    {
+      "resourceId": "/providers/Microsoft.Entra/groups/contoso-dev-orders-admins",
+      "changeType": "Create",
+      "after": {
+        "name": "contoso-dev-orders-admins",
+        "type": "Microsoft.Entra/groups",
+        "apiVersion": "2026-10-01",
+        "properties": {
+          "displayName": "Orders Admins",
+          "mailEnabled": false,
+          "mailNickname": "orders-admins",
+          "securityEnabled": true,
+          "members": [
+            "(deploy-time)"
+          ]
+        }
+      },
+      "unsupportedReason": null
+    }
+  ],
+  "diagnostics": [],
+  "requiredPermissions": [
+    "Application.ReadWrite.All",
+    "Application.ReadWrite.OwnedBy",
+    "Group.ReadWrite.All",
+    "GroupMember.ReadWrite.All",
+    "Policy.Read.All",
+    "Policy.ReadWrite.ConditionalAccess",
+    "User.ReadWrite.All"
+  ],
+  "unresolvedReferences": [],
+  "summary": {
+    "create": 4,
+    "modify": 0,
+    "delete": 0,
+    "noChange": 0,
+    "ignore": 1,
+    "unsupported": 0,
+    "edges": {
+      "add": 3,
+      "remove": 0
+    }
+  }
+}

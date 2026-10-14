@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>EntraARM template DOM, loader, validation, diagnostics and resource type catalog.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="JsonSchema.Net" />
+  </ItemGroup>
+
+  <!--
+    The JSON Schemas under /schemas are embedded so the validator and the ResourceTypeCatalog read the exact
+    files that ship with the tool. Logical names are normalised to forward slashes so the resource names are
+    identical on every OS: "schemas/2026-10-01/deploymentTemplate.json",
+    "schemas/2026-10-01/types/Microsoft.Entra/applications.json", ...
+  -->
+  <ItemGroup>
+    <EmbeddedResource Include="../../schemas/**/*.json"
+                      LogicalName="schemas/$([System.String]::Copy('%(RecursiveDir)').Replace('\', '/'))%(Filename)%(Extension)" />
+  </ItemGroup>
+
+</Project>

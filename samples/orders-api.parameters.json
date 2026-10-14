@@ -1,0 +1,13 @@
+{
+  "$schema": "https://entraarm.dev/schemas/2026-10-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "env": { "value": "prod" },
+    "initialPassword": {
+      "reference": {
+        "keyVault": { "id": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/contoso-rg/providers/Microsoft.KeyVault/vaults/contoso-kv" },
+        "secretName": "bg-initial"
+      }
+    }
+  }
+}

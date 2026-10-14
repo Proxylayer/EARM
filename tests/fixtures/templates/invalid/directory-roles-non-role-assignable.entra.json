@@ -1,0 +1,17 @@
+{
+  "$schema": "https://entraarm.dev/schemas/2026-10-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "resources": [
+    {
+      "type": "Microsoft.Entra/groups",
+      "apiVersion": "2026-10-01",
+      "name": "orders-readers",
+      "properties": {
+        "displayName": "Orders Readers",
+        "mailEnabled": false,
+        "securityEnabled": true,
+        "directoryRoles": [{ "role": "Global Reader", "directoryScopeId": "/" }]
+      }
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+# Normalise all text files to LF in the repository and on checkout (matches .editorconfig end_of_line = lf).
+* text=auto eol=lf
+
+# Binary files
+*.png binary
+*.jpg binary
+*.ico binary
+*.nupkg binary
+*.snk binary

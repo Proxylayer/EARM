@@ -1,0 +1,7 @@
+{
+  "$schema": "https://entraarm.dev/schemas/2026-10-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "resources": [
+    { "type": "Microsoft.Entra/applications", "apiVersion": "2026-10-01", "name": "orders-api"
+  ]
+}

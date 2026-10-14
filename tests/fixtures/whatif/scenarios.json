@@ -1,0 +1,76 @@
+[
+  {
+    "name": "create-incremental",
+    "deploymentName": "create-incremental",
+    "mode": "Incremental",
+    "resultFormat": "FullResourcePayloads",
+    "tenantId": "11111111-1111-1111-1111-111111111111",
+    "template": "create-incremental.entra.json",
+    "seed": "create-incremental.seed.json",
+    "state": null,
+    "parameters": {
+      "env": "dev",
+      "initialPassword": "Hunter2-Secret-Value!"
+    },
+    "expectedText": "create-incremental.expected.txt",
+    "expectedJson": "create-incremental.expected.json"
+  },
+  {
+    "name": "modify-incremental",
+    "deploymentName": "modify-incremental",
+    "mode": "Incremental",
+    "resultFormat": "FullResourcePayloads",
+    "tenantId": "11111111-1111-1111-1111-111111111111",
+    "template": "modify-incremental.entra.json",
+    "seed": "modify-incremental.seed.json",
+    "state": null,
+    "parameters": {
+      "env": "dev",
+      "initialPassword": "Hunter2-Secret-Value!"
+    },
+    "expectedText": "modify-incremental.expected.txt",
+    "expectedJson": "modify-incremental.expected.json"
+  },
+  {
+    "name": "modify-resource-id-only",
+    "deploymentName": "modify-incremental",
+    "mode": "Incremental",
+    "resultFormat": "ResourceIdOnly",
+    "tenantId": "11111111-1111-1111-1111-111111111111",
+    "template": "modify-incremental.entra.json",
+    "seed": "modify-incremental.seed.json",
+    "state": null,
+    "parameters": {
+      "env": "dev",
+      "initialPassword": "Hunter2-Secret-Value!"
+    },
+    "expectedText": "modify-resource-id-only.expected.txt",
+    "expectedJson": "modify-resource-id-only.expected.json"
+  },
+  {
+    "name": "delete-complete",
+    "deploymentName": "delete-complete",
+    "mode": "Complete",
+    "resultFormat": "FullResourcePayloads",
+    "tenantId": "11111111-1111-1111-1111-111111111111",
+    "template": "delete-complete.entra.json",
+    "seed": "delete-complete.seed.json",
+    "state": "delete-complete.state.json",
+    "parameters": {},
+    "expectedText": "delete-complete.expected.txt",
+    "expectedJson": "delete-complete.expected.json"
+  },
+  {
+    "name": "detach-incremental",
+    "deploymentName": "detach-incremental",
+    "mode": "Incremental",
+    "resultFormat": "FullResourcePayloads",
+    "tenantId": "11111111-1111-1111-1111-111111111111",
+    "template": "detach-incremental.entra.json",
+    "seed": "detach-incremental.seed.json",
+    "state": "detach-incremental.state.json",
+    "parameters": {},
+    "expectedText": "detach-incremental.expected.txt",
+    "expectedJson": "detach-incremental.expected.json"
+  }
+]

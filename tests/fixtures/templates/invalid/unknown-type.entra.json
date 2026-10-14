@@ -1,0 +1,12 @@
+{
+  "$schema": "https://entraarm.dev/schemas/2026-10-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "resources": [
+    {
+      "type": "Microsoft.Entra/widgets",
+      "apiVersion": "2026-10-01",
+      "name": "gadget",
+      "properties": { "displayName": "Gadget" }
+    }
+  ]
+}

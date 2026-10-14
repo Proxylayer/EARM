@@ -1,0 +1,33 @@
+Deployment 'delete-complete' (Complete) on tenant 11111111-1111-1111-1111-111111111111
+
+Resource and property changes are indicated with these symbols:
+  + Create
+  ~ Modify
+  - Delete
+  = NoChange
+  * Ignore
+  ? Value only known at deployment time
+  ! Change cannot be applied as planned
+
+The deployment would make the following changes:
+
+  = /providers/Microsoft.Entra/groups/contoso-dev-orders-ops [Microsoft.Entra/groups]
+
+  - /providers/Microsoft.Entra/groups/contoso-dev-retired [Microsoft.Entra/groups]
+      name: "contoso-dev-retired"
+      type: "Microsoft.Entra/groups"
+      properties:
+        uniqueName: "contoso-dev-retired"
+        displayName: "Retired"
+        mailEnabled: false
+        mailNickname: "retired"
+        securityEnabled: true
+        groupTypes: []
+      (not in template; Complete mode deletes it)
+      (this group is not a Microsoft 365 group and is deleted permanently (no 30-day recycle bin); its memberships, owners and role assignments are lost.)
+
+Resource changes: 0 to create, 0 to modify, 1 to delete, 1 unchanged, 0 ignored.
+Edges: 0 to add, 0 to remove.
+Required permissions: Group.ReadWrite.All.
+
+warning DestructiveDelete: '/providers/Microsoft.Entra/groups/contoso-dev-retired': this group is not a Microsoft 365 group and is deleted permanently (no 30-day recycle bin); its memberships, owners and role assignments are lost.

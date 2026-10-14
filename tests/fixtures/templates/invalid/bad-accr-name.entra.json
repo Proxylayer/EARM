@@ -1,0 +1,12 @@
+{
+  "$schema": "https://entraarm.dev/schemas/2026-10-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "resources": [
+    {
+      "type": "Microsoft.Entra/conditionalAccess/authenticationContextClassReferences",
+      "apiVersion": "2026-10-01",
+      "name": "context-10",
+      "properties": { "displayName": "Orders admin actions" }
+    }
+  ]
+}

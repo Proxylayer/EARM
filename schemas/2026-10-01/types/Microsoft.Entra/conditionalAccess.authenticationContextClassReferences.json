@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://entraarm.dev/schemas/2026-10-01/types/Microsoft.Entra/conditionalAccess.authenticationContextClassReferences.json",
+  "title": "Microsoft.Entra/conditionalAccess/authenticationContextClassReferences",
+  "description": "An authentication context class reference. The resource name is the Graph id (c1..c99). Create and update are both PATCH; delete requires isAvailable: false first.",
+  "type": "object",
+  "properties": {
+    "id": {
+      "description": "Set from the resource name (c1..c99); declaring it is only allowed when it equals the name.",
+      "anyOf": [ { "type": "string", "pattern": "^c([1-9]|[1-9][0-9])$" }, { "$ref": "#/$defs/expression" } ]
+    },
+    "displayName": { "description": "Required on create.", "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] },
+    "description": { "description": "Description.", "anyOf": [ { "type": [ "string", "null" ] }, { "$ref": "#/$defs/expression" } ] },
+    "isAvailable": { "description": "Defaults to true.", "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/expression" } ] }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "expression": { "type": "string", "pattern": "^\\[.*\\]$", "description": "A template expression, for example [parameters('env')]." }
+  },
+  "x-entraarm": {
+    "type": "Microsoft.Entra/conditionalAccess/authenticationContextClassReferences",
+    "parentType": null,
+    "graphPath": "/identity/conditionalAccess/authenticationContextClassReferences",
+    "apiVersions": { "2026-10-01": "v1.0", "2026-10-01-preview": "beta" },
+    "nameMapsTo": "id",
+    "nameKind": "id",
+    "namePattern": "^c[1-9][0-9]?$",
+    "keyProperties": ["id"],
+    "requiredOnCreate": ["displayName"],
+    "defaults": { "isAvailable": true },
+    "immutable": ["id"],
+    "createOnly": [],
+    "secure": [],
+    "relationships": [],
+    "memberKey": {},
+    "stripOnRead": ["id"],
+    "nullable": {},
+    "permissions": {
+      "application": ["Policy.ReadWrite.ConditionalAccess"],
+      "delegated": ["Policy.ReadWrite.ConditionalAccess"],
+      "roles": ["Conditional Access Administrator"]
+    }
+  }
+}

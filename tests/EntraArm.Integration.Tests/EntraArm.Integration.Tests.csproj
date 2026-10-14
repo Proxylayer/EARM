@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Real-tenant tests (work item WI-19). Only run by test.ps1 when ENTRAARM_IT_TENANT is set (or when this project is
+    named with -Target); every test skips cleanly when the variable is unset. See README.md.
+  -->
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/EntraArm.Cli/EntraArm.Cli.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The deployment templates the scenarios run travel with the test binaries. -->
+    <None Update="Templates/**/*.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

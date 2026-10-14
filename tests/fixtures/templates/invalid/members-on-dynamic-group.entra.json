@@ -1,0 +1,19 @@
+{
+  "$schema": "https://entraarm.dev/schemas/2026-10-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "resources": [
+    {
+      "type": "Microsoft.Entra/groups",
+      "apiVersion": "2026-10-01",
+      "name": "all-engineers",
+      "properties": {
+        "displayName": "All Engineers",
+        "mailEnabled": false,
+        "securityEnabled": true,
+        "groupTypes": ["DynamicMembership"],
+        "membershipRule": "(user.department -eq \"Engineering\")",
+        "members": ["11111111-1111-1111-1111-111111111111"]
+      }
+    }
+  ]
+}

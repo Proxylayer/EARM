@@ -1,0 +1,61 @@
+{
+  "status": "Succeeded",
+  "deploymentName": "modify-incremental",
+  "tenantId": "11111111-1111-1111-1111-111111111111",
+  "mode": "Incremental",
+  "changes": [
+    {
+      "resourceId": "/providers/Microsoft.Entra/applications/contoso-dev-api",
+      "changeType": "Modify",
+      "unsupportedReason": null
+    },
+    {
+      "resourceId": "/providers/Microsoft.Entra/groups/contoso-dev-orders-admins",
+      "changeType": "Modify",
+      "unsupportedReason": null
+    },
+    {
+      "resourceId": "/providers/Microsoft.Entra/groups/contoso-dev-orders-auditors",
+      "changeType": "Create",
+      "unsupportedReason": null
+    },
+    {
+      "resourceId": "/providers/Microsoft.Entra/groups/contoso-dev-orders-ops",
+      "changeType": "NoChange",
+      "unsupportedReason": null
+    },
+    {
+      "resourceId": "/providers/Microsoft.Entra/groups/contoso-legacy",
+      "changeType": "Modify",
+      "unsupportedReason": "Immutable property properties.mailNickname of Microsoft.Entra/groups 'contoso-legacy' differs from the live object and cannot be changed in place; restore the original value, or delete and recreate the resource.",
+      "reasons": [
+        "Immutable property properties.mailNickname of Microsoft.Entra/groups 'contoso-legacy' differs from the live object and cannot be changed in place; restore the original value, or delete and recreate the resource."
+      ]
+    },
+    {
+      "resourceId": "/providers/Microsoft.Entra/users/bg-orders@contoso.com",
+      "changeType": "Modify",
+      "unsupportedReason": null
+    }
+  ],
+  "diagnostics": [],
+  "requiredPermissions": [
+    "Application.ReadWrite.All",
+    "Group.ReadWrite.All",
+    "GroupMember.ReadWrite.All",
+    "User.ReadWrite.All"
+  ],
+  "unresolvedReferences": [],
+  "summary": {
+    "create": 1,
+    "modify": 4,
+    "delete": 0,
+    "noChange": 1,
+    "ignore": 0,
+    "unsupported": 1,
+    "edges": {
+      "add": 3,
+      "remove": 1
+    }
+  }
+}

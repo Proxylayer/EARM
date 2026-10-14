@@ -1,0 +1,57 @@
+{
+  "$schema": "https://entraarm.dev/schemas/2026-10-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "WI-19: a report-only Conditional Access policy that targets one test group and excludes one named location. The tests never enforce it."
+  },
+  "parameters": {
+    "prefix":      { "type": "string" },
+    "policyState": { "type": "string", "defaultValue": "enabledForReportingButNotEnforced" }
+  },
+  "variables": {
+    "group":    "[format('{0}-ca-grp', parameters('prefix'))]",
+    "location": "[format('{0}-ca-loc', parameters('prefix'))]",
+    "policy":   "[format('{0}-ca-policy', parameters('prefix'))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Entra/groups",
+      "apiVersion": "2026-10-01",
+      "name": "[variables('group')]",
+      "properties": {
+        "displayName": "[variables('group')]",
+        "mailEnabled": false,
+        "mailNickname": "[variables('group')]",
+        "securityEnabled": true
+      }
+    },
+    {
+      "type": "Microsoft.Entra/conditionalAccess/namedLocations",
+      "apiVersion": "2026-10-01",
+      "name": "[variables('location')]",
+      "properties": {
+        "@odata.type": "#microsoft.graph.ipNamedLocation",
+        "isTrusted": false,
+        "ipRanges": [{ "cidrAddress": "203.0.113.0/24" }]
+      }
+    },
+    {
+      "type": "Microsoft.Entra/conditionalAccess/policies",
+      "apiVersion": "2026-10-01",
+      "name": "[variables('policy')]",
+      "properties": {
+        "state": "[parameters('policyState')]",
+        "conditions": {
+          "clientAppTypes": ["all"],
+          "users": { "includeGroups": ["[reference(variables('group')).id]"] },
+          "applications": { "includeApplications": ["All"] },
+          "locations": {
+            "includeLocations": ["All"],
+            "excludeLocations": ["[reference(variables('location')).id]"]
+          }
+        },
+        "grantControls": { "operator": "OR", "builtInControls": ["mfa"] }
+      }
+    }
+  ]
+}

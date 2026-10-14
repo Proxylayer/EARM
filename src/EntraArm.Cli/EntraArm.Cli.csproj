@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <!-- The assembly is named after the tool command so help/usage text shows "entraarm" rather than "EntraArm.Cli". -->
+    <AssemblyName>entraarm</AssemblyName>
+    <RollForward>Major</RollForward>
+  </PropertyGroup>
+
+  <!-- Packaged and installed as a .NET global tool ("entraarm"). -->
+  <PropertyGroup>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>entraarm</ToolCommandName>
+    <PackageId>entraarm</PackageId>
+    <Description>ARM-style JSON templates for Microsoft Entra ID, executed via Azure CLI.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.CommandLine" />
+    <PackageReference Include="Microsoft.Extensions.Logging" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Console" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../EntraArm.Core/EntraArm.Core.csproj" />
+    <ProjectReference Include="../EntraArm.Expressions/EntraArm.Expressions.csproj" />
+    <ProjectReference Include="../EntraArm.Az/EntraArm.Az.csproj" />
+    <ProjectReference Include="../EntraArm.Engine/EntraArm.Engine.csproj" />
+    <ProjectReference Include="../EntraArm.Providers/EntraArm.Providers.csproj" />
+  </ItemGroup>
+
+</Project>

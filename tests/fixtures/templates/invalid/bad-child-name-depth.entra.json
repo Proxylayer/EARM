@@ -1,0 +1,20 @@
+{
+  "$schema": "https://entraarm.dev/schemas/2026-10-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "resources": [
+    {
+      "type": "Microsoft.Entra/applications",
+      "apiVersion": "2026-10-01",
+      "name": "orders-api",
+      "properties": { "displayName": "Orders API" }
+    },
+    {
+      // A top-level child must be named "parent/child"; this one has a single segment.
+      "type": "Microsoft.Entra/applications/federatedIdentityCredentials",
+      "apiVersion": "2026-10-01",
+      "name": "github-main",
+      "properties": { "issuer": "https://token.actions.githubusercontent.com", "subject": "repo:contoso/orders:ref:refs/heads/main" },
+      "dependsOn": ["[resourceId('Microsoft.Entra/applications', 'orders-api')]"]
+    }
+  ]
+}

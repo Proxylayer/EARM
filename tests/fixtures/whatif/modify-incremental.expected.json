@@ -1,0 +1,451 @@
+{
+  "status": "Succeeded",
+  "deploymentName": "modify-incremental",
+  "tenantId": "11111111-1111-1111-1111-111111111111",
+  "mode": "Incremental",
+  "changes": [
+    {
+      "resourceId": "/providers/Microsoft.Entra/applications/contoso-dev-api",
+      "changeType": "Modify",
+      "before": {
+        "name": "contoso-dev-api",
+        "type": "Microsoft.Entra/applications",
+        "apiVersion": "2026-10-01",
+        "properties": {
+          "uniqueName": "contoso-dev-api",
+          "displayName": "Orders API (old)",
+          "signInAudience": "AzureADMyOrg",
+          "identifierUris": [
+            "api://contoso-dev-api"
+          ],
+          "web": {
+            "redirectUris": [
+              "https://old.contoso.com/signin",
+              "https://orders.contoso.com/signin"
+            ],
+            "implicitGrantSettings": {
+              "enableAccessTokenIssuance": false,
+              "enableIdTokenIssuance": false
+            }
+          },
+          "appRoles": [
+            {
+              "id": "6d2f1c0e-2b7a-4c1e-9a1b-4f3f1f6a0002",
+              "value": "Orders.Admin",
+              "displayName": "Orders admin",
+              "description": "Full order management",
+              "allowedMemberTypes": [
+                "User"
+              ],
+              "isEnabled": true
+            }
+          ]
+        }
+      },
+      "after": {
+        "name": "contoso-dev-api",
+        "type": "Microsoft.Entra/applications",
+        "apiVersion": "2026-10-01",
+        "properties": {
+          "displayName": "Orders API",
+          "signInAudience": "AzureADMyOrg",
+          "identifierUris": [
+            "api://contoso-dev-api"
+          ],
+          "web": {
+            "redirectUris": [
+              "https://orders.contoso.com/signin",
+              "https://orders.contoso.com/signin-oidc"
+            ]
+          },
+          "appRoles": [
+            {
+              "id": "6d2f1c0e-2b7a-4c1e-9a1b-4f3f1f6a0002",
+              "value": "Orders.Admin",
+              "displayName": "Orders admin",
+              "description": "Full order management",
+              "allowedMemberTypes": [
+                "User"
+              ],
+              "isEnabled": false
+            },
+            {
+              "id": "6d2f1c0e-2b7a-4c1e-9a1b-4f3f1f6a0003",
+              "value": "Orders.Reader",
+              "displayName": "Orders reader",
+              "description": "Read orders",
+              "allowedMemberTypes": [
+                "User"
+              ],
+              "isEnabled": true
+            }
+          ]
+        }
+      },
+      "delta": [
+        {
+          "path": "properties.displayName",
+          "propertyChangeType": "Modify",
+          "before": "Orders API (old)",
+          "after": "Orders API"
+        },
+        {
+          "path": "properties.web",
+          "propertyChangeType": "Modify",
+          "before": {
+            "redirectUris": [
+              "https://old.contoso.com/signin",
+              "https://orders.contoso.com/signin"
+            ],
+            "implicitGrantSettings": {
+              "enableAccessTokenIssuance": false,
+              "enableIdTokenIssuance": false
+            }
+          },
+          "after": {
+            "redirectUris": [
+              "https://orders.contoso.com/signin",
+              "https://orders.contoso.com/signin-oidc"
+            ]
+          },
+          "children": [
+            {
+              "path": "redirectUris",
+              "propertyChangeType": "Array",
+              "before": [
+                "https://old.contoso.com/signin",
+                "https://orders.contoso.com/signin"
+              ],
+              "after": [
+                "https://orders.contoso.com/signin",
+                "https://orders.contoso.com/signin-oidc"
+              ],
+              "children": [
+                {
+                  "path": "[1]",
+                  "propertyChangeType": "Create",
+                  "after": "https://orders.contoso.com/signin-oidc"
+                },
+                {
+                  "path": "[0]",
+                  "propertyChangeType": "Delete",
+                  "before": "https://old.contoso.com/signin"
+                }
+              ]
+            },
+            {
+              "path": "implicitGrantSettings",
+              "propertyChangeType": "NoEffect",
+              "before": {
+                "enableAccessTokenIssuance": false,
+                "enableIdTokenIssuance": false
+              }
+            }
+          ]
+        },
+        {
+          "path": "properties.appRoles",
+          "propertyChangeType": "Array",
+          "before": [
+            {
+              "id": "6d2f1c0e-2b7a-4c1e-9a1b-4f3f1f6a0002",
+              "value": "Orders.Admin",
+              "displayName": "Orders admin",
+              "description": "Full order management",
+              "allowedMemberTypes": [
+                "User"
+              ],
+              "isEnabled": true
+            }
+          ],
+          "after": [
+            {
+              "id": "6d2f1c0e-2b7a-4c1e-9a1b-4f3f1f6a0002",
+              "value": "Orders.Admin",
+              "displayName": "Orders admin",
+              "description": "Full order management",
+              "allowedMemberTypes": [
+                "User"
+              ],
+              "isEnabled": false
+            },
+            {
+              "id": "6d2f1c0e-2b7a-4c1e-9a1b-4f3f1f6a0003",
+              "value": "Orders.Reader",
+              "displayName": "Orders reader",
+              "description": "Read orders",
+              "allowedMemberTypes": [
+                "User"
+              ],
+              "isEnabled": true
+            }
+          ],
+          "children": [
+            {
+              "path": "['6d2f1c0e-2b7a-4c1e-9a1b-4f3f1f6a0002']",
+              "propertyChangeType": "Modify",
+              "before": {
+                "id": "6d2f1c0e-2b7a-4c1e-9a1b-4f3f1f6a0002",
+                "value": "Orders.Admin",
+                "displayName": "Orders admin",
+                "description": "Full order management",
+                "allowedMemberTypes": [
+                  "User"
+                ],
+                "isEnabled": true
+              },
+              "after": {
+                "id": "6d2f1c0e-2b7a-4c1e-9a1b-4f3f1f6a0002",
+                "value": "Orders.Admin",
+                "displayName": "Orders admin",
+                "description": "Full order management",
+                "allowedMemberTypes": [
+                  "User"
+                ],
+                "isEnabled": false
+              },
+              "children": [
+                {
+                  "path": "isEnabled",
+                  "propertyChangeType": "Modify",
+                  "before": true,
+                  "after": false
+                }
+              ]
+            },
+            {
+              "path": "['6d2f1c0e-2b7a-4c1e-9a1b-4f3f1f6a0003']",
+              "propertyChangeType": "Create",
+              "after": {
+                "id": "6d2f1c0e-2b7a-4c1e-9a1b-4f3f1f6a0003",
+                "value": "Orders.Reader",
+                "displayName": "Orders reader",
+                "description": "Read orders",
+                "allowedMemberTypes": [
+                  "User"
+                ],
+                "isEnabled": true
+              }
+            }
+          ]
+        }
+      ],
+      "unsupportedReason": null
+    },
+    {
+      "resourceId": "/providers/Microsoft.Entra/groups/contoso-dev-orders-admins",
+      "changeType": "Modify",
+      "before": {
+        "name": "contoso-dev-orders-admins",
+        "type": "Microsoft.Entra/groups",
+        "apiVersion": "2026-10-01",
+        "properties": {
+          "uniqueName": "contoso-dev-orders-admins",
+          "displayName": "Orders Admins",
+          "mailEnabled": false,
+          "mailNickname": "orders-admins",
+          "securityEnabled": true,
+          "groupTypes": []
+        }
+      },
+      "after": {
+        "name": "contoso-dev-orders-admins",
+        "type": "Microsoft.Entra/groups",
+        "apiVersion": "2026-10-01",
+        "properties": {
+          "displayName": "Orders Admins",
+          "mailEnabled": false,
+          "mailNickname": "orders-admins",
+          "securityEnabled": true,
+          "members": [
+            "22222222-0000-0000-0000-000000000002",
+            "22222222-0000-0000-0000-000000000003"
+          ]
+        }
+      },
+      "delta": [
+        {
+          "path": "properties.members",
+          "propertyChangeType": "Array",
+          "children": [
+            {
+              "path": "[0]",
+              "propertyChangeType": "Create",
+              "after": "22222222-0000-0000-0000-000000000003"
+            },
+            {
+              "path": "[1]",
+              "propertyChangeType": "Delete",
+              "before": "22222222-0000-0000-0000-000000000001"
+            }
+          ]
+        }
+      ],
+      "unsupportedReason": null
+    },
+    {
+      "resourceId": "/providers/Microsoft.Entra/groups/contoso-dev-orders-auditors",
+      "changeType": "Create",
+      "after": {
+        "name": "contoso-dev-orders-auditors",
+        "type": "Microsoft.Entra/groups",
+        "apiVersion": "2026-10-01",
+        "properties": {
+          "displayName": "Orders Auditors",
+          "mailEnabled": false,
+          "mailNickname": "orders-auditors",
+          "securityEnabled": true
+        }
+      },
+      "unsupportedReason": null
+    },
+    {
+      "resourceId": "/providers/Microsoft.Entra/groups/contoso-dev-orders-ops",
+      "changeType": "NoChange",
+      "before": {
+        "name": "contoso-dev-orders-ops",
+        "type": "Microsoft.Entra/groups",
+        "apiVersion": "2026-10-01",
+        "properties": {
+          "uniqueName": "contoso-dev-orders-ops",
+          "displayName": "Orders Ops",
+          "mailEnabled": false,
+          "mailNickname": "orders-ops",
+          "securityEnabled": true,
+          "groupTypes": []
+        }
+      },
+      "after": {
+        "name": "contoso-dev-orders-ops",
+        "type": "Microsoft.Entra/groups",
+        "apiVersion": "2026-10-01",
+        "properties": {
+          "displayName": "Orders Ops",
+          "mailEnabled": false,
+          "mailNickname": "orders-ops",
+          "securityEnabled": true
+        }
+      },
+      "unsupportedReason": null
+    },
+    {
+      "resourceId": "/providers/Microsoft.Entra/groups/contoso-legacy",
+      "changeType": "Modify",
+      "before": {
+        "name": "contoso-legacy",
+        "type": "Microsoft.Entra/groups",
+        "apiVersion": "2026-10-01",
+        "properties": {
+          "uniqueName": "contoso-legacy",
+          "displayName": "Legacy",
+          "mailEnabled": false,
+          "mailNickname": "legacy",
+          "securityEnabled": true,
+          "groupTypes": []
+        }
+      },
+      "after": {
+        "name": "contoso-legacy",
+        "type": "Microsoft.Entra/groups",
+        "apiVersion": "2026-10-01",
+        "properties": {
+          "displayName": "Legacy",
+          "mailEnabled": false,
+          "mailNickname": "legacy-renamed",
+          "securityEnabled": true
+        }
+      },
+      "delta": [
+        {
+          "path": "properties.mailNickname",
+          "propertyChangeType": "Modify",
+          "before": "legacy",
+          "after": "legacy-renamed"
+        }
+      ],
+      "unsupportedReason": "Immutable property properties.mailNickname of Microsoft.Entra/groups 'contoso-legacy' differs from the live object and cannot be changed in place; restore the original value, or delete and recreate the resource.",
+      "reasons": [
+        "Immutable property properties.mailNickname of Microsoft.Entra/groups 'contoso-legacy' differs from the live object and cannot be changed in place; restore the original value, or delete and recreate the resource."
+      ]
+    },
+    {
+      "resourceId": "/providers/Microsoft.Entra/users/bg-orders@contoso.com",
+      "changeType": "Modify",
+      "before": {
+        "name": "bg-orders@contoso.com",
+        "type": "Microsoft.Entra/users",
+        "apiVersion": "2026-10-01",
+        "properties": {
+          "userPrincipalName": "bg-orders@contoso.com",
+          "displayName": "Break Glass (Orders)",
+          "mailNickname": "bg-orders",
+          "accountEnabled": true
+        }
+      },
+      "after": {
+        "name": "bg-orders@contoso.com",
+        "type": "Microsoft.Entra/users",
+        "apiVersion": "2026-10-01",
+        "properties": {
+          "displayName": "Break Glass (Orders)",
+          "mailNickname": "bg-orders",
+          "accountEnabled": true,
+          "usageLocation": "GB",
+          "passwordProfile": {
+            "password": "***",
+            "forceChangePasswordNextSignIn": true
+          },
+          "manager": "22222222-0000-0000-0000-000000000005",
+          "memberOf": [
+            "(deploy-time)"
+          ]
+        }
+      },
+      "delta": [
+        {
+          "path": "properties.usageLocation",
+          "propertyChangeType": "Create",
+          "after": "GB"
+        },
+        {
+          "path": "properties.manager",
+          "propertyChangeType": "Modify",
+          "before": "22222222-0000-0000-0000-000000000004",
+          "after": "22222222-0000-0000-0000-000000000005"
+        },
+        {
+          "path": "properties.memberOf",
+          "propertyChangeType": "Array",
+          "children": [
+            {
+              "path": "[0]",
+              "propertyChangeType": "Create",
+              "after": "(deploy-time)"
+            }
+          ]
+        }
+      ],
+      "unsupportedReason": null
+    }
+  ],
+  "diagnostics": [],
+  "requiredPermissions": [
+    "Application.ReadWrite.All",
+    "Group.ReadWrite.All",
+    "GroupMember.ReadWrite.All",
+    "User.ReadWrite.All"
+  ],
+  "unresolvedReferences": [],
+  "summary": {
+    "create": 1,
+    "modify": 4,
+    "delete": 0,
+    "noChange": 1,
+    "ignore": 0,
+    "unsupported": 1,
+    "edges": {
+      "add": 3,
+      "remove": 1
+    }
+  }
+}

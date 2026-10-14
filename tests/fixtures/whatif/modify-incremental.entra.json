@@ -1,0 +1,58 @@
+{
+  "$schema": "https://entraarm.dev/schemas/2026-10-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": { "description": "WI-17 golden fixture: Modify rows (scalar, keyed array member, nested object, edge add/remove, manager replaced, deploy-time edge target, immutable change), a NoChange row and a Create row." },
+  "parameters": {
+    "env": { "type": "string", "allowedValues": ["dev", "prod"] },
+    "initialPassword": { "type": "securestring" }
+  },
+  "variables": {
+    "apiName": "[format('contoso-{0}-api', parameters('env'))]",
+    "adminsName": "[format('contoso-{0}-orders-admins', parameters('env'))]",
+    "auditorsName": "[format('contoso-{0}-orders-auditors', parameters('env'))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Entra/applications", "apiVersion": "2026-10-01", "name": "[variables('apiName')]",
+      "properties": {
+        "displayName": "Orders API", "signInAudience": "AzureADMyOrg",
+        "identifierUris": ["[format('api://{0}', variables('apiName'))]"],
+        "web": { "redirectUris": ["https://orders.contoso.com/signin", "https://orders.contoso.com/signin-oidc"] },
+        "appRoles": [
+          { "id": "6d2f1c0e-2b7a-4c1e-9a1b-4f3f1f6a0002", "value": "Orders.Admin", "displayName": "Orders admin",
+            "description": "Full order management", "allowedMemberTypes": ["User"], "isEnabled": false },
+          { "id": "6d2f1c0e-2b7a-4c1e-9a1b-4f3f1f6a0003", "value": "Orders.Reader", "displayName": "Orders reader",
+            "description": "Read orders", "allowedMemberTypes": ["User"], "isEnabled": true }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01", "name": "[variables('adminsName')]",
+      "properties": {
+        "displayName": "Orders Admins", "mailEnabled": false, "mailNickname": "orders-admins", "securityEnabled": true,
+        "members": ["22222222-0000-0000-0000-000000000002", "22222222-0000-0000-0000-000000000003"]
+      }
+    },
+    {
+      "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01", "name": "[variables('auditorsName')]",
+      "properties": { "displayName": "Orders Auditors", "mailEnabled": false, "mailNickname": "orders-auditors", "securityEnabled": true }
+    },
+    {
+      "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01", "name": "contoso-legacy",
+      "properties": { "displayName": "Legacy", "mailEnabled": false, "mailNickname": "legacy-renamed", "securityEnabled": true }
+    },
+    {
+      "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01", "name": "contoso-dev-orders-ops",
+      "properties": { "displayName": "Orders Ops", "mailEnabled": false, "mailNickname": "orders-ops", "securityEnabled": true }
+    },
+    {
+      "type": "Microsoft.Entra/users", "apiVersion": "2026-10-01", "name": "bg-orders@contoso.com",
+      "properties": {
+        "displayName": "Break Glass (Orders)", "mailNickname": "bg-orders", "accountEnabled": true, "usageLocation": "GB",
+        "passwordProfile": { "password": "[parameters('initialPassword')]", "forceChangePasswordNextSignIn": true },
+        "manager": "[reference(resourceId('Microsoft.Entra/users', 'cto@contoso.com'), '2026-10-01').id]",
+        "memberOf": ["[reference(variables('auditorsName')).id]"]
+      }
+    }
+  ]
+}

@@ -1,0 +1,54 @@
+{
+  "$schema": "https://entraarm.dev/schemas/2026-10-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": { "description": "WI-17 golden fixture: every row is a Create; symbolic SP name, deploy-time edge targets, securestring password, condition false." },
+  "parameters": {
+    "env": { "type": "string", "allowedValues": ["dev", "prod"] },
+    "initialPassword": { "type": "securestring" }
+  },
+  "variables": {
+    "apiName": "[format('contoso-{0}-api', parameters('env'))]",
+    "adminsName": "[format('contoso-{0}-orders-admins', parameters('env'))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Entra/applications", "apiVersion": "2026-10-01", "name": "[variables('apiName')]",
+      "properties": {
+        "displayName": "Orders API", "signInAudience": "AzureADMyOrg",
+        "identifierUris": ["[format('api://{0}', variables('apiName'))]"],
+        "web": { "redirectUris": ["https://orders.contoso.com/signin"] },
+        "appRoles": [{ "id": "6d2f1c0e-2b7a-4c1e-9a1b-4f3f1f6a0002", "value": "Orders.Admin", "displayName": "Orders admin",
+                       "description": "Full order management", "allowedMemberTypes": ["User"], "isEnabled": true }]
+      }
+    },
+    {
+      "type": "Microsoft.Entra/servicePrincipals", "apiVersion": "2026-10-01",
+      "name": "[reference(variables('apiName')).appId]",
+      "properties": { "appRoleAssignmentRequired": true },
+      "dependsOn": ["[resourceId('Microsoft.Entra/applications', variables('apiName'))]"]
+    },
+    {
+      "type": "Microsoft.Entra/users", "apiVersion": "2026-10-01", "name": "bg-orders@contoso.com",
+      "properties": {
+        "displayName": "Break Glass (Orders)", "mailNickname": "bg-orders", "accountEnabled": true, "usageLocation": "GB",
+        "passwordProfile": { "password": "[parameters('initialPassword')]", "forceChangePasswordNextSignIn": true },
+        "manager": "[reference(resourceId('Microsoft.Entra/users', 'cio@contoso.com'), '2026-10-01').id]",
+        "memberOf": ["[reference(variables('adminsName')).id]"]
+      }
+    },
+    {
+      "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01", "name": "[variables('adminsName')]",
+      "properties": {
+        "displayName": "Orders Admins", "mailEnabled": false, "mailNickname": "orders-admins", "securityEnabled": true,
+        "members": ["[reference(resourceId('Microsoft.Entra/servicePrincipals', reference(variables('apiName')).appId)).id]"]
+      },
+      "dependsOn": ["[resourceId('Microsoft.Entra/servicePrincipals', reference(variables('apiName')).appId)]"]
+    },
+    {
+      "condition": "[equals(parameters('env'), 'prod')]",
+      "type": "Microsoft.Entra/conditionalAccess/namedLocations", "apiVersion": "2026-10-01", "name": "Contoso offices",
+      "properties": { "@odata.type": "#microsoft.graph.ipNamedLocation", "isTrusted": true,
+                      "ipRanges": [{ "@odata.type": "#microsoft.graph.iPv4CidrRange", "cidrAddress": "203.0.113.0/24" }] }
+    }
+  ]
+}

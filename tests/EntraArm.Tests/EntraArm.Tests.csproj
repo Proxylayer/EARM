@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/EntraArm.Cli/EntraArm.Cli.csproj" />
+    <ProjectReference Include="../EntraArm.TestSupport/EntraArm.TestSupport.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The fake Azure CLI (tests/fake-az/fake-az.ps1) travels with the test binaries for the in-process CLI tests. -->
+    <None Include="../fake-az/fake-az.ps1" Link="fake-az/fake-az.ps1" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

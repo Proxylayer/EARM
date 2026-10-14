@@ -1,0 +1,12 @@
+[
+  {
+    "collection": "/users",
+    "entity": {
+      "id": "U-CIO",
+      "userPrincipalName": "cio@contoso.com",
+      "displayName": "Chief Information Officer",
+      "mailNickname": "cio",
+      "accountEnabled": true
+    }
+  }
+]

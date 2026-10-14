@@ -1,0 +1,18 @@
+{
+  "$schema": "https://entraarm.dev/schemas/2026-10-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "resources": [
+    {
+      "type": "Microsoft.Entra/users",
+      "apiVersion": "2026-10-01",
+      "name": "bg-orders@contoso.com",
+      "properties": { "displayName": "Break Glass (Orders)" }
+    },
+    {
+      "type": "Microsoft.Entra/users",
+      "apiVersion": "2026-10-01",
+      "name": "bg-orders@contoso.com",
+      "properties": { "displayName": "Break Glass (Orders) duplicate" }
+    }
+  ]
+}

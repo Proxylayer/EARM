@@ -1,0 +1,133 @@
+{
+  "$schema": "https://entraarm.dev/schemas/2026-10-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "samples/orders-api.entra.json with the WI-16 stub functions (wellKnownApp, permissionScope, appRole, roleTemplate, map/lambda, c.slug) replaced by literals so the engine tests can run a full create through EchoProvider. Keeps the nested children, the copy loop, the condition, the symbolic service principal name, the GUID-named assignments and the existing-resource lookups (cio@contoso.com, contoso-all-staff, the Microsoft Graph service principal)."
+  },
+  "parameters": {
+    "env":             { "type": "string", "allowedValues": ["dev", "prod"], "metadata": { "description": "Environment" } },
+    "initialPassword": { "type": "securestring" },
+    "officeCidrs":     { "type": "array", "defaultValue": ["203.0.113.0/24"] }
+  },
+  "variables": {
+    "prefix":     "[format('contoso-{0}', parameters('env'))]",
+    "apiName":    "[format('{0}-api', variables('prefix'))]",
+    "adminsName": "[format('{0}-orders-admins', variables('prefix'))]",
+    "graphAppId": "00000003-0000-0000-c000-000000000000",
+    "graphSpId":  "[reference(resourceId('Microsoft.Entra/servicePrincipals', variables('graphAppId')), '2026-10-01').id]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Entra/applications", "apiVersion": "2026-10-01", "name": "[variables('apiName')]",
+      "properties": {
+        "displayName": "Orders API", "signInAudience": "AzureADMyOrg",
+        "identifierUris": ["[format('api://{0}', variables('apiName'))]"],
+        "appRoles": [{ "id": "6d2f1c0e-2b7a-4c1e-9a1b-4f3f1f6a0002", "value": "Orders.Admin", "displayName": "Orders admin",
+                       "description": "Full order management", "allowedMemberTypes": ["User", "Application"], "isEnabled": true }],
+        "requiredResourceAccess": [{ "resourceAppId": "[variables('graphAppId')]",
+          "resourceAccess": [{ "id": "e1fe6dd8-ba31-4d61-89e7-88639da4683d", "type": "Scope" }] }],
+        "owners": ["[reference('bg-orders@contoso.com').id]"]
+      },
+      "dependsOn": ["[resourceId('Microsoft.Entra/users', 'bg-orders@contoso.com')]"],
+      "resources": [
+        { "type": "federatedIdentityCredentials", "apiVersion": "2026-10-01",
+          "copy": { "name": "fics", "count": 2, "mode": "parallel" },
+          "name": "[format('github-{0}', copyIndex('fics'))]",
+          "properties": { "issuer": "https://token.actions.githubusercontent.com",
+                          "subject": "[format('repo:contoso/orders:ref:refs/heads/branch-{0}', copyIndex('fics'))]",
+                          "audiences": ["api://AzureADTokenExchange"] } },
+        { "type": "passwordCredentials", "apiVersion": "2026-10-01", "name": "ci-secret",
+          "properties": { "endDateTime": "2027-10-01T00:00:00Z", "rotationTag": "2026Q4" } }
+      ]
+    },
+    {
+      "type": "Microsoft.Entra/servicePrincipals", "apiVersion": "2026-10-01",
+      "name": "[reference(variables('apiName')).appId]",
+      "properties": { "appRoleAssignmentRequired": true, "tags": ["WindowsAzureActiveDirectoryIntegratedApp"] },
+      "dependsOn": ["[resourceId('Microsoft.Entra/applications', variables('apiName'))]"]
+    },
+    {
+      "type": "Microsoft.Entra/users", "apiVersion": "2026-10-01", "name": "bg-orders@contoso.com",
+      "properties": { "displayName": "Break Glass (Orders)", "mailNickname": "bg-orders", "accountEnabled": true, "usageLocation": "GB",
+                      "passwordProfile": { "password": "[parameters('initialPassword')]", "forceChangePasswordNextSignIn": true },
+                      "manager": "[reference(resourceId('Microsoft.Entra/users', 'cio@contoso.com'), '2026-10-01').id]",
+                      "memberOf": ["[reference(variables('adminsName')).id]",
+                                   "[reference(resourceId('Microsoft.Entra/groups', 'contoso-all-staff'), '2026-10-01').id]"],
+                      "ownerOf":  ["[reference(variables('apiName')).id]"],
+                      "administrativeUnits": ["[reference('Orders AU').id]"],
+                      "assignedLicenses": [{ "skuPartNumber": "ENTERPRISEPREMIUM", "disabledPlans": [] }],
+                      "appRoleAssignments": [{ "resourceAppId": "[reference(variables('apiName')).appId]", "appRole": "Orders.Admin" }] }
+    },
+    {
+      "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01", "name": "[variables('adminsName')]",
+      "properties": { "displayName": "Orders Admins", "mailEnabled": false, "mailNickname": "orders-admins",
+                      "securityEnabled": true, "isAssignableToRole": true,
+                      "members": ["[reference(resourceId('Microsoft.Entra/servicePrincipals', reference(variables('apiName')).appId)).id]"],
+                      "directoryRoles": [{ "role": "Global Reader", "directoryScopeId": "/" },
+                                         { "role": "[reference('Orders Support').id]", "directoryScopeId": "[format('/administrativeUnits/{0}', reference('Orders AU').id)]" }] },
+      "dependsOn": ["[resourceId('Microsoft.Entra/servicePrincipals', reference(variables('apiName')).appId)]"]
+    },
+    {
+      "type": "Microsoft.Entra/roleDefinitions", "apiVersion": "2026-10-01", "name": "Orders Support",
+      "properties": { "description": "Reset passwords for Orders staff", "isEnabled": true,
+                      "rolePermissions": [{ "allowedResourceActions": ["microsoft.directory/users/password/update", "microsoft.directory/users/standard/read"] }] }
+    },
+    {
+      "type": "Microsoft.Entra/conditionalAccess/authenticationStrengths", "apiVersion": "2026-10-01", "name": "Orders phishing-resistant",
+      "properties": { "description": "FIDO2 or WHfB only", "allowedCombinations": ["fido2", "windowsHelloForBusiness"] }
+    },
+    {
+      "type": "Microsoft.Entra/conditionalAccess/authenticationContextClassReferences", "apiVersion": "2026-10-01", "name": "c10",
+      "properties": { "displayName": "Orders admin actions", "description": "Step-up for order refunds", "isAvailable": true }
+    },
+    {
+      "type": "Microsoft.Entra/appRoleAssignments", "apiVersion": "2026-10-01",
+      "name": "[guid(variables('adminsName'), variables('apiName'), 'Orders.Admin')]",
+      "properties": { "principalId": "[reference(variables('adminsName')).id]",
+                      "resourceId":  "[reference(resourceId('Microsoft.Entra/servicePrincipals', reference(variables('apiName')).appId)).id]",
+                      "appRoleId":   "6d2f1c0e-2b7a-4c1e-9a1b-4f3f1f6a0002" },
+      "dependsOn": ["[resourceId('Microsoft.Entra/groups', variables('adminsName'))]"]
+    },
+    {
+      "type": "Microsoft.Entra/oauth2PermissionGrants", "apiVersion": "2026-10-01",
+      "name": "[guid(variables('apiName'), variables('graphAppId'), 'AllPrincipals')]",
+      "properties": { "clientId": "[reference(resourceId('Microsoft.Entra/servicePrincipals', reference(variables('apiName')).appId)).id]",
+                      "resourceId": "[variables('graphSpId')]", "consentType": "AllPrincipals", "scope": "User.Read" },
+      "dependsOn": ["[resourceId('Microsoft.Entra/servicePrincipals', reference(variables('apiName')).appId)]"]
+    },
+    {
+      "type": "Microsoft.Entra/conditionalAccess/namedLocations", "apiVersion": "2026-10-01", "name": "Contoso offices",
+      "properties": { "@odata.type": "#microsoft.graph.ipNamedLocation", "isTrusted": true,
+        "ipRanges": [{ "@odata.type": "#microsoft.graph.iPv4CidrRange", "cidrAddress": "[first(parameters('officeCidrs'))]" }] }
+    },
+    {
+      "condition": "[equals(parameters('env'), 'prod')]",
+      "type": "Microsoft.Entra/conditionalAccess/policies", "apiVersion": "2026-10-01", "name": "CA-Orders-Admins-MFA",
+      "properties": { "state": "enabledForReportingButNotEnforced",
+        "conditions": { "users": { "includeGroups": ["[reference(variables('adminsName')).id]"] },
+                        "applications": { "includeApplications": ["All"], "includeAuthenticationContextClassReferences": ["c10"] }, "clientAppTypes": ["all"],
+                        "locations": { "includeLocations": ["All"], "excludeLocations": ["[reference('Contoso offices').id]"] } },
+        "grantControls": { "operator": "OR", "authenticationStrength": { "id": "[reference('Orders phishing-resistant').id]" } } },
+      "dependsOn": ["[resourceId('Microsoft.Entra/groups', variables('adminsName'))]",
+                    "[resourceId('Microsoft.Entra/conditionalAccess/namedLocations', 'Contoso offices')]",
+                    "[resourceId('Microsoft.Entra/conditionalAccess/authenticationContextClassReferences', 'c10')]"]
+    },
+    {
+      "type": "Microsoft.Entra/administrativeUnits", "apiVersion": "2026-10-01", "name": "Orders AU",
+      "properties": { "description": "Scoped admin for Orders", "members": ["[reference('bg-orders@contoso.com').id]"] },
+      "dependsOn": ["[resourceId('Microsoft.Entra/users', 'bg-orders@contoso.com')]"]
+    },
+    {
+      "comments": "Standalone form; equivalent to a directoryRoles entry on the principal. Either form may be used.",
+      "type": "Microsoft.Entra/roleAssignments", "apiVersion": "2026-10-01",
+      "name": "[guid(reference(variables('apiName')).appId, 'Directory Readers', '/')]",
+      "properties": { "roleDefinitionId": "88d8e3e3-8f55-4a1e-953a-9b9898b8876b",
+                      "principalId": "[reference(resourceId('Microsoft.Entra/servicePrincipals', reference(variables('apiName')).appId)).id]", "directoryScopeId": "/" },
+      "dependsOn": ["[resourceId('Microsoft.Entra/servicePrincipals', reference(variables('apiName')).appId)]"]
+    }
+  ],
+  "outputs": {
+    "apiAppId": { "type": "string", "value": "[reference(variables('apiName')).appId]" },
+    "ciSecret": { "type": "securestring", "value": "[reference(resourceId('Microsoft.Entra/applications/passwordCredentials', variables('apiName'), 'ci-secret')).secretText]" }
+  }
+}

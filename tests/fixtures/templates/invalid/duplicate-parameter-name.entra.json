@@ -1,0 +1,10 @@
+{
+  "$schema": "https://entraarm.dev/schemas/2026-10-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "env": { "type": "string", "defaultValue": "dev" },
+    // ARM parameter names are case-insensitive, so this is the same parameter declared twice.
+    "Env": { "type": "string", "defaultValue": "prod" }
+  },
+  "resources": []
+}

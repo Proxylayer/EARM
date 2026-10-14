@@ -1,0 +1,17 @@
+<Project>
+
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+
+  <!--
+    Test projects are never packed; xunit.v3 test projects are executables.
+    Tests run on Microsoft.Testing.Platform (dotnet test is opted in via global.json "test.runner"; xunit.v3 4.x
+    does not support the VSTest path on the .NET 10 SDK). UseMicrosoftTestingPlatformRunner makes the test
+    executables expose the same MTP command line that dotnet test drives.
+  -->
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <OutputType>Exe</OutputType>
+    <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
+  </PropertyGroup>
+
+</Project>

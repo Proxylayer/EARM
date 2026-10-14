@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://entraarm.dev/schemas/2026-10-01/deploymentParameters.json",
+  "title": "EntraARM deployment parameters",
+  "description": "Parameter values for an EntraARM template, in the ARM deploymentParameters shape. Each parameter supplies either a literal value or a Key Vault reference (resolved with az keyvault secret show).",
+  "type": "object",
+  "required": ["parameters"],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "https://entraarm.dev/schemas/2026-10-01/deploymentParameters.json#"
+    },
+    "contentVersion": { "type": "string" },
+    "metadata": { "type": "object" },
+    "parameters": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/parameterValue" }
+    }
+  },
+  "$defs": {
+    "parameterValue": {
+      "type": "object",
+      "oneOf": [
+        {
+          "required": ["value"],
+          "properties": {
+            "value": { "description": "The literal value, of the type the template declares." },
+            "metadata": { "type": "object" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "required": ["reference"],
+          "properties": {
+            "reference": { "$ref": "#/$defs/keyVaultReference" },
+            "metadata": { "type": "object" }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "keyVaultReference": {
+      "type": "object",
+      "required": ["keyVault", "secretName"],
+      "properties": {
+        "keyVault": {
+          "type": "object",
+          "required": ["id"],
+          "properties": {
+            "id": { "type": "string", "description": "The vault's resource id, or just its name." }
+          },
+          "additionalProperties": false
+        },
+        "secretName": { "type": "string" },
+        "secretVersion": { "type": "string" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

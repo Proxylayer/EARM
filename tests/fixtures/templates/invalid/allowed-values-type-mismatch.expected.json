@@ -1,0 +1,1 @@
+{ "expectedCodes": ["AllowedValueTypeMismatch", "DefaultValueNotAllowed"], "exitCode": 2 }

@@ -1,0 +1,13 @@
+<Project>
+
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+
+  <!-- Every production assembly exposes its internals to the test assemblies. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="EntraArm.Tests" />
+    <InternalsVisibleTo Include="EntraArm.Az.Tests" />
+    <InternalsVisibleTo Include="EntraArm.Providers.Tests" />
+    <InternalsVisibleTo Include="EntraArm.Integration.Tests" />
+  </ItemGroup>
+
+</Project>

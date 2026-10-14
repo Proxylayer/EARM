@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Provider test suite (WI-07 .. WI-14): the real EntraArm.Providers driven end to end through the engine against
+    FakeGraphClient / FakeDirectory, plus unit tests of every provider's pure rules. Same conventions as
+    EntraArm.Tests: xunit.v3 on Microsoft.Testing.Platform, explicit usings, internals visible.
+  -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/EntraArm.Providers/EntraArm.Providers.csproj" />
+    <ProjectReference Include="../../src/EntraArm.Engine/EntraArm.Engine.csproj" />
+    <ProjectReference Include="../EntraArm.TestSupport/EntraArm.TestSupport.csproj" />
+  </ItemGroup>
+
+</Project>

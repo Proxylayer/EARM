@@ -1,0 +1,24 @@
+{
+  "$schema": "https://entraarm.dev/schemas/2026-10-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "One parameter per type without a default (plus one string with a default). Used by EntraArm.Tests to exercise -p name=value conversion and parameter-file binding."
+  },
+  "parameters": {
+    "count":     { "type": "int" },
+    "enabled":   { "type": "bool" },
+    "settings":  { "type": "object" },
+    "list":      { "type": "array" },
+    "secret":    { "type": "securestring" },
+    "secretObj": { "type": "secureObject" },
+    "label":     { "type": "string", "defaultValue": "orders" }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Entra/administrativeUnits",
+      "apiVersion": "2026-10-01",
+      "name": "Parameter types AU",
+      "properties": { "description": "[parameters('label')]" }
+    }
+  ]
+}

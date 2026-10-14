@@ -1,0 +1,13 @@
+{
+  "responses": [
+    {
+      "exitCode": 0,
+      "stdoutJson": {
+        "id": "11111111-2222-3333-4444-555555555555",
+        "displayName": "Ünïcødé 日本語 🎉",
+        "mail": "ünï@contoso.example",
+        "note": "quotes ' \" and backslash \\ and tab \t and <angle> & ampersand"
+      }
+    }
+  ]
+}

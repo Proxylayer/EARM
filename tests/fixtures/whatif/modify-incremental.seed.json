@@ -1,0 +1,144 @@
+[
+  {
+    "collection": "/applications",
+    "entity": {
+      "id": "33333333-0000-0000-0000-000000000001",
+      "appId": "44444444-0000-0000-0000-000000000001",
+      "uniqueName": "contoso-dev-api",
+      "displayName": "Orders API (old)",
+      "signInAudience": "AzureADMyOrg",
+      "identifierUris": [
+        "api://contoso-dev-api"
+      ],
+      "web": {
+        "redirectUris": [
+          "https://old.contoso.com/signin",
+          "https://orders.contoso.com/signin"
+        ]
+      },
+      "appRoles": [
+        {
+          "id": "6d2f1c0e-2b7a-4c1e-9a1b-4f3f1f6a0002",
+          "value": "Orders.Admin",
+          "displayName": "Orders admin",
+          "description": "Full order management",
+          "allowedMemberTypes": [
+            "User"
+          ],
+          "isEnabled": true
+        }
+      ]
+    }
+  },
+  {
+    "collection": "/groups",
+    "entity": {
+      "id": "22222222-0000-0000-0000-000000000010",
+      "uniqueName": "contoso-dev-orders-admins",
+      "displayName": "Orders Admins",
+      "mailEnabled": false,
+      "mailNickname": "orders-admins",
+      "securityEnabled": true,
+      "groupTypes": []
+    }
+  },
+  {
+    "collection": "/groups",
+    "entity": {
+      "id": "22222222-0000-0000-0000-000000000011",
+      "uniqueName": "contoso-legacy",
+      "displayName": "Legacy",
+      "mailEnabled": false,
+      "mailNickname": "legacy",
+      "securityEnabled": true,
+      "groupTypes": []
+    }
+  },
+  {
+    "collection": "/groups",
+    "entity": {
+      "id": "22222222-0000-0000-0000-000000000012",
+      "uniqueName": "contoso-dev-orders-ops",
+      "displayName": "Orders Ops",
+      "mailEnabled": false,
+      "mailNickname": "orders-ops",
+      "securityEnabled": true,
+      "groupTypes": []
+    }
+  },
+  {
+    "collection": "/users",
+    "entity": {
+      "id": "22222222-0000-0000-0000-000000000001",
+      "userPrincipalName": "alice@contoso.com",
+      "displayName": "Alice",
+      "mailNickname": "alice",
+      "accountEnabled": true
+    }
+  },
+  {
+    "collection": "/users",
+    "entity": {
+      "id": "22222222-0000-0000-0000-000000000002",
+      "userPrincipalName": "bob@contoso.com",
+      "displayName": "Bob",
+      "mailNickname": "bob",
+      "accountEnabled": true
+    }
+  },
+  {
+    "collection": "/users",
+    "entity": {
+      "id": "22222222-0000-0000-0000-000000000003",
+      "userPrincipalName": "carol@contoso.com",
+      "displayName": "Carol",
+      "mailNickname": "carol",
+      "accountEnabled": true
+    }
+  },
+  {
+    "collection": "/users",
+    "entity": {
+      "id": "22222222-0000-0000-0000-000000000004",
+      "userPrincipalName": "cio@contoso.com",
+      "displayName": "Chief Information Officer",
+      "mailNickname": "cio",
+      "accountEnabled": true
+    }
+  },
+  {
+    "collection": "/users",
+    "entity": {
+      "id": "22222222-0000-0000-0000-000000000005",
+      "userPrincipalName": "cto@contoso.com",
+      "displayName": "Chief Technology Officer",
+      "mailNickname": "cto",
+      "accountEnabled": true
+    }
+  },
+  {
+    "collection": "/users",
+    "entity": {
+      "id": "22222222-0000-0000-0000-000000000006",
+      "userPrincipalName": "bg-orders@contoso.com",
+      "displayName": "Break Glass (Orders)",
+      "mailNickname": "bg-orders",
+      "accountEnabled": true
+    }
+  },
+  {
+    "method": "POST",
+    "ref": "/groups/22222222-0000-0000-0000-000000000010/members/$ref",
+    "id": "22222222-0000-0000-0000-000000000001"
+  },
+  {
+    "method": "POST",
+    "ref": "/groups/22222222-0000-0000-0000-000000000010/members/$ref",
+    "id": "22222222-0000-0000-0000-000000000002"
+  },
+  {
+    "method": "PUT",
+    "ref": "/users/22222222-0000-0000-0000-000000000006/manager/$ref",
+    "id": "22222222-0000-0000-0000-000000000004"
+  }
+]

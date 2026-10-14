@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://entraarm.dev/schemas/2026-10-01/types/Microsoft.Entra/oauth2PermissionGrants.json",
+  "title": "Microsoft.Entra/oauth2PermissionGrants",
+  "description": "A delegated permission grant (admin consent). The resource name is a deterministic GUID chosen with guid(); the object is matched by (clientId, resourceId, consentType, principalId). Only scope is mutable.",
+  "type": "object",
+  "properties": {
+    "clientId": {
+      "description": "Required: object id of the client service principal.",
+      "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+    },
+    "resourceId": {
+      "description": "Required: object id of the resource service principal.",
+      "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+    },
+    "consentType": {
+      "description": "Required: AllPrincipals (admin consent for everyone) or Principal (one user).",
+      "anyOf": [ { "type": "string", "enum": [ "AllPrincipals", "Principal" ] }, { "$ref": "#/$defs/expression" } ]
+    },
+    "principalId": {
+      "description": "Required when consentType is Principal; null for AllPrincipals.",
+      "anyOf": [ { "type": [ "string", "null" ] }, { "$ref": "#/$defs/expression" } ]
+    },
+    "scope": {
+      "description": "Space-separated scope values, for example 'User.Read openid'. Use scope or scopes.",
+      "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+    },
+    "scopes": {
+      "description": "Sugar for scope: the scope values; validated against the resource's oauth2PermissionScopes.",
+      "anyOf": [
+        { "type": "array", "items": { "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] } },
+        { "$ref": "#/$defs/expression" }
+      ]
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "expression": { "type": "string", "pattern": "^\\[.*\\]$", "description": "A template expression, for example [parameters('env')]." }
+  },
+  "x-entraarm": {
+    "type": "Microsoft.Entra/oauth2PermissionGrants",
+    "parentType": null,
+    "graphPath": "/oauth2PermissionGrants",
+    "apiVersions": { "2026-10-01": "v1.0", "2026-10-01-preview": "beta" },
+    "nameMapsTo": null,
+    "nameKind": "guid",
+    "namePattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+    "keyProperties": ["clientId", "resourceId", "consentType", "principalId"],
+    "requiredOnCreate": ["clientId", "resourceId", "consentType", "scope"],
+    "defaults": {},
+    "immutable": ["clientId", "resourceId", "consentType", "principalId"],
+    "createOnly": [],
+    "secure": [],
+    "relationships": [],
+    "memberKey": {},
+    "stripOnRead": ["id"],
+    "nullable": {},
+    "permissions": {
+      "application": ["DelegatedPermissionGrant.ReadWrite.All", "Application.Read.All"],
+      "delegated": ["DelegatedPermissionGrant.ReadWrite.All", "Application.Read.All"],
+      "roles": ["Cloud Application Administrator", "Application Administrator"]
+    }
+  }
+}

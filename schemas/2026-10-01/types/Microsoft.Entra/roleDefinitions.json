@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://entraarm.dev/schemas/2026-10-01/types/Microsoft.Entra/roleDefinitions.json",
+  "title": "Microsoft.Entra/roleDefinitions",
+  "description": "A custom directory role definition. The resource name is the displayName; the Graph id is pinned in state. Built-in roles cannot be managed.",
+  "type": "object",
+  "properties": {
+    "displayName": {
+      "description": "Set from the resource name; declaring it is only allowed when it equals the name.",
+      "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+    },
+    "description": { "description": "Description.", "anyOf": [ { "type": [ "string", "null" ] }, { "$ref": "#/$defs/expression" } ] },
+    "isEnabled": { "description": "Defaults to true.", "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/expression" } ] },
+    "resourceScopes": {
+      "description": "Only \"/\" (tenant) is supported.",
+      "anyOf": [
+        { "type": "array", "items": { "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] } },
+        { "$ref": "#/$defs/expression" }
+      ]
+    },
+    "rolePermissions": {
+      "description": "Required. The permissions granted; replaced whole on update. Allowed actions look like microsoft.directory/users/password/update (the list is not enforced offline).",
+      "anyOf": [
+        {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "allowedResourceActions": {
+                    "description": "Resource actions the role allows.",
+                    "anyOf": [
+                      { "type": "array", "items": { "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] } },
+                      { "$ref": "#/$defs/expression" }
+                    ]
+                  },
+                  "excludedResourceActions": {
+                    "description": "Resource actions removed from the allowed set.",
+                    "anyOf": [
+                      { "type": "array", "items": { "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] } },
+                      { "$ref": "#/$defs/expression" }
+                    ]
+                  },
+                  "condition": {
+                    "description": "Optional condition on the permission.",
+                    "anyOf": [ { "type": [ "string", "null" ] }, { "$ref": "#/$defs/expression" } ]
+                  }
+                },
+                "required": [ "allowedResourceActions" ]
+              },
+              { "$ref": "#/$defs/expression" }
+            ]
+          }
+        },
+        { "$ref": "#/$defs/expression" }
+      ]
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "expression": { "type": "string", "pattern": "^\\[.*\\]$", "description": "A template expression, for example [parameters('env')]." }
+  },
+  "x-entraarm": {
+    "type": "Microsoft.Entra/roleDefinitions",
+    "parentType": null,
+    "graphPath": "/roleManagement/directory/roleDefinitions",
+    "apiVersions": { "2026-10-01": "v1.0", "2026-10-01-preview": "beta" },
+    "nameMapsTo": "displayName",
+    "nameKind": "displayName",
+    "namePattern": "^\\S(.{0,254}\\S)?$",
+    "keyProperties": ["displayName"],
+    "requiredOnCreate": ["rolePermissions"],
+    "defaults": { "isEnabled": true },
+    "immutable": ["templateId"],
+    "createOnly": [],
+    "secure": [],
+    "relationships": [],
+    "memberKey": {},
+    "stripOnRead": ["id", "templateId", "version", "isBuiltIn", "resourceScopes", "inheritsPermissionsFrom"],
+    "nullable": {},
+    "permissions": {
+      "application": ["RoleManagement.ReadWrite.Directory"],
+      "delegated": ["RoleManagement.ReadWrite.Directory"],
+      "roles": ["Privileged Role Administrator"]
+    }
+  }
+}

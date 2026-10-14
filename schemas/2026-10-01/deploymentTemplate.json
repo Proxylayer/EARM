@@ -1,0 +1,253 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://entraarm.dev/schemas/2026-10-01/deploymentTemplate.json",
+  "title": "EntraARM deployment template",
+  "description": "ARM-style JSON template for Microsoft Entra ID resources under the Microsoft.Entra provider namespace (schema version 2026-10-01). Any string of the form \"[...]\" is a template expression; \"[[\" escapes a literal bracket.",
+  "type": "object",
+  "required": ["$schema", "contentVersion", "resources"],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "The template schema: https://entraarm.dev/schemas/2026-10-01/deploymentTemplate.json#"
+    },
+    "contentVersion": {
+      "type": "string",
+      "description": "Version of the template in the form major.minor.build.revision, for example 1.0.0.0."
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Free-form metadata about the template."
+    },
+    "parameters": {
+      "type": "object",
+      "description": "Input values supplied at deployment time (parameter file, -p name=value, or defaultValue).",
+      "additionalProperties": { "$ref": "#/$defs/parameter" }
+    },
+    "variables": {
+      "type": "object",
+      "description": "Named values computed once from parameters and other variables."
+    },
+    "functions": {
+      "type": "array",
+      "description": "User-defined functions grouped by namespace.",
+      "items": { "$ref": "#/$defs/functionNamespace" }
+    },
+    "resources": {
+      "type": "array",
+      "description": "The Entra resources to deploy.",
+      "items": { "$ref": "#/$defs/resource" }
+    },
+    "outputs": {
+      "type": "object",
+      "description": "Values returned after deployment.",
+      "additionalProperties": { "$ref": "#/$defs/output" }
+    }
+  },
+  "$defs": {
+    "expression": {
+      "type": "string",
+      "pattern": "^\\[.*\\]$",
+      "description": "A template expression, for example [parameters('env')]."
+    },
+    "boolOrExpression": {
+      "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/expression" } ]
+    },
+    "intOrExpression": {
+      "anyOf": [ { "type": "integer" }, { "$ref": "#/$defs/expression" } ]
+    },
+    "objectOrExpression": {
+      "anyOf": [ { "type": "object" }, { "$ref": "#/$defs/expression" } ]
+    },
+    "parameterType": {
+      "type": "string",
+      "enum": ["string", "securestring", "int", "bool", "object", "secureObject", "array"]
+    },
+    "parameter": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": { "$ref": "#/$defs/parameterType" },
+        "defaultValue": { "description": "Value used when none is supplied. Secure parameters should not have one." },
+        "allowedValues": { "type": "array", "description": "The only values the parameter accepts." },
+        "minValue": { "$ref": "#/$defs/intOrExpression", "description": "Minimum for int parameters." },
+        "maxValue": { "$ref": "#/$defs/intOrExpression", "description": "Maximum for int parameters." },
+        "minLength": { "$ref": "#/$defs/intOrExpression", "description": "Minimum length for string, securestring and array parameters." },
+        "maxLength": { "$ref": "#/$defs/intOrExpression", "description": "Maximum length for string, securestring and array parameters." },
+        "metadata": { "type": "object", "properties": { "description": { "type": "string" } } }
+      },
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "required": ["type", "value"],
+      "properties": {
+        "type": { "$ref": "#/$defs/parameterType" },
+        "value": { "description": "The output value; usually an expression." },
+        "condition": { "$ref": "#/$defs/boolOrExpression" },
+        "metadata": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
+    "functionNamespace": {
+      "type": "object",
+      "required": ["namespace", "members"],
+      "properties": {
+        "namespace": { "type": "string", "description": "Prefix used to call the functions: namespace.function()." },
+        "members": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/functionDefinition" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "functionDefinition": {
+      "type": "object",
+      "required": ["output"],
+      "properties": {
+        "parameters": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "type"],
+            "properties": {
+              "name": { "type": "string" },
+              "type": { "$ref": "#/$defs/parameterType" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "output": {
+          "type": "object",
+          "required": ["type", "value"],
+          "properties": {
+            "type": { "$ref": "#/$defs/parameterType" },
+            "value": {}
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "copy": {
+      "type": "object",
+      "required": ["name", "count"],
+      "properties": {
+        "name": { "type": "string", "description": "Loop name, used by copyIndex('name')." },
+        "count": { "$ref": "#/$defs/intOrExpression" },
+        "mode": {
+          "anyOf": [ { "type": "string", "enum": ["serial", "parallel"] }, { "$ref": "#/$defs/expression" } ]
+        },
+        "batchSize": { "$ref": "#/$defs/intOrExpression" }
+      },
+      "additionalProperties": false
+    },
+    "dependsOn": {
+      "type": "array",
+      "description": "Resources that must be deployed first: a resource id, type/name, a unique bare name, or an expression.",
+      "items": { "type": "string" }
+    },
+    "resource": {
+      "type": "object",
+      "required": ["type", "apiVersion", "name"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "pattern": "^Microsoft\\.Entra/[A-Za-z][A-Za-z0-9]*(/[A-Za-z][A-Za-z0-9]*)*$",
+          "description": "Full resource type, for example Microsoft.Entra/applications."
+        },
+        "apiVersion": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}(-preview)?$",
+          "description": "2026-10-01 (Graph v1.0) or 2026-10-01-preview (Graph beta)."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The ARM-style key of the resource; parent/child for child types."
+        },
+        "properties": { "$ref": "#/$defs/objectOrExpression" },
+        "dependsOn": { "$ref": "#/$defs/dependsOn" },
+        "condition": { "$ref": "#/$defs/boolOrExpression" },
+        "copy": { "$ref": "#/$defs/copy" },
+        "comments": { "type": "string" },
+        "metadata": { "type": "object" },
+        "resources": {
+          "type": "array",
+          "description": "Nested child resources (short type and name).",
+          "items": { "$ref": "#/$defs/childResource" }
+        }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        { "if": { "properties": { "type": { "const": "Microsoft.Entra/applications" } }, "required": ["type"] },
+          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://entraarm.dev/schemas/2026-10-01/types/Microsoft.Entra/applications.json" }, { "$ref": "#/$defs/expression" } ] } } } },
+        { "if": { "properties": { "type": { "const": "Microsoft.Entra/applications/federatedIdentityCredentials" } }, "required": ["type"] },
+          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://entraarm.dev/schemas/2026-10-01/types/Microsoft.Entra/applications.federatedIdentityCredentials.json" }, { "$ref": "#/$defs/expression" } ] } } } },
+        { "if": { "properties": { "type": { "const": "Microsoft.Entra/applications/passwordCredentials" } }, "required": ["type"] },
+          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://entraarm.dev/schemas/2026-10-01/types/Microsoft.Entra/applications.passwordCredentials.json" }, { "$ref": "#/$defs/expression" } ] } } } },
+        { "if": { "properties": { "type": { "const": "Microsoft.Entra/servicePrincipals" } }, "required": ["type"] },
+          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://entraarm.dev/schemas/2026-10-01/types/Microsoft.Entra/servicePrincipals.json" }, { "$ref": "#/$defs/expression" } ] } } } },
+        { "if": { "properties": { "type": { "const": "Microsoft.Entra/groups" } }, "required": ["type"] },
+          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://entraarm.dev/schemas/2026-10-01/types/Microsoft.Entra/groups.json" }, { "$ref": "#/$defs/expression" } ] } } } },
+        { "if": { "properties": { "type": { "const": "Microsoft.Entra/users" } }, "required": ["type"] },
+          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://entraarm.dev/schemas/2026-10-01/types/Microsoft.Entra/users.json" }, { "$ref": "#/$defs/expression" } ] } } } },
+        { "if": { "properties": { "type": { "const": "Microsoft.Entra/roleDefinitions" } }, "required": ["type"] },
+          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://entraarm.dev/schemas/2026-10-01/types/Microsoft.Entra/roleDefinitions.json" }, { "$ref": "#/$defs/expression" } ] } } } },
+        { "if": { "properties": { "type": { "const": "Microsoft.Entra/conditionalAccess/authenticationContextClassReferences" } }, "required": ["type"] },
+          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://entraarm.dev/schemas/2026-10-01/types/Microsoft.Entra/conditionalAccess.authenticationContextClassReferences.json" }, { "$ref": "#/$defs/expression" } ] } } } },
+        { "if": { "properties": { "type": { "const": "Microsoft.Entra/conditionalAccess/authenticationStrengths" } }, "required": ["type"] },
+          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://entraarm.dev/schemas/2026-10-01/types/Microsoft.Entra/conditionalAccess.authenticationStrengths.json" }, { "$ref": "#/$defs/expression" } ] } } } },
+        { "if": { "properties": { "type": { "const": "Microsoft.Entra/appRoleAssignments" } }, "required": ["type"] },
+          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://entraarm.dev/schemas/2026-10-01/types/Microsoft.Entra/appRoleAssignments.json" }, { "$ref": "#/$defs/expression" } ] } } } },
+        { "if": { "properties": { "type": { "const": "Microsoft.Entra/oauth2PermissionGrants" } }, "required": ["type"] },
+          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://entraarm.dev/schemas/2026-10-01/types/Microsoft.Entra/oauth2PermissionGrants.json" }, { "$ref": "#/$defs/expression" } ] } } } },
+        { "if": { "properties": { "type": { "const": "Microsoft.Entra/conditionalAccess/namedLocations" } }, "required": ["type"] },
+          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://entraarm.dev/schemas/2026-10-01/types/Microsoft.Entra/conditionalAccess.namedLocations.json" }, { "$ref": "#/$defs/expression" } ] } } } },
+        { "if": { "properties": { "type": { "const": "Microsoft.Entra/conditionalAccess/policies" } }, "required": ["type"] },
+          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://entraarm.dev/schemas/2026-10-01/types/Microsoft.Entra/conditionalAccess.policies.json" }, { "$ref": "#/$defs/expression" } ] } } } },
+        { "if": { "properties": { "type": { "const": "Microsoft.Entra/administrativeUnits" } }, "required": ["type"] },
+          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://entraarm.dev/schemas/2026-10-01/types/Microsoft.Entra/administrativeUnits.json" }, { "$ref": "#/$defs/expression" } ] } } } },
+        { "if": { "properties": { "type": { "const": "Microsoft.Entra/roleAssignments" } }, "required": ["type"] },
+          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://entraarm.dev/schemas/2026-10-01/types/Microsoft.Entra/roleAssignments.json" }, { "$ref": "#/$defs/expression" } ] } } } }
+      ]
+    },
+    "childResource": {
+      "type": "object",
+      "required": ["type", "apiVersion", "name"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Short child type (federatedIdentityCredentials, passwordCredentials) or the full type."
+        },
+        "apiVersion": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}(-preview)?$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The child's own name; the parent's name is prepended automatically."
+        },
+        "properties": { "$ref": "#/$defs/objectOrExpression" },
+        "dependsOn": { "$ref": "#/$defs/dependsOn" },
+        "condition": { "$ref": "#/$defs/boolOrExpression" },
+        "copy": { "$ref": "#/$defs/copy" },
+        "comments": { "type": "string" },
+        "metadata": { "type": "object" },
+        "resources": {
+          "type": "array",
+          "maxItems": 0,
+          "description": "Nesting deeper than two levels is not supported; declare deeper children at the top level."
+        }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        { "if": { "properties": { "type": { "enum": ["federatedIdentityCredentials", "Microsoft.Entra/applications/federatedIdentityCredentials"] } }, "required": ["type"] },
+          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://entraarm.dev/schemas/2026-10-01/types/Microsoft.Entra/applications.federatedIdentityCredentials.json" }, { "$ref": "#/$defs/expression" } ] } } } },
+        { "if": { "properties": { "type": { "enum": ["passwordCredentials", "Microsoft.Entra/applications/passwordCredentials"] } }, "required": ["type"] },
+          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://entraarm.dev/schemas/2026-10-01/types/Microsoft.Entra/applications.passwordCredentials.json" }, { "$ref": "#/$defs/expression" } ] } } } }
+      ]
+    }
+  }
+}

@@ -1,0 +1,567 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://entraarm.dev/schemas/2026-10-01/types/Microsoft.Entra/conditionalAccess.policies.json",
+  "title": "Microsoft.Entra/conditionalAccess/policies",
+  "description": "A conditional access policy. The resource name is the displayName; the Graph id is pinned in state. state: enabled requires --allow-ca-enforce at deployment time. Reference users and groups by object id, applications by application (client) id, locations by named location id, roles by role template id.",
+  "type": "object",
+  "properties": {
+    "displayName": {
+      "description": "Set from the resource name; declaring it is only allowed when it equals the name.",
+      "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+    },
+    "state": {
+      "description": "Defaults to enabledForReportingButNotEnforced. enabled needs --allow-ca-enforce.",
+      "anyOf": [ { "type": "string", "enum": [ "enabled", "disabled", "enabledForReportingButNotEnforced" ] }, { "$ref": "#/$defs/expression" } ]
+    },
+    "conditions": {
+      "description": "Required: conditions.users and conditions.applications must each include at least one entry; clientAppTypes defaults to [\"all\"].",
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "clientAppTypes": {
+              "description": "Client app types the policy applies to.",
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "anyOf": [
+                      { "type": "string", "enum": [ "all", "browser", "mobileAppsAndDesktopClients", "exchangeActiveSync", "easSupported", "other" ] },
+                      { "$ref": "#/$defs/expression" }
+                    ]
+                  }
+                },
+                { "$ref": "#/$defs/expression" }
+              ]
+            },
+            "users": {
+              "description": "Users the policy applies to.",
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "includeUsers": {
+                      "description": "User object ids, or All, None, GuestsOrExternalUsers.",
+                      "anyOf": [
+                        { "type": "array", "items": { "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] } },
+                        { "$ref": "#/$defs/expression" }
+                      ]
+                    },
+                    "excludeUsers": {
+                      "description": "User object ids, or GuestsOrExternalUsers.",
+                      "anyOf": [
+                        { "type": "array", "items": { "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] } },
+                        { "$ref": "#/$defs/expression" }
+                      ]
+                    },
+                    "includeGroups": {
+                      "description": "Group object ids.",
+                      "anyOf": [
+                        { "type": "array", "items": { "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] } },
+                        { "$ref": "#/$defs/expression" }
+                      ]
+                    },
+                    "excludeGroups": {
+                      "description": "Group object ids.",
+                      "anyOf": [
+                        { "type": "array", "items": { "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] } },
+                        { "$ref": "#/$defs/expression" }
+                      ]
+                    },
+                    "includeRoles": {
+                      "description": "Directory role template ids.",
+                      "anyOf": [
+                        { "type": "array", "items": { "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] } },
+                        { "$ref": "#/$defs/expression" }
+                      ]
+                    },
+                    "excludeRoles": {
+                      "description": "Directory role template ids.",
+                      "anyOf": [
+                        { "type": "array", "items": { "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] } },
+                        { "$ref": "#/$defs/expression" }
+                      ]
+                    },
+                    "includeGuestsOrExternalUsers": {
+                      "description": "Guest or external user types (guestOrExternalUserTypes, externalTenants).",
+                      "anyOf": [ { "type": [ "object", "null" ] }, { "$ref": "#/$defs/expression" } ]
+                    },
+                    "excludeGuestsOrExternalUsers": {
+                      "description": "Guest or external user types (guestOrExternalUserTypes, externalTenants).",
+                      "anyOf": [ { "type": [ "object", "null" ] }, { "$ref": "#/$defs/expression" } ]
+                    }
+                  }
+                },
+                { "$ref": "#/$defs/expression" }
+              ]
+            },
+            "applications": {
+              "description": "Cloud apps, user actions or authentication contexts the policy applies to.",
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "includeApplications": {
+                      "description": "Application (client) ids, or All, None, Office365, MicrosoftAdminPortals.",
+                      "anyOf": [
+                        { "type": "array", "items": { "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] } },
+                        { "$ref": "#/$defs/expression" }
+                      ]
+                    },
+                    "excludeApplications": {
+                      "description": "Application (client) ids, or Office365, MicrosoftAdminPortals.",
+                      "anyOf": [
+                        { "type": "array", "items": { "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] } },
+                        { "$ref": "#/$defs/expression" }
+                      ]
+                    },
+                    "includeUserActions": {
+                      "description": "urn:user:registersecurityinfo or urn:user:registerdevice.",
+                      "anyOf": [
+                        { "type": "array", "items": { "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] } },
+                        { "$ref": "#/$defs/expression" }
+                      ]
+                    },
+                    "includeAuthenticationContextClassReferences": {
+                      "description": "Authentication context ids (c1..c99); reference a declared one by its name.",
+                      "anyOf": [
+                        { "type": "array", "items": { "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] } },
+                        { "$ref": "#/$defs/expression" }
+                      ]
+                    },
+                    "applicationFilter": {
+                      "description": "Filter on application custom security attributes.",
+                      "anyOf": [
+                        {
+                          "type": [ "object", "null" ],
+                          "properties": {
+                            "mode": {
+                              "description": "include or exclude.",
+                              "anyOf": [ { "type": "string", "enum": [ "include", "exclude" ] }, { "$ref": "#/$defs/expression" } ]
+                            },
+                            "rule": {
+                              "description": "The filter rule expression.",
+                              "anyOf": [ { "type": "string", "minLength": 1 }, { "$ref": "#/$defs/expression" } ]
+                            }
+                          },
+                          "required": [ "mode", "rule" ]
+                        },
+                        { "$ref": "#/$defs/expression" }
+                      ]
+                    }
+                  }
+                },
+                { "$ref": "#/$defs/expression" }
+              ]
+            },
+            "userRiskLevels": {
+              "description": "User risk levels (Entra ID P2).",
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "anyOf": [
+                      { "type": "string", "enum": [ "low", "medium", "high", "hidden", "none", "unknownFutureValue" ] },
+                      { "$ref": "#/$defs/expression" }
+                    ]
+                  }
+                },
+                { "$ref": "#/$defs/expression" }
+              ]
+            },
+            "signInRiskLevels": {
+              "description": "Sign-in risk levels (Entra ID P2).",
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "anyOf": [
+                      { "type": "string", "enum": [ "low", "medium", "high", "hidden", "none", "unknownFutureValue" ] },
+                      { "$ref": "#/$defs/expression" }
+                    ]
+                  }
+                },
+                { "$ref": "#/$defs/expression" }
+              ]
+            },
+            "servicePrincipalRiskLevels": {
+              "description": "Service principal risk levels (workload identities).",
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "anyOf": [
+                      { "type": "string", "enum": [ "low", "medium", "high", "hidden", "none", "unknownFutureValue" ] },
+                      { "$ref": "#/$defs/expression" }
+                    ]
+                  }
+                },
+                { "$ref": "#/$defs/expression" }
+              ]
+            },
+            "platforms": {
+              "description": "Device platforms.",
+              "anyOf": [
+                {
+                  "type": [ "object", "null" ],
+                  "properties": {
+                    "includePlatforms": {
+                      "description": "Included platforms.",
+                      "anyOf": [
+                        {
+                          "type": "array",
+                          "items": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [ "android", "iOS", "windows", "windowsPhone", "macOS", "linux", "all", "unknownFutureValue" ]
+                              },
+                              { "$ref": "#/$defs/expression" }
+                            ]
+                          }
+                        },
+                        { "$ref": "#/$defs/expression" }
+                      ]
+                    },
+                    "excludePlatforms": {
+                      "description": "Excluded platforms.",
+                      "anyOf": [
+                        {
+                          "type": "array",
+                          "items": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [ "android", "iOS", "windows", "windowsPhone", "macOS", "linux", "all", "unknownFutureValue" ]
+                              },
+                              { "$ref": "#/$defs/expression" }
+                            ]
+                          }
+                        },
+                        { "$ref": "#/$defs/expression" }
+                      ]
+                    }
+                  }
+                },
+                { "$ref": "#/$defs/expression" }
+              ]
+            },
+            "locations": {
+              "description": "Named locations.",
+              "anyOf": [
+                {
+                  "type": [ "object", "null" ],
+                  "properties": {
+                    "includeLocations": {
+                      "description": "Named location ids, or All, AllTrusted.",
+                      "anyOf": [
+                        { "type": "array", "items": { "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] } },
+                        { "$ref": "#/$defs/expression" }
+                      ]
+                    },
+                    "excludeLocations": {
+                      "description": "Named location ids, or AllTrusted.",
+                      "anyOf": [
+                        { "type": "array", "items": { "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] } },
+                        { "$ref": "#/$defs/expression" }
+                      ]
+                    }
+                  }
+                },
+                { "$ref": "#/$defs/expression" }
+              ]
+            },
+            "devices": {
+              "description": "Device filter.",
+              "anyOf": [
+                {
+                  "type": [ "object", "null" ],
+                  "properties": {
+                    "deviceFilter": {
+                      "description": "Filter on device attributes.",
+                      "anyOf": [
+                        {
+                          "type": [ "object", "null" ],
+                          "properties": {
+                            "mode": {
+                              "description": "include or exclude.",
+                              "anyOf": [ { "type": "string", "enum": [ "include", "exclude" ] }, { "$ref": "#/$defs/expression" } ]
+                            },
+                            "rule": {
+                              "description": "The filter rule expression.",
+                              "anyOf": [ { "type": "string", "minLength": 1 }, { "$ref": "#/$defs/expression" } ]
+                            }
+                          },
+                          "required": [ "mode", "rule" ]
+                        },
+                        { "$ref": "#/$defs/expression" }
+                      ]
+                    }
+                  }
+                },
+                { "$ref": "#/$defs/expression" }
+              ]
+            },
+            "clientApplications": {
+              "description": "Workload identities (service principals) the policy applies to.",
+              "anyOf": [
+                {
+                  "type": [ "object", "null" ],
+                  "properties": {
+                    "includeServicePrincipals": {
+                      "description": "Service principal object ids, or ServicePrincipalsInMyTenant.",
+                      "anyOf": [
+                        { "type": "array", "items": { "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] } },
+                        { "$ref": "#/$defs/expression" }
+                      ]
+                    },
+                    "excludeServicePrincipals": {
+                      "description": "Service principal object ids.",
+                      "anyOf": [
+                        { "type": "array", "items": { "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] } },
+                        { "$ref": "#/$defs/expression" }
+                      ]
+                    },
+                    "servicePrincipalFilter": {
+                      "description": "Filter on service principal attributes.",
+                      "anyOf": [
+                        {
+                          "type": [ "object", "null" ],
+                          "properties": {
+                            "mode": {
+                              "description": "include or exclude.",
+                              "anyOf": [ { "type": "string", "enum": [ "include", "exclude" ] }, { "$ref": "#/$defs/expression" } ]
+                            },
+                            "rule": {
+                              "description": "The filter rule expression.",
+                              "anyOf": [ { "type": "string", "minLength": 1 }, { "$ref": "#/$defs/expression" } ]
+                            }
+                          },
+                          "required": [ "mode", "rule" ]
+                        },
+                        { "$ref": "#/$defs/expression" }
+                      ]
+                    }
+                  }
+                },
+                { "$ref": "#/$defs/expression" }
+              ]
+            }
+          }
+        },
+        { "$ref": "#/$defs/expression" }
+      ]
+    },
+    "grantControls": {
+      "description": "Required unless sessionControls is set. operator defaults to OR; block must be alone; mfa and authenticationStrength are mutually exclusive. null removes the control.",
+      "anyOf": [
+        {
+          "type": [ "object", "null" ],
+          "properties": {
+            "operator": {
+              "description": "AND or OR (default OR).",
+              "anyOf": [ { "type": "string", "enum": [ "AND", "OR" ] }, { "$ref": "#/$defs/expression" } ]
+            },
+            "builtInControls": {
+              "description": "Built-in controls to require.",
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "block",
+                          "mfa",
+                          "compliantDevice",
+                          "domainJoinedDevice",
+                          "approvedApplication",
+                          "compliantApplication",
+                          "passwordChange",
+                          "unknownFutureValue"
+                        ]
+                      },
+                      { "$ref": "#/$defs/expression" }
+                    ]
+                  }
+                },
+                { "$ref": "#/$defs/expression" }
+              ]
+            },
+            "customAuthenticationFactors": {
+              "description": "Custom controls (ids).",
+              "anyOf": [
+                { "type": "array", "items": { "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] } },
+                { "$ref": "#/$defs/expression" }
+              ]
+            },
+            "termsOfUse": {
+              "description": "Terms of use ids.",
+              "anyOf": [
+                { "type": "array", "items": { "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] } },
+                { "$ref": "#/$defs/expression" }
+              ]
+            },
+            "authenticationStrength": {
+              "description": "Authentication strength policy: reference a declared one with { \"id\": \"[reference('name').id]\" } or a built-in id (00000000-0000-0000-0000-000000000002 MFA, ...0003 passwordless, ...0004 phishing-resistant).",
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "description": "The authentication strength policy id.",
+                      "anyOf": [ { "type": "string", "minLength": 1 }, { "$ref": "#/$defs/expression" } ]
+                    }
+                  },
+                  "required": [ "id" ]
+                },
+                { "$ref": "#/$defs/expression" }
+              ]
+            }
+          }
+        },
+        { "$ref": "#/$defs/expression" }
+      ]
+    },
+    "sessionControls": {
+      "description": "Session controls; required when grantControls is not set. null removes the control.",
+      "anyOf": [
+        {
+          "type": [ "object", "null" ],
+          "properties": {
+            "applicationEnforcedRestrictions": {
+              "description": "Use app-enforced restrictions.",
+              "anyOf": [
+                {
+                  "type": [ "object", "null" ],
+                  "properties": {
+                    "isEnabled": {
+                      "description": "Enable app-enforced restrictions.",
+                      "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/expression" } ]
+                    }
+                  }
+                },
+                { "$ref": "#/$defs/expression" }
+              ]
+            },
+            "cloudAppSecurity": {
+              "description": "Microsoft Defender for Cloud Apps session control.",
+              "anyOf": [
+                {
+                  "type": [ "object", "null" ],
+                  "properties": {
+                    "isEnabled": { "description": "Enable the control.", "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/expression" } ] },
+                    "cloudAppSecurityType": {
+                      "description": "Control type.",
+                      "anyOf": [
+                        { "type": "string", "enum": [ "mcasConfigured", "monitorOnly", "blockDownloads", "unknownFutureValue" ] },
+                        { "$ref": "#/$defs/expression" }
+                      ]
+                    }
+                  }
+                },
+                { "$ref": "#/$defs/expression" }
+              ]
+            },
+            "signInFrequency": {
+              "description": "Sign-in frequency.",
+              "anyOf": [
+                {
+                  "type": [ "object", "null" ],
+                  "properties": {
+                    "isEnabled": { "description": "Enable the control.", "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/expression" } ] },
+                    "type": {
+                      "description": "Unit of value.",
+                      "anyOf": [ { "type": "string", "enum": [ "days", "hours" ] }, { "$ref": "#/$defs/expression" } ]
+                    },
+                    "value": { "description": "Number of units.", "anyOf": [ { "type": "integer", "minimum": 1 }, { "$ref": "#/$defs/expression" } ] },
+                    "authenticationType": {
+                      "description": "Which authentication the frequency applies to.",
+                      "anyOf": [
+                        { "type": "string", "enum": [ "primaryAndSecondaryAuthentication", "secondaryAuthentication" ] },
+                        { "$ref": "#/$defs/expression" }
+                      ]
+                    },
+                    "frequencyInterval": {
+                      "description": "timeBased or everyTime.",
+                      "anyOf": [ { "type": "string", "enum": [ "timeBased", "everyTime" ] }, { "$ref": "#/$defs/expression" } ]
+                    }
+                  }
+                },
+                { "$ref": "#/$defs/expression" }
+              ]
+            },
+            "persistentBrowser": {
+              "description": "Persistent browser session.",
+              "anyOf": [
+                {
+                  "type": [ "object", "null" ],
+                  "properties": {
+                    "isEnabled": { "description": "Enable the control.", "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/expression" } ] },
+                    "mode": {
+                      "description": "always or never.",
+                      "anyOf": [ { "type": "string", "enum": [ "always", "never" ] }, { "$ref": "#/$defs/expression" } ]
+                    }
+                  }
+                },
+                { "$ref": "#/$defs/expression" }
+              ]
+            },
+            "continuousAccessEvaluation": {
+              "description": "Continuous access evaluation. Preview apiVersion only.",
+              "anyOf": [
+                {
+                  "type": [ "object", "null" ],
+                  "properties": {
+                    "mode": {
+                      "description": "disabled or strictEnforcement.",
+                      "anyOf": [
+                        { "type": "string", "enum": [ "disabled", "strictEnforcement", "unknownFutureValue" ] },
+                        { "$ref": "#/$defs/expression" }
+                      ]
+                    }
+                  }
+                },
+                { "$ref": "#/$defs/expression" }
+              ]
+            },
+            "disableResilienceDefaults": {
+              "description": "Disable resilience defaults.",
+              "anyOf": [ { "type": [ "boolean", "null" ] }, { "$ref": "#/$defs/expression" } ]
+            }
+          }
+        },
+        { "$ref": "#/$defs/expression" }
+      ]
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "expression": { "type": "string", "pattern": "^\\[.*\\]$", "description": "A template expression, for example [parameters('env')]." }
+  },
+  "x-entraarm": {
+    "type": "Microsoft.Entra/conditionalAccess/policies",
+    "parentType": null,
+    "graphPath": "/identity/conditionalAccess/policies",
+    "apiVersions": { "2026-10-01": "v1.0", "2026-10-01-preview": "beta" },
+    "nameMapsTo": "displayName",
+    "nameKind": "displayName",
+    "namePattern": "^\\S(.{0,254}\\S)?$",
+    "keyProperties": ["displayName"],
+    "requiredOnCreate": ["state", "conditions.users", "conditions.applications"],
+    "defaults": { "state": "enabledForReportingButNotEnforced", "conditions.clientAppTypes": ["all"], "grantControls.operator": "OR" },
+    "immutable": [],
+    "createOnly": [],
+    "secure": [],
+    "relationships": [],
+    "memberKey": {},
+    "stripOnRead": ["id", "createdDateTime", "modifiedDateTime", "templateId", "deletedDateTime"],
+    "nullable": {},
+    "permissions": {
+      "application": ["Policy.ReadWrite.ConditionalAccess", "Policy.Read.All", "Application.Read.All"],
+      "delegated": ["Policy.ReadWrite.ConditionalAccess", "Policy.Read.All", "Application.Read.All"],
+      "roles": ["Conditional Access Administrator", "Security Administrator"]
+    }
+  }
+}

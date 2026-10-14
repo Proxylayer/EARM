@@ -1,0 +1,14 @@
+{
+  "$schema": "https://entraarm.dev/schemas/2026-10-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "resources": [
+    {
+      // The Graph endpoint name is not an apiVersion; the JSON Schema pattern also rejects it, but the
+      // semantic UnknownApiVersion finding must be the only diagnostic reported for this path.
+      "type": "Microsoft.Entra/groups",
+      "apiVersion": "v1.0",
+      "name": "orders-admins",
+      "properties": { "displayName": "Orders Admins", "mailEnabled": false, "securityEnabled": true }
+    }
+  ]
+}

@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://entraarm.dev/schemas/2026-10-01/types/Microsoft.Entra/conditionalAccess.namedLocations.json",
+  "title": "Microsoft.Entra/conditionalAccess/namedLocations",
+  "description": "An IP or country named location. The resource name is the displayName; the Graph id is pinned in state. @odata.type selects the kind and is immutable (a kind change recreates the location).",
+  "type": "object",
+  "properties": {
+    "displayName": {
+      "description": "Set from the resource name; declaring it is only allowed when it equals the name.",
+      "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+    },
+    "@odata.type": {
+      "description": "Required: #microsoft.graph.ipNamedLocation or #microsoft.graph.countryNamedLocation.",
+      "anyOf": [
+        { "type": "string", "enum": [ "#microsoft.graph.ipNamedLocation", "#microsoft.graph.countryNamedLocation" ] },
+        { "$ref": "#/$defs/expression" }
+      ]
+    },
+    "isTrusted": { "description": "IP locations only; defaults to false.", "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/expression" } ] },
+    "ipRanges": {
+      "description": "IP locations: CIDR ranges ({ cidrAddress }); the IPv4/IPv6 @odata.type is inferred when omitted. Host bits must be zero.",
+      "anyOf": [
+        {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "@odata.type": {
+                    "description": "Range family.",
+                    "anyOf": [
+                      { "type": "string", "enum": [ "#microsoft.graph.iPv4CidrRange", "#microsoft.graph.iPv6CidrRange" ] },
+                      { "$ref": "#/$defs/expression" }
+                    ]
+                  },
+                  "cidrAddress": {
+                    "description": "CIDR block, for example 203.0.113.0/24 or 2001:db8::/32.",
+                    "anyOf": [ { "type": "string", "minLength": 1 }, { "$ref": "#/$defs/expression" } ]
+                  }
+                },
+                "required": [ "cidrAddress" ]
+              },
+              { "$ref": "#/$defs/expression" }
+            ]
+          }
+        },
+        { "$ref": "#/$defs/expression" }
+      ]
+    },
+    "countriesAndRegions": {
+      "description": "Country locations: ISO 3166-1 alpha-2 codes.",
+      "anyOf": [
+        { "type": "array", "items": { "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] } },
+        { "$ref": "#/$defs/expression" }
+      ]
+    },
+    "includeUnknownCountriesAndRegions": {
+      "description": "Country locations: include IP addresses that cannot be mapped to a country. Defaults to false.",
+      "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/expression" } ]
+    },
+    "countryLookupMethod": {
+      "description": "Country locations: how the country is determined. Defaults to clientIpAddress.",
+      "anyOf": [ { "type": "string", "enum": [ "clientIpAddress", "authenticatorAppGps" ] }, { "$ref": "#/$defs/expression" } ]
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "expression": { "type": "string", "pattern": "^\\[.*\\]$", "description": "A template expression, for example [parameters('env')]." }
+  },
+  "x-entraarm": {
+    "type": "Microsoft.Entra/conditionalAccess/namedLocations",
+    "parentType": null,
+    "graphPath": "/identity/conditionalAccess/namedLocations",
+    "apiVersions": { "2026-10-01": "v1.0", "2026-10-01-preview": "beta" },
+    "nameMapsTo": "displayName",
+    "nameKind": "displayName",
+    "namePattern": "^\\S(.{0,254}\\S)?$",
+    "keyProperties": ["displayName"],
+    "requiredOnCreate": ["@odata.type"],
+    "defaults": {},
+    "immutable": ["['@odata.type']"],
+    "createOnly": [],
+    "secure": [],
+    "relationships": [],
+    "memberKey": { "ipRanges": "cidrAddress" },
+    "stripOnRead": ["id", "createdDateTime", "modifiedDateTime"],
+    "nullable": {},
+    "permissions": {
+      "application": ["Policy.ReadWrite.ConditionalAccess", "Policy.Read.All"],
+      "delegated": ["Policy.ReadWrite.ConditionalAccess", "Policy.Read.All"],
+      "roles": ["Conditional Access Administrator", "Security Administrator"]
+    }
+  }
+}

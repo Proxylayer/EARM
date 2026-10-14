@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://entraarm.dev/schemas/2026-10-01/types/Microsoft.Entra/conditionalAccess.authenticationStrengths.json",
+  "title": "Microsoft.Entra/conditionalAccess/authenticationStrengths",
+  "description": "A custom authentication strength policy. The resource name is the displayName; built-in strengths are read-only and can only be referenced.",
+  "type": "object",
+  "properties": {
+    "displayName": {
+      "description": "Set from the resource name; declaring it is only allowed when it equals the name.",
+      "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+    },
+    "description": { "description": "Description.", "anyOf": [ { "type": [ "string", "null" ] }, { "$ref": "#/$defs/expression" } ] },
+    "allowedCombinations": {
+      "description": "Required: authentication method combinations, compared as a set. A combination is one method or a comma-separated list: password, voice, hardwareOath, softwareOath, sms, fido2, windowsHelloForBusiness, microsoftAuthenticatorPush, deviceBasedPush, temporaryAccessPassOneTime, temporaryAccessPassMultiUse, email, x509CertificateSingleFactor, x509CertificateMultiFactor, federatedSingleFactor, federatedMultiFactor, for example fido2 or password,microsoftAuthenticatorPush.",
+      "anyOf": [
+        { "type": "array", "items": { "anyOf": [ { "type": "string", "minLength": 1 }, { "$ref": "#/$defs/expression" } ] } },
+        { "$ref": "#/$defs/expression" }
+      ]
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "expression": { "type": "string", "pattern": "^\\[.*\\]$", "description": "A template expression, for example [parameters('env')]." }
+  },
+  "x-entraarm": {
+    "type": "Microsoft.Entra/conditionalAccess/authenticationStrengths",
+    "parentType": null,
+    "graphPath": "/policies/authenticationStrengthPolicies",
+    "apiVersions": { "2026-10-01": "v1.0", "2026-10-01-preview": "beta" },
+    "nameMapsTo": "displayName",
+    "nameKind": "displayName",
+    "namePattern": "^\\S(.{0,254}\\S)?$",
+    "keyProperties": ["displayName"],
+    "requiredOnCreate": ["allowedCombinations"],
+    "defaults": {},
+    "immutable": ["policyType"],
+    "createOnly": [],
+    "secure": [],
+    "relationships": [],
+    "memberKey": {},
+    "stripOnRead": ["id", "createdDateTime", "modifiedDateTime", "policyType", "requirementsSatisfied", "combinationConfigurations"],
+    "nullable": {},
+    "permissions": {
+      "application": ["Policy.ReadWrite.AuthenticationMethod", "Policy.Read.All"],
+      "delegated": ["Policy.ReadWrite.AuthenticationMethod", "Policy.Read.All"],
+      "roles": ["Authentication Policy Administrator"]
+    }
+  }
+}

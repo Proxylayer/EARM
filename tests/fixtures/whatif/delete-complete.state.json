@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "deploymentName": "delete-complete",
+  "tenantId": "11111111-1111-1111-1111-111111111111",
+  "createdOn": "2026-10-01T12:00:00+00:00",
+  "lastDeployedOn": "2026-10-01T12:00:00+00:00",
+  "lastStatus": "Succeeded",
+  "lastMode": "Incremental",
+  "lastTemplateHash": "sha256:previous",
+  "resources": {
+    "/providers/Microsoft.Entra/groups/contoso-dev-orders-ops": {
+      "type": "Microsoft.Entra/groups",
+      "apiVersion": "2026-10-01",
+      "key": {
+        "uniqueName": "contoso-dev-orders-ops"
+      },
+      "id": "22222222-0000-0000-0000-000000000012",
+      "dependsOn": [],
+      "lastWriteOn": "2026-10-01T12:00:00+00:00"
+    },
+    "/providers/Microsoft.Entra/groups/contoso-dev-retired": {
+      "type": "Microsoft.Entra/groups",
+      "apiVersion": "2026-10-01",
+      "key": {
+        "uniqueName": "contoso-dev-retired"
+      },
+      "id": "22222222-0000-0000-0000-000000000099",
+      "dependsOn": [],
+      "lastWriteOn": "2026-10-01T12:00:00+00:00"
+    }
+  },
+  "operations": []
+}

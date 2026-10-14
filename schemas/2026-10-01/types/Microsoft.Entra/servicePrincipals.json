@@ -1,0 +1,213 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://entraarm.dev/schemas/2026-10-01/types/Microsoft.Entra/servicePrincipals.json",
+  "title": "Microsoft.Entra/servicePrincipals",
+  "description": "A service principal. The resource name is the application (client) id; the principal is read via GET /servicePrincipals(appId='...') and created with POST /servicePrincipals { appId }. Properties not listed here are passed through to Graph unchanged.",
+  "type": "object",
+  "properties": {
+    "appId": {
+      "description": "Set from the resource name; declaring it is only allowed when it equals the name.",
+      "anyOf": [
+        { "type": "string", "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$" },
+        { "$ref": "#/$defs/expression" }
+      ]
+    },
+    "displayName": {
+      "description": "Display name (defaults to the application's).",
+      "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+    },
+    "description": { "description": "Description shown to users.", "anyOf": [ { "type": [ "string", "null" ] }, { "$ref": "#/$defs/expression" } ] },
+    "accountEnabled": { "description": "Defaults to true.", "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/expression" } ] },
+    "appRoleAssignmentRequired": {
+      "description": "Defaults to false: users and groups must be assigned a role to sign in.",
+      "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/expression" } ]
+    },
+    "tags": {
+      "description": "Custom tags (WindowsAzureActiveDirectoryIntegratedApp makes the application show in the portal).",
+      "anyOf": [
+        { "type": "array", "items": { "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] } },
+        { "$ref": "#/$defs/expression" }
+      ]
+    },
+    "notes": { "description": "Free-text notes.", "anyOf": [ { "type": [ "string", "null" ] }, { "$ref": "#/$defs/expression" } ] },
+    "loginUrl": {
+      "description": "Sign-in URL for SSO from My Apps.",
+      "anyOf": [ { "type": [ "string", "null" ] }, { "$ref": "#/$defs/expression" } ]
+    },
+    "logoutUrl": { "description": "Sign-out URL.", "anyOf": [ { "type": [ "string", "null" ] }, { "$ref": "#/$defs/expression" } ] },
+    "homepage": { "description": "Home page URL.", "anyOf": [ { "type": [ "string", "null" ] }, { "$ref": "#/$defs/expression" } ] },
+    "preferredSingleSignOnMode": {
+      "description": "Single sign-on mode.",
+      "anyOf": [ { "type": [ "string", "null" ], "enum": [ "oidc", "password", "saml", "notSupported", null ] }, { "$ref": "#/$defs/expression" } ]
+    },
+    "notificationEmailAddresses": {
+      "description": "Addresses notified before the SAML signing certificate expires.",
+      "anyOf": [
+        { "type": "array", "items": { "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] } },
+        { "$ref": "#/$defs/expression" }
+      ]
+    },
+    "replyUrls": {
+      "description": "Reply URLs.",
+      "anyOf": [
+        { "type": "array", "items": { "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] } },
+        { "$ref": "#/$defs/expression" }
+      ]
+    },
+    "alternativeNames": {
+      "description": "Alternative names.",
+      "anyOf": [
+        { "type": "array", "items": { "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] } },
+        { "$ref": "#/$defs/expression" }
+      ]
+    },
+    "samlSingleSignOnSettings": {
+      "description": "SAML single sign-on settings.",
+      "anyOf": [
+        {
+          "type": [ "object", "null" ],
+          "properties": {
+            "relayState": {
+              "description": "Relay state of the SAML response.",
+              "anyOf": [ { "type": [ "string", "null" ] }, { "$ref": "#/$defs/expression" } ]
+            }
+          }
+        },
+        { "$ref": "#/$defs/expression" }
+      ]
+    },
+    "owners": {
+      "description": "Ownership edge, target side: the full desired set of owner object ids.",
+      "anyOf": [
+        { "type": "array", "items": { "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] } },
+        { "$ref": "#/$defs/expression" }
+      ]
+    },
+    "memberOf": {
+      "description": "Group membership edge, principal side: group object ids this principal must belong to (never dynamic groups).",
+      "anyOf": [
+        { "type": "array", "items": { "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] } },
+        { "$ref": "#/$defs/expression" }
+      ]
+    },
+    "ownerOf": {
+      "description": "Ownership edge, principal side: object ids of applications, service principals or groups this principal must own.",
+      "anyOf": [
+        { "type": "array", "items": { "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] } },
+        { "$ref": "#/$defs/expression" }
+      ]
+    },
+    "appRoleAssignments": {
+      "description": "App role assignment edge, principal side (applied by the edge pass, tracked in state): [{ resourceId | resourceAppId, appRole | appRoleId }]. appRole is the role's value, resolved against the resource service principal; 00000000-0000-0000-0000-000000000000 is default access.",
+      "anyOf": [
+        {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "resourceId": {
+                    "description": "Object id of the resource service principal.",
+                    "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                  },
+                  "resourceAppId": {
+                    "description": "Application (client) id of the resource; resolved to its service principal.",
+                    "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                  },
+                  "appRole": {
+                    "description": "Value of the app role on the resource, for example Orders.Admin.",
+                    "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                  },
+                  "appRoleId": {
+                    "description": "Id of the app role (00000000-0000-0000-0000-000000000000 = default access).",
+                    "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                  }
+                },
+                "additionalProperties": false,
+                "allOf": [
+                  { "anyOf": [ { "required": [ "resourceId" ] }, { "required": [ "resourceAppId" ] } ] },
+                  { "anyOf": [ { "required": [ "appRole" ] }, { "required": [ "appRoleId" ] } ] }
+                ]
+              },
+              { "$ref": "#/$defs/expression" }
+            ]
+          }
+        },
+        { "$ref": "#/$defs/expression" }
+      ]
+    },
+    "directoryRoles": {
+      "description": "Directory role assignment edge, principal side (applied by the edge pass, tracked in state): [{ role | roleDefinitionId, directoryScopeId | administrativeUnit }]. role is a role template id, a built-in role display name, a custom role display name or its id. The scope defaults to '/' (tenant).",
+      "anyOf": [
+        {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "role": {
+                    "description": "Role template id, built-in role name (Global Reader), custom role display name or custom role id.",
+                    "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                  },
+                  "roleDefinitionId": {
+                    "description": "The role template id (roleTemplate('Display Name')); use role for names.",
+                    "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                  },
+                  "directoryScopeId": {
+                    "description": "Scope: '/' (tenant, default), '/administrativeUnits/{id}' or '/{applicationObjectId}'.",
+                    "anyOf": [ { "type": "string", "pattern": "^/" }, { "$ref": "#/$defs/expression" } ]
+                  },
+                  "administrativeUnit": {
+                    "description": "Sugar for an administrative-unit scope: the unit's object id or its template name (reference('Orders AU').id).",
+                    "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                  }
+                },
+                "additionalProperties": false,
+                "anyOf": [ { "required": [ "role" ] }, { "required": [ "roleDefinitionId" ] } ]
+              },
+              { "$ref": "#/$defs/expression" }
+            ]
+          }
+        },
+        { "$ref": "#/$defs/expression" }
+      ]
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "expression": { "type": "string", "pattern": "^\\[.*\\]$", "description": "A template expression, for example [parameters('env')]." }
+  },
+  "x-entraarm": {
+    "type": "Microsoft.Entra/servicePrincipals",
+    "parentType": null,
+    "graphPath": "/servicePrincipals",
+    "apiVersions": { "2026-10-01": "v1.0", "2026-10-01-preview": "beta" },
+    "nameMapsTo": "appId",
+    "nameKind": "appId",
+    "namePattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+    "keyProperties": ["appId"],
+    "requiredOnCreate": [],
+    "defaults": { "accountEnabled": true, "appRoleAssignmentRequired": false },
+    "immutable": ["appId", "servicePrincipalType"],
+    "createOnly": [],
+    "secure": [],
+    "relationships": [
+      { "property": "owners", "kind": "ownership", "side": "target" },
+      { "property": "memberOf", "kind": "groupMembership", "side": "principal" },
+      { "property": "ownerOf", "kind": "ownership", "side": "principal" },
+      { "property": "appRoleAssignments", "kind": "appRoleAssignment", "side": "principal" },
+      { "property": "directoryRoles", "kind": "directoryRoleAssignment", "side": "principal" }
+    ],
+    "memberKey": {},
+    "stripOnRead": ["id", "servicePrincipalType", "appOwnerOrganizationId", "appDisplayName", "appDescription", "applicationTemplateId", "appRoles", "oauth2PermissionScopes", "resourceSpecificApplicationPermissions", "signInAudience", "verifiedPublisher", "disabledByMicrosoftStatus", "createdDateTime", "deletedDateTime", "servicePrincipalNames", "passwordCredentials", "keyCredentials"],
+    "nullable": {},
+    "permissions": {
+      "application": ["Application.ReadWrite.OwnedBy", "Application.ReadWrite.All"],
+      "delegated": ["Application.ReadWrite.All"],
+      "roles": ["Cloud Application Administrator", "Application Administrator"],
+      "notes": "Service principals for first-party (Microsoft) application ids need Application.ReadWrite.All."
+    }
+  }
+}

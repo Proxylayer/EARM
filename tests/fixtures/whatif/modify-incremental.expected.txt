@@ -1,0 +1,67 @@
+Deployment 'modify-incremental' (Incremental) on tenant 11111111-1111-1111-1111-111111111111
+
+Resource and property changes are indicated with these symbols:
+  + Create
+  ~ Modify
+  - Delete
+  = NoChange
+  * Ignore
+  ? Value only known at deployment time
+  ! Change cannot be applied as planned
+
+The deployment would make the following changes:
+
+  ~ /providers/Microsoft.Entra/applications/contoso-dev-api [Microsoft.Entra/applications]
+      ~ properties.displayName: "Orders API (old)" => "Orders API"
+      ~ properties.web:
+          ~ redirectUris: [
+              + [1]: "https://orders.contoso.com/signin-oidc"
+              - [0]: "https://old.contoso.com/signin"
+            ]
+      ~ properties.appRoles: [
+          ~ ['6d2f1c0e-2b7a-4c1e-9a1b-4f3f1f6a0002']:
+              ~ isEnabled: true => false
+          + ['6d2f1c0e-2b7a-4c1e-9a1b-4f3f1f6a0003']:
+              id: "6d2f1c0e-2b7a-4c1e-9a1b-4f3f1f6a0003"
+              value: "Orders.Reader"
+              displayName: "Orders reader"
+              description: "Read orders"
+              allowedMemberTypes: [
+                0: "User"
+              ]
+              isEnabled: true
+        ]
+
+  ~ /providers/Microsoft.Entra/groups/contoso-dev-orders-admins [Microsoft.Entra/groups]
+      ~ properties.members: [
+          + [0]: "22222222-0000-0000-0000-000000000003"
+          - [1]: "22222222-0000-0000-0000-000000000001"
+        ]
+
+  + /providers/Microsoft.Entra/groups/contoso-dev-orders-auditors [Microsoft.Entra/groups]
+      name: "contoso-dev-orders-auditors"
+      type: "Microsoft.Entra/groups"
+      apiVersion: "2026-10-01"
+      properties:
+        displayName: "Orders Auditors"
+        mailEnabled: false
+        mailNickname: "orders-auditors"
+        securityEnabled: true
+
+  = /providers/Microsoft.Entra/groups/contoso-dev-orders-ops [Microsoft.Entra/groups]
+
+  ~! /providers/Microsoft.Entra/groups/contoso-legacy [Microsoft.Entra/groups]
+      ~ properties.mailNickname: "legacy" => "legacy-renamed"
+      ! Immutable property properties.mailNickname of Microsoft.Entra/groups 'contoso-legacy' differs from the live object and cannot be changed in place; restore the original value, or delete and recreate the resource.
+
+  ~? /providers/Microsoft.Entra/users/bg-orders@contoso.com [Microsoft.Entra/users]
+      + properties.usageLocation: "GB"
+      ~ properties.manager: "22222222-0000-0000-0000-000000000004" => "22222222-0000-0000-0000-000000000005"
+      ~ properties.memberOf: [
+          + [0]: "(deploy-time)"
+        ]
+
+Resource changes: 1 to create, 4 to modify, 0 to delete, 1 unchanged, 0 ignored.
+Edges: 3 to add, 1 to remove.
+Required permissions: Application.ReadWrite.All, Group.ReadWrite.All, GroupMember.ReadWrite.All, User.ReadWrite.All.
+1 change(s) cannot be applied as planned; see the rows marked '!'.

@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Test support library (not a test project): the in-memory Graph fake and the catalog-driven echo provider that
+    planner/executor tests drive the engine with. Deliberately dependency-light: no xUnit, so it can be referenced
+    from any test project or harness.
+  -->
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <UseMicrosoftTestingPlatformRunner>false</UseMicrosoftTestingPlatformRunner>
+    <IsTestProject>false</IsTestProject>
+    <Description>EntraARM test support: FakeGraphClient (in-memory Microsoft Graph) and EchoProvider.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/EntraArm.Engine/EntraArm.Engine.csproj" />
+  </ItemGroup>
+
+</Project>

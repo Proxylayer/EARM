@@ -1,0 +1,17 @@
+# Build outputs
+bin/
+obj/
+artifacts/
+TestResults/
+
+# IDE and per-user files
+.vs/
+.idea/
+*.user
+*.suo
+*.swp
+
+# EntraARM runtime: state files are committed, lock files are not
+.entraarm/state/*.lock
+
+# Note: .claude/scribe/ (project tracking documents) is intentionally NOT ignored.

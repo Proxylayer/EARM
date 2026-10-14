@@ -1,0 +1,8 @@
+{
+  "$schema": "https://entraarm.dev/schemas/2026-10-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "env": { "type": "text", "defaultValue": "dev" }
+  },
+  "resources": []
+}

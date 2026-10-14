@@ -1,0 +1,9 @@
+{
+  "$schema": "https://entraarm.dev/schemas/2026-10-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "env": { "value": "dev" },
+    "officeCidrs": { "value": ["203.0.113.0/24", "2001:db8:1::/48"] },
+    "adminObjectIds": { "value": [] }
+  }
+}

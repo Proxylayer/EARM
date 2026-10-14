@@ -1,0 +1,430 @@
+# Resource providers (`EntraArm.Providers`)
+
+How a `Microsoft.Entra/<type>` provider is written, registered and tested. The engine side of the contract
+(`IResourceProvider`, `ProviderBase`, `JsonDiff`, `ResourceInstance`, `FakeGraphClient`) is described in
+[engine.md](engine.md); this page is the checklist for adding a type without touching any shared file.
+
+## Registration is by discovery
+
+`ProviderDiscovery.CreateRegistry(catalog)` (called once per command by the CLI composition root,
+`EngineServices`) scans the `EntraArm.Providers` assembly for every non-abstract class that implements
+`IResourceProvider`, reads its `[EntraProvider("Microsoft.Entra/<type>")]` attribute, looks the type up in the
+`ResourceTypeCatalog` (the `x-entraarm` overlay of `schemas/2026-10-01/types/Microsoft.Entra/<type>.json`) and
+constructs the provider with the first constructor it finds among
+
+```
+(ResourceTypeDefinition definition, ResourceTypeCatalog catalog)   // preferred
+(ResourceTypeDefinition definition)
+(ResourceTypeCatalog catalog)
+()
+```
+
+Nothing else is needed: no registration list, no edit to `EngineServices`. The following mistakes fail at startup
+with a message naming the class:
+
+- a concrete `IResourceProvider` without the attribute (a forgotten attribute would otherwise be a silent gap);
+- an attribute naming a type the catalog does not define (add the type schema first);
+- two classes claiming the same type;
+- a class without one of the constructors above, or whose `TypeName` differs from the attribute.
+
+A class may carry the attribute more than once when one implementation serves several catalog types.
+
+## Writing a provider
+
+```csharp
+[EntraProvider(ResourceType)]
+public sealed class GroupsProvider : ProviderBase
+{
+    public const string ResourceType = "Microsoft.Entra/groups";
+
+    public GroupsProvider(ResourceTypeDefinition definition, ResourceTypeCatalog? catalog = null)
+        : base(definition, catalog)
+    {
+    }
+
+    public override Task<ExistingResource?> ReadAsync(ResourceKey key, string? stateId, IGraphClient graph, CancellationToken ct) { ... }
+    public override Task<AppliedResource> CreateAsync(ResourceInstance desired, IGraphClient graph, CancellationToken ct) { ... }
+    public override Task<AppliedResource> UpdateAsync(ResourceInstance desired, ExistingResource existing, ResourceChange change, IGraphClient graph, CancellationToken ct) { ... }
+    public override Task DeleteAsync(StateEntry entry, IGraphClient graph, CancellationToken ct) { ... }
+}
+```
+
+Derive from `ProviderBase` and implement the four Graph calls; override `Plan`, `ResolveKey` or
+`RequiredPermissions` only for per-type behaviour. The base class gives you, from the overlay:
+
+| Need | Use |
+|---|---|
+| The Graph key from the ARM-style `name` (`uniqueName`, `userPrincipalName`, `appId`, `displayName`, `parent/child`, composite) | `ResolveKey(desired)` (base), `KeyForIdentifier` |
+| The collection and entity paths | `CollectionPath` (`/applications`), `GraphPathFor(key)` / `SubstitutePath` for `{parentId}` / `{resourceId}` placeholders, `GraphPath.AlternateKey(collection, "uniqueName", value)` (doubles `'`), `GraphPath.Segment(id)` |
+| The live object for the diff and for `reference()` | `ToExisting(live)` (applies `stripOnRead`), `StripServerManaged` |
+| The create body | `BuildCreateBody(desired)`: object properties + the name injected into `nameMapsTo` (a different declared value throws `NameMappedPropertyConflict`) + overlay `defaults` + **secrets revealed**. This and `BuildPatchBody` are the only places a `SecretValue` becomes plain text; never log or store the result. |
+| The update body | `BuildPatchBody(desired, existing, change)`: the effective deltas as a merge-PATCH (arrays and nested objects whole, explicit `null` for live-only sub-properties unless `nullable: false`) |
+| The diff | `Plan` (base): `JsonDiff` with the overlay's `memberKey`, `nullable`, `createOnly`, `immutable` (error, or `Recreate` when `immutable: ["*"]`), `requiredOnCreate` |
+| Existing-resource lookups (`reference(resourceId(...), apiVersion)`) | `ReadExistingAsync` (base) calls your `ReadAsync` with the key the id implies; nothing to do for name-keyed types |
+
+Rules every provider follows:
+
+1. **`ResourceInstance.RetryHint` goes on every write request** (`new GraphRequest(path, desired.Api, hint: desired.RetryHint)`):
+   when a dependency was created in this run the executor sets `ExpectReplicationLag` and the Az layer retries
+   404 / "does not reference a valid …" for up to 90 s. Reads use the default hint (a 404 on read means "create").
+   A write that addresses an object *you* created a moment earlier (a second PATCH after a create) uses
+   `RetryHint.ExpectReplicationLag` explicitly.
+2. **Read the pinned Graph id first** (`stateId`, from the state file), then the key; a 404 on the pinned id is
+   drift and falls back to the key. Return `null` when nothing exists; throw
+   `ProviderException(ProviderException.AmbiguousMatch, …)` when a displayName lookup matches several objects.
+3. **Edge properties never reach the body or the diff.** The overlay's `relationships` (`owners`, `members`,
+   `memberOf`, `manager`, …) are split off by the engine into `ResourceInstance.EdgeProperties` before your
+   provider sees `Properties`; the edge pass applies them. Declare them in the overlay, not in code, and do not
+   read them back into the body. `RequiredPermissions` may consult `EdgeProperties` (the applications provider
+   returns `Application.ReadWrite.OwnedBy` only when `owners` is declared).
+4. **Select the managed property set on reads** (`.WithSelect(...)`): users return a tiny default set, and a
+   property the template declares but the read does not return would show as drift on every run.
+5. **Let `GraphException` propagate**; the executor classifies it (retry, "already exists" → re-read and adopt,
+   terminal). Throw `ProviderException` (with an `EngineDiagnosticCodes` or provider constant such as
+   `SoftDeletedConflict`) for failures that are not Graph errors. Treat a 404 on delete as "already gone".
+6. **Soft delete.** For types Graph keeps in `/directory/deletedItems` (applications, M365 groups, users, service
+   principals, administrative units) probe before a create whose key lookup was a 404; a hit is
+   `ProviderException(SoftDeletedConflict)` unless `PlanOptions.OnSoftDeletedConflict == Restore`, in which case
+   `POST /directory/deletedItems/{id}/restore` and continue with the upsert. `PlanOptions` only reaches `Plan`;
+   capture what `CreateAsync` needs there (the executor plans each instance right before applying it).
+7. **Never `JsonNode.DeepClone` evaluated properties** (secret and unknown leaves are lost); use `JsonValues.Clone`.
+8. **Put per-type pure logic in a separate static class** (`ApplicationsRules`) so it can be unit-tested without
+   Graph, and keep provider state out of instance fields: one provider instance serves every resource of its type,
+   in parallel. Deployment-wide snapshots (the `PlanOptions` of rule 6) are the only exception.
+9. **Sugar and live-data validation go in `PrepareAsync`** (override of `ProviderBase.PrepareAsync`, called by the
+   planner and the executor on the evaluated instance right before `ResolveKey`). It is the only asynchronous hook
+   that sees `desired` before the key and the plan: rewrite `desired.Properties` in place (`resourceAppId` →
+   `resourceId`, `appRole` → `appRoleId`, `scopes` → `scope`) so the composite key, the diff, the create body and the
+   state key all see canonical ids, and throw `ProviderException` for anything Graph would accept but the template
+   author got wrong (a role value the resource does not define, a scope it does not expose): that is an unsupported
+   what-if row and a failed create. Leave deploy-time-unknown leaves alone (or move them under the canonical name).
+   `PrepareAsync` must be idempotent; the CLI may evaluate an instance twice (what-if, then create).
+
+### Worked example: `ApplicationsProvider`
+
+Requests per operation (every read selects `ApplicationsProvider.ManagedProperties`):
+
+| Operation | Requests |
+|---|---|
+| Read | `GET /applications/{pinnedId}` (when the state knows it) → `GET /applications(uniqueName='…')` → `GET /applications(appId='…')` (only when the template declares `appId`, to adopt a brownfield app whose `uniqueName` is still unset) |
+| Create | `GET /directory/deletedItems/microsoft.graph.application?$filter=uniqueName eq '…'&$count=true` (`ConsistencyLevel: eventual`; falls back to listing the deleted applications if Graph rejects the filter) → `[POST /directory/deletedItems/{id}/restore]` → `PATCH /applications(uniqueName='…')` + `Prefer: create-if-missing` (201: created; 204: existed → `GET /applications(uniqueName='…')` and adopt) → `[PATCH /applications/{id} { identifierUris }]` when any URI carries `{appId}` |
+| Update | `[PATCH /applications/{id}` disabling removed/changed roles and scopes `]` → `PATCH /applications/{id}` (merge body) → `GET /applications/{id}` |
+| Delete | `DELETE /applications/{id}` (soft delete; a 404 is tolerated) |
+
+Type-specific rules (all in `ApplicationsRules`, pure):
+
+- `appRoles` and `api.oauth2PermissionScopes` are matched by `id`. A member declared without `id` gets
+  `v5(v5(ApplicationsRules.DerivedIdNamespace, uniqueName), value)` — stable across runs — and the derived ids are
+  recorded in the state entry's `extra.derivedIds`. `isEnabled` defaults to `true`.
+- Removing a member, or changing its `value` / `allowedMemberTypes` (roles) / `type` (scopes), takes two PATCHes:
+  the live array with those members `isEnabled: false`, then the final array.
+- `value` must be unique across roles and scopes (a plan error otherwise).
+- `identifierUris` entries containing `{appId}` (`api://{appId}`) are written by a second PATCH after the create;
+  on later runs the placeholder is substituted with the live appId before the diff.
+- Live `api.requestedAccessTokenVersion: null` compares as `1`; live `web.implicitGrantSettings` always has both
+  booleans; the server-managed `origin` of roles/scopes is ignored; `keyCredentials` takes part in the diff only
+  when declared (passthrough).
+- `name` vs a declared `properties.uniqueName` that differs is an error; a declared `appId` is only a lookup key
+  (never written) and is an error when no application exists for it.
+
+### Worked example: `PasswordCredentialsProvider` (one-time secrets)
+
+`Microsoft.Entra/applications/passwordCredentials`: the name is `<application uniqueName>/<credential displayName>`;
+the credential is matched among the application's `passwordCredentials` by `displayName` (the `keyId` pinned in
+the state first, else the newest). Graph never edits a credential and returns `secretText` exactly once, from
+`addPassword`, so every change is a replacement and the secret is handled as below. Action URLs always address
+the application by object id (state `parentId`, the parent applied in this run, or an id lookup); only reads use
+`/applications(uniqueName='…')`.
+
+| Operation | Requests |
+|---|---|
+| Read | `GET /applications/{parentId}?$select=id,passwordCredentials` (or `GET /applications(uniqueName='…')?$select=…`); a 404 is "does not exist" |
+| Create | `[GET /applications(uniqueName='…')?$select=id]` when the parent's id is not known → `POST /applications/{id}/addPassword { "passwordCredential": { "displayName", "endDateTime"[, "startDateTime"] } }` |
+| Rotate (`Modify`, mode `Patch`) | the same `addPassword` **first**, then `POST /applications/{id}/removePassword { "keyId" }` for every live same-name credential except the new one (a consumer never sees a moment without a valid secret; the executor's `Recreate` path would delete first, so the row is `Patch` and `UpdateAsync` does the replacement) |
+| Delete | `GET /applications/{parentId}?$select=id,passwordCredentials` (404 = the application and its credentials are gone) → `removePassword` for the recorded `keyId` and every same-name leftover; an unknown `keyId` (404, or Graph's 400 "No password credential found with keyId …") counts as removed |
+
+Type-specific rules (all in `PasswordCredentialsRules`, pure):
+
+- `Plan`: `Create` when no same-name credential exists; otherwise `NoChange` unless the `rotationTag` differs from
+  the one recorded in the state entry's `extra` (absent ≡ absent; Graph does not store it, so the provider reads it
+  through `PlanOptions.State`), a declared `endDateTime` / `startDateTime` differs from the live value (instants
+  within one second are equal, so an offset in the template does not drift), the credential expired, or it expires
+  within `rotateBeforeDays` (template property, default 30). The what-if row carries `properties.rotationTag` /
+  `properties.endDateTime` / `properties.startDateTime` deltas and a reason that names the trigger.
+- `endDateTime` defaults to "now + 180 days" **once**, at create; it is recorded in `extra` and compared against the
+  live expiry on reruns, never against a fresh default.
+- The published live object is `{ id, keyId, displayName, startDateTime, endDateTime, hint, secretText,
+  secretTextAvailable }`: in the creating / rotating run `secretText` is a `SecretJson` leaf (so
+  `reference('…').secretText` is a secure-tainted value that flows to a `securestring` output and nowhere else);
+  on reruns it is `null` with `secretTextAvailable: false`, and the executor reports an output that reads it as
+  `null` with the `SecretNotAvailableOnRerun` warning instead of failing the run (`LiveSecrets`, engine.md step 8).
+- The state entry records `extra: { keyId, endDateTime, hint, rotationTag }` and never the secret; `id` is the
+  `keyId`, `parentId` the application's object id.
+- Permissions follow the applications provider: `Application.ReadWrite.OwnedBy` when the parent application is
+  declared in the template, otherwise `Application.ReadWrite.All`.
+- A declared `properties.displayName` that differs from the name, a date that does not parse, a non-scalar
+  `rotationTag` or a negative `rotateBeforeDays` make the row unsupported; a name without the parent segment is
+  an offline validation error.
+
+### Worked example: GUID-named types (`AppRoleAssignmentsProvider`, `OAuth2PermissionGrantsProvider`)
+
+The name is a deterministic GUID the author picks with `guid(...)` (the core validator rejects anything else); the
+Graph object is found by the overlay's composite `keyProperties` and its id pinned in the state; a composite change
+under the same name is `Modify`/`Recreate`. The overlay says `immutable: ["*"]`, which the catalog folds into
+`ImmutableAll` with an empty per-property list; `ProviderBase.Plan` treats every effective difference of an existing
+object of such a type as an immutable change and, since `RecreateOnImmutableChange` defaults to `ImmutableAll`, plans
+`Recreate` (the executor deletes, then creates). A provider only needs its own `Plan` for type-specific validation
+or reasons.
+
+**Reading the previous key.** `ReadAsync` receives the pinned Graph id (`stateId`) but not the key the state
+recorded, which is what a GUID-named type needs when the composite members changed under the same name (the live
+object is then found by the pinned id, and the diff shows the composite deltas). The recorded key is available to
+`Plan` without any engine support: `options.State?.Find(desired.Id.Id)` returns the `StateEntry` of the previous
+run (`null` when the resource is new or no state was supplied), whose `Key` is the recorded `keyProperties`
+dictionary and whose `ToResourceKey(Catalog)` rebuilds the `ResourceKey` the entry was read by. `PlanOptions.State`
+is read-only for providers; `DeleteAsync` gets the same entry directly.
+
+`Microsoft.Entra/appRoleAssignments` — key (`principalId`, `resourceId`, `appRoleId`); sugar `resourceAppId` (the
+resource application's id) and `appRole` (the role's `value`); `00000000-0000-0000-0000-000000000000` is default access.
+
+| Operation | Requests |
+|---|---|
+| Prepare | `GET /servicePrincipals(appId='…')` (sugar) or `GET /servicePrincipals/{resourceId}`, `$select=id,appId,displayName,appRoles,oauth2PermissionScopes`, under the instance hint → `[GET /directoryObjects/{principalId}?$select=id]` when the role restricts `allowedMemberTypes`. Unknown role value or id, disabled role, or a role the principal's kind may not hold (users and groups are `User`, service principals `Application`) ⇒ `ProviderException(AppRoleAssignmentInvalid)` |
+| Read | `GET /servicePrincipals/{resourceId}/appRoleAssignedTo/{pinnedId}` (state id) → `GET /servicePrincipals/{resourceId}/appRoleAssignedTo?$top=999` (every page) matched on `principalId` + `appRoleId`; a 404 of the resource is "does not exist" |
+| Create | `POST /servicePrincipals/{resourceId}/appRoleAssignedTo { principalId, resourceId, appRoleId }` under the instance hint; 400 "Permission being assigned already exists" ⇒ re-read by composite (`ExpectReplicationLag`) and adopt. `AppliedResource.Extra` = the resolved ids |
+| Update | never (`Recreate` instead) |
+| Delete | `DELETE /servicePrincipals/{resourceId}/appRoleAssignedTo/{id}` (404 tolerated); the `resourceId` comes from the state key |
+
+`Microsoft.Entra/oauth2PermissionGrants` — key (`clientId`, `resourceId`, `consentType`, `principalId`; the last one
+only for `Principal`, written as explicit `null` for `AllPrincipals`); sugar `scopes: [...]` → `scope`; `scope` is a
+set of values (order-insensitive, duplicates collapsed; the PATCH keeps the template's order).
+
+| Operation | Requests |
+|---|---|
+| Prepare | `GET /servicePrincipals/{resourceId}` (summary select) under the instance hint; a value absent from the resource's `oauth2PermissionScopes`, or disabled there, ⇒ `ProviderException(PermissionGrantInvalid)` (Graph itself accepts any text) |
+| Read | `GET /oauth2PermissionGrants/{pinnedId}` → `GET /oauth2PermissionGrants?$filter=clientId eq '…' and resourceId eq '…' and consentType eq '…'[ and principalId eq '…']` |
+| Create | `POST /oauth2PermissionGrants { clientId, resourceId, consentType, principalId, scope }`; 400 "Permission entry already exists" ⇒ lookup by key, `PATCH { scope }` when the set differs, re-read and adopt |
+| Update | `PATCH /oauth2PermissionGrants/{id} { scope }` → `GET /oauth2PermissionGrants/{id}` |
+| Delete | `DELETE /oauth2PermissionGrants/{id}` (404 tolerated) |
+
+Pure rules live in `AppRoleAssignmentsRules` (declared shape, `allowedMemberTypes`, the `{resourceId}/{appRoleId}`
+target key, the edge identity) and `OAuth2PermissionGrantsRules` (consent types, scope tokens and set equality,
+unknown / disabled scope values); the Graph reads shared with the edge kind are in `AppRoleAssignmentsLookup`.
+
+### Worked example: `ServicePrincipalsProvider` (a name that depends on another resource)
+
+`Microsoft.Entra/servicePrincipals`: the name is the application (client) id, a literal GUID or an expression such as
+`[reference('contoso-dev-web').appId]` that the engine resolves once the application exists (a *symbolic id*, see
+[engine.md](engine.md#symbolic-names)). Every read selects `ServicePrincipalsProvider.ManagedProperties`.
+
+| Operation | Requests |
+|---|---|
+| Read | `GET /servicePrincipals/{pinnedId}` (state id; ignored when its `appId` is not the key's) → `GET /servicePrincipals(appId='…')`; a 404 is "does not exist" |
+| Create | `POST /servicePrincipals { appId, accountEnabled, appRoleAssignmentRequired, …declared properties }` under the instance's retry hint (`ExpectReplicationLag` when the application was created in this run: the 400 "does not reference a valid application object" and the 404 are retried for up to 90 s). A 400 "same value for property appId already exists" means the principal exists (auto-provisioned, or not yet visible to the read): it is re-read by `appId` under the lag hint and adopted, with one `PATCH /servicePrincipals/{id}` when the declared properties differ, then re-read |
+| Update | `PATCH /servicePrincipals/{id}` (merge body: changed scalars; `tags`, `notificationEmailAddresses`, `replyUrls`, `alternativeNames` and `samlSingleSignOnSettings` whole) → `GET /servicePrincipals/{id}` |
+| Delete | `DELETE /servicePrincipals/{id}` (soft delete; cascades the principal's assignments and grants in both directions); a 404 is "already gone" |
+
+Type-specific rules (`ServicePrincipalsRules`, pure):
+
+- The overlay defaults `accountEnabled: true` and `appRoleAssignmentRequired: false` are part of the desired state: `Plan`
+  fills them in, so a principal that drifted from a default is corrected on the next run.
+- `appRoles` and `oauth2PermissionScopes` of the principal mirror the application's and lag an application PATCH by
+  seconds. They are selected (for `reference()`) but stripped from the diff; resolving role or scope ids goes through
+  `ServicePrincipalLookup.FindByAppIdAsync`, which always reads fresh.
+- `owners`, `memberOf`, `ownerOf`, `appRoleAssignments` and `directoryRoles` are edge properties (applied by the edge
+  pass, never in the body).
+- Permissions: `Application.ReadWrite.OwnedBy` when the principal's application is a resource of the template (the
+  name references it, or `dependsOn` names it), otherwise `Application.ReadWrite.All` (first-party application ids
+  always need `.All`). Reference first-party principals with `reference(resourceId(...), apiVersion)`; never manage them.
+
+### Worked example: `FederatedIdentityCredentialsProvider` (an alternate key under a parent)
+
+`Microsoft.Entra/applications/federatedIdentityCredentials`: the name is `<application uniqueName>/<credential name>`
+(nested children are flattened to that form by the loader). Every path starts with the parent segment:
+`/applications/{parentId}` when the parent's Graph id is known (applied in this run, read during planning or pinned in the
+state), otherwise `/applications(uniqueName='…')`.
+
+| Operation | Requests |
+|---|---|
+| Read | `GET {parent}/federatedIdentityCredentials/{pinnedId}` → `GET {parent}/federatedIdentityCredentials(name='…')` → `GET {parent}/federatedIdentityCredentials` (the siblings, for the uniqueness and limit checks); a 404 is "does not exist" |
+| Create / Update | the upsert `PATCH {parent}/federatedIdentityCredentials(name='…')` + `Prefer: create-if-missing` (201: created, the body is the object; 204: merged into the existing one, re-read); when the parent's id was not known, `GET /applications(uniqueName='…')?$select=id` first so the state entry records `parentId` |
+| Delete | `DELETE {parent}/federatedIdentityCredentials(name='…')`; a 404 is "already gone" |
+
+`Plan` refuses (an unsupported what-if row, a failed create) a name outside the overlay pattern
+(`^[A-Za-z][A-Za-z0-9-]{2,119}$`), a non-https `issuer`, an empty `subject`, `claimsMatchingExpression` on the v1.0
+apiVersion, an `issuer` + `subject` pair already used by another credential of the application (live, or declared
+elsewhere in the same deployment) and a 21st credential. A rename is a new resource: the old credential is detached
+(Incremental) or deleted by the mode pass (Complete) after the apply pass, so a rename that keeps issuer and subject is
+refused until the old credential is gone. Permissions follow the parent rule of the password credentials above.
+
+### Worked example: `UsersProvider` (create-only secrets, action-backed licenses)
+
+`Microsoft.Entra/users`: the name is the `userPrincipalName` (a guest's `#EXT#` is percent-encoded on the path). Every read
+selects `UsersProvider.ManagedProperties` (a user read returns a tiny default set otherwise).
+
+| Operation | Requests |
+|---|---|
+| Read | `GET /users/{pinnedId}` → `GET /users/{upn}`; a 404 is "does not exist". When the user holds licenses `GET /subscribedSkus` runs once per run to resolve `skuPartNumber` |
+| Create | soft-delete probe `GET /directory/deletedItems/microsoft.graph.user?$filter=userPrincipalName eq '…'` (advanced query; a 400 falls back to listing) → on a hit `ProviderException(SoftDeletedConflict)`, or with `--on-soft-deleted-conflict restore` `POST /directory/deletedItems/{id}/restore` + `PATCH /users/{id}` + `GET /users/{id}`; otherwise `POST /users`; then `POST /users/{id}/assignLicense` when `assignedLicenses` is declared |
+| Update | `PATCH /users/{id}` (merge body; never `passwordProfile`, `userPrincipalName` or `id`) → `GET /users/{id}` → `POST /users/{id}/assignLicense` for the add/remove delta of the **direct** assignments |
+| Delete | `DELETE /users/{id}` (soft delete, 30-day recycle bin; the UPN stays reserved); a 404 is "already gone" |
+
+Type-specific rules (`UsersRules`, `UsersLicensing`, pure):
+
+- Defaults: `accountEnabled: true` (part of the desired state), `mailNickname` derived from the UPN local part (create only),
+  `passwordProfile.forceChangePasswordNextSignIn: true`.
+- `passwordProfile` is create-only and write-only: never diffed (a declared one on an existing user is ignored), never in
+  a PATCH, and its `password` is tainted at plan time, so what-if, logs, diagnostics and the state hash only see `***`;
+  the plain text exists in the `POST /users` body alone. Without a declared password a random 24-character one is
+  generated at create time. Either way it is published on the live object as a secret, so
+  `[reference('alice@contoso.com').passwordProfile.password]` can feed a `securestring` output in the creating run
+  (convention: `<localPart>InitialPassword`); later runs cannot read it. The state records only
+  `extra.generatedPassword` (a flag), never the value.
+- `userPrincipalName` is immutable: a live user whose UPN differs from the name is an unsupported change.
+- `assignedLicenses` reconciles the declared list against the **direct** assignments only
+  (`licenseAssignmentStates[].assignedByGroup == null`), so group-inherited licenses are never removed from the user side;
+  a non-empty declaration needs `usageLocation` (declared or live; the offline validator reports
+  `AssignedLicensesRequireUsageLocation`).
+- `manager`, `memberOf`, `ownerOf`, `administrativeUnits`, `appRoleAssignments` and `directoryRoles` are edge properties
+  (the engine keeps them out of `Properties`). Permissions: `User.ReadWrite.All` plus the overlay's
+  `permissions.conditional` entry of every edge or action property the template declares; `ownerOf` also needs the
+  target type's permission, which that provider reports.
+
+### Worked example: Conditional Access (`NamedLocationsProvider`, `ConditionalAccessPoliciesProvider`)
+
+Both are named by `displayName`; the Graph id is pinned in the state after the first run. A lookup that finds no object
+is a create, one hit is the object, several hits are `ProviderException(AmbiguousMatch)` listing the ids (resolve with
+`entraarm state adopt --resource-id … --object-id …`).
+
+`Microsoft.Entra/conditionalAccess/namedLocations`:
+
+| Operation | Requests |
+|---|---|
+| Read | `GET /identity/conditionalAccess/namedLocations/{pinnedId}` (a 404 is drift) → `GET /identity/conditionalAccess/namedLocations?$filter=displayName eq '…'` |
+| Create | `POST /identity/conditionalAccess/namedLocations` (the response body is the object) |
+| Update | `PATCH …/{id}`, the body **always** carrying `@odata.type` (Graph requires it on this collection) → `GET …/{id}` |
+| Delete | `DELETE …/{id}`; a 400 while a policy references the location is surfaced as `ReferencedByPolicy` |
+
+`@odata.type` selects the kind (`#microsoft.graph.ipNamedLocation`: `ipRanges`, `isTrusted`;
+`#microsoft.graph.countryNamedLocation`: `countriesAndRegions`, `includeUnknownCountriesAndRegions`,
+`countryLookupMethod`) and is immutable: a kind change is `Modify`/`Recreate` (delete, then create; Graph refuses the
+delete while a policy references the location). `NamedLocationsRules.NormalizeDesired` runs inside `Plan` (so what-if,
+bodies and the state hash describe the same object): the IPv4/IPv6 range `@odata.type` is inferred when omitted, a CIDR with
+host bits set is rejected, ranges and country codes are canonicalised, and the live object is normalised the same way,
+so reordered or differently spelt ranges are not drift.
+
+`Microsoft.Entra/conditionalAccess/policies`:
+
+| Operation | Requests |
+|---|---|
+| Read | `GET /identity/conditionalAccess/policies/{pinnedId}` (a 404 is drift) → `GET /identity/conditionalAccess/policies?$filter=displayName eq '…'` |
+| Create | `POST /identity/conditionalAccess/policies` |
+| Update | `PATCH …/{id}` carrying every changed top-level property **whole** (`conditions`, `grantControls`, `sessionControls` are replaced, not merged, by Graph; a removed control is an explicit `null`) → `GET …/{id}` |
+| Delete | `DELETE …/{id}`; a 404 is "already gone" |
+
+`ConditionalAccessPoliciesRules.NormalizeDesired` fills the defaults (`state: enabledForReportingButNotEnforced`,
+`conditions.clientAppTypes: ["all"]`, `grantControls.operator: OR`) and reduces `authenticationStrength` to `{ id }`;
+`NormalizeLive` removes read-back noise (`customAuthenticationFactors: []`, `termsOfUse: []`, `platforms: null`). `Plan` refuses
+what Graph would reject or the plan guards against: `state: enabled` without `--allow-ca-enforce`, an empty users or
+applications include, no control at all, `block` combined with another control, `mfa` together with
+`authenticationStrength`, the lockout pattern (all users + all applications + block with no exclusion) and the
+preview-only properties (`templateId`, `partialEnablementStrategy`, `sessionControls.continuousAccessEvaluation`) on
+the v1.0 apiVersion. References are by id: users and groups by object id, `includeApplications` by application (client) id,
+locations by named location id (`reference('Contoso offices').id` makes the dependency), roles by role template id. The
+last `PlanOptions` seen is kept so a direct `CreateAsync`/`UpdateAsync` applies the same guard.
+
+### Worked example: authentication context and authentication strength (`WI-20`)
+
+`Microsoft.Entra/conditionalAccess/authenticationContextClassReferences`: the name **is** the Graph id (`c1`..`c99`, pattern
+`^c[1-9][0-9]?$`); there is no displayName lookup and the state id is the name. Graph upserts on this collection.
+
+| Operation | Requests |
+|---|---|
+| Read | `GET /identity/conditionalAccess/authenticationContextClassReferences/{id}`; a 404 is "create" |
+| Create | `PATCH …/{id} { displayName, description, isAvailable }` (the response object when Graph returns one, otherwise `GET …/{id}`) |
+| Update | `PATCH …/{id}` (merge body of the changed scalars) → `GET …/{id}` |
+| Delete | `GET …/{id}` (404 = already gone) → `PATCH …/{id} { isAvailable: false }` while the context is still available (Graph refuses to delete an available one) → `DELETE …/{id}`; a 400 (still available, or referenced by a policy's `includeAuthenticationContextClassReferences`) is surfaced as `Referenced` |
+
+`Plan` requires `displayName` and defaults `isAvailable: true` into the evaluated properties, so a context switched off
+outside EntraARM shows as drift. The id is immutable by definition: another name is another resource, never a recreate.
+Policies reference a context by id (`"includeAuthenticationContextClassReferences": ["c10"]`, or
+`[reference(resourceId('Microsoft.Entra/conditionalAccess/authenticationContextClassReferences', 'c10')).id]` to get the
+ordering dependency).
+
+`Microsoft.Entra/conditionalAccess/authenticationStrengths`: the name is the `displayName`; only custom strengths
+(`policyType: custom`) are managed. The built-in ones (Multifactor authentication, Passwordless MFA, Phishing-resistant
+MFA) are read-only: reference them with
+`reference(resourceId('Microsoft.Entra/conditionalAccess/authenticationStrengths', '<display name>'), '2026-10-01').id`
+(the existing-resource lookup matches built-ins too) or the well-known ids
+(`00000000-0000-0000-0000-000000000002` MFA, `…0003` passwordless, `…0004` phishing-resistant).
+
+| Operation | Requests |
+|---|---|
+| Read | `GET /policies/authenticationStrengthPolicies/{pinnedId}` (a 404 is drift) → `GET /policies/authenticationStrengthPolicies` (every page; the displayName match is client-side because `$filter` on this collection is unverified): one custom hit is the object, several are `AmbiguousMatch`, only a built-in hit is the built-in (which `Plan` refuses to manage), nothing is "create" |
+| Create | `POST /policies/authenticationStrengthPolicies { displayName, description, allowedCombinations }` |
+| Update | `PATCH …/{id}` only when `displayName` / `description` changed (never carrying `allowedCombinations`) → `POST …/{id}/updateAllowedCombinations { allowedCombinations }` only when the combination set differs → `GET …/{id}` |
+| Delete | `DELETE …/{id}`; a 400 while a policy references the strength is surfaced as `Referenced` (the mode pass deletes policies first) |
+
+`allowedCombinations` is compared as a set of normalised strings (`AuthenticationStrengthsRules.NormalizeCombination`): when
+the sets are equal the desired array adopts the live spelling before the shared diff runs, so reordered or differently
+cased combinations are not drift; the values Graph receives are the template's own (trimmed). `policyType` is immutable
+and stripped on read; a declared `custom` is dropped as implied, anything else is an unsupported row.
+
+## Adding an edge kind
+
+Part B edge kinds (plan section 1.4: app role assignments, directory roles) live next to their standalone provider and
+are discovered like providers: implement `IEdgeKindHandler` (`EntraArm.Engine.Edges`) with `Phase = EdgePhase.B`,
+attribute the class `[EntraEdgeKind(EdgeKind.<Kind>)]`, give it a `(ResourceTypeCatalog)` or parameterless
+constructor, and `ProviderDiscovery.CreateEdgeKinds(catalog)` returns `EdgeKindRegistry.Default` (part A) plus every
+attributed handler. `EngineServices` passes that registry to the planner through `PlannerOptions.EdgeKinds` unless
+the options already carry one, so nothing else is wired. Failures at startup name the class: a concrete handler
+without the attribute, two classes claiming one kind, a class claiming a part A kind, no usable constructor, a
+`Kind` that differs from the attribute.
+
+What the engine's edge pass expects from a part B handler (worked example: `Edges/AppRoleAssignmentEdgeKind.cs`):
+
+- **`ResolveItemAsync`** receives the declared object (`{ resourceId | resourceAppId, appRole | appRoleId }`) and
+  resolves names there: template objects first (`context.Resolver.TryGetLive` by the service principal's resource id,
+  whose name is the appId; `context.FindInstanceByGraphId` for an object id), then Graph. A deploy-time placeholder
+  is `EdgeItem.Unknown`, anything the live data refutes is `EdgeItem.Invalid` (the row fails validation and nothing
+  of it is written).
+- **Encode the assignment in `TargetId`.** The planner keys principal-side existence (`ReadPrincipalAsync`) and tracked
+  removals by `Edge.TargetId` alone, and a principal may hold several roles on one resource, so the target key is
+  `{resourceId}/{appRoleId}` (`AppRoleAssignmentsRules.TargetKey`) and the real ids travel in `Edge.Extra`
+  (`resourceId`, `appRoleId`, plus `id` on recorded edges). Override `GraphIdsOf` to return the real object ids so an
+  edge touching an object created in this run is written under `RetryHint.ExpectReplicationLag`. What-if renders the
+  target key as the entry's `after` value.
+- **`IdentityOf`** includes the extras that distinguish assignments (`AppRoleAssignment|resource|principal|role`);
+  the planner de-duplicates operations and matches previous state records by this identity.
+- **`RecordEntry` / `FromRecordAsync`**: record `{ principalId, resourceId, appRoleId, id }` (the id from the add
+  response, so a later removal can `DELETE` by id); when a record lacks the id (a rerun that found the edge already in
+  place), `FromRecordAsync` looks it up from the principal's `appRoleAssignments` and returns `null` when the edge is
+  gone. `RemoveRequest` takes the id from the live read (tracked removals) or from the recorded extras (Complete-mode
+  deletes); never throw from it.
+- **Standalone resource vs principal-side item.** The standalone type (`Microsoft.Entra/appRoleAssignments`) is applied
+  in the object pass, before the edge pass; a principal-side item for the same composite then finds the assignment in
+  place, so the pass writes nothing and records nothing for the principal. The standalone resource therefore owns the
+  assignment: removing the principal-side item alone changes nothing, removing the standalone resource deletes the
+  assignment in Complete mode and detaches it in Incremental mode. Only edges the pass created itself are recorded
+  for the principal and removed when undeclared. (Known wart: a what-if on a tenant where neither exists yet shows the
+  add under both rows, since the pass cannot see the standalone resource's planned create.)
+
+## Test fixtures
+
+- Drive the provider through `FakeGraphClient` / `FakeDirectory` (`tests/EntraArm.TestSupport`). Seed objects
+  with `AddApplication`, `AddGroup`, `AddUser`, `AddServicePrincipal`, `Add(path, entity)`; stage soft-deleted
+  objects with `AddDeleted("/applications", entity)` or `SoftDelete(id)` (they are listed by
+  `GET /directory/deletedItems/microsoft.graph.<type>`, restored by `POST …/{id}/restore`, purged by `DELETE`).
+  Assert on `client.Requests` / `client.Writes` (method, path, headers, body) and on `Directory.Objects(path)`.
+  App role assignments live in `/servicePrincipals/{id}/appRoleAssignedTo` (`Objects(...)` to inspect; `POST` fills
+  `principalType` and the display names, rejects a duplicate with the Graph 400, and the principal-side
+  `/{users|groups|servicePrincipals}/{id}/appRoleAssignments` navigation is derived from them); `/oauth2PermissionGrants`
+  rejects a duplicate key with "Permission entry already exists"; deleting a principal cascades both.
+- Script failures with `client.Failures` (`ReplicationLag`, `Throttle`, `AlreadyExists`, `Forbid`, …). The fake does
+  not retry: pass a `RetryPolicy` with a no-op `IDelayProvider` through `PlannerOptions.RetryPolicy` when the
+  scenario needs retries.
+- End-to-end: `TemplateLoader.Parse(json, …)` → `DeploymentPlanner.PlanAsync(document, state, mode, PlanMode.Create, ct)`
+  → `DeploymentExecutor.ExecuteAsync(plan, ExecuteOptions.Default, ct)` with a registry from
+  `ProviderDiscovery.CreateRegistry(ResourceTypeCatalog.Default)`; `PlanMode.WhatIf` must leave `client.Writes` empty.
+- Unit-test the pure rules directly (`ApplicationsRules.DeriveMemberId`, `NormalizeDesired`, `NormalizeLive`,
+  `DuplicateValues`, `DisableStep`, `SubstituteAppId`).

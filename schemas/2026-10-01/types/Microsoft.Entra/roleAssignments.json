@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://entraarm.dev/schemas/2026-10-01/types/Microsoft.Entra/roleAssignments.json",
+  "title": "Microsoft.Entra/roleAssignments",
+  "description": "A permanent active directory role assignment. The resource name is a deterministic GUID chosen with guid(); the object is matched by (roleDefinitionId, principalId, directoryScopeId). Equivalent to a directoryRoles entry on the principal.",
+  "type": "object",
+  "properties": {
+    "roleDefinitionId": {
+      "description": "The role template id (use roleTemplate('Display Name')), or use role.",
+      "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+    },
+    "role": {
+      "description": "Sugar: role template id, built-in role name, custom role display name or id; resolved to roleDefinitionId.",
+      "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+    },
+    "principalId": {
+      "description": "Required: object id of the user, role-assignable group or service principal.",
+      "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+    },
+    "directoryScopeId": {
+      "description": "Scope: '/' (tenant, default), '/administrativeUnits/{id}' or '/{applicationObjectId}'.",
+      "anyOf": [ { "type": "string", "pattern": "^/" }, { "$ref": "#/$defs/expression" } ]
+    },
+    "administrativeUnit": {
+      "description": "Sugar for an administrative-unit scope: the unit's object id or template name.",
+      "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "expression": { "type": "string", "pattern": "^\\[.*\\]$", "description": "A template expression, for example [parameters('env')]." }
+  },
+  "x-entraarm": {
+    "type": "Microsoft.Entra/roleAssignments",
+    "parentType": null,
+    "graphPath": "/roleManagement/directory/roleAssignments",
+    "apiVersions": { "2026-10-01": "v1.0", "2026-10-01-preview": "beta" },
+    "nameMapsTo": null,
+    "nameKind": "guid",
+    "namePattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+    "keyProperties": ["roleDefinitionId", "principalId", "directoryScopeId"],
+    "requiredOnCreate": ["roleDefinitionId", "principalId"],
+    "defaults": { "directoryScopeId": "/" },
+    "immutable": ["*"],
+    "createOnly": [],
+    "secure": [],
+    "relationships": [],
+    "memberKey": {},
+    "stripOnRead": ["id"],
+    "nullable": {},
+    "permissions": {
+      "application": ["RoleManagement.ReadWrite.Directory"],
+      "delegated": ["RoleManagement.ReadWrite.Directory"],
+      "roles": ["Privileged Role Administrator"],
+      "notes": "App-only callers can escalate their own privileges; grant with care."
+    }
+  }
+}

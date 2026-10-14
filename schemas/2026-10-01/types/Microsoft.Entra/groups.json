@@ -1,0 +1,237 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://entraarm.dev/schemas/2026-10-01/types/Microsoft.Entra/groups.json",
+  "title": "Microsoft.Entra/groups",
+  "description": "A security, Microsoft 365, dynamic or role-assignable group. The resource name is the Graph uniqueName. Mail-enabled security groups cannot be created through Graph (adopt only). Properties not listed here are passed through to Graph unchanged.",
+  "type": "object",
+  "properties": {
+    "displayName": {
+      "description": "Required on create.",
+      "anyOf": [ { "type": "string", "minLength": 1, "maxLength": 256 }, { "$ref": "#/$defs/expression" } ]
+    },
+    "uniqueName": {
+      "description": "Set from the resource name; declaring it is only allowed when it equals the name.",
+      "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+    },
+    "description": {
+      "description": "Description (up to 1024 characters).",
+      "anyOf": [ { "type": [ "string", "null" ] }, { "$ref": "#/$defs/expression" } ]
+    },
+    "mailEnabled": {
+      "description": "Required on create; immutable. True for Microsoft 365 groups.",
+      "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/expression" } ]
+    },
+    "mailNickname": {
+      "description": "Mail alias (up to 64 characters; none of @ ( ) \\ [ ] \" ; : . < > , or space). Derived from the name when omitted; immutable.",
+      "anyOf": [ { "type": "string", "pattern": "^[^@()\\\\\\[\\]\";:.<>, ]+$", "maxLength": 64 }, { "$ref": "#/$defs/expression" } ]
+    },
+    "securityEnabled": {
+      "description": "Required on create. True for security groups.",
+      "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/expression" } ]
+    },
+    "groupTypes": {
+      "description": "[] security group, [\"Unified\"] Microsoft 365 group, plus \"DynamicMembership\" for dynamic groups. Immutable except for DynamicMembership.",
+      "anyOf": [
+        {
+          "type": "array",
+          "items": { "anyOf": [ { "type": "string", "enum": [ "Unified", "DynamicMembership" ] }, { "$ref": "#/$defs/expression" } ] }
+        },
+        { "$ref": "#/$defs/expression" }
+      ]
+    },
+    "isAssignableToRole": {
+      "description": "Role-assignable group (immutable; never dynamic; required for directoryRoles; up to 500 per tenant).",
+      "anyOf": [ { "type": [ "boolean", "null" ] }, { "$ref": "#/$defs/expression" } ]
+    },
+    "visibility": {
+      "description": "Public, Private or HiddenMembership (immutable once HiddenMembership).",
+      "anyOf": [ { "type": [ "string", "null" ], "enum": [ "Public", "Private", "HiddenMembership", null ] }, { "$ref": "#/$defs/expression" } ]
+    },
+    "membershipRule": {
+      "description": "Dynamic membership rule (requires groupTypes to contain DynamicMembership; Entra ID P1).",
+      "anyOf": [ { "type": [ "string", "null" ] }, { "$ref": "#/$defs/expression" } ]
+    },
+    "membershipRuleProcessingState": {
+      "description": "On (default for dynamic groups) or Paused.",
+      "anyOf": [ { "type": "string", "enum": [ "On", "Paused" ] }, { "$ref": "#/$defs/expression" } ]
+    },
+    "members": {
+      "description": "Group membership edge, target side: the full desired set of member object ids (users, service principals, groups). Not allowed on dynamic groups; members not listed are removed.",
+      "anyOf": [
+        { "type": "array", "items": { "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] } },
+        { "$ref": "#/$defs/expression" }
+      ]
+    },
+    "owners": {
+      "description": "Ownership edge, target side: the full desired set of owner object ids.",
+      "anyOf": [
+        { "type": "array", "items": { "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] } },
+        { "$ref": "#/$defs/expression" }
+      ]
+    },
+    "memberOf": {
+      "description": "Nested group membership edge, principal side: group object ids this group must be a member of.",
+      "anyOf": [
+        { "type": "array", "items": { "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] } },
+        { "$ref": "#/$defs/expression" }
+      ]
+    },
+    "administrativeUnits": {
+      "description": "Administrative unit membership edge, principal side: administrative unit object ids.",
+      "anyOf": [
+        { "type": "array", "items": { "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] } },
+        { "$ref": "#/$defs/expression" }
+      ]
+    },
+    "appRoleAssignments": {
+      "description": "App role assignment edge, principal side (applied by the edge pass, tracked in state): [{ resourceId | resourceAppId, appRole | appRoleId }]. appRole is the role's value, resolved against the resource service principal; 00000000-0000-0000-0000-000000000000 is default access.",
+      "anyOf": [
+        {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "resourceId": {
+                    "description": "Object id of the resource service principal.",
+                    "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                  },
+                  "resourceAppId": {
+                    "description": "Application (client) id of the resource; resolved to its service principal.",
+                    "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                  },
+                  "appRole": {
+                    "description": "Value of the app role on the resource, for example Orders.Admin.",
+                    "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                  },
+                  "appRoleId": {
+                    "description": "Id of the app role (00000000-0000-0000-0000-000000000000 = default access).",
+                    "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                  }
+                },
+                "additionalProperties": false,
+                "allOf": [
+                  { "anyOf": [ { "required": [ "resourceId" ] }, { "required": [ "resourceAppId" ] } ] },
+                  { "anyOf": [ { "required": [ "appRole" ] }, { "required": [ "appRoleId" ] } ] }
+                ]
+              },
+              { "$ref": "#/$defs/expression" }
+            ]
+          }
+        },
+        { "$ref": "#/$defs/expression" }
+      ]
+    },
+    "directoryRoles": {
+      "description": "Directory role assignment edge, principal side (role-assignable groups only) (applied by the edge pass, tracked in state): [{ role | roleDefinitionId, directoryScopeId | administrativeUnit }]. role is a role template id, a built-in role display name, a custom role display name or its id. The scope defaults to '/' (tenant).",
+      "anyOf": [
+        {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "role": {
+                    "description": "Role template id, built-in role name (Global Reader), custom role display name or custom role id.",
+                    "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                  },
+                  "roleDefinitionId": {
+                    "description": "The role template id (roleTemplate('Display Name')); use role for names.",
+                    "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                  },
+                  "directoryScopeId": {
+                    "description": "Scope: '/' (tenant, default), '/administrativeUnits/{id}' or '/{applicationObjectId}'.",
+                    "anyOf": [ { "type": "string", "pattern": "^/" }, { "$ref": "#/$defs/expression" } ]
+                  },
+                  "administrativeUnit": {
+                    "description": "Sugar for an administrative-unit scope: the unit's object id or its template name (reference('Orders AU').id).",
+                    "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                  }
+                },
+                "additionalProperties": false,
+                "anyOf": [ { "required": [ "role" ] }, { "required": [ "roleDefinitionId" ] } ]
+              },
+              { "$ref": "#/$defs/expression" }
+            ]
+          }
+        },
+        { "$ref": "#/$defs/expression" }
+      ]
+    },
+    "assignedLicenses": {
+      "description": "Licenses for group-based licensing (action-backed, direct assignments only; group-inherited licenses are never touched): [{ skuId | skuPartNumber, disabledPlans }].",
+      "anyOf": [
+        {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "skuId": { "description": "Subscribed SKU id.", "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] },
+                  "skuPartNumber": {
+                    "description": "SKU part number, for example ENTERPRISEPREMIUM; resolved with GET /subscribedSkus.",
+                    "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                  },
+                  "disabledPlans": {
+                    "description": "Service plan ids to disable within the SKU.",
+                    "anyOf": [
+                      { "type": "array", "items": { "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] } },
+                      { "$ref": "#/$defs/expression" }
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "anyOf": [ { "required": [ "skuId" ] }, { "required": [ "skuPartNumber" ] } ]
+              },
+              { "$ref": "#/$defs/expression" }
+            ]
+          }
+        },
+        { "$ref": "#/$defs/expression" }
+      ]
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "expression": { "type": "string", "pattern": "^\\[.*\\]$", "description": "A template expression, for example [parameters('env')]." }
+  },
+  "x-entraarm": {
+    "type": "Microsoft.Entra/groups",
+    "parentType": null,
+    "graphPath": "/groups",
+    "apiVersions": { "2026-10-01": "v1.0", "2026-10-01-preview": "beta" },
+    "nameMapsTo": "uniqueName",
+    "nameKind": "uniqueName",
+    "namePattern": "^\\S(.{0,254}\\S)?$",
+    "keyProperties": ["uniqueName"],
+    "requiredOnCreate": ["displayName", "mailEnabled", "securityEnabled"],
+    "defaults": {},
+    "immutable": ["uniqueName", "mailNickname", "mailEnabled", "isAssignableToRole", "groupTypes", "visibility"],
+    "createOnly": [],
+    "secure": [],
+    "relationships": [
+      { "property": "members", "kind": "groupMembership", "side": "target" },
+      { "property": "owners", "kind": "ownership", "side": "target" },
+      { "property": "memberOf", "kind": "groupMembership", "side": "principal" },
+      { "property": "administrativeUnits", "kind": "administrativeUnitMembership", "side": "principal" },
+      { "property": "appRoleAssignments", "kind": "appRoleAssignment", "side": "principal" },
+      { "property": "directoryRoles", "kind": "directoryRoleAssignment", "side": "principal" },
+      { "property": "assignedLicenses", "kind": "license", "side": "principal" }
+    ],
+    "memberKey": {},
+    "stripOnRead": ["id", "createdDateTime", "deletedDateTime", "renewedDateTime", "expirationDateTime", "mail", "proxyAddresses", "securityIdentifier", "onPremisesSyncEnabled", "onPremisesLastSyncDateTime", "onPremisesSecurityIdentifier", "onPremisesDomainName", "onPremisesNetBiosName", "onPremisesSamAccountName", "onPremisesProvisioningErrors", "serviceProvisioningErrors", "createdByAppId", "organizationId", "isManagementRestricted", "membershipRuleProcessingStatus", "theme", "hasMembersWithLicenseErrors"],
+    "nullable": {},
+    "permissions": {
+      "application": ["Group.ReadWrite.All", "GroupMember.ReadWrite.All"],
+      "delegated": ["Group.ReadWrite.All"],
+      "roles": ["Groups Administrator"],
+      "conditional": {
+        "isAssignableToRole": { "application": ["RoleManagement.ReadWrite.Directory"], "roles": ["Privileged Role Administrator"] },
+        "assignedLicenses": { "application": ["Organization.Read.All"], "roles": ["License Administrator"] }
+      }
+    }
+  }
+}

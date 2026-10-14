@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>EntraARM template expression language: tokenizer, parser, AST, evaluator and function registry.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../EntraArm.Core/EntraArm.Core.csproj" />
+  </ItemGroup>
+
+</Project>

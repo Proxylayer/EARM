@@ -1,0 +1,473 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://entraarm.dev/schemas/2026-10-01/types/Microsoft.Entra/applications.json",
+  "title": "Microsoft.Entra/applications",
+  "description": "An application registration. The resource name is the Graph uniqueName (upsert via PATCH /applications(uniqueName='...') with Prefer: create-if-missing). Properties not listed here are passed through to Graph unchanged.",
+  "type": "object",
+  "properties": {
+    "displayName": { "description": "Required on create.", "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] },
+    "uniqueName": {
+      "description": "Set from the resource name; declaring it is only allowed when it equals the name.",
+      "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+    },
+    "appId": {
+      "description": "Lookup key only (never written): adopts a brownfield application whose uniqueName is still unset.",
+      "anyOf": [
+        { "type": "string", "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$" },
+        { "$ref": "#/$defs/expression" }
+      ]
+    },
+    "description": {
+      "description": "Free-text description (up to 1024 characters).",
+      "anyOf": [ { "type": [ "string", "null" ] }, { "$ref": "#/$defs/expression" } ]
+    },
+    "signInAudience": {
+      "description": "Who can sign in. Defaults to AzureADMyOrg.",
+      "anyOf": [
+        { "type": "string", "enum": [ "AzureADMyOrg", "AzureADMultipleOrgs", "AzureADandPersonalMicrosoftAccount", "PersonalMicrosoftAccount" ] },
+        { "$ref": "#/$defs/expression" }
+      ]
+    },
+    "identifierUris": {
+      "description": "Identifier URIs; api://{appId} is written by a second PATCH after the application exists.",
+      "anyOf": [
+        { "type": "array", "items": { "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] } },
+        { "$ref": "#/$defs/expression" }
+      ]
+    },
+    "appRoles": {
+      "description": "App roles, matched by id; an omitted id is derived deterministically (UUIDv5 of uniqueName and value) and recorded in state. value must be unique across appRoles and oauth2PermissionScopes.",
+      "anyOf": [
+        {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "description": "Role id (GUID); derived when omitted.",
+                    "anyOf": [
+                      { "type": "string", "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$" },
+                      { "$ref": "#/$defs/expression" }
+                    ]
+                  },
+                  "allowedMemberTypes": {
+                    "description": "Who can be assigned the role.",
+                    "anyOf": [
+                      {
+                        "type": "array",
+                        "items": { "anyOf": [ { "type": "string", "enum": [ "User", "Application" ] }, { "$ref": "#/$defs/expression" } ] }
+                      },
+                      { "$ref": "#/$defs/expression" }
+                    ]
+                  },
+                  "description": {
+                    "description": "Description shown in assignment UIs.",
+                    "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                  },
+                  "displayName": {
+                    "description": "Display name shown in assignment UIs.",
+                    "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                  },
+                  "isEnabled": {
+                    "description": "Defaults to true; removed roles are disabled first, then removed.",
+                    "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/expression" } ]
+                  },
+                  "value": {
+                    "description": "The value emitted in the roles claim (no spaces).",
+                    "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                  },
+                  "origin": {
+                    "description": "Server-managed (Application or ServicePrincipal); ignored.",
+                    "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                  }
+                }
+              },
+              { "$ref": "#/$defs/expression" }
+            ]
+          }
+        },
+        { "$ref": "#/$defs/expression" }
+      ]
+    },
+    "api": {
+      "description": "API settings of the application.",
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "acceptMappedClaims": {
+              "description": "Accept claims mapping policies.",
+              "anyOf": [ { "type": [ "boolean", "null" ] }, { "$ref": "#/$defs/expression" } ]
+            },
+            "knownClientApplications": {
+              "description": "Client application ids bundled with this API for combined consent.",
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "anyOf": [
+                      { "type": "string", "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$" },
+                      { "$ref": "#/$defs/expression" }
+                    ]
+                  }
+                },
+                { "$ref": "#/$defs/expression" }
+              ]
+            },
+            "requestedAccessTokenVersion": {
+              "description": "Access token version: 1 or 2 (null is treated as 1).",
+              "anyOf": [ { "type": [ "integer", "null" ], "enum": [ 1, 2, null ] }, { "$ref": "#/$defs/expression" } ]
+            },
+            "oauth2PermissionScopes": {
+              "description": "Delegated permission scopes, matched by id.",
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "description": "Scope id (GUID); derived when omitted.",
+                            "anyOf": [
+                              { "type": "string", "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$" },
+                              { "$ref": "#/$defs/expression" }
+                            ]
+                          },
+                          "adminConsentDescription": {
+                            "description": "Description shown on the admin consent screen.",
+                            "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                          },
+                          "adminConsentDisplayName": {
+                            "description": "Title shown on the admin consent screen.",
+                            "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                          },
+                          "isEnabled": { "description": "Defaults to true.", "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/expression" } ] },
+                          "type": {
+                            "description": "Who can consent: User or Admin.",
+                            "anyOf": [ { "type": "string", "enum": [ "User", "Admin" ] }, { "$ref": "#/$defs/expression" } ]
+                          },
+                          "userConsentDescription": {
+                            "description": "Description shown on the user consent screen.",
+                            "anyOf": [ { "type": [ "string", "null" ] }, { "$ref": "#/$defs/expression" } ]
+                          },
+                          "userConsentDisplayName": {
+                            "description": "Title shown on the user consent screen.",
+                            "anyOf": [ { "type": [ "string", "null" ] }, { "$ref": "#/$defs/expression" } ]
+                          },
+                          "value": {
+                            "description": "The scope value emitted in the scp claim (no spaces).",
+                            "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                          },
+                          "origin": { "description": "Server-managed; ignored.", "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] }
+                        }
+                      },
+                      { "$ref": "#/$defs/expression" }
+                    ]
+                  }
+                },
+                { "$ref": "#/$defs/expression" }
+              ]
+            },
+            "preAuthorizedApplications": {
+              "description": "Client applications authorised to request delegated scopes without consent.",
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "appId": {
+                            "description": "The pre-authorised client application id.",
+                            "anyOf": [
+                              { "type": "string", "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$" },
+                              { "$ref": "#/$defs/expression" }
+                            ]
+                          },
+                          "delegatedPermissionIds": {
+                            "description": "Ids of the oauth2PermissionScopes the client is pre-authorised for.",
+                            "anyOf": [
+                              {
+                                "type": "array",
+                                "items": {
+                                  "anyOf": [
+                                    { "type": "string", "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$" },
+                                    { "$ref": "#/$defs/expression" }
+                                  ]
+                                }
+                              },
+                              { "$ref": "#/$defs/expression" }
+                            ]
+                          }
+                        },
+                        "required": [ "appId" ]
+                      },
+                      { "$ref": "#/$defs/expression" }
+                    ]
+                  }
+                },
+                { "$ref": "#/$defs/expression" }
+              ]
+            }
+          }
+        },
+        { "$ref": "#/$defs/expression" }
+      ]
+    },
+    "web": {
+      "description": "Web platform settings.",
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "homePageUrl": { "description": "Home page URL.", "anyOf": [ { "type": [ "string", "null" ] }, { "$ref": "#/$defs/expression" } ] },
+            "logoutUrl": {
+              "description": "Front-channel logout URL.",
+              "anyOf": [ { "type": [ "string", "null" ] }, { "$ref": "#/$defs/expression" } ]
+            },
+            "redirectUris": {
+              "description": "Redirect URIs of the web platform.",
+              "anyOf": [
+                { "type": "array", "items": { "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] } },
+                { "$ref": "#/$defs/expression" }
+              ]
+            },
+            "implicitGrantSettings": {
+              "description": "Implicit grant flows.",
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "enableAccessTokenIssuance": {
+                      "description": "Issue access tokens from the authorize endpoint.",
+                      "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/expression" } ]
+                    },
+                    "enableIdTokenIssuance": {
+                      "description": "Issue ID tokens from the authorize endpoint.",
+                      "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/expression" } ]
+                    }
+                  }
+                },
+                { "$ref": "#/$defs/expression" }
+              ]
+            }
+          }
+        },
+        { "$ref": "#/$defs/expression" }
+      ]
+    },
+    "spa": {
+      "description": "Single-page application platform settings.",
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "redirectUris": {
+              "description": "Redirect URIs of the SPA platform.",
+              "anyOf": [
+                { "type": "array", "items": { "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] } },
+                { "$ref": "#/$defs/expression" }
+              ]
+            }
+          }
+        },
+        { "$ref": "#/$defs/expression" }
+      ]
+    },
+    "publicClient": {
+      "description": "Mobile and desktop (public client) platform settings.",
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "redirectUris": {
+              "description": "Redirect URIs of the public client platform.",
+              "anyOf": [
+                { "type": "array", "items": { "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] } },
+                { "$ref": "#/$defs/expression" }
+              ]
+            }
+          }
+        },
+        { "$ref": "#/$defs/expression" }
+      ]
+    },
+    "requiredResourceAccess": {
+      "description": "Permissions the application requests, per resource application.",
+      "anyOf": [
+        {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "resourceAppId": {
+                    "description": "Application (client) id of the resource, for example wellKnownApp('MicrosoftGraph').",
+                    "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                  },
+                  "resourceAccess": {
+                    "description": "The requested permissions.",
+                    "anyOf": [
+                      {
+                        "type": "array",
+                        "items": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "description": "Permission id (appRole(...) / permissionScope(...) resolve it from a name).",
+                                  "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                                },
+                                "type": {
+                                  "description": "Scope = delegated permission, Role = application permission.",
+                                  "anyOf": [ { "type": "string", "enum": [ "Scope", "Role" ] }, { "$ref": "#/$defs/expression" } ]
+                                }
+                              },
+                              "required": [ "id", "type" ]
+                            },
+                            { "$ref": "#/$defs/expression" }
+                          ]
+                        }
+                      },
+                      { "$ref": "#/$defs/expression" }
+                    ]
+                  }
+                },
+                "required": [ "resourceAppId", "resourceAccess" ]
+              },
+              { "$ref": "#/$defs/expression" }
+            ]
+          }
+        },
+        { "$ref": "#/$defs/expression" }
+      ]
+    },
+    "optionalClaims": {
+      "description": "Optional claims per token type.",
+      "anyOf": [
+        {
+          "type": [ "object", "null" ],
+          "properties": {
+            "accessToken": {
+              "description": "Optional claims in access tokens.",
+              "anyOf": [
+                { "type": "array", "items": { "anyOf": [ { "type": "object" }, { "$ref": "#/$defs/expression" } ] } },
+                { "$ref": "#/$defs/expression" }
+              ]
+            },
+            "idToken": {
+              "description": "Optional claims in ID tokens.",
+              "anyOf": [
+                { "type": "array", "items": { "anyOf": [ { "type": "object" }, { "$ref": "#/$defs/expression" } ] } },
+                { "$ref": "#/$defs/expression" }
+              ]
+            },
+            "saml2Token": {
+              "description": "Optional claims in SAML 2 tokens.",
+              "anyOf": [
+                { "type": "array", "items": { "anyOf": [ { "type": "object" }, { "$ref": "#/$defs/expression" } ] } },
+                { "$ref": "#/$defs/expression" }
+              ]
+            }
+          }
+        },
+        { "$ref": "#/$defs/expression" }
+      ]
+    },
+    "groupMembershipClaims": {
+      "description": "Group claims to emit: None, SecurityGroup, All, DirectoryRole, ApplicationGroup, or a comma-separated combination.",
+      "anyOf": [
+        {
+          "type": [ "string", "null" ],
+          "pattern": "^(None|SecurityGroup|All|DirectoryRole|ApplicationGroup)(\\s*,\\s*(None|SecurityGroup|All|DirectoryRole|ApplicationGroup))*$"
+        },
+        { "$ref": "#/$defs/expression" }
+      ]
+    },
+    "tags": {
+      "description": "Custom tags.",
+      "anyOf": [
+        { "type": "array", "items": { "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] } },
+        { "$ref": "#/$defs/expression" }
+      ]
+    },
+    "notes": { "description": "Free-text notes.", "anyOf": [ { "type": [ "string", "null" ] }, { "$ref": "#/$defs/expression" } ] },
+    "info": {
+      "description": "Branding and support links.",
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "marketingUrl": { "description": "Marketing page URL.", "anyOf": [ { "type": [ "string", "null" ] }, { "$ref": "#/$defs/expression" } ] },
+            "privacyStatementUrl": {
+              "description": "Privacy statement URL.",
+              "anyOf": [ { "type": [ "string", "null" ] }, { "$ref": "#/$defs/expression" } ]
+            },
+            "supportUrl": { "description": "Support URL.", "anyOf": [ { "type": [ "string", "null" ] }, { "$ref": "#/$defs/expression" } ] },
+            "termsOfServiceUrl": {
+              "description": "Terms of service URL.",
+              "anyOf": [ { "type": [ "string", "null" ] }, { "$ref": "#/$defs/expression" } ]
+            }
+          }
+        },
+        { "$ref": "#/$defs/expression" }
+      ]
+    },
+    "isFallbackPublicClient": {
+      "description": "Treat the application as a public client when no redirect URI matches.",
+      "anyOf": [ { "type": [ "boolean", "null" ] }, { "$ref": "#/$defs/expression" } ]
+    },
+    "keyCredentials": {
+      "description": "Certificates and keys (passthrough; only diffed when declared).",
+      "anyOf": [
+        { "type": "array", "items": { "anyOf": [ { "type": "object" }, { "$ref": "#/$defs/expression" } ] } },
+        { "$ref": "#/$defs/expression" }
+      ]
+    },
+    "owners": {
+      "description": "Ownership edge, target side: the full desired set of owner object ids (reference(...).id). Owners not listed are removed.",
+      "anyOf": [
+        { "type": "array", "items": { "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] } },
+        { "$ref": "#/$defs/expression" }
+      ]
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "expression": { "type": "string", "pattern": "^\\[.*\\]$", "description": "A template expression, for example [parameters('env')]." }
+  },
+  "x-entraarm": {
+    "type": "Microsoft.Entra/applications",
+    "parentType": null,
+    "graphPath": "/applications",
+    "apiVersions": { "2026-10-01": "v1.0", "2026-10-01-preview": "beta" },
+    "nameMapsTo": "uniqueName",
+    "nameKind": "uniqueName",
+    "namePattern": "^\\S(.{0,254}\\S)?$",
+    "keyProperties": ["uniqueName"],
+    "requiredOnCreate": ["displayName"],
+    "defaults": { "signInAudience": "AzureADMyOrg" },
+    "immutable": ["uniqueName", "appId", "id", "publisherDomain"],
+    "createOnly": [],
+    "secure": [],
+    "relationships": [
+      { "property": "owners", "kind": "ownership", "side": "target" }
+    ],
+    "memberKey": { "appRoles": "id", "api.oauth2PermissionScopes": "id" },
+    "stripOnRead": ["id", "appId", "createdDateTime", "deletedDateTime", "publisherDomain", "applicationTemplateId", "disabledByMicrosoftStatus", "certification", "verifiedPublisher", "defaultRedirectUri", "info.logoUrl", "passwordCredentials", "keyCredentials"],
+    "nullable": { "web.implicitGrantSettings": false, "api.requestedAccessTokenVersion": false },
+    "permissions": {
+      "application": ["Application.ReadWrite.OwnedBy", "Application.ReadWrite.All"],
+      "delegated": ["Application.ReadWrite.All"],
+      "roles": ["Application Developer", "Cloud Application Administrator", "Application Administrator"],
+      "notes": "Application.ReadWrite.OwnedBy suffices for applications the caller owns; otherwise Application.ReadWrite.All."
+    }
+  }
+}
