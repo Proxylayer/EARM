@@ -356,7 +356,7 @@ internal static class GraphResultMapper
             JsonNode? body;
             try
             {
-                body = JsonNode.Parse(text);
+                body = JsonNode.Parse(JsonSurrogateSanitizer.Replace(text));
             }
             catch (JsonException ex)
             {

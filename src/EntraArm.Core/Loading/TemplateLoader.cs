@@ -67,6 +67,10 @@ public sealed class TemplateLoader : ITemplateLoader
     {
         ArgumentNullException.ThrowIfNull(parameters);
 
+        // A lone surrogate escape ("\ud800") parses but throws on the first read of the string; it is rewritten to U+FFFD here
+        // (same length, so positions hold) and reported as an error below, once the load context exists.
+        utf8 = LoneSurrogates.Replace(utf8, out var loneSurrogates);
+
         JsonElement element;
         JsonNode? node;
         try
@@ -84,6 +88,15 @@ public sealed class TemplateLoader : ITemplateLoader
         }
 
         var context = new LoadContext(sourcePath, SourceMap.Build(utf8));
+        foreach (var escape in loneSurrogates)
+        {
+            context.Diagnostics.Add(Diagnostic.Error(
+                DiagnosticCodes.InvalidJson,
+                $"The template contains an invalid Unicode escape (lone surrogate) at {escape.Path}; a surrogate must be written as a pair (high then low), or use the character itself.",
+                escape.Path,
+                escape.Location,
+                sourcePath));
+        }
 
         var parameterDefinitions = ReadParameters(root, context);
         var variables = ReadVariables(root, context);
@@ -577,7 +590,7 @@ public sealed class TemplateLoader : ITemplateLoader
             case TemplateParameterType.Array:
                 try
                 {
-                    var parsed = JsonNode.Parse(rawText, documentOptions: TemplateJson.DocumentOptions);
+                    var parsed = JsonNode.Parse(LoneSurrogates.Replace(rawText), documentOptions: TemplateJson.DocumentOptions);
                     if (TemplateParameterTypes.Matches(parsed, definition.ParsedType.Value))
                     {
                         value = parsed;

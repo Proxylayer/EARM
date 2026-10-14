@@ -164,7 +164,8 @@ Graph never edits a client secret, and returns its text once. `applications/pass
 ## Expressions
 
 A string of the form `[ ... ]` is an expression; `[[` escapes a literal bracket and `''` escapes a quote. Expressions are at
-most 24,576 characters and function names are case-insensitive. They may appear in any string value (property values, names,
+most 24,576 characters, nest at most 100 levels deep (calls, indexers, `lambda()` bodies and chained `.property` / `[index]`
+accesses counted together; `ExpressionTooDeep` beyond that) and function names are case-insensitive. They may appear in any string value (property values, names,
 conditions, dependsOn entries, outputs).
 
 | Group | Functions |

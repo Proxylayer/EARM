@@ -64,6 +64,18 @@ public sealed class ParameterSet
 
     public static ParameterSet Parse(ReadOnlyMemory<byte> utf8, string? sourcePath = null)
     {
+        utf8 = LoneSurrogates.Replace(utf8, out var loneSurrogates);
+        if (loneSurrogates.Count > 0)
+        {
+            var first = loneSurrogates[0];
+            throw new TemplateLoadException(
+                DiagnosticCodes.InvalidJson,
+                $"The parameter file contains an invalid Unicode escape (lone surrogate) at {first.Path}; a surrogate must be written as a pair (high then low), or use the character itself.",
+                sourcePath,
+                first.Location,
+                first.Path);
+        }
+
         JsonElement element;
         JsonNode? node;
         try

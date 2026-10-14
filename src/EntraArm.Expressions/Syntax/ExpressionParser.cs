@@ -24,8 +24,16 @@ public sealed class ExpressionParser
     /// <summary>The ARM limit on the length of one expression string.</summary>
     public const int MaxExpressionLength = 24576;
 
+    /// <summary>
+    /// The maximum nesting depth of one expression: the expression itself is level 1; nested calls, indexers, lambdas and chained property/index accesses are
+    /// counted together (each <c>f(</c>, <c>[</c>, <c>lambda(</c> body and each <c>.name</c> / <c>[..]</c> on an existing value adds one level).
+    /// The parser and every later walker over the tree are recursive, so this keeps a hostile template from overflowing the stack.
+    /// </summary>
+    public const int MaxNestingDepth = 100;
+
     private readonly List<Token> _tokens;
     private int _index;
+    private int _depth;
 
     private ExpressionParser(string body, int baseOffset)
     {
@@ -85,28 +93,63 @@ public sealed class ExpressionParser
 
     private Expression ParseExpression()
     {
-        var expression = ParsePrimary();
-        while (true)
+        EnterNesting(Current.Offset);
+        try
         {
-            if (Current.Kind == TokenKind.Dot)
+            var expression = ParsePrimary();
+            int chain = 0;
+            while (true)
             {
-                Advance();
-                var name = Expect(TokenKind.Identifier, "a property name");
-                expression = new PropertyExpression(expression.Offset, expression, name.Text);
-                continue;
-            }
+                if (Current.Kind == TokenKind.Dot)
+                {
+                    CheckChain(++chain);
+                    Advance();
+                    var name = Expect(TokenKind.Identifier, "a property name");
+                    expression = new PropertyExpression(expression.Offset, expression, name.Text);
+                    continue;
+                }
 
-            if (Current.Kind == TokenKind.OpenBracket)
-            {
-                Advance();
-                var index = ParseExpression();
-                Expect(TokenKind.CloseBracket, "']'");
-                expression = new IndexExpression(expression.Offset, expression, index);
-                continue;
-            }
+                if (Current.Kind == TokenKind.OpenBracket)
+                {
+                    CheckChain(++chain);
+                    Advance();
+                    var index = ParseExpression();
+                    Expect(TokenKind.CloseBracket, "']'");
+                    expression = new IndexExpression(expression.Offset, expression, index);
+                    continue;
+                }
 
-            return expression;
+                return expression;
+            }
         }
+        finally
+        {
+            _depth--;
+        }
+    }
+
+    /// <summary>Enters one nesting level; fails past <see cref="MaxNestingDepth"/> (or when the stack runs low) with a position.</summary>
+    private void EnterNesting(int offset)
+    {
+        _depth++;
+        if (_depth > MaxNestingDepth || !System.Runtime.CompilerServices.RuntimeHelpers.TryEnsureSufficientExecutionStack())
+        {
+            throw TooDeep(offset);
+        }
+    }
+
+    /// <summary>A chain of postfix accesses builds a left-deep tree: each link counts as one nesting level on top of the current depth.</summary>
+    private void CheckChain(int chain)
+    {
+        if (_depth + chain > MaxNestingDepth)
+        {
+            throw TooDeep(Current.Offset);
+        }
+    }
+
+    private static ExpressionParseException TooDeep(int offset)
+    {
+        return new ExpressionParseException(DiagnosticCodes.ExpressionTooDeep, $"The expression nesting exceeds the maximum depth of {MaxNestingDepth}.", offset);
     }
 
     private Expression ParsePrimary()

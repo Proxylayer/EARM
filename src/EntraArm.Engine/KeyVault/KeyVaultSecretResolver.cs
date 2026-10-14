@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using EntraArm.Core.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using EntraArm.Az;
@@ -143,7 +144,7 @@ public sealed class KeyVaultSecretResolver
         {
             try
             {
-                if (JsonNode.Parse(text) is JsonValue value && value.TryGetValue<string>(out var parsed))
+                if (JsonNode.Parse(LoneSurrogates.Replace(text)) is JsonValue value && value.TryGetValue<string>(out var parsed))
                 {
                     return parsed;
                 }

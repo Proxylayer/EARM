@@ -35,6 +35,7 @@ public sealed class ExpressionEvaluator : IExpressionEvaluator
     {
         ArgumentNullException.ThrowIfNull(expression);
         ArgumentNullException.ThrowIfNull(context);
+        ExpressionStackGuard.Ensure(expression.Offset);
 
         switch (expression)
         {
@@ -72,6 +73,7 @@ public sealed class ExpressionEvaluator : IExpressionEvaluator
     public JsonNode? EvaluateTree(JsonNode? node, EvaluationContext context)
     {
         ArgumentNullException.ThrowIfNull(context);
+        ExpressionStackGuard.Ensure();
         switch (node)
         {
             case null:

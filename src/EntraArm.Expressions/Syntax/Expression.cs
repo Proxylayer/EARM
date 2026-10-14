@@ -97,6 +97,7 @@ public sealed record CallExpression(int Offset, string? Namespace, string Name, 
 
     internal override void Render(StringBuilder sb)
     {
+        ExpressionStackGuard.Ensure(Offset);
         sb.Append(QualifiedName).Append('(');
         for (int i = 0; i < Arguments.Count; i++)
         {
@@ -119,6 +120,7 @@ public sealed record LambdaExpression(int Offset, IReadOnlyList<string> Paramete
 
     internal override void Render(StringBuilder sb)
     {
+        ExpressionStackGuard.Ensure(Offset);
         sb.Append("lambda(");
         foreach (var parameter in Parameters)
         {
@@ -137,6 +139,7 @@ public sealed record PropertyExpression(int Offset, Expression Target, string Na
 
     internal override void Render(StringBuilder sb)
     {
+        ExpressionStackGuard.Ensure(Offset);
         Target.Render(sb);
         sb.Append('.').Append(Name);
     }
@@ -149,6 +152,7 @@ public sealed record IndexExpression(int Offset, Expression Target, Expression I
 
     internal override void Render(StringBuilder sb)
     {
+        ExpressionStackGuard.Ensure(Offset);
         Target.Render(sb);
         sb.Append('[');
         Index.Render(sb);

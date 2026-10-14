@@ -158,7 +158,7 @@ public sealed class DeploymentExecutor
             bool anyFailure = operations.Any(o => o.Status is OperationStatus.Failed or OperationStatus.Skipped) || _diagnostics.Any(d => d.IsError);
             var status = anyFailure ? DeploymentStatus.Failed : DeploymentStatus.Succeeded;
 
-            await _options.StateSink.CompletedAsync(status, cancellationToken).ConfigureAwait(false);
+            await _options.StateSink.CompletedAsync(status, CancellationToken.None).ConfigureAwait(false);
             stopwatch.Stop();
 
             var result = new DeploymentResult(_plan.DeploymentName, status, operations, changes, outputs, secureOutputs, _diagnostics, secureFile, stopwatch.Elapsed);
@@ -240,7 +240,7 @@ public sealed class DeploymentExecutor
 
                 if (row.RecordsEdges)
                 {
-                    await _options.StateSink.ResourceEdgesAppliedAsync(instance, EdgePlan.RecordingsFor(row, result), cancellationToken).ConfigureAwait(false);
+                    await _options.StateSink.ResourceEdgesAppliedAsync(instance, EdgePlan.RecordingsFor(row, result), CancellationToken.None).ConfigureAwait(false);
                 }
             }
         }
@@ -253,7 +253,7 @@ public sealed class DeploymentExecutor
                 _operations[instance] = operation with { Status = OperationStatus.Failed, Error = message, ErrorCode = code };
             }
 
-            await _options.StateSink.ResourceEdgesFailedAsync(instance, message, cancellationToken).ConfigureAwait(false);
+            await _options.StateSink.ResourceEdgesFailedAsync(instance, message, CancellationToken.None).ConfigureAwait(false);
         }
 
         // ---- mode pass ----
@@ -291,7 +291,7 @@ public sealed class DeploymentExecutor
                     _modeChanges.Add(ResourceChange.Ignore(entry.Id, entry.Type, ModePass.DetachReason));
                     _modeOperations.Add(new ResourceOperation(entry.Id, entry.Type, batchIndex, OperationStatus.Detached, ChangeType.Ignore, ChangeMode.None, entry.GraphId, null, null, TimeSpan.Zero));
                     _diagnostics.Add(Diagnostic.Warning(EngineDiagnosticCodes.ResourceDetached, $"'{entry.Id.Id}' is recorded in the state but no longer declared in the template; it was detached from the state and the object was left in the tenant (use --mode Complete to delete it)."));
-                    await _options.StateSink.ResourceDetachedAsync(entry, cancellationToken).ConfigureAwait(false);
+                    await _options.StateSink.ResourceDetachedAsync(entry, CancellationToken.None).ConfigureAwait(false);
                     continue;
                 }
 
@@ -333,7 +333,7 @@ public sealed class DeploymentExecutor
 
                     _modeChanges.Add(new ResourceChange { Id = entry.Id, ResourceType = entry.Type, Type = ChangeType.Delete, Mode = ChangeMode.Delete, GraphId = entry.GraphId, Reasons = [ModePass.DeleteReason] });
                     _modeOperations.Add(new ResourceOperation(entry.Id, entry.Type, batchIndex, OperationStatus.Succeeded, ChangeType.Delete, ChangeMode.Delete, entry.GraphId, null, null, outcome.Duration));
-                    await _options.StateSink.ResourceDeletedAsync(entry, cancellationToken).ConfigureAwait(false);
+                    await _options.StateSink.ResourceDeletedAsync(entry, CancellationToken.None).ConfigureAwait(false);
                     continue;
                 }
 
@@ -341,7 +341,7 @@ public sealed class DeploymentExecutor
                 EngineLog.DeleteFailed(Logger, entry.Id.Id, error);
                 _modeChanges.Add(ResourceChange.Unsupported(entry.Id, entry.Type, ChangeType.Delete, error));
                 _modeOperations.Add(new ResourceOperation(entry.Id, entry.Type, batchIndex, OperationStatus.Failed, ChangeType.Delete, ChangeMode.Delete, entry.GraphId, error, outcome.ErrorCode ?? EngineDiagnosticCodes.ResourceDeleted, outcome.Duration));
-                await _options.StateSink.ResourceDeleteFailedAsync(entry, error, cancellationToken).ConfigureAwait(false);
+                await _options.StateSink.ResourceDeleteFailedAsync(entry, error, CancellationToken.None).ConfigureAwait(false);
                 stop = !_options.ContinueOnError;
             }
         }
@@ -482,7 +482,8 @@ public sealed class DeploymentExecutor
                 _createdThisRun[instance.Id] = 1;
             }
 
-            await _options.StateSink.ResourceAppliedAsync(instance, change, applied, cancellationToken).ConfigureAwait(false);
+            // Recording a completed write is not cancellable: a cancellation that arrives right after the Graph call must not lose the entry.
+            await _options.StateSink.ResourceAppliedAsync(instance, change, applied, CancellationToken.None).ConfigureAwait(false);
             stopwatch.Stop();
             _operations[instance] = new ResourceOperation(instance.Id, instance.Type, batchIndex, OperationStatus.Succeeded, change.Type, change.Mode, applied.GraphId, null, null, stopwatch.Elapsed);
             EngineLog.Applied(Logger, instance.Id.Id, change.Type.ToString(), applied.GraphId, stopwatch.ElapsedMilliseconds);
@@ -533,7 +534,7 @@ public sealed class DeploymentExecutor
         private async Task FailAsync(ResourceInstance instance, int batchIndex, string code, string message, TimeSpan elapsed, CancellationToken cancellationToken)
         {
             RecordFailure(instance, batchIndex, code, message, elapsed);
-            await _options.StateSink.ResourceFailedAsync(instance, message, cancellationToken).ConfigureAwait(false);
+            await _options.StateSink.ResourceFailedAsync(instance, message, CancellationToken.None).ConfigureAwait(false);
         }
 
         private void RecordFailure(ResourceInstance instance, int batchIndex, string code, string message, TimeSpan elapsed)

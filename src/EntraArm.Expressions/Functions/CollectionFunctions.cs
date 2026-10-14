@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using EntraArm.Core.Json;
 using EntraArm.Core.Secrets;
 using EntraArm.Expressions.Values;
 
@@ -258,7 +259,7 @@ internal static class CollectionFunctions
         string text = call.String(0);
         try
         {
-            var parsed = JsonNode.Parse(text, documentOptions: new JsonDocumentOptions { AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip });
+            var parsed = JsonNode.Parse(LoneSurrogates.Replace(text), documentOptions: new JsonDocumentOptions { AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip });
 
             // The structure of a secure string (its object keys) is part of the secret, and keys carry no taint of their
             // own: mask them (the same rule as toObject/groupBy/createObject) and taint every leaf.

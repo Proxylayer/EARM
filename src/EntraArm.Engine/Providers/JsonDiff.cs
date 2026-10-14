@@ -212,7 +212,7 @@ public static class JsonDiff
                 }
 
             case JsonArray leftArray:
-                return right is JsonArray rightArray && Canonical(leftArray) == Canonical(rightArray);
+                return right is JsonArray rightArray && SetEquals(leftArray, rightArray);
 
             default:
                 return ScalarEquals(left, right);
@@ -486,14 +486,14 @@ public static class JsonDiff
         var liveCounts = new Dictionary<string, int>(StringComparer.Ordinal);
         foreach (var item in live)
         {
-            string canonical = Canonical(item);
+            string canonical = SetKey(item);
             liveCounts[canonical] = liveCounts.GetValueOrDefault(canonical) + 1;
         }
 
         var desiredCounts = new Dictionary<string, int>(StringComparer.Ordinal);
         foreach (var item in desired)
         {
-            string canonical = Canonical(item);
+            string canonical = SetKey(item);
             desiredCounts[canonical] = desiredCounts.GetValueOrDefault(canonical) + 1;
         }
 
@@ -501,7 +501,7 @@ public static class JsonDiff
         var remainingLive = new Dictionary<string, int>(liveCounts, StringComparer.Ordinal);
         for (int i = 0; i < desired.Count; i++)
         {
-            string canonical = Canonical(desired[i]);
+            string canonical = SetKey(desired[i]);
             if (remainingLive.GetValueOrDefault(canonical) > 0)
             {
                 remainingLive[canonical]--;
@@ -514,7 +514,7 @@ public static class JsonDiff
         var remainingDesired = new Dictionary<string, int>(desiredCounts, StringComparer.Ordinal);
         for (int j = 0; j < live.Count; j++)
         {
-            string canonical = Canonical(live[j]);
+            string canonical = SetKey(live[j]);
             if (remainingDesired.GetValueOrDefault(canonical) > 0)
             {
                 remainingDesired[canonical]--;
@@ -678,6 +678,86 @@ public static class JsonDiff
         return CanonicalJson.Serialize(NormalizeGuids(node));
     }
 
+    /// <summary>
+    /// Multiset equality of two arrays under the diff rules: the same canonical <see cref="SetKey"/> per element, with
+    /// duplicates counted (<c>[1,1,2]</c> differs from <c>[1,2,2]</c>), regardless of order. <see cref="Diff"/> uses the same key.
+    /// </summary>
+    private static bool SetEquals(JsonArray left, JsonArray right)
+    {
+        if (left.Count != right.Count)
+        {
+            return false;
+        }
+
+        var leftKeys = new List<string>(left.Count);
+        foreach (var item in left)
+        {
+            leftKeys.Add(SetKey(item));
+        }
+
+        var rightKeys = new List<string>(right.Count);
+        foreach (var item in right)
+        {
+            rightKeys.Add(SetKey(item));
+        }
+
+        leftKeys.Sort(StringComparer.Ordinal);
+        rightKeys.Sort(StringComparer.Ordinal);
+        return leftKeys.SequenceEqual(rightKeys, StringComparer.Ordinal);
+    }
+
+    /// <summary>
+    /// Order-insensitive canonical form of an array element: <see cref="Canonical"/> (GUIDs lower-cased, <c>null</c>/<c>[]</c>
+    /// members dropped) with object keys lower-cased and every nested array sorted, so two elements are equal exactly when
+    /// they are equivalent regardless of member case or the order of any array below them.
+    /// </summary>
+    private static string SetKey(JsonNode? node)
+    {
+        return CanonicalJson.Serialize(OrderInsensitive(NormalizeGuids(node)));
+    }
+
+    private static JsonNode? OrderInsensitive(JsonNode? node)
+    {
+        switch (node)
+        {
+            case JsonObject obj:
+                {
+                    var copy = new JsonObject();
+                    foreach (var property in obj)
+                    {
+                        string key = property.Key.ToLowerInvariant();
+                        if (!copy.ContainsKey(key))
+                        {
+                            copy[key] = OrderInsensitive(property.Value);
+                        }
+                    }
+
+                    return copy;
+                }
+
+            case JsonArray array:
+                {
+                    var items = new List<(string Key, JsonNode? Node)>(array.Count);
+                    foreach (var item in array)
+                    {
+                        var form = OrderInsensitive(item);
+                        items.Add((CanonicalJson.Serialize(form), form));
+                    }
+
+                    items.Sort((a, b) => string.CompareOrdinal(a.Key, b.Key));
+                    var copy = new JsonArray();
+                    foreach (var item in items)
+                    {
+                        copy.Add(item.Node);
+                    }
+
+                    return copy;
+                }
+
+            default:
+                return node?.DeepClone();
+        }
+    }
     private static JsonNode? NormalizeGuids(JsonNode? node)
     {
         switch (node)

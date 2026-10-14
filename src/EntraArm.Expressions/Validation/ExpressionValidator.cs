@@ -231,12 +231,20 @@ public sealed class ExpressionValidator : ITemplateValidator
                 return;
             }
 
-            Visit(root, frame, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+            try
+            {
+                Visit(root, frame, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+            }
+            catch (ExpressionEvaluationException ex) when (ex.Code == DiagnosticCodes.ExpressionTooDeep)
+            {
+                Error(ex.Code, ex.MessageWithOffset, frame.Path);
+            }
         }
 
         /// <summary>Checks one node and descends; lambda bodies extend the frame's parameter scope, lambdas elsewhere are errors.</summary>
         private void Visit(Expression node, Frame frame, HashSet<string> warnedStubs)
         {
+            ExpressionStackGuard.Ensure(node.Offset);
             switch (node)
             {
                 case LambdaExpression lambda:

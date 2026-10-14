@@ -73,7 +73,10 @@ load ──► validate ──► expand ──► graph ──► [per batch: r
    live edges; what-if renders the same deltas read-only. See [Edge pass](#edge-pass-entraarmengineedges) below.
 8. **Outputs** after the edge pass: secure outputs (`securestring`/`secureObject`, or any tainted value) are `***`
    unless `--reveal-secure-outputs`; `--secure-outputs-file` writes the revealed values with owner-only
-   permissions (`OwnerOnlyFile`). **One-time secrets** (`reference(...).secretText` of a password credential):
+   permissions (`OwnerOnlyFile`: the text goes to a new temp file in the same folder that is created owner-only
+   (protected DACL with the current user alone on Windows, mode 0600 on Unix) and is then moved over the target, so
+   an existing file's old permissions never apply; the result is verified, a read-only existing file or a directory
+   path is an `IOException`, and the temp file is removed on failure). **One-time secrets** (`reference(...).secretText` of a password credential):
    Graph returns the secret only from `addPassword`, so it is available in the run that creates or rotates the
    credential and in no later run. On a rerun the provider publishes `secretText: null` plus the marker
    `secretTextAvailable: false` (`LiveSecrets`); the executor traces which published objects each output's
@@ -307,7 +310,11 @@ write an entry that carries a secret (`SecretJson`) or a deploy-time placeholder
   (redacted) error and keeps the previous entry; skipped/ignored resources and the mode pass are recorded too;
   `ResourceEdgesAppliedAsync` replaces the entry's `relationships` after the edge pass and `ResourceEdgesFailedAsync`
   records an edge failure (the entry keeps its previous records); `CompletedAsync` sets `lastStatus` /
-  `lastDeployedOn` / `lastMode` / `lastTemplateHash`. A crash leaves `lastStatus: Running` and the entries written so far. The executor also passes the pinned Graph id to
+  `lastDeployedOn` / `lastMode` / `lastTemplateHash`. A crash leaves `lastStatus: Running` and the entries written so far.
+  **Recording is not cancellable**: every record after `BeginAsync` describes work that already happened, so the sink
+  saves it under its own 30-second bound (`FileStateSink.PersistTimeout`) and the executor passes `CancellationToken.None`;
+  a Ctrl+C right after a Graph write therefore still records that object (a generated secret or key id is never
+  orphaned), while cancellation keeps stopping new work between resources and batches. The executor also passes the pinned Graph id to
   `ReadAsync` (`ExecuteOptions.State`); a 404 on the pinned id is drift: the provider falls back to the key, the
   resource is planned as `Create` if nothing is found, and the sink re-pins the entry.
 - **Mode pass** (`ModePass`, executor and planner): orphans = entries whose id is not among the expanded instances

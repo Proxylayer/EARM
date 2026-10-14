@@ -19,7 +19,8 @@ namespace EntraArm.Engine.Execution;
 /// <summary>
 /// The <see cref="IStateSink"/> that keeps a <see cref="StateFile"/> current through an <see cref="IStateStore"/>:
 /// every applied resource upserts its entry (key, Graph id, parent id, content hash, dependency ids, write time,
-/// provider extra data) and the state is saved atomically <b>after every resource</b>; failures keep the previous
+/// provider extra data) and the state is saved atomically <b>after every resource</b> (not cancellable: see
+/// <c>MutateAsync</c>; only <see cref="BeginAsync"/> honours the caller's token); failures keep the previous
 /// entry and record the (redacted) error; the mode pass removes detached and deleted entries; completion records
 /// the run's status, time, mode and template hash. Thread-safe: the executor applies resources in parallel.
 /// </summary>
@@ -29,6 +30,9 @@ public sealed class FileStateSink : IStateSink
     private readonly DeploymentPlan _plan;
     private readonly TimeProvider _time;
     private readonly ILogger _logger;
+    /// <summary>The longest a state save may take once the work it records has happened (the caller's cancellation is not applied to it).</summary>
+    internal static readonly TimeSpan PersistTimeout = TimeSpan.FromSeconds(30);
+
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly Dictionary<string, DateTimeOffset> _started = new(StringComparer.Ordinal);
     private bool _begun;
@@ -121,28 +125,28 @@ public sealed class FileStateSink : IStateSink
         {
             State.Upsert(entry);
             State.Operations.Add(Record(instance, OperationStatus.Succeeded, change.Type, applied.GraphId, null, null, now));
-        }, cancellationToken);
+        });
     }
 
     public Task ResourceFailedAsync(ResourceInstance instance, string error, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(instance);
         var now = _time.GetUtcNow();
-        return MutateAsync(() => State.Operations.Add(Record(instance, OperationStatus.Failed, _plan.ChangeFor(instance)?.Type, State.GraphIdOf(instance.Id.Id), SecretRedactor.RedactText(error), EngineDiagnosticCodes.ResourceApplyFailed, now)), cancellationToken);
+        return MutateAsync(() => State.Operations.Add(Record(instance, OperationStatus.Failed, _plan.ChangeFor(instance)?.Type, State.GraphIdOf(instance.Id.Id), SecretRedactor.RedactText(error), EngineDiagnosticCodes.ResourceApplyFailed, now)));
     }
 
     public Task ResourceSkippedAsync(ResourceInstance instance, string reason, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(instance);
         var now = _time.GetUtcNow();
-        return MutateAsync(() => State.Operations.Add(Record(instance, OperationStatus.Skipped, null, null, reason, EngineDiagnosticCodes.ResourceSkipped, now)), cancellationToken);
+        return MutateAsync(() => State.Operations.Add(Record(instance, OperationStatus.Skipped, null, null, reason, EngineDiagnosticCodes.ResourceSkipped, now)));
     }
 
     public Task ResourceIgnoredAsync(ResourceInstance instance, string reason, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(instance);
         var now = _time.GetUtcNow();
-        return MutateAsync(() => State.Operations.Add(Record(instance, OperationStatus.Ignored, ChangeType.Ignore, null, reason, null, now)), cancellationToken);
+        return MutateAsync(() => State.Operations.Add(Record(instance, OperationStatus.Ignored, ChangeType.Ignore, null, reason, null, now)));
     }
 
     public Task ResourceDetachedAsync(StateEntry entry, CancellationToken cancellationToken)
@@ -153,7 +157,7 @@ public sealed class FileStateSink : IStateSink
         {
             State.Remove(entry.Id.Id);
             State.Operations.Add(Record(entry, OperationStatus.Detached, ChangeType.Ignore, null, null, now));
-        }, cancellationToken);
+        });
     }
 
     public Task ResourceDeletedAsync(StateEntry entry, CancellationToken cancellationToken)
@@ -164,14 +168,14 @@ public sealed class FileStateSink : IStateSink
         {
             State.Remove(entry.Id.Id);
             State.Operations.Add(Record(entry, OperationStatus.Succeeded, ChangeType.Delete, null, null, now));
-        }, cancellationToken);
+        });
     }
 
     public Task ResourceDeleteFailedAsync(StateEntry entry, string error, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(entry);
         var now = _time.GetUtcNow();
-        return MutateAsync(() => State.Operations.Add(Record(entry, OperationStatus.Failed, ChangeType.Delete, SecretRedactor.RedactText(error), EngineDiagnosticCodes.ResourceDeleted, now)), cancellationToken);
+        return MutateAsync(() => State.Operations.Add(Record(entry, OperationStatus.Failed, ChangeType.Delete, SecretRedactor.RedactText(error), EngineDiagnosticCodes.ResourceDeleted, now)));
     }
 
     public Task ResourceEdgesAppliedAsync(ResourceInstance instance, JsonObject? relationships, CancellationToken cancellationToken)
@@ -188,30 +192,38 @@ public sealed class FileStateSink : IStateSink
             {
                 State.Upsert(entry with { Relationships = relationships?.DeepClone().AsObject() });
             }
-        }, cancellationToken);
+        });
     }
 
     public Task ResourceEdgesFailedAsync(ResourceInstance instance, string error, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(instance);
         var now = _time.GetUtcNow();
-        return MutateAsync(() => State.Operations.Add(Record(instance, OperationStatus.Failed, _plan.ChangeFor(instance)?.Type, State.GraphIdOf(instance.Id.Id), SecretRedactor.RedactText(error), EngineDiagnosticCodes.EdgeApplyFailed, now)), cancellationToken);
+        return MutateAsync(() => State.Operations.Add(Record(instance, OperationStatus.Failed, _plan.ChangeFor(instance)?.Type, State.GraphIdOf(instance.Id.Id), SecretRedactor.RedactText(error), EngineDiagnosticCodes.EdgeApplyFailed, now)));
     }
 
     public Task CompletedAsync(DeploymentStatus status, CancellationToken cancellationToken)
     {
-        return MutateAsync(() => State.CompleteRun(status == DeploymentStatus.Succeeded, _plan.Mode.ToString(), _plan.TemplateHash, _time.GetUtcNow()), cancellationToken);
+        return MutateAsync(() => State.CompleteRun(status == DeploymentStatus.Succeeded, _plan.Mode.ToString(), _plan.TemplateHash, _time.GetUtcNow()));
     }
 
     // ---- helpers ----
 
-    private async Task MutateAsync(Action mutation, CancellationToken cancellationToken)
+    /// <summary>
+    /// Applies one state change and saves, independent of the caller's cancellation. Every change recorded here describes work that
+    /// already happened (an object written to or deleted from the tenant, a failure, a skip, the run's completion), and a cancellation
+    /// that arrives right after a Graph write must not drop its entry: the object would exist in the tenant but not in the state, and
+    /// anything Graph generates (a secret, a key id) would be orphaned. A cancelled run stops starting NEW work (the executor checks
+    /// the token between resources and batches); this persistence is bounded by <see cref="PersistTimeout"/> instead.
+    /// </summary>
+    private async Task MutateAsync(Action mutation)
     {
-        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        using var timeout = new CancellationTokenSource(PersistTimeout);
+        await _gate.WaitAsync(timeout.Token).ConfigureAwait(false);
         try
         {
             mutation();
-            await _store.SaveAsync(State, cancellationToken).ConfigureAwait(false);
+            await _store.SaveAsync(State, timeout.Token).ConfigureAwait(false);
         }
         finally
         {

@@ -183,7 +183,7 @@ internal static partial class GraphErrorParser
 
             try
             {
-                if (JsonNode.Parse(candidate, documentOptions: new JsonDocumentOptions { AllowTrailingCommas = true }) is JsonObject envelope
+                if (JsonNode.Parse(JsonSurrogateSanitizer.Replace(candidate), documentOptions: new JsonDocumentOptions { AllowTrailingCommas = true }) is JsonObject envelope
                     && envelope["error"] is JsonObject error)
                 {
                     errorStart = match.Index;

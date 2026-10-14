@@ -92,7 +92,7 @@ public static class CanonicalJson
                             continue;
                         }
 
-                        writer.WritePropertyName(key);
+                        writer.WritePropertyName(LoneSurrogates.Scrub(key));
                         Write(writer, obj[key], childPath, excluded);
                     }
 
@@ -144,7 +144,7 @@ public static class CanonicalJson
                     WriteNumber(writer, element);
                     return;
                 case JsonValueKind.String:
-                    writer.WriteStringValue(element.GetString());
+                    writer.WriteStringValue(LoneSurrogates.GetStringOrReplacement(element));
                     return;
                 default:
                     element.WriteTo(writer);
@@ -152,7 +152,15 @@ public static class CanonicalJson
             }
         }
 
-        // CLR-backed primitives: System.Text.Json already writes numbers with the invariant culture.
+        // CLR-backed strings: an unpaired surrogate is written as U+FFFD, the same text a parsed lone surrogate escape gives (and
+        // the same canonical form, so equal-looking data hashes equal whichever way it was built).
+        if (value.TryGetValue<string>(out var text))
+        {
+            writer.WriteStringValue(LoneSurrogates.Scrub(text));
+            return;
+        }
+
+        // Other CLR-backed primitives: System.Text.Json already writes numbers with the invariant culture.
         value.WriteTo(writer);
     }
 

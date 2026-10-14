@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using EntraArm.Core.Json;
 using EntraArm.Core;
 using EntraArm.Core.Secrets;
 using EntraArm.Engine.Execution;
@@ -34,7 +35,7 @@ public static class StateSerializer
         JsonNode? root;
         try
         {
-            root = JsonNode.Parse(json, documentOptions: new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true });
+            root = JsonNode.Parse(LoneSurrogates.Replace(json), documentOptions: new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true });
         }
         catch (JsonException ex)
         {

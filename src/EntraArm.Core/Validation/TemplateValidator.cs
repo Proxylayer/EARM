@@ -1,8 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using EntraArm.Core.Diagnostics;
 using EntraArm.Core.Json;
 using EntraArm.Core.Types;
+using JsonSchema = global::Json.Schema.JsonSchema;
 
 namespace EntraArm.Core.Validation;
 
@@ -60,7 +63,8 @@ public sealed class TemplateValidator : ITemplateValidator
             }
         }
 
-        foreach (var finding in TemplateSchemas.Evaluate(_schemas.Template, document.RootElement, document.Root))
+        var templateFindings = EvaluateSchema(_schemas.Template, document.RootElement, document.Root, "template", document.SourcePath, diagnostics);
+        foreach (var finding in templateFindings)
         {
             if ((finding.Keyword == "required" && !IsInsideResourceProperties(finding.Path)) || semanticPaths.Contains((document.SourcePath, finding.Path)))
             {
@@ -78,7 +82,7 @@ public sealed class TemplateValidator : ITemplateValidator
         if (document.SuppliedParameters.RootElement is { } parametersRoot)
         {
             string? parameterSource = document.SuppliedParameters.SourcePath;
-            foreach (var finding in TemplateSchemas.Evaluate(_schemas.Parameters, parametersRoot, null))
+            foreach (var finding in EvaluateSchema(_schemas.Parameters, parametersRoot, null, "parameter file", parameterSource, diagnostics))
             {
                 if (finding.Keyword == "required" || semanticPaths.Contains((parameterSource, finding.Path)))
                 {
@@ -91,6 +95,29 @@ public sealed class TemplateValidator : ITemplateValidator
 
         diagnostics.Sort(DiagnosticOrder.Instance);
         return diagnostics;
+    }
+
+    /// <summary>
+    /// Runs the JSON Schema pass. A document that still holds a string System.Text.Json cannot read (a lone surrogate escape such as
+    /// <c>"\ud800"</c>, normally rewritten and reported at load time) makes JsonSchema.Net throw <see cref="InvalidOperationException"/>;
+    /// that becomes an <see cref="DiagnosticCodes.InvalidJson"/> error instead of an unhandled exception.
+    /// </summary>
+    private static IReadOnlyList<SchemaFinding> EvaluateSchema(JsonSchema schema, JsonElement instance, JsonNode? instanceRoot, string what, string? source, List<Diagnostic> diagnostics)
+    {
+        try
+        {
+            return TemplateSchemas.Evaluate(schema, instance, instanceRoot);
+        }
+        catch (InvalidOperationException ex)
+        {
+            diagnostics.Add(Diagnostic.Error(
+                DiagnosticCodes.InvalidJson,
+                $"The {what} contains an invalid Unicode escape (lone surrogate) or another string that cannot be read, so it could not be checked against the schema ({ex.Message})",
+                JsonPath.Root,
+                null,
+                source));
+            return [];
+        }
     }
 
     /// <summary>True for a path below <c>resources[n].properties</c> or <c>resources[n].resources[m].properties</c> (the members of a resource's properties, at any depth).</summary>

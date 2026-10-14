@@ -130,13 +130,21 @@ public static class ReferenceScanner
         }
 
         var scan = new ExpressionScan(evaluator, context, evaluationContext, path, occurrences, diagnostics);
-        scan.Visit(root, evaluationContext.LambdaScope);
+        try
+        {
+            scan.Visit(root, evaluationContext.LambdaScope);
+        }
+        catch (ExpressionEvaluationException ex) when (ex.Code == DiagnosticCodes.ExpressionTooDeep)
+        {
+            diagnostics.Add(Diagnostic.Error(ex.Code, ex.MessageWithOffset, path, context.Document.LocationOf(path), context.Document.SourcePath));
+        }
     }
 
     private sealed class ExpressionScan(ExpressionEvaluator evaluator, StaticContext context, EvaluationContext evaluationContext, JsonPath path, List<ReferenceOccurrence> occurrences, List<Diagnostic> diagnostics)
     {
         public void Visit(Expression node, ImmutableDictionary<string, JsonNode?> lambdaScope)
         {
+            ExpressionStackGuard.Ensure(node.Offset);
             if (node is LambdaExpression lambda)
             {
                 var inner = lambdaScope;

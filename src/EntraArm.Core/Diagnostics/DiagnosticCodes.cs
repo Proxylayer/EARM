@@ -58,6 +58,7 @@ public static class DiagnosticCodes
     // ---- Expressions: syntax and function resolution (EntraArm.Expressions) ----
     public const string ExpressionSyntaxError = "ExpressionSyntaxError";
     public const string ExpressionTooLong = "ExpressionTooLong";
+    public const string ExpressionTooDeep = "ExpressionTooDeep";
     public const string UnknownFunction = "UnknownFunction";
     public const string UnsupportedArmFunction = "UnsupportedArmFunction";
     public const string NotImplementedYet = "NotImplementedYet";

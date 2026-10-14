@@ -15,7 +15,7 @@ JSON output (`-o json`) lists the same fields under `diagnostics[]`.
 | Code | Severity | Meaning |
 |---|---|---|
 | `FileNotFound` | Error | The template or parameter file does not exist. |
-| `InvalidJson` | Error | The file is not valid JSON (comments and trailing commas are allowed; anything else is not). Line/column point at the parse error. |
+| `InvalidJson` | Error | The file is not valid JSON (comments and trailing commas are allowed; anything else is not). Line/column point at the parse error. JSON nested deeper than 64 levels is rejected the same way. A string with a lone surrogate escape (for example a backslash-u escape of D800 not followed by a low surrogate) is also reported here, with the path and the position of the escape: the template still loads (the escape is read as U+FFFD) but validation fails with exit code 2; in a parameter file it is a load failure (exit code 1). |
 | `TemplateRootNotObject` | Error | The template root is not a JSON object. |
 | `InvalidParameterFile` | Error | The parameter file is not in the `deploymentParameters` shape (an entry without exactly one of `value`/`reference`, a Key Vault reference without `keyVault.id`/`secretName`, duplicate names...). |
 | `InvalidArgument` | Error | (CLI only) A `-p` token is neither `@file.json` nor `name=value`. |
@@ -90,6 +90,7 @@ Emitted by `EntraArm.Expressions` (`ExpressionValidator`), after the checks abov
 |---|---|---|
 | `ExpressionSyntaxError` | Error | The `[...]` string does not match the expression grammar: unterminated string (`'` is escaped by doubling), bare identifier (`true`/`false`/`null` are functions: `true()`), floating-point literal, missing `)`/`]`, trailing text, bad lambda parameter list. |
 | `ExpressionTooLong` | Error | The expression string exceeds 24,576 characters (ARM limit). |
+| `ExpressionTooDeep` | Error | The expression nests more than 100 levels deep: calls, indexers, `lambda()` bodies and chained `.property` / `[index]` accesses are counted together. The message carries the offset where the limit was hit. Also reported when a hand-built expression tree is too deep for the stack to be walked, so a hostile template yields this diagnostic (exit code 2) instead of crashing the process. |
 | `UnknownFunction` | Error | The function is not an ARM function EntraARM supports, or `ns.fn` names a namespace/member the template's `functions` section does not declare. |
 | `UnsupportedArmFunction` | Error | An ARM function with no Entra meaning: `resourceGroup subscription managementGroup extensionResourceId subscriptionResourceId tenantResourceId listKeys listSecrets providers pickZones`. The message names the alternative. |
 | `NotImplementedYet` | Warning | A function registered as `FunctionKind.NotImplementedYet` evaluates to a deploy-time placeholder. **Not emitted by the default registry any more**: lambdas (`lambda map filter reduce sort toObject groupBy lambdaVariables`), the Entra functions (`wellKnownApp appRole permissionScope roleTemplate tenant environment`) and user-defined functions are implemented (WI-16). Kept for registries that stage a function before implementing it. |
