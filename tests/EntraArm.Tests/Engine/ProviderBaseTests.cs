@@ -44,7 +44,7 @@ public sealed class ProviderBaseTests
         return (host, instance, host.Echo(instance.Type));
     }
 
-    private const string AppJson = "{ \"type\": \"Microsoft.Entra/applications\", \"apiVersion\": \"2026-10-01\", \"name\": \"app\", \"properties\": { \"displayName\": \"App\", \"identifierUris\": [\"api://app\"] } }";
+    private const string AppJson = "{ \"type\": \"Microsoft.Entra/applications\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"app\", \"properties\": { \"displayName\": \"App\", \"identifierUris\": [\"api://app\"] } }";
     private const string AppId = "/providers/Microsoft.Entra/applications/app";
 
     // ---- plan: create / no change / modify ----
@@ -111,7 +111,7 @@ public sealed class ProviderBaseTests
     public async Task Plan_IgnoredInstance_IsIgnoreRow()
     {
         var host = new EngineHost();
-        var plan = await host.ExpandAsync(Templates.Parse("\"parameters\": { \"env\": { \"type\": \"string\" } }, \"resources\": [ { \"condition\": \"[equals(parameters('env'), 'prod')]\", \"type\": \"Microsoft.Entra/applications\", \"apiVersion\": \"2026-10-01\", \"name\": \"app\", \"properties\": { \"displayName\": \"App\" } } ]", ("env", "dev")));
+        var plan = await host.ExpandAsync(Templates.Parse("\"parameters\": { \"env\": { \"type\": \"string\" } }, \"resources\": [ { \"condition\": \"[equals(parameters('env'), 'prod')]\", \"type\": \"Microsoft.Entra/applications\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"app\", \"properties\": { \"displayName\": \"App\" } } ]", ("env", "dev")));
         var instance = EngineHost.Evaluated(plan, AppId);
         var provider = host.Echo(instance.Type);
 
@@ -128,7 +128,7 @@ public sealed class ProviderBaseTests
     [Fact]
     public async Task Plan_ImmutableChangeOnApplications_IsUnsupported()
     {
-        var (_, instance, provider) = await OneAsync("{ \"type\": \"Microsoft.Entra/applications\", \"apiVersion\": \"2026-10-01\", \"name\": \"app\", \"properties\": { \"displayName\": \"App\", \"appId\": \"22222222-2222-2222-2222-222222222222\" } }", AppId);
+        var (_, instance, provider) = await OneAsync("{ \"type\": \"Microsoft.Entra/applications\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"app\", \"properties\": { \"displayName\": \"App\", \"appId\": \"22222222-2222-2222-2222-222222222222\" } }", AppId);
         var existing = provider.ToExisting(J("{\"id\":\"A1\",\"uniqueName\":\"app\",\"displayName\":\"App\",\"appId\":\"11111111-1111-1111-1111-111111111111\"}"));
 
         var change = provider.Plan(instance, existing, PlanOptions.Default);
@@ -143,7 +143,7 @@ public sealed class ProviderBaseTests
     [Fact]
     public async Task Plan_ImmutableChangeOnGroups_IsUnsupported()
     {
-        var (_, instance, provider) = await OneAsync("{ \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01\", \"name\": \"g\", \"properties\": { \"displayName\": \"G\", \"mailEnabled\": false, \"securityEnabled\": true, \"mailNickname\": \"new\" } }", "/providers/Microsoft.Entra/groups/g");
+        var (_, instance, provider) = await OneAsync("{ \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"g\", \"properties\": { \"displayName\": \"G\", \"mailEnabled\": false, \"securityEnabled\": true, \"mailNickname\": \"new\" } }", "/providers/Microsoft.Entra/groups/g");
         var existing = provider.ToExisting(J("{\"id\":\"G1\",\"uniqueName\":\"g\",\"displayName\":\"G\",\"mailEnabled\":false,\"securityEnabled\":true,\"mailNickname\":\"old\"}"));
 
         var change = provider.Plan(instance, existing, PlanOptions.Default);
@@ -159,7 +159,7 @@ public sealed class ProviderBaseTests
         // passwordCredentials: immutable ["*"] (replace, never edit).
         const string password = "/providers/Microsoft.Entra/applications/app/passwordCredentials/ci-secret";
         var (_, instance, provider) = await OneAsync(
-            AppJson + ", { \"type\": \"Microsoft.Entra/applications/passwordCredentials\", \"apiVersion\": \"2026-10-01\", \"name\": \"app/ci-secret\", \"properties\": { \"endDateTime\": \"2027-10-01T00:00:00Z\", \"rotationTag\": \"2026Q4\" }, \"dependsOn\": [\"" + AppId + "\"] }",
+            AppJson + ", { \"type\": \"Microsoft.Entra/applications/passwordCredentials\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"app/ci-secret\", \"properties\": { \"endDateTime\": \"2027-10-01T00:00:00Z\", \"rotationTag\": \"2026Q4\" }, \"dependsOn\": [\"" + AppId + "\"] }",
             password);
         var existing = provider.ToExisting(J("{\"id\":\"K1\",\"keyId\":\"K1\",\"displayName\":\"ci-secret\",\"endDateTime\":\"2027-10-01T00:00:00Z\",\"rotationTag\":\"2026Q3\",\"hint\":\"fak\"}"));
 
@@ -175,9 +175,9 @@ public sealed class ProviderBaseTests
     // ---- requiredOnCreate ----
 
     [Theory]
-    [InlineData("{ \"type\": \"Microsoft.Entra/conditionalAccess/namedLocations\", \"apiVersion\": \"2026-10-01\", \"name\": \"Office\", \"properties\": \"[createObject('isTrusted', true())]\" }", "/providers/Microsoft.Entra/conditionalAccess/namedLocations/Office", "@odata.type")]
-    [InlineData("{ \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01\", \"name\": \"g\", \"properties\": { \"displayName\": \"G\" } }", "/providers/Microsoft.Entra/groups/g", "mailEnabled, securityEnabled")]
-    [InlineData("{ \"type\": \"Microsoft.Entra/users\", \"apiVersion\": \"2026-10-01\", \"name\": \"u@contoso.com\", \"properties\": { \"mailNickname\": \"u\" } }", "/providers/Microsoft.Entra/users/u@contoso.com", "displayName")]
+    [InlineData("{ \"type\": \"Microsoft.Entra/conditionalAccess/namedLocations\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"Office\", \"properties\": \"[createObject('isTrusted', true())]\" }", "/providers/Microsoft.Entra/conditionalAccess/namedLocations/Office", "@odata.type")]
+    [InlineData("{ \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"g\", \"properties\": { \"displayName\": \"G\" } }", "/providers/Microsoft.Entra/groups/g", "mailEnabled, securityEnabled")]
+    [InlineData("{ \"type\": \"Microsoft.Entra/users\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"u@contoso.com\", \"properties\": { \"mailNickname\": \"u\" } }", "/providers/Microsoft.Entra/users/u@contoso.com", "displayName")]
     public async Task Plan_MissingRequiredOnCreate_IsUnsupportedCreate(string resourceJson, string resourceId, string expectedMissing)
     {
         var (_, instance, provider) = await OneAsync(resourceJson, resourceId);
@@ -195,7 +195,7 @@ public sealed class ProviderBaseTests
     {
         // conditionalAccess/policies requires state, but the overlay defaults it.
         var (_, instance, provider) = await OneAsync(
-            "{ \"type\": \"Microsoft.Entra/conditionalAccess/policies\", \"apiVersion\": \"2026-10-01\", \"name\": \"CA-1\", \"properties\": { \"conditions\": { \"users\": { \"includeUsers\": [\"All\"] }, \"applications\": { \"includeApplications\": [\"All\"] } }, \"grantControls\": { \"builtInControls\": [\"mfa\"] } } }",
+            "{ \"type\": \"Microsoft.Entra/conditionalAccess/policies\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"CA-1\", \"properties\": { \"conditions\": { \"users\": { \"includeUsers\": [\"All\"] }, \"applications\": { \"includeApplications\": [\"All\"] } }, \"grantControls\": { \"builtInControls\": [\"mfa\"] } } }",
             "/providers/Microsoft.Entra/conditionalAccess/policies/CA-1");
 
         var change = provider.Plan(instance, null, PlanOptions.Default);
@@ -212,8 +212,8 @@ public sealed class ProviderBaseTests
     public async Task Plan_DeployTimeUnknownRequiredProperty_CountsAsPresent_AndFlagsTheRow()
     {
         var (_, instance, provider) = await OneAsync(
-            "{ \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01\", \"name\": \"other\", \"properties\": { \"displayName\": \"O\", \"mailEnabled\": false, \"securityEnabled\": true } }, " +
-            "{ \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01\", \"name\": \"g\", \"properties\": { \"displayName\": \"[reference('other').displayName]\", \"mailEnabled\": false, \"securityEnabled\": true } }",
+            "{ \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"other\", \"properties\": { \"displayName\": \"O\", \"mailEnabled\": false, \"securityEnabled\": true } }, " +
+            "{ \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"g\", \"properties\": { \"displayName\": \"[reference('other').displayName]\", \"mailEnabled\": false, \"securityEnabled\": true } }",
             "/providers/Microsoft.Entra/groups/g");
 
         var change = provider.Plan(instance, null, PlanOptions.Default);
@@ -243,7 +243,7 @@ public sealed class ProviderBaseTests
     [Fact]
     public async Task BuildCreateBody_KeepsAnExplicitValueOverTheDefault_AndToleratesAnEqualMappedValue()
     {
-        var (_, instance, provider) = await OneAsync("{ \"type\": \"Microsoft.Entra/applications\", \"apiVersion\": \"2026-10-01\", \"name\": \"app\", \"properties\": { \"displayName\": \"App\", \"signInAudience\": \"AzureADMultipleOrgs\", \"uniqueName\": \"app\" } }", AppId);
+        var (_, instance, provider) = await OneAsync("{ \"type\": \"Microsoft.Entra/applications\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"app\", \"properties\": { \"displayName\": \"App\", \"signInAudience\": \"AzureADMultipleOrgs\", \"uniqueName\": \"app\" } }", AppId);
 
         var body = provider.BuildCreateBody(instance);
 
@@ -254,7 +254,7 @@ public sealed class ProviderBaseTests
     [Fact]
     public async Task BuildCreateBody_DottedDefault_AndSecretReveal_ForUsers()
     {
-        var template = Templates.Parse("\"parameters\": { \"pw\": { \"type\": \"securestring\" } }, \"resources\": [ { \"type\": \"Microsoft.Entra/users\", \"apiVersion\": \"2026-10-01\", \"name\": \"u@contoso.com\", \"properties\": { \"displayName\": \"U\", \"passwordProfile\": { \"password\": \"[parameters('pw')]\" } } } ]", ("pw", "s3cret!"));
+        var template = Templates.Parse("\"parameters\": { \"pw\": { \"type\": \"securestring\" } }, \"resources\": [ { \"type\": \"Microsoft.Entra/users\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"u@contoso.com\", \"properties\": { \"displayName\": \"U\", \"passwordProfile\": { \"password\": \"[parameters('pw')]\" } } } ]", ("pw", "s3cret!"));
         var host = new EngineHost();
         var plan = await host.ExpandAsync(template);
         var instance = EngineHost.Evaluated(plan, "/providers/Microsoft.Entra/users/u@contoso.com");
@@ -276,7 +276,7 @@ public sealed class ProviderBaseTests
     public async Task BuildCreateBody_ConflictingMappedValue_ThrowsNameMappedPropertyConflict()
     {
         // A literal conflict is caught by validation; an expression reaches the provider.
-        var (_, instance, provider) = await OneAsync("{ \"type\": \"Microsoft.Entra/applications\", \"apiVersion\": \"2026-10-01\", \"name\": \"app\", \"properties\": { \"displayName\": \"App\", \"uniqueName\": \"[concat('oth', 'er')]\" } }", AppId);
+        var (_, instance, provider) = await OneAsync("{ \"type\": \"Microsoft.Entra/applications\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"app\", \"properties\": { \"displayName\": \"App\", \"uniqueName\": \"[concat('oth', 'er')]\" } }", AppId);
 
         var error = Assert.Throws<ProviderException>(() => provider.BuildCreateBody(instance));
 
@@ -292,7 +292,7 @@ public sealed class ProviderBaseTests
     {
         const string fic = "/providers/Microsoft.Entra/applications/app/federatedIdentityCredentials/github";
         var (host, instance, provider) = await OneAsync(
-            AppJson + ", { \"type\": \"Microsoft.Entra/applications/federatedIdentityCredentials\", \"apiVersion\": \"2026-10-01\", \"name\": \"app/github\", \"properties\": { \"issuer\": \"i\", \"subject\": \"s\" }, \"dependsOn\": [\"" + AppId + "\"] }",
+            AppJson + ", { \"type\": \"Microsoft.Entra/applications/federatedIdentityCredentials\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"app/github\", \"properties\": { \"issuer\": \"i\", \"subject\": \"s\" }, \"dependsOn\": [\"" + AppId + "\"] }",
             fic);
 
         var key = provider.ResolveKey(instance);
@@ -316,8 +316,8 @@ public sealed class ProviderBaseTests
     {
         const string assignment = "/providers/Microsoft.Entra/appRoleAssignments/11111111-1111-1111-1111-111111111111";
         var (_, instance, provider) = await OneAsync(
-            "{ \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01\", \"name\": \"g\", \"properties\": { \"displayName\": \"G\", \"mailEnabled\": false, \"securityEnabled\": true } }, " +
-            "{ \"type\": \"Microsoft.Entra/appRoleAssignments\", \"apiVersion\": \"2026-10-01\", \"name\": \"11111111-1111-1111-1111-111111111111\", \"properties\": { \"principalId\": \"[reference('g').id]\", \"resourceId\": \"33333333-3333-3333-3333-333333333333\", \"appRoleId\": \"44444444-4444-4444-4444-444444444444\" } }",
+            "{ \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"g\", \"properties\": { \"displayName\": \"G\", \"mailEnabled\": false, \"securityEnabled\": true } }, " +
+            "{ \"type\": \"Microsoft.Entra/appRoleAssignments\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"11111111-1111-1111-1111-111111111111\", \"properties\": { \"principalId\": \"[reference('g').id]\", \"resourceId\": \"33333333-3333-3333-3333-333333333333\", \"appRoleId\": \"44444444-4444-4444-4444-444444444444\" } }",
             assignment);
 
         var key = provider.ResolveKey(instance);
@@ -352,10 +352,23 @@ public sealed class ProviderBaseTests
         var host = new EngineHost();
         var provider = host.Echo(Fixture.AppRoleAssignmentType);
 
-        var error = await Assert.ThrowsAsync<ProviderException>(() => provider.ReadExistingAsync(ResourceIdentifier.Create(Fixture.AppRoleAssignmentType, "11111111-1111-1111-1111-111111111111"), "2026-10-01", host.Graph, Ct));
+        var error = await Assert.ThrowsAsync<ProviderException>(() => provider.ReadExistingAsync(ResourceIdentifier.Create(Fixture.AppRoleAssignmentType, "11111111-1111-1111-1111-111111111111"), "2026-10-01-preview", host.Graph, Ct));
 
         Assert.Equal(EngineDiagnosticCodes.ResourceKeyUnresolved, error.Code);
         Assert.Contains("deterministic GUID", error.Message);
+        Assert.Empty(host.Fake.Requests);
+    }
+
+    [Fact]
+    public async Task ReadExistingAsync_RefusesTheRetiredApiVersionWithTheRenameHint()
+    {
+        var host = new EngineHost();
+        var provider = host.Echo(Fixture.AppType);
+
+        var error = await Assert.ThrowsAsync<ProviderException>(() => provider.ReadExistingAsync(ResourceIdentifier.Create(Fixture.AppType, "app"), "2026-10-01", host.Graph, Ct));
+
+        Assert.Equal(DiagnosticCodes.UnknownApiVersion, error.Code);
+        Assert.Contains("was renamed '2026-10-01-preview'", error.Message, StringComparison.Ordinal);
         Assert.Empty(host.Fake.Requests);
     }
 
@@ -368,7 +381,7 @@ public sealed class ProviderBaseTests
         var error = await Assert.ThrowsAsync<ProviderException>(() => provider.ReadExistingAsync(ResourceIdentifier.Create(Fixture.AppType, "app"), "2020-01-01", host.Graph, Ct));
 
         Assert.Equal(DiagnosticCodes.UnknownApiVersion, error.Code);
-        Assert.Contains("2026-10-01", error.Message);
+        Assert.Contains("2026-10-01-preview", error.Message);
         Assert.Empty(host.Fake.Requests);
     }
 
@@ -379,9 +392,9 @@ public sealed class ProviderBaseTests
         var app = host.Directory.AddApplication("app", "App");
         host.Directory.Add("/applications/" + app["id"] + "/federatedIdentityCredentials", J("{\"id\":\"F1\",\"name\":\"github\",\"issuer\":\"i\",\"subject\":\"s\"}"));
 
-        var foundApp = await host.Echo(Fixture.AppType).ReadExistingAsync(ResourceIdentifier.Create(Fixture.AppType, "app"), "2026-10-01", host.Graph, Ct);
-        var foundFic = await host.Echo(Fixture.FicType).ReadExistingAsync(ResourceIdentifier.Create(Fixture.FicType, "app/github"), "2026-10-01-preview", host.Graph, Ct);
-        var missing = await host.Echo(Fixture.AppType).ReadExistingAsync(ResourceIdentifier.Create(Fixture.AppType, "nope"), "2026-10-01", host.Graph, Ct);
+        var foundApp = await host.Echo(Fixture.AppType).ReadExistingAsync(ResourceIdentifier.Create(Fixture.AppType, "app"), "2026-10-01-preview", host.Graph, Ct);
+        var foundFic = await host.Echo(Fixture.FicType).ReadExistingAsync(ResourceIdentifier.Create(Fixture.FicType, "app/github"), "2026-10-01-preview.beta", host.Graph, Ct);
+        var missing = await host.Echo(Fixture.AppType).ReadExistingAsync(ResourceIdentifier.Create(Fixture.AppType, "nope"), "2026-10-01-preview", host.Graph, Ct);
 
         Assert.Equal(app["id"]!.GetValue<string>(), foundApp!.GraphId);
         Assert.Equal("F1", foundFic!.GraphId);
@@ -496,8 +509,8 @@ public sealed class ProviderBaseTests
 
         Assert.Equal(["Application.ReadWrite.OwnedBy", "Application.ReadWrite.All"], host.Provider(Fixture.AppType).RequiredPermissions(null));
         Assert.Equal(["User.ReadWrite.All"], host.Provider(Fixture.UserType).RequiredPermissions(null));
-        Assert.Equal(["2026-10-01", "2026-10-01-preview"], host.Provider(Fixture.AppType).ApiVersions.Keys.Order(StringComparer.Ordinal).ToList());
-        Assert.Equal(GraphApi.Beta, host.Provider(Fixture.AppType).ApiVersions["2026-10-01-preview"]);
+        Assert.Equal(["2026-10-01-preview", "2026-10-01-preview.beta"], host.Provider(Fixture.AppType).ApiVersions.Keys.Order(StringComparer.Ordinal).ToList());
+        Assert.Equal(GraphApi.Beta, host.Provider(Fixture.AppType).ApiVersions["2026-10-01-preview.beta"]);
     }
 
     [Fact]

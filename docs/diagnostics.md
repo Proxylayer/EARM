@@ -51,7 +51,7 @@ JSON output (`-o json`) lists the same fields under `diagnostics[]`.
 | `MissingApiVersion` | Error | A resource has no `apiVersion`. |
 | `MissingResourceName` | Error | A resource has no `name`. |
 | `UnknownResourceType` | Error | The type is not in the catalog (`Microsoft.Entra/...`; see the message for the known list). |
-| `UnknownApiVersion` | Error | The type exists but does not support this `apiVersion` (`2026-10-01` = Graph v1.0, `2026-10-01-preview` = Graph beta). |
+| `UnknownApiVersion` | Error | The type exists but does not support this `apiVersion`. `2026-10-01-preview` (Graph v1.0) and `2026-10-01-preview.beta` (Graph beta) are the only valid values; the retired plain `2026-10-01` gets a rename hint (`apiVersion '2026-10-01' was renamed '2026-10-01-preview' ...`). |
 | `InvalidResourceName` | Error | A literal name has the wrong shape for its type: wrong number of `/` segments (child types need `parent/child`), empty segment, non-GUID name for `appRoleAssignments`/`oauth2PermissionGrants`/`roleAssignments`/`servicePrincipals`, UPN without `@`, `authenticationContextClassReferences` name not `c1`..`c99`, federated credential name not matching `^[A-Za-z][A-Za-z0-9-]{2,119}$`. |
 | `ParentChildTypeMismatch` | Error | A child type is nested under (or spelled with) the wrong parent type, e.g. `federatedIdentityCredentials` under a group. |
 | `DuplicateResourceId` | Error | Two declarations with literal names produce the same resource id (`/providers/Microsoft.Entra/<type>/<name>`). Names compare case-sensitively, types case-insensitively. |

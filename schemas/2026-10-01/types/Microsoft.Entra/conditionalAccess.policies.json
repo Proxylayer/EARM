@@ -509,7 +509,7 @@
               ]
             },
             "continuousAccessEvaluation": {
-              "description": "Continuous access evaluation. Preview apiVersion only.",
+              "description": "Continuous access evaluation. Beta apiVersion (2026-10-01-preview.beta) only.",
               "anyOf": [
                 {
                   "type": [ "object", "null" ],
@@ -544,7 +544,7 @@
     "type": "Microsoft.Entra/conditionalAccess/policies",
     "parentType": null,
     "graphPath": "/identity/conditionalAccess/policies",
-    "apiVersions": { "2026-10-01": "v1.0", "2026-10-01-preview": "beta" },
+    "apiVersions": { "2026-10-01-preview": "v1.0", "2026-10-01-preview.beta": "beta" },
     "nameMapsTo": "displayName",
     "nameKind": "displayName",
     "namePattern": "^\\S(.{0,254}\\S)?$",

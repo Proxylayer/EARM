@@ -553,8 +553,8 @@ public sealed class DeploymentExecutorTests
         var host = new EngineHost();
         var document = Templates.Parse(
             "\"parameters\": { \"env\": { \"type\": \"string\" } }, " +
-            "\"resources\": [ { \"condition\": \"[equals(parameters('env'), 'prod')]\", \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01\", \"name\": \"g\", \"properties\": { \"displayName\": \"G\", \"mailEnabled\": false, \"securityEnabled\": true } }, " +
-            "{ \"type\": \"Microsoft.Entra/users\", \"apiVersion\": \"2026-10-01\", \"name\": \"u@contoso.com\", \"properties\": { \"displayName\": \"U\" } } ], " +
+            "\"resources\": [ { \"condition\": \"[equals(parameters('env'), 'prod')]\", \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"g\", \"properties\": { \"displayName\": \"G\", \"mailEnabled\": false, \"securityEnabled\": true } }, " +
+            "{ \"type\": \"Microsoft.Entra/users\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"u@contoso.com\", \"properties\": { \"displayName\": \"U\" } } ], " +
             "\"outputs\": { \"groupId\": { \"type\": \"string\", \"value\": \"[reference('g').id]\" }, \"userId\": { \"type\": \"string\", \"value\": \"[reference('u@contoso.com').id]\" }, \"skipped\": { \"condition\": \"[equals(parameters('env'), 'prod')]\", \"type\": \"string\", \"value\": \"[reference('g').id]\" } }",
             ("env", "dev"));
 

@@ -16,7 +16,7 @@
   "resources": [
     {
       "type": "Microsoft.Entra/administrativeUnits",
-      "apiVersion": "2026-10-01",
+      "apiVersion": "2026-10-01-preview",
       "name": "Parameter types AU",
       "properties": { "description": "[parameters('label')]" }
     }

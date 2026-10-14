@@ -32,8 +32,8 @@ public sealed class PasswordCredentialFailureTests
 
     private static string Template(string secretProperties = "")
     {
-        return """{ "type": "Microsoft.Entra/applications", "apiVersion": "2026-10-01", "name": "test-api", "properties": { "displayName": "Test API" } }"""
-            + ", { \"type\": \"" + SecretType + "\", \"apiVersion\": \"2026-10-01\", \"name\": \"test-api/ci-secret\", \"properties\": { " + secretProperties + " } }";
+        return """{ "type": "Microsoft.Entra/applications", "apiVersion": "2026-10-01-preview", "name": "test-api", "properties": { "displayName": "Test API" } }"""
+            + ", { \"type\": \"" + SecretType + "\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"test-api/ci-secret\", \"properties\": { " + secretProperties + " } }";
     }
 
     private static async Task<(ProviderHost Host, string AppId, ResourceInstance Instance, PasswordCredentialsProvider Provider)> ArrangeAsync(Action<JsonObject>? configureApp = null)

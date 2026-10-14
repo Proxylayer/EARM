@@ -16,7 +16,7 @@
   "resources": [
     {
       "type": "Microsoft.Entra/groups",
-      "apiVersion": "2026-10-01",
+      "apiVersion": "2026-10-01-preview",
       "name": "[variables('group')]",
       "properties": {
         "displayName": "[variables('group')]",
@@ -27,7 +27,7 @@
     },
     {
       "type": "Microsoft.Entra/conditionalAccess/namedLocations",
-      "apiVersion": "2026-10-01",
+      "apiVersion": "2026-10-01-preview",
       "name": "[variables('location')]",
       "properties": {
         "@odata.type": "#microsoft.graph.ipNamedLocation",
@@ -37,7 +37,7 @@
     },
     {
       "type": "Microsoft.Entra/conditionalAccess/policies",
-      "apiVersion": "2026-10-01",
+      "apiVersion": "2026-10-01-preview",
       "name": "[variables('policy')]",
       "properties": {
         "state": "[parameters('policyState')]",

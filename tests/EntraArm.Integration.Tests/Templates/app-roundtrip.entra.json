@@ -14,7 +14,7 @@
   "resources": [
     {
       "type": "Microsoft.Entra/applications",
-      "apiVersion": "2026-10-01",
+      "apiVersion": "2026-10-01-preview",
       "name": "[variables('appName')]",
       "properties": {
         "displayName": "[variables('appName')]",
@@ -39,7 +39,7 @@
       "resources": [
         {
           "type": "federatedIdentityCredentials",
-          "apiVersion": "2026-10-01",
+          "apiVersion": "2026-10-01-preview",
           "name": "github-main",
           "properties": {
             "issuer": "https://token.actions.githubusercontent.com",
@@ -50,7 +50,7 @@
         },
         {
           "type": "passwordCredentials",
-          "apiVersion": "2026-10-01",
+          "apiVersion": "2026-10-01-preview",
           "name": "ci-secret",
           "properties": {
             "rotationTag": "[parameters('rotationTag')]",
@@ -61,7 +61,7 @@
     },
     {
       "type": "Microsoft.Entra/servicePrincipals",
-      "apiVersion": "2026-10-01",
+      "apiVersion": "2026-10-01-preview",
       "name": "[reference(variables('appName')).appId]",
       "properties": {
         "appRoleAssignmentRequired": true

@@ -167,7 +167,7 @@ public sealed class UserFunctionTests
     [Fact]
     public void Validator_ChecksDeclarationsArityTypesAndPlacement()
     {
-        var analysis = new ExpressionValidator().Analyze(Expr.ParseBody(Functions.Replace("\"resources\": []", "\"resources\": [ { \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01\", \"name\": \"g\", \"properties\": { "
+        var analysis = new ExpressionValidator().Analyze(Expr.ParseBody(Functions.Replace("\"resources\": []", "\"resources\": [ { \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"g\", \"properties\": { "
             + "\"ok\": \"[c.greet('a', 1)]\", \"arity\": \"[c.greet('a')]\", \"lambda\": \"[c.greet(lambda('x', 1), 1)]\", \"ns\": \"[d.greet('a', 1)]\", \"member\": \"[c.nope()]\" } } ]", System.StringComparison.Ordinal)));
 
         var byPath = analysis.Diagnostics.GroupBy(d => d.Path!.ToString()).ToDictionary(g => g.Key, g => g.Select(d => d.Code).ToList());

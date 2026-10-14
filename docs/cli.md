@@ -109,6 +109,8 @@ references (exit 3) and, for `create`, takes the state lock (exit 4). Rendering 
 
 `-f` only **locates** the state directory (`.entraarm/state` next to the template); `--state-dir` overrides it.
 
+State files record each resource's `apiVersion`. The `apiVersion` relabel (`2026-10-01` became `2026-10-01-preview`, and the old `2026-10-01-preview` beta became `2026-10-01-preview.beta`) has no compatibility shim because the format is unreleased: **state files written before the rename must be deleted** before the next run (the objects stay in the tenant; `state adopt` re-pins them).
+
 ## `permissions`
 
 `entraarm permissions -f <template> [-p …] [--mode app|delegated] [-o table|json]`. Offline. Lists the Graph permissions (and, for

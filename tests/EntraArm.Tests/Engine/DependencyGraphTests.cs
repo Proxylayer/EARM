@@ -17,12 +17,12 @@ public sealed class DependencyGraphTests
 
     private static string Group(string name, string? properties = null, string? extra = null)
     {
-        return "{ \"type\": \"" + GroupType + "\", \"apiVersion\": \"2026-10-01\", \"name\": \"" + name + "\", \"properties\": { \"displayName\": \"G\", \"mailEnabled\": false, \"securityEnabled\": true" + (properties is null ? string.Empty : ", " + properties) + " }" + (extra is null ? string.Empty : ", " + extra) + " }";
+        return "{ \"type\": \"" + GroupType + "\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"" + name + "\", \"properties\": { \"displayName\": \"G\", \"mailEnabled\": false, \"securityEnabled\": true" + (properties is null ? string.Empty : ", " + properties) + " }" + (extra is null ? string.Empty : ", " + extra) + " }";
     }
 
     private static string User(string upn, string? properties = null, string? extra = null)
     {
-        return "{ \"type\": \"" + UserType + "\", \"apiVersion\": \"2026-10-01\", \"name\": \"" + upn + "\", \"properties\": { \"displayName\": \"U\"" + (properties is null ? string.Empty : ", " + properties) + " }" + (extra is null ? string.Empty : ", " + extra) + " }";
+        return "{ \"type\": \"" + UserType + "\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"" + upn + "\", \"properties\": { \"displayName\": \"U\"" + (properties is null ? string.Empty : ", " + properties) + " }" + (extra is null ? string.Empty : ", " + extra) + " }";
     }
 
     private static async Task<DeploymentPlan> ExpandAsync(string resources)

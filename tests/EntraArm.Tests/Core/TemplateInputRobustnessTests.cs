@@ -150,7 +150,7 @@ public sealed class TemplateInputRobustnessTests
     [Fact]
     public void ALoneSurrogateEscape_ShouldBeADiagnostic_NotAnUnhandledException()
     {
-        var document = Loader.Parse("{ \"$schema\": \"https://entraarm.dev/schemas/2026-10-01/deploymentTemplate.json#\", \"contentVersion\": \"1.0.0.0\", \"resources\": [ { \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01\", \"name\": \"g\", \"properties\": { \"displayName\": \"bad \\ud800 surrogate\" } } ] }", "x.json", ParameterSet.Empty);
+        var document = Loader.Parse("{ \"$schema\": \"https://entraarm.dev/schemas/2026-10-01/deploymentTemplate.json#\", \"contentVersion\": \"1.0.0.0\", \"resources\": [ { \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"g\", \"properties\": { \"displayName\": \"bad \\ud800 surrogate\" } } ] }", "x.json", ParameterSet.Empty);
 
         var diagnostics = new TemplateValidator(EntraArm.Core.Types.ResourceTypeCatalog.Default).Validate(document);
 
@@ -418,7 +418,7 @@ public sealed class TemplateInputRobustnessTests
     [InlineData("\"3\"", false)]
     public void ACopyCountAndBatchSize_AcceptAnyWholeNumberSpelling(string number, bool accepted)
     {
-        string resource = "{ \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01\", \"name\": \"g\", \"copy\": { \"name\": \"c\", \"count\": " + number + ", \"batchSize\": " + number + " } }";
+        string resource = "{ \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"g\", \"copy\": { \"name\": \"c\", \"count\": " + number + ", \"batchSize\": " + number + " } }";
         var document = Loader.Parse(Envelope.Replace("\"resources\": []", "\"resources\": [ " + resource + " ]", StringComparison.Ordinal) + "}", "x.json", ParameterSet.Empty);
 
         var diagnostics = new TemplateValidator(EntraArm.Core.Types.ResourceTypeCatalog.Default).Validate(document);
@@ -477,7 +477,7 @@ public sealed class TemplateInputRobustnessTests
         var document = Loader.Parse(Envelope + ", \"metadata\": { \"long\": \"" + longText + "\" } }", "x.json", ParameterSet.Empty);
         Assert.Equal(2_000_000, ((string?)document.Metadata!["long"]!.GetValue<string>())!.Length);
 
-        string resources = string.Join(",", Enumerable.Range(0, 400).Select(i => "{ \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01\", \"name\": \"g" + i + "\", \"properties\": { \"displayName\": \"G" + i + "\" } }"));
+        string resources = string.Join(",", Enumerable.Range(0, 400).Select(i => "{ \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"g" + i + "\", \"properties\": { \"displayName\": \"G" + i + "\" } }"));
         var many = Loader.Parse("{ \"$schema\": \"https://entraarm.dev/schemas/2026-10-01/deploymentTemplate.json#\", \"contentVersion\": \"1.0.0.0\", \"resources\": [ " + resources + " ] }", "x.json", ParameterSet.Empty);
         Assert.Equal(400, many.Resources.Count);
     }
@@ -539,8 +539,8 @@ public sealed class TemplateInputRobustnessTests
     public void NestedChildren_WithAMismatchedFullType_AreReported()
     {
         string json = "{ \"$schema\": \"https://entraarm.dev/schemas/2026-10-01/deploymentTemplate.json#\", \"contentVersion\": \"1.0.0.0\", \"resources\": [ "
-            + "{ \"type\": \"Microsoft.Entra/applications\", \"apiVersion\": \"2026-10-01\", \"name\": \"app\", \"properties\": { \"displayName\": \"App\" }, \"resources\": [ "
-            + "{ \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01\", \"name\": \"child\", \"properties\": { } } ] } ] }";
+            + "{ \"type\": \"Microsoft.Entra/applications\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"app\", \"properties\": { \"displayName\": \"App\" }, \"resources\": [ "
+            + "{ \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"child\", \"properties\": { } } ] } ] }";
 
         var document = Loader.Parse(json, "x.json", ParameterSet.Empty);
 

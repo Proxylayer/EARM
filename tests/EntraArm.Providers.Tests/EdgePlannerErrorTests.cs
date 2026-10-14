@@ -111,7 +111,7 @@ public sealed class EdgePlannerErrorTests
         var host = new ProviderHost();
         host.Directory.AddGroup("existing", "Existing");
         string template = Join(
-            "{ \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01\", \"name\": \"base\", \"properties\": { \"displayName\": \"Base\" } }",
+            "{ \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"base\", \"properties\": { \"displayName\": \"Base\" } }",
             Alice("\"memberOf\": \"[createArray(reference('base').id)]\""));
 
         var whatIf = await host.WhatIfAsync(host.Resources(template));

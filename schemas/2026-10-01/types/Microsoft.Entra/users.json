@@ -225,7 +225,7 @@
     "type": "Microsoft.Entra/users",
     "parentType": null,
     "graphPath": "/users",
-    "apiVersions": { "2026-10-01": "v1.0", "2026-10-01-preview": "beta" },
+    "apiVersions": { "2026-10-01-preview": "v1.0", "2026-10-01-preview.beta": "beta" },
     "nameMapsTo": "userPrincipalName",
     "nameKind": "userPrincipalName",
     "namePattern": "^[^@\\s]+@[^@\\s]+$",

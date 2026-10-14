@@ -10,7 +10,7 @@
       "after": {
         "name": "contoso-dev-api",
         "type": "Microsoft.Entra/applications",
-        "apiVersion": "2026-10-01",
+        "apiVersion": "2026-10-01-preview",
         "properties": {
           "displayName": "Orders API",
           "signInAudience": "AzureADMyOrg",
@@ -52,7 +52,7 @@
       "after": {
         "name": "bg-orders@contoso.com",
         "type": "Microsoft.Entra/users",
-        "apiVersion": "2026-10-01",
+        "apiVersion": "2026-10-01-preview",
         "properties": {
           "displayName": "Break Glass (Orders)",
           "mailNickname": "bg-orders",
@@ -76,7 +76,7 @@
       "after": {
         "name": "ref(/providers/Microsoft.Entra/applications/contoso-dev-api).appId",
         "type": "Microsoft.Entra/servicePrincipals",
-        "apiVersion": "2026-10-01",
+        "apiVersion": "2026-10-01-preview",
         "properties": {
           "appRoleAssignmentRequired": true,
           "accountEnabled": true
@@ -93,7 +93,7 @@
       "after": {
         "name": "contoso-dev-orders-admins",
         "type": "Microsoft.Entra/groups",
-        "apiVersion": "2026-10-01",
+        "apiVersion": "2026-10-01-preview",
         "properties": {
           "displayName": "Orders Admins",
           "mailEnabled": false,

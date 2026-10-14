@@ -74,7 +74,7 @@ public sealed class PlannerReadFailureTests
         var host = new ProviderHost();
         host.Directory.AddGroup("elsewhere", "Elsewhere");
         host.Fake.Failures.Forbid("/groups(uniqueName", "GET");
-        string consumer = Group().Replace("\"displayName\": \"Test Admins\"", "\"displayName\": \"[reference(resourceId('Microsoft.Entra/groups', 'elsewhere'), '2026-10-01').displayName]\"", StringComparison.Ordinal);
+        string consumer = Group().Replace("\"displayName\": \"Test Admins\"", "\"displayName\": \"[reference(resourceId('Microsoft.Entra/groups', 'elsewhere'), '2026-10-01-preview').displayName]\"", StringComparison.Ordinal);
 
         var whatIf = await host.WhatIfAsync(host.Resources(consumer));
 
@@ -88,7 +88,7 @@ public sealed class PlannerReadFailureTests
     {
         var host = new ProviderHost();
         host.Directory.AddGroup("elsewhere", "Elsewhere");
-        string consumer = Group().Replace("\"displayName\": \"Test Admins\"", "\"displayName\": \"[reference(resourceId('Microsoft.Entra/groups', 'elsewhere'), '2026-10-01').displayName]\"", StringComparison.Ordinal);
+        string consumer = Group().Replace("\"displayName\": \"Test Admins\"", "\"displayName\": \"[reference(resourceId('Microsoft.Entra/groups', 'elsewhere'), '2026-10-01-preview').displayName]\"", StringComparison.Ordinal);
 
         var run = await host.CreateAsync(host.Resources(consumer));
 

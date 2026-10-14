@@ -23,45 +23,45 @@ public sealed class EdgePassTests
     private const string AliceId = "/providers/Microsoft.Entra/users/alice@contoso.com";
 
     private const string App = """
-        { "type": "Microsoft.Entra/applications", "apiVersion": "2026-10-01", "name": "test-app",
+        { "type": "Microsoft.Entra/applications", "apiVersion": "2026-10-01-preview", "name": "test-app",
           "properties": { "displayName": "Test App", "owners": ["[reference('alice@contoso.com').id]"] } }
         """;
 
     private const string AppOwnedByBob = """
-        { "type": "Microsoft.Entra/applications", "apiVersion": "2026-10-01", "name": "test-app",
-          "properties": { "displayName": "Test App", "owners": ["[reference(resourceId('Microsoft.Entra/users', 'bob@contoso.com'), '2026-10-01').id]"] } }
+        { "type": "Microsoft.Entra/applications", "apiVersion": "2026-10-01-preview", "name": "test-app",
+          "properties": { "displayName": "Test App", "owners": ["[reference(resourceId('Microsoft.Entra/users', 'bob@contoso.com'), '2026-10-01-preview').id]"] } }
         """;
 
     private const string Sp = """
-        { "type": "Microsoft.Entra/servicePrincipals", "apiVersion": "2026-10-01", "name": "[reference('test-app').appId]",
+        { "type": "Microsoft.Entra/servicePrincipals", "apiVersion": "2026-10-01-preview", "name": "[reference('test-app').appId]",
           "properties": { }, "dependsOn": ["[resourceId('Microsoft.Entra/applications', 'test-app')]"] }
         """;
 
     private const string Au = """
-        { "type": "Microsoft.Entra/administrativeUnits", "apiVersion": "2026-10-01", "name": "Test AU", "properties": { "description": "AU" } }
+        { "type": "Microsoft.Entra/administrativeUnits", "apiVersion": "2026-10-01-preview", "name": "Test AU", "properties": { "description": "AU" } }
         """;
 
     private const string Group2 = """
-        { "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01", "name": "test-group2", "properties": { "displayName": "Test Group 2" } }
+        { "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01-preview", "name": "test-group2", "properties": { "displayName": "Test Group 2" } }
         """;
 
     private const string MemberOfGroup = "\"[reference('test-group').id]\"";
     private const string MemberOfGroup2 = "\"[reference('test-group2').id]\"";
-    private const string MemberOfAllStaff = "\"[reference(resourceId('Microsoft.Entra/groups', 'all-staff'), '2026-10-01').id]\"";
+    private const string MemberOfAllStaff = "\"[reference(resourceId('Microsoft.Entra/groups', 'all-staff'), '2026-10-01-preview').id]\"";
     private const string MembersSpAndAlice = "\"[reference(resourceId('Microsoft.Entra/servicePrincipals', reference('test-app').appId)).id]\", \"[reference('alice@contoso.com').id]\"";
     private const string MembersAlice = "\"[reference('alice@contoso.com').id]\"";
-    private const string ManagerBoss = "\"[reference(resourceId('Microsoft.Entra/users', 'boss@contoso.com'), '2026-10-01').id]\"";
+    private const string ManagerBoss = "\"[reference(resourceId('Microsoft.Entra/users', 'boss@contoso.com'), '2026-10-01-preview').id]\"";
 
     private static string Alice(string memberOf, string manager = ManagerBoss, bool ownerOf = true)
     {
-        return "{ \"type\": \"Microsoft.Entra/users\", \"apiVersion\": \"2026-10-01\", \"name\": \"alice@contoso.com\", \"properties\": { \"displayName\": \"Alice\", \"memberOf\": [" + memberOf + "], "
+        return "{ \"type\": \"Microsoft.Entra/users\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"alice@contoso.com\", \"properties\": { \"displayName\": \"Alice\", \"memberOf\": [" + memberOf + "], "
             + (ownerOf ? "\"ownerOf\": [\"[reference('test-app').id]\"], " : string.Empty)
             + "\"administrativeUnits\": [\"[reference('Test AU').id]\"], \"manager\": " + manager + " } }";
     }
 
     private static string Group(string? members)
     {
-        return "{ \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01\", \"name\": \"test-group\", \"properties\": { \"displayName\": \"Test Group\"" + (members is null ? string.Empty : ", \"members\": [" + members + "]") + " } }";
+        return "{ \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"test-group\", \"properties\": { \"displayName\": \"Test Group\"" + (members is null ? string.Empty : ", \"members\": [" + members + "]") + " } }";
     }
 
     private static string Join(params string[] resources)
@@ -262,7 +262,7 @@ public sealed class EdgePassTests
             g["membershipRule"] = "(user.department -eq \"x\")";
             g["membershipRuleProcessingState"] = "On";
         });
-        string template = Join(App, Sp, Alice(MemberOfGroup + ", " + MemberOfGroup2 + ", \"[reference(resourceId('Microsoft.Entra/groups', 'dyn-group'), '2026-10-01').id]\""), Group(MembersAlice), Group2, Au);
+        string template = Join(App, Sp, Alice(MemberOfGroup + ", " + MemberOfGroup2 + ", \"[reference(resourceId('Microsoft.Entra/groups', 'dyn-group'), '2026-10-01-preview').id]\""), Group(MembersAlice), Group2, Au);
 
         var run = await tenant.DeployAsync(template);
 
@@ -415,12 +415,12 @@ public sealed class EdgePassTests
         var host = new ProviderHost();
         string groupId = host.Directory.AddGroup("existing", "Existing")["id"]!.GetValue<string>();
         const string brokenApp = """
-            { "type": "Microsoft.Entra/applications", "apiVersion": "2026-10-01", "name": "broken",
+            { "type": "Microsoft.Entra/applications", "apiVersion": "2026-10-01-preview", "name": "broken",
               "properties": { "displayName": "Broken", "appRoles": [ { "value": "dup", "displayName": "a", "description": "a", "allowedMemberTypes": ["User"] } ],
                 "api": { "oauth2PermissionScopes": [ { "value": "dup", "type": "User", "adminConsentDisplayName": "a", "adminConsentDescription": "a" } ] } } }
             """;
         const string sp = """
-            { "type": "Microsoft.Entra/servicePrincipals", "apiVersion": "2026-10-01", "name": "[reference('broken').appId]", "properties": { }, "dependsOn": ["[resourceId('Microsoft.Entra/applications', 'broken')]"] }
+            { "type": "Microsoft.Entra/servicePrincipals", "apiVersion": "2026-10-01-preview", "name": "[reference('broken').appId]", "properties": { }, "dependsOn": ["[resourceId('Microsoft.Entra/applications', 'broken')]"] }
             """;
         string user = Templates.Resource("Microsoft.Entra/users", "carol@contoso.com", "{ \"displayName\": \"Carol\", \"memberOf\": [\"" + groupId + "\"] }");
 

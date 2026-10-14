@@ -24,7 +24,7 @@ public static class FederatedIdentityCredentialsRules
     /// <summary>The overlay's name constraint: 3–120 characters, letters, digits and <c>-</c>, starting with a letter.</summary>
     public const string DefaultNamePattern = "^[A-Za-z][A-Za-z0-9-]{2,119}$";
 
-    /// <summary>Only the beta endpoint (<c>2026-10-01-preview</c>) accepts this property.</summary>
+    /// <summary>Only the beta endpoint (<c>2026-10-01-preview.beta</c>) accepts this property.</summary>
     public const string PreviewOnlyProperty = "claimsMatchingExpression";
 
     /// <summary>The managed property set every v1.0 read selects.</summary>

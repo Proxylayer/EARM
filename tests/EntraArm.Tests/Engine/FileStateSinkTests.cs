@@ -87,7 +87,7 @@ public sealed class FileStateSinkTests
         Assert.Equal(appGraphId, app.GraphId);
         Assert.Equal([Fixture.User], app.DependsOn);
         Assert.Equal("contoso-dev-api", app.Key["uniqueName"]);
-        Assert.Equal("2026-10-01", app.ApiVersion);
+        Assert.Equal("2026-10-01-preview", app.ApiVersion);
         Assert.Equal(Start, app.LastWriteOn);
         Assert.StartsWith("sha256:", app.ContentHash, StringComparison.Ordinal);
 
@@ -156,7 +156,7 @@ public sealed class FileStateSinkTests
         {
             Id = EntraArm.Core.ResourceIdentifier.Create(Fixture.UserType, "bg-orders@contoso.com"),
             Type = Fixture.UserType,
-            ApiVersion = "2026-10-01",
+            ApiVersion = "2026-10-01-preview",
             Key = new Dictionary<string, string> { ["userPrincipalName"] = "bg-orders@contoso.com" },
             GraphId = "OLD-ID",
             ContentHash = "sha256:old",
@@ -199,7 +199,7 @@ public sealed class FileStateSinkTests
         {
             Id = EntraArm.Core.ResourceIdentifier.Create(Fixture.UserType, "bg-orders@contoso.com"),
             Type = Fixture.UserType,
-            ApiVersion = "2026-10-01",
+            ApiVersion = "2026-10-01-preview",
             Key = new Dictionary<string, string> { ["userPrincipalName"] = "bg-orders@contoso.com" },
             GraphId = "STALE",
         });

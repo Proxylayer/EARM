@@ -1,17 +1,47 @@
-# Build outputs
+# ---- .NET build and test output ----
 bin/
 obj/
 artifacts/
 TestResults/
-
-# IDE and per-user files
-.vs/
-.idea/
+coverage/
+*.cobertura.xml
+*.nupkg
+*.snupkg
 *.user
 *.suo
+
+# ---- IDEs and editors ----
+# .vscode/ is ignored here on purpose: `entraarm schema install` writes .vscode/settings.json into the
+# user's own workspace, never into this repository.
+.vs/
+.vscode/
+.idea/
 *.swp
 
-# EntraARM runtime: state files are committed, lock files are not
-.entraarm/state/*.lock
+# ---- OS files ----
+.DS_Store
+Thumbs.db
+desktop.ini
 
-# Note: .claude/scribe/ (project tracking documents) is intentionally NOT ignored.
+# ---- EntraARM runtime ----
+# State files (.entraarm/state/<name>.json, ids and hashes only) are safe to commit in a user's repository,
+# but this repository holds no real deployments: anything a local run writes here is scratch.
+.entraarm/
+*.entrastate.json
+secure-outputs*.json
+**/state/*.lock
+
+# ---- Secrets hygiene ----
+*.pfx
+*.pem
+*.key
+.env
+.env.*
+!.env.example
+*.secrets.json
+appsettings.*.local.json
+
+# ---- Claude Code local files ----
+# .claude/scribe/ (the project tracking documents) is intentionally NOT ignored; its own .gitignore
+# keeps the generated md/ renders out.
+.claude/settings.local.json

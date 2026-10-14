@@ -15,7 +15,7 @@
   "resources": [
     {
       "type": "Microsoft.Entra/roleDefinitions",
-      "apiVersion": "2026-10-01",
+      "apiVersion": "2026-10-01-preview",
       "name": "[variables('role')]",
       "properties": {
         "description": "EntraARM integration test role",
@@ -32,7 +32,7 @@
     },
     {
       "type": "Microsoft.Entra/administrativeUnits",
-      "apiVersion": "2026-10-01",
+      "apiVersion": "2026-10-01-preview",
       "name": "[variables('unit')]",
       "properties": {
         "description": "EntraARM integration test administrative unit"
@@ -40,7 +40,7 @@
     },
     {
       "type": "Microsoft.Entra/groups",
-      "apiVersion": "2026-10-01",
+      "apiVersion": "2026-10-01-preview",
       "name": "[variables('group')]",
       "properties": {
         "displayName": "[variables('group')]",
@@ -56,7 +56,7 @@
     },
     {
       "type": "Microsoft.Entra/roleAssignments",
-      "apiVersion": "2026-10-01",
+      "apiVersion": "2026-10-01-preview",
       "name": "[guid(parameters('prefix'), 'custom-role-at-au')]",
       "properties": {
         "roleDefinitionId": "[reference(variables('role')).id]",

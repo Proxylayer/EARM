@@ -29,10 +29,10 @@ public sealed class ConditionalAccessPoliciesProviderTests
 
     private static string IpLocation()
     {
-        return "{ \"type\": \"" + LocType + "\", \"apiVersion\": \"2026-10-01\", \"name\": \"" + LocName + "\", \"properties\": { \"@odata.type\": \"#microsoft.graph.ipNamedLocation\", \"ipRanges\": [ { \"cidrAddress\": \"10.0.0.0/8\" } ] } }";
+        return "{ \"type\": \"" + LocType + "\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"" + LocName + "\", \"properties\": { \"@odata.type\": \"#microsoft.graph.ipNamedLocation\", \"ipRanges\": [ { \"cidrAddress\": \"10.0.0.0/8\" } ] } }";
     }
 
-    private static string Policy(string conditions = DefaultConditions, string? grant = "{ \"builtInControls\": [\"mfa\"] }", string? session = null, string state = "", string apiVersion = "2026-10-01", string dependsOn = "")
+    private static string Policy(string conditions = DefaultConditions, string? grant = "{ \"builtInControls\": [\"mfa\"] }", string? session = null, string state = "", string apiVersion = "2026-10-01-preview", string dependsOn = "")
     {
         string controls = string.Empty;
         if (grant is not null)
@@ -241,7 +241,7 @@ public sealed class ConditionalAccessPoliciesProviderTests
             "noAppInclude" => Policy("{ \"users\": { \"includeGroups\": [\"" + GroupId + "\"] }, \"applications\": { \"excludeApplications\": [\"All\"] } }"),
             "noUserInclude" => Policy("{ \"users\": { \"excludeUsers\": [\"" + GroupId + "\"] }, \"applications\": { \"includeApplications\": [\"All\"] } }"),
             "noControls" => Policy(DefaultConditions, grant: null),
-            "noConditions" => "{ \"type\": \"" + PolType + "\", \"apiVersion\": \"2026-10-01\", \"name\": \"x\", \"properties\": { \"grantControls\": { \"builtInControls\": [\"mfa\"] } } }",
+            "noConditions" => "{ \"type\": \"" + PolType + "\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"x\", \"properties\": { \"grantControls\": { \"builtInControls\": [\"mfa\"] } } }",
             "caeV1" => Policy(DefaultConditions, session: "{ \"continuousAccessEvaluation\": { \"mode\": \"disabled\" } }"),
             _ => throw new ArgumentOutOfRangeException(nameof(scenario)),
         };
@@ -263,7 +263,7 @@ public sealed class ConditionalAccessPoliciesProviderTests
 
         Assert.False((await host.WhatIfAsync(host.Resources(Policy(allUsersAllApps, "{ \"builtInControls\": [\"block\"] }")))).Plan.Changes.Single().HasError);
         Assert.False((await host.WhatIfAsync(host.Resources(Policy(DefaultConditions, "{ \"builtInControls\": [\"block\"] }")))).Plan.Changes.Single().HasError);
-        Assert.False((await host.WhatIfAsync(host.Resources(Policy(DefaultConditions, session: "{ \"continuousAccessEvaluation\": { \"mode\": \"disabled\" } }", apiVersion: "2026-10-01-preview")))).Plan.Changes.Single().HasError);
+        Assert.False((await host.WhatIfAsync(host.Resources(Policy(DefaultConditions, session: "{ \"continuousAccessEvaluation\": { \"mode\": \"disabled\" } }", apiVersion: "2026-10-01-preview.beta")))).Plan.Changes.Single().HasError);
         Assert.False((await host.WhatIfAsync(host.Resources(Policy(DefaultConditions, "{ \"authenticationStrength\": { \"id\": \"" + StrengthId + "\" } }", session: SessionFrequency)))).Plan.Changes.Single().HasError);
     }
 

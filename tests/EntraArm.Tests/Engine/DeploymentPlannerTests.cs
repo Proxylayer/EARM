@@ -274,7 +274,7 @@ public sealed class DeploymentPlannerTests
     [Fact]
     public async Task Parallelism_BoundsConcurrentGraphCalls()
     {
-        string resources = string.Join(", ", Enumerable.Range(0, 8).Select(i => "{ \"type\": \"Microsoft.Entra/users\", \"apiVersion\": \"2026-10-01\", \"name\": \"u" + i + "@contoso.com\", \"properties\": { \"displayName\": \"U\" } }"));
+        string resources = string.Join(", ", Enumerable.Range(0, 8).Select(i => "{ \"type\": \"Microsoft.Entra/users\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"u" + i + "@contoso.com\", \"properties\": { \"displayName\": \"U\" } }"));
         var document = Templates.Resources(resources);
 
         ConcurrencyGate? gate = null;
@@ -298,7 +298,7 @@ public sealed class DeploymentPlannerTests
     {
         var host = new EngineHost();
 
-        var plan = await host.WhatIfAsync(Templates.Resources("{ \"type\": \"Microsoft.Entra/users\", \"apiVersion\": \"2026-10-01\", \"name\": \"u@contoso.com\", \"properties\": { \"displayName\": \"U\" } }"), options: host.Options(parallelism: 0));
+        var plan = await host.WhatIfAsync(Templates.Resources("{ \"type\": \"Microsoft.Entra/users\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"u@contoso.com\", \"properties\": { \"displayName\": \"U\" } }"), options: host.Options(parallelism: 0));
 
         Assert.Equal(1, plan.Parallelism);
     }
@@ -325,13 +325,13 @@ public sealed class DeploymentPlannerTests
     public async Task ExistingReferenceToAGuidNamedType_StaysAPlaceholder_AndIsReportedAsUnresolved()
     {
         var host = new EngineHost();
-        var document = Templates.Resources("{ \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01\", \"name\": \"g\", \"properties\": { \"displayName\": \"G\", \"mailEnabled\": false, \"securityEnabled\": true, \"description\": \"[reference(resourceId('Microsoft.Entra/appRoleAssignments', '11111111-1111-1111-1111-111111111111'), '2026-10-01').id]\" } }");
+        var document = Templates.Resources("{ \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"g\", \"properties\": { \"displayName\": \"G\", \"mailEnabled\": false, \"securityEnabled\": true, \"description\": \"[reference(resourceId('Microsoft.Entra/appRoleAssignments', '11111111-1111-1111-1111-111111111111'), '2026-10-01-preview').id]\" } }");
 
         var plan = await host.WhatIfAsync(document);
 
         var unresolved = Assert.Single(plan.UnresolvedReferences);
         Assert.Equal("/providers/Microsoft.Entra/appRoleAssignments/11111111-1111-1111-1111-111111111111", unresolved.Id.Id);
-        Assert.Equal("2026-10-01", unresolved.ApiVersion);
+        Assert.Equal("2026-10-01-preview", unresolved.ApiVersion);
         Assert.Contains("deterministic GUID", unresolved.Reason);
         var row = Assert.Single(plan.Changes);
         Assert.True(row.IsUnknown);
@@ -434,7 +434,7 @@ public sealed class DeploymentPlannerTests
     [Fact]
     public async Task WhatIf_TenantAndEnvironment_AreConcreteOnlyWhenThePlannerIsGivenThem()
     {
-        var document = Templates.Resources("{ \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01\", \"name\": \"g\", \"properties\": { \"displayName\": \"G\", \"mailEnabled\": false, \"securityEnabled\": true, \"description\": \"[concat(tenant().displayName, '/', environment().name)]\" } }");
+        var document = Templates.Resources("{ \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"g\", \"properties\": { \"displayName\": \"G\", \"mailEnabled\": false, \"securityEnabled\": true, \"description\": \"[concat(tenant().displayName, '/', environment().name)]\" } }");
         var offline = new EngineHost();
         var online = new EngineHost();
         var options = online.Options() with
@@ -458,7 +458,7 @@ public sealed class DeploymentPlannerTests
         const string appId = "aaaaaaaa-1111-2222-3333-444444444444";
         var host = new EngineHost();
         host.Directory.AddServicePrincipal(appId, "Orders API", sp => sp["appRoles"] = new JsonArray(new JsonObject { ["id"] = "role-admin", ["value"] = "Orders.Admin" }));
-        var document = Templates.Resources("{ \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01\", \"name\": \"g\", \"properties\": { \"displayName\": \"G\", \"mailEnabled\": false, \"securityEnabled\": true, "
+        var document = Templates.Resources("{ \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"g\", \"properties\": { \"displayName\": \"G\", \"mailEnabled\": false, \"securityEnabled\": true, "
             + "\"description\": \"[appRole('" + appId + "', 'Orders.Admin')]\", \"theme\": \"[permissionScope(wellKnownApp('MicrosoftGraph'), 'User.Read')]\", \"classification\": \"[roleTemplate('Global Reader')]\" } }");
 
         var plan = await host.WhatIfAsync(document);
@@ -478,7 +478,7 @@ public sealed class DeploymentPlannerTests
     public async Task WhatIf_EntraLookupWithoutAMatch_IsAnUnsupportedRow()
     {
         var host = new EngineHost();
-        var document = Templates.Resources("{ \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01\", \"name\": \"g\", \"properties\": { \"displayName\": \"G\", \"mailEnabled\": false, \"securityEnabled\": true, \"description\": \"[appRole('aaaaaaaa-1111-2222-3333-444444444444', 'Orders.Admin')]\" } }");
+        var document = Templates.Resources("{ \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"g\", \"properties\": { \"displayName\": \"G\", \"mailEnabled\": false, \"securityEnabled\": true, \"description\": \"[appRole('aaaaaaaa-1111-2222-3333-444444444444', 'Orders.Admin')]\" } }");
 
         var plan = await host.WhatIfAsync(document);
 

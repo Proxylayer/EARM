@@ -40,20 +40,20 @@ public sealed class ProviderFailureMatrixTests
     {
         return new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            ["groups"] = "{ \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01\", \"name\": \"g1\", \"properties\": { \"displayName\": \"G1\" } }",
-            ["users"] = "{ \"type\": \"Microsoft.Entra/users\", \"apiVersion\": \"2026-10-01\", \"name\": \"u1@contoso.com\", \"properties\": { \"displayName\": \"U1\" } }",
-            ["applications"] = "{ \"type\": \"Microsoft.Entra/applications\", \"apiVersion\": \"2026-10-01\", \"name\": \"app1\", \"properties\": { \"displayName\": \"App 1\" } }",
-            ["administrativeUnits"] = "{ \"type\": \"Microsoft.Entra/administrativeUnits\", \"apiVersion\": \"2026-10-01\", \"name\": \"AU 1\", \"properties\": { \"description\": \"d\" } }",
-            ["namedLocations"] = "{ \"type\": \"Microsoft.Entra/conditionalAccess/namedLocations\", \"apiVersion\": \"2026-10-01\", \"name\": \"Offices\", \"properties\": { \"@odata.type\": \"#microsoft.graph.countryNamedLocation\", \"countriesAndRegions\": [\"US\"] } }",
-            ["authenticationContexts"] = "{ \"type\": \"Microsoft.Entra/conditionalAccess/authenticationContextClassReferences\", \"apiVersion\": \"2026-10-01\", \"name\": \"c5\", \"properties\": { \"displayName\": \"Sensitive\" } }",
-            ["authenticationStrengths"] = "{ \"type\": \"Microsoft.Entra/conditionalAccess/authenticationStrengths\", \"apiVersion\": \"2026-10-01\", \"name\": \"Strong\", \"properties\": { \"displayName\": \"Strong\", \"allowedCombinations\": [\"fido2\"] } }",
-            ["roleDefinitions"] = "{ \"type\": \"Microsoft.Entra/roleDefinitions\", \"apiVersion\": \"2026-10-01\", \"name\": \"Custom Role\", \"properties\": { \"description\": \"d\", \"rolePermissions\": [{ \"allowedResourceActions\": [\"microsoft.directory/users/standard/read\"] }] } }",
-            ["passwordCredentials"] = "{ \"type\": \"Microsoft.Entra/applications\", \"apiVersion\": \"2026-10-01\", \"name\": \"app2\", \"properties\": { \"displayName\": \"App 2\" } }, "
-                + "{ \"type\": \"Microsoft.Entra/applications/passwordCredentials\", \"apiVersion\": \"2026-10-01\", \"name\": \"app2/secret\", \"properties\": { } }",
-            ["federatedIdentityCredentials"] = "{ \"type\": \"Microsoft.Entra/applications\", \"apiVersion\": \"2026-10-01\", \"name\": \"app3\", \"properties\": { \"displayName\": \"App 3\" } }, "
-                + "{ \"type\": \"Microsoft.Entra/applications/federatedIdentityCredentials\", \"apiVersion\": \"2026-10-01\", \"name\": \"app3/github-main\", \"properties\": { \"issuer\": \"https://token.actions.githubusercontent.com\", \"subject\": \"repo:o/r:ref:refs/heads/main\", \"audiences\": [\"api://AzureADTokenExchange\"] } }",
-            ["servicePrincipals"] = "{ \"type\": \"Microsoft.Entra/applications\", \"apiVersion\": \"2026-10-01\", \"name\": \"app4\", \"properties\": { \"displayName\": \"App 4\" } }, "
-                + "{ \"type\": \"Microsoft.Entra/servicePrincipals\", \"apiVersion\": \"2026-10-01\", \"name\": \"[reference('app4').appId]\", \"properties\": { }, \"dependsOn\": [\"[resourceId('Microsoft.Entra/applications', 'app4')]\"] }",
+            ["groups"] = "{ \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"g1\", \"properties\": { \"displayName\": \"G1\" } }",
+            ["users"] = "{ \"type\": \"Microsoft.Entra/users\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"u1@contoso.com\", \"properties\": { \"displayName\": \"U1\" } }",
+            ["applications"] = "{ \"type\": \"Microsoft.Entra/applications\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"app1\", \"properties\": { \"displayName\": \"App 1\" } }",
+            ["administrativeUnits"] = "{ \"type\": \"Microsoft.Entra/administrativeUnits\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"AU 1\", \"properties\": { \"description\": \"d\" } }",
+            ["namedLocations"] = "{ \"type\": \"Microsoft.Entra/conditionalAccess/namedLocations\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"Offices\", \"properties\": { \"@odata.type\": \"#microsoft.graph.countryNamedLocation\", \"countriesAndRegions\": [\"US\"] } }",
+            ["authenticationContexts"] = "{ \"type\": \"Microsoft.Entra/conditionalAccess/authenticationContextClassReferences\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"c5\", \"properties\": { \"displayName\": \"Sensitive\" } }",
+            ["authenticationStrengths"] = "{ \"type\": \"Microsoft.Entra/conditionalAccess/authenticationStrengths\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"Strong\", \"properties\": { \"displayName\": \"Strong\", \"allowedCombinations\": [\"fido2\"] } }",
+            ["roleDefinitions"] = "{ \"type\": \"Microsoft.Entra/roleDefinitions\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"Custom Role\", \"properties\": { \"description\": \"d\", \"rolePermissions\": [{ \"allowedResourceActions\": [\"microsoft.directory/users/standard/read\"] }] } }",
+            ["passwordCredentials"] = "{ \"type\": \"Microsoft.Entra/applications\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"app2\", \"properties\": { \"displayName\": \"App 2\" } }, "
+                + "{ \"type\": \"Microsoft.Entra/applications/passwordCredentials\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"app2/secret\", \"properties\": { } }",
+            ["federatedIdentityCredentials"] = "{ \"type\": \"Microsoft.Entra/applications\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"app3\", \"properties\": { \"displayName\": \"App 3\" } }, "
+                + "{ \"type\": \"Microsoft.Entra/applications/federatedIdentityCredentials\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"app3/github-main\", \"properties\": { \"issuer\": \"https://token.actions.githubusercontent.com\", \"subject\": \"repo:o/r:ref:refs/heads/main\", \"audiences\": [\"api://AzureADTokenExchange\"] } }",
+            ["servicePrincipals"] = "{ \"type\": \"Microsoft.Entra/applications\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"app4\", \"properties\": { \"displayName\": \"App 4\" } }, "
+                + "{ \"type\": \"Microsoft.Entra/servicePrincipals\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"[reference('app4').appId]\", \"properties\": { }, \"dependsOn\": [\"[resourceId('Microsoft.Entra/applications', 'app4')]\"] }",
         };
     }
 

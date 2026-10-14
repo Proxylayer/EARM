@@ -4,7 +4,7 @@
   "resources": [
     {
       "type": "Microsoft.Entra/widgets",
-      "apiVersion": "2026-10-01",
+      "apiVersion": "2026-10-01-preview",
       "name": "gadget",
       "properties": { "displayName": "Gadget" }
     }

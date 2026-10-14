@@ -41,7 +41,7 @@ The deployment would make the following changes:
   + /providers/Microsoft.Entra/groups/contoso-dev-orders-auditors [Microsoft.Entra/groups]
       name: "contoso-dev-orders-auditors"
       type: "Microsoft.Entra/groups"
-      apiVersion: "2026-10-01"
+      apiVersion: "2026-10-01-preview"
       properties:
         displayName: "Orders Auditors"
         mailEnabled: false

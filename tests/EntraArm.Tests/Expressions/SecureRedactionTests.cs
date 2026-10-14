@@ -66,7 +66,7 @@ public sealed class SecureRedactionTests
 
     [Theory]
     [InlineData("[createObject(reference('app').x, parameters('pw'))]", "createObject(" + Expr.AppRef + ".x, ***)")]
-    [InlineData("[reference(resourceId('Microsoft.Entra/applications', parameters('pw')), '2026-10-01')]", "ref(***, '2026-10-01')")]
+    [InlineData("[reference(resourceId('Microsoft.Entra/applications', parameters('pw')), '2026-10-01-preview')]", "ref(***, '2026-10-01-preview')")]
     [InlineData("[reference(resourceId('Microsoft.Entra/applications', parameters('pw')), reference('app').v)]", "reference(***, " + Expr.AppRef + ".v)")]
     [InlineData("[concat(parameters('pw'), reference('app').x)]", "concat(***, " + Expr.AppRef + ".x)")]
     [InlineData("[length(concat(parameters('pw'), reference('app').x))]", "length(concat(***, " + Expr.AppRef + ".x))")]
@@ -89,10 +89,10 @@ public sealed class SecureRedactionTests
     {
         var context = SecureContext();
 
-        var existing = Expr.AssertUnknown(Expr.Eval("[reference(resourceId('Microsoft.Entra/applications', parameters('pw')), '2026-10-01')]", context));
+        var existing = Expr.AssertUnknown(Expr.Eval("[reference(resourceId('Microsoft.Entra/applications', parameters('pw')), '2026-10-01-preview')]", context));
         Assert.True(existing.Tainted);
         Assert.Equal("/providers/Microsoft.Entra/applications/" + Pw, existing.Source?.Id);
-        Assert.Equal("ref(***, '2026-10-01').id", Expr.AssertUnknown(Expr.Eval("[reference(resourceId('Microsoft.Entra/applications', parameters('pw')), '2026-10-01').id]", context)).Symbol);
+        Assert.Equal("ref(***, '2026-10-01-preview').id", Expr.AssertUnknown(Expr.Eval("[reference(resourceId('Microsoft.Entra/applications', parameters('pw')), '2026-10-01-preview').id]", context)).Symbol);
 
         var symbolic = Expr.AssertUnknown(Expr.Eval("[resourceId('Microsoft.Entra/applications/federatedIdentityCredentials', parameters('pw'), reference('app').x)]", context));
         Assert.True(symbolic.Tainted);
@@ -144,7 +144,7 @@ public sealed class SecureRedactionTests
     [InlineData("[padLeft('a', parameters('big'))]", DiagnosticCodes.InvalidFunctionArguments, "got ***")]
     [InlineData("[base64ToString(parameters('pw'))]", DiagnosticCodes.ExpressionEvaluationFailed, "the argument is not valid base64.")]
     [InlineData("[reference(parameters('pw'))]", DiagnosticCodes.ReferenceTargetNotFound, "no resource named '***'")]
-    [InlineData("[reference(parameters('pw'), '2026-10-01')]", DiagnosticCodes.ReferenceTargetNotFound, "'***' is not a resource of this template")]
+    [InlineData("[reference(parameters('pw'), '2026-10-01-preview')]", DiagnosticCodes.ReferenceTargetNotFound, "'***' is not a resource of this template")]
     [InlineData("[reference(resourceId('Microsoft.Entra/applications', parameters('pw')))]", DiagnosticCodes.ReferenceTargetNotFound, "'***' is not a resource of this template")]
     [InlineData("[reference(concat('/providers/Microsoft.Entra/bogus/', parameters('pw')))]", DiagnosticCodes.InvalidResourceId, "'***' is not a valid resource id")]
     [InlineData("[if(parameters('pw'), 1, 2)]", DiagnosticCodes.InvalidFunctionArguments, "got secure value")]
@@ -164,9 +164,9 @@ public sealed class SecureRedactionTests
     {
         var context = SecureContext(functions: null) with { References = new InMemoryReferenceResolver() };
 
-        var exception = Expr.Fails("[reference(resourceId('Microsoft.Entra/applications', parameters('pw')), '2026-10-01')]", DiagnosticCodes.ReferenceTargetNotFound, context);
+        var exception = Expr.Fails("[reference(resourceId('Microsoft.Entra/applications', parameters('pw')), '2026-10-01-preview')]", DiagnosticCodes.ReferenceTargetNotFound, context);
 
-        Assert.Contains("existing resource '***' (apiVersion 2026-10-01) was not found", exception.Message);
+        Assert.Contains("existing resource '***' (apiVersion 2026-10-01-preview) was not found", exception.Message);
         AssertNoSecret(exception.Message);
     }
 
@@ -468,7 +468,7 @@ public sealed class SecureRedactionTests
             """
             "parameters": { "pw": { "type": "securestring" } },
             "resources": [
-              { "type": "Microsoft.Entra/applications", "apiVersion": "2026-10-01", "name": "app",
+              { "type": "Microsoft.Entra/applications", "apiVersion": "2026-10-01-preview", "name": "app",
                 "properties": {
                   "c": "[reference(resourceId('Microsoft.Entra/groups', parameters('pw'))).id]",
                   "f": "[reference(concat(parameters('pw'), '-x')).id]"

@@ -111,7 +111,7 @@ public abstract class ProviderBase : IResourceProvider, IExistingResourceLookup
 
         if (!Definition.TryGetGraphApi(apiVersion, out var api))
         {
-            throw new ProviderException(DiagnosticCodes.UnknownApiVersion, $"apiVersion '{apiVersion}' is not valid for {TypeName}; expected one of {string.Join(", ", Definition.ApiVersions.Keys)}.", id);
+            throw new ProviderException(DiagnosticCodes.UnknownApiVersion, Definition.DescribeUnknownApiVersion(apiVersion), id);
         }
 
         var key = KeyForIdentifier(Definition, id) with { Api = GraphApiMapping.ToAz(api) };

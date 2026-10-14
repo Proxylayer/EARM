@@ -36,14 +36,14 @@ public sealed class PasswordCredentialsProviderTests
 
     private static string App(string nested = "")
     {
-        return """{ "type": "Microsoft.Entra/applications", "apiVersion": "2026-10-01", "name": "test-api", "properties": { "displayName": "Test API" }""" + nested + " }";
+        return """{ "type": "Microsoft.Entra/applications", "apiVersion": "2026-10-01-preview", "name": "test-api", "properties": { "displayName": "Test API" }""" + nested + " }";
     }
 
     private static string Secret(string properties = "", bool flat = true, string name = SecretName)
     {
         string type = flat ? SecretType : "passwordCredentials";
         string fullName = flat ? AppName + "/" + name : name;
-        return "{ \"type\": \"" + type + "\", \"apiVersion\": \"2026-10-01\", \"name\": \"" + fullName + "\", \"properties\": { " + properties + " } }";
+        return "{ \"type\": \"" + type + "\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"" + fullName + "\", \"properties\": { " + properties + " } }";
     }
 
     private static string Template(string secretProperties = "")
@@ -493,7 +493,7 @@ public sealed class PasswordCredentialsProviderTests
         var equal = await new ProviderHost().CreateAsync(host.Resources(Template("\"displayName\": \"[concat('ci', '-secret')]\"")));
         Check.Succeeded(equal);
 
-        var ex = await Assert.ThrowsAsync<ValidationFailedException>(() => host.CreateAsync(host.Resources(App() + """, { "type": "Microsoft.Entra/applications/passwordCredentials", "apiVersion": "2026-10-01", "name": "ci-secret", "properties": { } }""")));
+        var ex = await Assert.ThrowsAsync<ValidationFailedException>(() => host.CreateAsync(host.Resources(App() + """, { "type": "Microsoft.Entra/applications/passwordCredentials", "apiVersion": "2026-10-01-preview", "name": "ci-secret", "properties": { } }""")));
         Assert.Contains(ex.Diagnostics, d => d.Code == "InvalidResourceName");
     }
 

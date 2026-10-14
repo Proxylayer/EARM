@@ -12,7 +12,7 @@
   },
   "resources": [
     {
-      "type": "Microsoft.Entra/applications", "apiVersion": "2026-10-01", "name": "[variables('apiName')]",
+      "type": "Microsoft.Entra/applications", "apiVersion": "2026-10-01-preview", "name": "[variables('apiName')]",
       "properties": {
         "displayName": "Orders API", "signInAudience": "AzureADMyOrg",
         "identifierUris": ["[format('api://{0}', variables('apiName'))]"],
@@ -22,22 +22,22 @@
       }
     },
     {
-      "type": "Microsoft.Entra/servicePrincipals", "apiVersion": "2026-10-01",
+      "type": "Microsoft.Entra/servicePrincipals", "apiVersion": "2026-10-01-preview",
       "name": "[reference(variables('apiName')).appId]",
       "properties": { "appRoleAssignmentRequired": true },
       "dependsOn": ["[resourceId('Microsoft.Entra/applications', variables('apiName'))]"]
     },
     {
-      "type": "Microsoft.Entra/users", "apiVersion": "2026-10-01", "name": "bg-orders@contoso.com",
+      "type": "Microsoft.Entra/users", "apiVersion": "2026-10-01-preview", "name": "bg-orders@contoso.com",
       "properties": {
         "displayName": "Break Glass (Orders)", "mailNickname": "bg-orders", "accountEnabled": true, "usageLocation": "GB",
         "passwordProfile": { "password": "[parameters('initialPassword')]", "forceChangePasswordNextSignIn": true },
-        "manager": "[reference(resourceId('Microsoft.Entra/users', 'cio@contoso.com'), '2026-10-01').id]",
+        "manager": "[reference(resourceId('Microsoft.Entra/users', 'cio@contoso.com'), '2026-10-01-preview').id]",
         "memberOf": ["[reference(variables('adminsName')).id]"]
       }
     },
     {
-      "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01", "name": "[variables('adminsName')]",
+      "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01-preview", "name": "[variables('adminsName')]",
       "properties": {
         "displayName": "Orders Admins", "mailEnabled": false, "mailNickname": "orders-admins", "securityEnabled": true,
         "members": ["[reference(resourceId('Microsoft.Entra/servicePrincipals', reference(variables('apiName')).appId)).id]"]
@@ -46,7 +46,7 @@
     },
     {
       "condition": "[equals(parameters('env'), 'prod')]",
-      "type": "Microsoft.Entra/conditionalAccess/namedLocations", "apiVersion": "2026-10-01", "name": "Contoso offices",
+      "type": "Microsoft.Entra/conditionalAccess/namedLocations", "apiVersion": "2026-10-01-preview", "name": "Contoso offices",
       "properties": { "@odata.type": "#microsoft.graph.ipNamedLocation", "isTrusted": true,
                       "ipRanges": [{ "@odata.type": "#microsoft.graph.iPv4CidrRange", "cidrAddress": "203.0.113.0/24" }] }
     }

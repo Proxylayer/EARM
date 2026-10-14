@@ -194,8 +194,8 @@ public sealed class DirectoryRoleEdgeTests
     public async Task E8_TheSameRoleByNameAndById_OnAServicePrincipal_IsOnePost()
     {
         var host = NewHost();
-        const string app = """{ "type": "Microsoft.Entra/applications", "apiVersion": "2026-10-01", "name": "test-api", "properties": { "displayName": "Test API" } }""";
-        string sp = "{ \"type\": \"Microsoft.Entra/servicePrincipals\", \"apiVersion\": \"2026-10-01\", \"name\": \"[reference('test-api').appId]\", \"properties\": { "
+        const string app = """{ "type": "Microsoft.Entra/applications", "apiVersion": "2026-10-01-preview", "name": "test-api", "properties": { "displayName": "Test API" } }""";
+        string sp = "{ \"type\": \"Microsoft.Entra/servicePrincipals\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"[reference('test-api').appId]\", \"properties\": { "
             + DirectoryRoles("{ \"role\": \"Directory Readers\" }", "{ \"role\": \"" + BuiltInRoles.DirectoryReaders + "\", \"directoryScopeId\": \"/\" }")
             + " }, \"dependsOn\": [\"[resourceId('Microsoft.Entra/applications', 'test-api')]\"] }";
 

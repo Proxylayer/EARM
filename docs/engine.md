@@ -280,10 +280,10 @@ write an entry that carries a secret (`SecretJson`) or a deploy-time placeholder
   "lastStatus": "Succeeded", "lastMode": "Incremental", "lastTemplateHash": "sha256:…",
   "resources": {
     "/providers/Microsoft.Entra/applications/contoso-dev-api":
-      { "type": "Microsoft.Entra/applications", "apiVersion": "2026-10-01", "key": { "uniqueName": "contoso-dev-api" },
+      { "type": "Microsoft.Entra/applications", "apiVersion": "2026-10-01-preview", "key": { "uniqueName": "contoso-dev-api" },
         "id": "568e…", "contentHash": "sha256:…", "dependsOn": ["/providers/Microsoft.Entra/users/bg-orders@contoso.com"], "lastWriteOn": "…" },
     "/providers/Microsoft.Entra/applications/contoso-dev-api/passwordCredentials/ci-secret":
-      { "type": "Microsoft.Entra/applications/passwordCredentials", "apiVersion": "2026-10-01", "key": { "displayName": "ci-secret" },
+      { "type": "Microsoft.Entra/applications/passwordCredentials", "apiVersion": "2026-10-01-preview", "key": { "displayName": "ci-secret" },
         "id": "<keyId>", "parentId": "568e…", "contentHash": "sha256:…", "dependsOn": ["…/applications/contoso-dev-api"],
         "lastWriteOn": "…", "extra": { "keyId": "…", "endDateTime": "2027-10-01T00:00:00Z" } } },
   "operations": [ { "resourceId": "…", "type": "…", "status": "Succeeded", "changeType": "Create", "batch": 2,
@@ -346,7 +346,7 @@ for `what-if`. `tests/EntraArm.TestSupport/FakeAzRunner` scripts `keyvault secre
 public interface IResourceProvider
 {
     string TypeName { get; }                                    // "Microsoft.Entra/applications"
-    IReadOnlyDictionary<string, GraphApi> ApiVersions { get; }  // "2026-10-01" -> V1, "2026-10-01-preview" -> Beta
+    IReadOnlyDictionary<string, GraphApi> ApiVersions { get; }  // "2026-10-01-preview" -> V1, "2026-10-01-preview.beta" -> Beta
     IReadOnlyList<string> RequiredPermissions(ResourceInstance? desired);
     IReadOnlySet<JsonPath> ImmutableProperties { get; }
     IReadOnlyList<RelationshipSpec> Relationships { get; }      // edge properties (applied by WI-09)

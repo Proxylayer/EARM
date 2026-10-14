@@ -17,13 +17,13 @@ public sealed class DependsOnDiagnosticsTests
 {
     private static string Group(string name, string? dependsOn = null, string? extraProperties = null)
     {
-        return "{ \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01\", \"name\": \"" + name + "\", \"properties\": { \"displayName\": \"" + name + "\"" + (extraProperties is null ? string.Empty : ", " + extraProperties) + " }"
+        return "{ \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"" + name + "\", \"properties\": { \"displayName\": \"" + name + "\"" + (extraProperties is null ? string.Empty : ", " + extraProperties) + " }"
             + (dependsOn is null ? string.Empty : ", \"dependsOn\": [" + dependsOn + "]") + " }";
     }
 
     private static string User(string upn, string? dependsOn = null)
     {
-        return "{ \"type\": \"Microsoft.Entra/users\", \"apiVersion\": \"2026-10-01\", \"name\": \"" + upn + "\", \"properties\": { \"displayName\": \"U\" }"
+        return "{ \"type\": \"Microsoft.Entra/users\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"" + upn + "\", \"properties\": { \"displayName\": \"U\" }"
             + (dependsOn is null ? string.Empty : ", \"dependsOn\": [" + dependsOn + "]") + " }";
     }
 

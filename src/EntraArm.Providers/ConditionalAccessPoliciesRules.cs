@@ -150,7 +150,7 @@ public static class ConditionalAccessPoliciesRules
             {
                 if (JsonObjects.TryGetDotted(properties, path, out var preview) && !JsonObjects.IsAbsent(preview))
                 {
-                    problems.Add($"properties.{path} is only available on the beta endpoint; use apiVersion '2026-10-01-preview' or remove the property");
+                    problems.Add($"properties.{path} is only available on the beta endpoint; use apiVersion '2026-10-01-preview.beta' or remove the property");
                 }
             }
         }

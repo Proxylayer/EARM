@@ -60,8 +60,8 @@ public sealed class CliArgumentErrorTests
     {
         using var sandbox = new CliSandbox(nameof(Permissions_OfAnInvalidTemplate_ExitsTwo_AndOfAMissingOneExitsOne));
         string duplicates = sandbox.WriteTemplate("dup.entra.json", "\"resources\": [ "
-            + "{ \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01\", \"name\": \"x\", \"properties\": { \"displayName\": \"A\" } }, "
-            + "{ \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01\", \"name\": \"x\", \"properties\": { \"displayName\": \"B\" } } ]");
+            + "{ \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"x\", \"properties\": { \"displayName\": \"A\" } }, "
+            + "{ \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"x\", \"properties\": { \"displayName\": \"B\" } } ]");
 
         var invalid = await CliRunner.RunAsync("permissions", "-f", duplicates, "-o", "json");
         var missing = await CliRunner.RunAsync("permissions", "-f", Path.Combine(sandbox.TemplatesDir, "nope.entra.json"), "-o", "json");

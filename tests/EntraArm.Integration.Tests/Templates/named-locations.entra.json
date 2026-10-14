@@ -11,7 +11,7 @@
   "resources": [
     {
       "type": "Microsoft.Entra/conditionalAccess/namedLocations",
-      "apiVersion": "2026-10-01",
+      "apiVersion": "2026-10-01-preview",
       "name": "[format('{0}-nl-ip', parameters('prefix'))]",
       "properties": {
         "@odata.type": "#microsoft.graph.ipNamedLocation",
@@ -24,7 +24,7 @@
     },
     {
       "type": "Microsoft.Entra/conditionalAccess/namedLocations",
-      "apiVersion": "2026-10-01",
+      "apiVersion": "2026-10-01-preview",
       "name": "[format('{0}-nl-country', parameters('prefix'))]",
       "properties": {
         "@odata.type": "#microsoft.graph.countryNamedLocation",

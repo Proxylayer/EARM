@@ -36,7 +36,7 @@ public sealed class StateCommandTests
         {
             Id = ResourceIdentifier.Create(Fixture.AppType, "orders-api"),
             Type = Fixture.AppType,
-            ApiVersion = "2026-10-01",
+            ApiVersion = "2026-10-01-preview",
             Key = new Dictionary<string, string> { ["uniqueName"] = "orders-api" },
             GraphId = "A1",
             LastWriteOn = Start,
@@ -46,7 +46,7 @@ public sealed class StateCommandTests
         {
             Id = ResourceIdentifier.Create(Fixture.FicType, "orders-api/github"),
             Type = Fixture.FicType,
-            ApiVersion = "2026-10-01",
+            ApiVersion = "2026-10-01-preview",
             Key = new Dictionary<string, string> { ["name"] = "github" },
             GraphId = "F1",
             ParentGraphId = "A1",

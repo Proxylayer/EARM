@@ -68,8 +68,8 @@ public sealed class SecretLeakSweepTests
     public async Task ServicePrincipals_SecretInNotes_ReachesOnlyThePostBody()
     {
         var host = new ProviderHost();
-        const string app = """{ "type": "Microsoft.Entra/applications", "apiVersion": "2026-10-01", "name": "sweep-app", "properties": { "displayName": "Sweep" } }""";
-        string sp = "{ \"type\": \"Microsoft.Entra/servicePrincipals\", \"apiVersion\": \"2026-10-01\", \"name\": \"[reference('sweep-app').appId]\", \"properties\": { \"notes\": \"" + Reference + "\" }, \"dependsOn\": [\"[resourceId('Microsoft.Entra/applications', 'sweep-app')]\"] }";
+        const string app = """{ "type": "Microsoft.Entra/applications", "apiVersion": "2026-10-01-preview", "name": "sweep-app", "properties": { "displayName": "Sweep" } }""";
+        string sp = "{ \"type\": \"Microsoft.Entra/servicePrincipals\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"[reference('sweep-app').appId]\", \"properties\": { \"notes\": \"" + Reference + "\" }, \"dependsOn\": [\"[resourceId('Microsoft.Entra/applications', 'sweep-app')]\"] }";
 
         await SweepAsync(host, app + "," + sp, expectedIntendedBodies: 1);
 
@@ -90,8 +90,8 @@ public sealed class SecretLeakSweepTests
     public async Task FederatedIdentityCredentials_SecretInDescription_ReachesOnlyTheCredentialUpsert()
     {
         var host = new ProviderHost();
-        const string app = """{ "type": "Microsoft.Entra/applications", "apiVersion": "2026-10-01", "name": "sweep-app", "properties": { "displayName": "Sweep" } }""";
-        string fic = "{ \"type\": \"Microsoft.Entra/applications/federatedIdentityCredentials\", \"apiVersion\": \"2026-10-01\", \"name\": \"sweep-app/github-main\", \"properties\": { \"issuer\": \"https://token.actions.githubusercontent.com\", \"subject\": \"repo:x\", \"description\": \"" + Reference + "\" } }";
+        const string app = """{ "type": "Microsoft.Entra/applications", "apiVersion": "2026-10-01-preview", "name": "sweep-app", "properties": { "displayName": "Sweep" } }""";
+        string fic = "{ \"type\": \"Microsoft.Entra/applications/federatedIdentityCredentials\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"sweep-app/github-main\", \"properties\": { \"issuer\": \"https://token.actions.githubusercontent.com\", \"subject\": \"repo:x\", \"description\": \"" + Reference + "\" } }";
 
         await SweepAsync(host, app + "," + fic, expectedIntendedBodies: 1);
 
@@ -103,8 +103,8 @@ public sealed class SecretLeakSweepTests
     public async Task PasswordCredentials_TheGeneratedSecret_ReachesOnlyTheSecureOutput()
     {
         var host = new ProviderHost();
-        const string app = """{ "type": "Microsoft.Entra/applications", "apiVersion": "2026-10-01", "name": "sweep-app", "properties": { "displayName": "Sweep" } }""";
-        const string credential = """{ "type": "Microsoft.Entra/applications/passwordCredentials", "apiVersion": "2026-10-01", "name": "sweep-app/ci-secret", "properties": { } }""";
+        const string app = """{ "type": "Microsoft.Entra/applications", "apiVersion": "2026-10-01-preview", "name": "sweep-app", "properties": { "displayName": "Sweep" } }""";
+        const string credential = """{ "type": "Microsoft.Entra/applications/passwordCredentials", "apiVersion": "2026-10-01-preview", "name": "sweep-app/ci-secret", "properties": { } }""";
         const string outputs = """ "ciSecret": { "type": "securestring", "value": "[reference(resourceId('Microsoft.Entra/applications/passwordCredentials', 'sweep-app', 'ci-secret')).secretText]" } """;
         var document = host.Resources(app + "," + credential, outputs);
 
@@ -121,8 +121,8 @@ public sealed class SecretLeakSweepTests
     public async Task PasswordCredentials_ASecureRotationTag_IsRejected_NotRecorded()
     {
         var host = new ProviderHost();
-        const string app = """{ "type": "Microsoft.Entra/applications", "apiVersion": "2026-10-01", "name": "sweep-app", "properties": { "displayName": "Sweep" } }""";
-        string credential = "{ \"type\": \"Microsoft.Entra/applications/passwordCredentials\", \"apiVersion\": \"2026-10-01\", \"name\": \"sweep-app/ci-secret\", \"properties\": { \"rotationTag\": \"" + Reference + "\" } }";
+        const string app = """{ "type": "Microsoft.Entra/applications", "apiVersion": "2026-10-01-preview", "name": "sweep-app", "properties": { "displayName": "Sweep" } }""";
+        string credential = "{ \"type\": \"Microsoft.Entra/applications/passwordCredentials\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"sweep-app/ci-secret\", \"properties\": { \"rotationTag\": \"" + Reference + "\" } }";
 
         await SweepAsync(host, app + "," + credential, expectedIntendedBodies: 0, createMayFail: true);
     }
@@ -142,7 +142,7 @@ public sealed class SecretLeakSweepTests
     public async Task NamedLocations_ASecretWhereACidrIsExpected_IsNeverEchoedInMessages()
     {
         var host = new ProviderHost();
-        string location = "{ \"type\": \"Microsoft.Entra/conditionalAccess/namedLocations\", \"apiVersion\": \"2026-10-01\", \"name\": \"Sweep offices\", \"properties\": { \"@odata.type\": \"#microsoft.graph.ipNamedLocation\", \"ipRanges\": [ { \"cidrAddress\": \"" + Reference + "\" } ] } }";
+        string location = "{ \"type\": \"Microsoft.Entra/conditionalAccess/namedLocations\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"Sweep offices\", \"properties\": { \"@odata.type\": \"#microsoft.graph.ipNamedLocation\", \"ipRanges\": [ { \"cidrAddress\": \"" + Reference + "\" } ] } }";
 
         await SweepAsync(host, location, expectedIntendedBodies: 0, createMayFail: true);
     }
@@ -151,7 +151,7 @@ public sealed class SecretLeakSweepTests
     public async Task NamedLocations_ASecretCountryCode_ReachesOnlyThePostBody()
     {
         var host = new ProviderHost();
-        string location = "{ \"type\": \"Microsoft.Entra/conditionalAccess/namedLocations\", \"apiVersion\": \"2026-10-01\", \"name\": \"Sweep countries\", \"properties\": { \"@odata.type\": \"#microsoft.graph.countryNamedLocation\", \"countriesAndRegions\": [ \"" + Reference + "\" ] } }";
+        string location = "{ \"type\": \"Microsoft.Entra/conditionalAccess/namedLocations\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"Sweep countries\", \"properties\": { \"@odata.type\": \"#microsoft.graph.countryNamedLocation\", \"countriesAndRegions\": [ \"" + Reference + "\" ] } }";
 
         await SweepAsync(host, location, expectedIntendedBodies: 1, createMayFail: true);
     }
@@ -160,7 +160,7 @@ public sealed class SecretLeakSweepTests
     public async Task ConditionalAccessPolicies_ASecretGroupId_ReachesOnlyThePostBody()
     {
         var host = new ProviderHost();
-        string policy = "{ \"type\": \"Microsoft.Entra/conditionalAccess/policies\", \"apiVersion\": \"2026-10-01\", \"name\": \"CA-Sweep\", \"properties\": { \"conditions\": { \"users\": { \"includeGroups\": [\"" + Reference + "\"] }, \"applications\": { \"includeApplications\": [\"All\"] } }, \"grantControls\": { \"builtInControls\": [\"mfa\"] } } }";
+        string policy = "{ \"type\": \"Microsoft.Entra/conditionalAccess/policies\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"CA-Sweep\", \"properties\": { \"conditions\": { \"users\": { \"includeGroups\": [\"" + Reference + "\"] }, \"applications\": { \"includeApplications\": [\"All\"] } }, \"grantControls\": { \"builtInControls\": [\"mfa\"] } } }";
 
         await SweepAsync(host, policy, expectedIntendedBodies: 1);
     }

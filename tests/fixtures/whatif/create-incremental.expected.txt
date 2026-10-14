@@ -14,7 +14,7 @@ The deployment would make the following changes:
   + /providers/Microsoft.Entra/applications/contoso-dev-api [Microsoft.Entra/applications]
       name: "contoso-dev-api"
       type: "Microsoft.Entra/applications"
-      apiVersion: "2026-10-01"
+      apiVersion: "2026-10-01-preview"
       properties:
         displayName: "Orders API"
         signInAudience: "AzureADMyOrg"
@@ -43,7 +43,7 @@ The deployment would make the following changes:
   +? /providers/Microsoft.Entra/users/bg-orders@contoso.com [Microsoft.Entra/users]
       name: "bg-orders@contoso.com"
       type: "Microsoft.Entra/users"
-      apiVersion: "2026-10-01"
+      apiVersion: "2026-10-01-preview"
       properties:
         displayName: "Break Glass (Orders)"
         mailNickname: "bg-orders"
@@ -60,7 +60,7 @@ The deployment would make the following changes:
   +? /providers/Microsoft.Entra/servicePrincipals/ref(/providers/Microsoft.Entra/applications/contoso-dev-api).appId [Microsoft.Entra/servicePrincipals]
       name: "ref(/providers/Microsoft.Entra/applications/contoso-dev-api).appId"
       type: "Microsoft.Entra/servicePrincipals"
-      apiVersion: "2026-10-01"
+      apiVersion: "2026-10-01-preview"
       properties:
         appRoleAssignmentRequired: true
         accountEnabled: true
@@ -69,7 +69,7 @@ The deployment would make the following changes:
   +? /providers/Microsoft.Entra/groups/contoso-dev-orders-admins [Microsoft.Entra/groups]
       name: "contoso-dev-orders-admins"
       type: "Microsoft.Entra/groups"
-      apiVersion: "2026-10-01"
+      apiVersion: "2026-10-01-preview"
       properties:
         displayName: "Orders Admins"
         mailEnabled: false

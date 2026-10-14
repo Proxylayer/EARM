@@ -92,7 +92,7 @@ public sealed class WhatIfRenderingTests
         Assert.Equal(["name", "type", "apiVersion", "properties"], created.After!.Select(p => p.Key).ToList());
         Assert.Equal("contoso-dev-orders-auditors", created.After!["name"]!.GetValue<string>());
         Assert.Equal("Microsoft.Entra/groups", created.After["type"]!.GetValue<string>());
-        Assert.Equal("2026-10-01", created.After["apiVersion"]!.GetValue<string>());
+        Assert.Equal("2026-10-01-preview", created.After["apiVersion"]!.GetValue<string>());
         Assert.Null(created.Before);
         Assert.All(created.Deltas, d => Assert.Equal(PropertyChangeType.Create, d.Kind));
 
@@ -195,13 +195,13 @@ public sealed class WhatIfRenderingTests
     public async Task Text_WithoutATenant_SaysUnknown_AndListsUnresolvedReferences()
     {
         var host = new EngineHost();
-        var document = Templates.Resources("{ \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01\", \"name\": \"g\", \"properties\": { \"displayName\": \"G\", \"mailEnabled\": false, \"securityEnabled\": true, \"description\": \"[reference(resourceId('Microsoft.Entra/appRoleAssignments', '11111111-1111-1111-1111-111111111111'), '2026-10-01').id]\" } }");
+        var document = Templates.Resources("{ \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"g\", \"properties\": { \"displayName\": \"G\", \"mailEnabled\": false, \"securityEnabled\": true, \"description\": \"[reference(resourceId('Microsoft.Entra/appRoleAssignments', '11111111-1111-1111-1111-111111111111'), '2026-10-01-preview').id]\" } }");
         var plan = await host.WhatIfAsync(document, options: host.Options(tenantId: null));
 
         string text = Text(WhatIfReport.From(plan));
 
         Assert.Contains("on tenant (unknown)", text);
-        Assert.Contains("warning UnresolvedReference: reference to existing resource '/providers/Microsoft.Entra/appRoleAssignments/11111111-1111-1111-1111-111111111111' (apiVersion 2026-10-01) could not be resolved", text);
+        Assert.Contains("warning UnresolvedReference: reference to existing resource '/providers/Microsoft.Entra/appRoleAssignments/11111111-1111-1111-1111-111111111111' (apiVersion 2026-10-01-preview) could not be resolved", text);
         Assert.Contains("  +? /providers/Microsoft.Entra/groups/g", text);
         Assert.Contains("description: \"(deploy-time)\"", text);
         Assert.Null(WhatIfJson.Build(plan)["tenantId"]);

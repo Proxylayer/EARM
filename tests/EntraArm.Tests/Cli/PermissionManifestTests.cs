@@ -173,10 +173,10 @@ public sealed class PermissionManifestTests
     public void Build_ReferenceLookup_NeedsAnApiVersionLiteral_AndAKnownEntraTypeLiteral()
     {
         // reference(resourceId(<type>, <name>), <apiVersion>) reads an existing object; reference('name') reads a template resource.
-        var existing = BuildEmpty(PermissionMode.Delegated, ["[reference(resourceId('Microsoft.Entra/users', 'a@contoso.com'), '2026-10-01').id]"]);
+        var existing = BuildEmpty(PermissionMode.Delegated, ["[reference(resourceId('Microsoft.Entra/users', 'a@contoso.com'), '2026-10-01-preview').id]"]);
         var templateOnly = BuildEmpty(PermissionMode.Delegated, ["[reference('contoso-admins').id]"]);
         var noApiVersion = BuildEmpty(PermissionMode.Delegated, ["[reference(resourceId('Microsoft.Entra/users', 'a@contoso.com')).id]"]);
-        var unknownType = BuildEmpty(PermissionMode.Delegated, ["[reference(resourceId('Microsoft.Entra/spaceships', 'x'), '2026-10-01').id]"]);
+        var unknownType = BuildEmpty(PermissionMode.Delegated, ["[reference(resourceId('Microsoft.Entra/spaceships', 'x'), '2026-10-01-preview').id]"]);
 
         var entry = Assert.Single(existing.Permissions);
         Assert.Equal("User.Read.All", entry.Name);
@@ -190,7 +190,7 @@ public sealed class PermissionManifestTests
     [Fact]
     public void Build_ReferenceLookup_OfAnApplication_NeverListsOwnedBy()
     {
-        var report = BuildEmpty(PermissionMode.App, ["[reference(resourceId('Microsoft.Entra/applications', 'x'), '2026-10-01').appId]"]);
+        var report = BuildEmpty(PermissionMode.App, ["[reference(resourceId('Microsoft.Entra/applications', 'x'), '2026-10-01-preview').appId]"]);
 
         Assert.Contains(report.Permissions, p => p.Name == "Application.Read.All" && p.Reasons.Contains("lookup: existing resource"));
         Assert.DoesNotContain(report.Permissions, p => p.Name.Contains("OwnedBy", StringComparison.Ordinal));

@@ -1,0 +1,13 @@
+{
+  "$schema": "https://entraarm.dev/schemas/2026-10-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "resources": [
+    {
+      // The plain 2026-10-01 label was renamed 2026-10-01-preview; it is no longer a valid apiVersion.
+      "type": "Microsoft.Entra/groups",
+      "apiVersion": "2026-10-01",
+      "name": "orders-admins",
+      "properties": { "displayName": "Orders Admins", "mailEnabled": false, "securityEnabled": true }
+    }
+  ]
+}

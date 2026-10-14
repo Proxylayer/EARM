@@ -40,7 +40,7 @@ declarations (`user.memberOf` naming a group whose `members` names the user) are
 "memberOf":            ["[reference('contoso-prod-admins').id]"],
 "ownerOf":             ["[reference('contoso-prod-api').id]"],
 "administrativeUnits": ["[reference('Orders AU').id]"],
-"manager":             "[reference(resourceId('Microsoft.Entra/users', 'cio@contoso.com'), '2026-10-01').id]",
+"manager":             "[reference(resourceId('Microsoft.Entra/users', 'cio@contoso.com'), '2026-10-01-preview').id]",
 "appRoleAssignments":  [{ "resourceAppId": "[wellKnownApp('MicrosoftGraph')]", "appRole": "User.Read.All" }],
 "directoryRoles":      [{ "role": "Global Reader", "directoryScopeId": "/" },
                          { "role": "User Administrator", "administrativeUnit": "[reference('Orders AU').id]" }],
@@ -48,7 +48,7 @@ declarations (`user.memberOf` naming a group whose `members` names the user) are
 ```
 
 - **Ids.** `members`, `owners`, `memberOf`, `ownerOf`, `administrativeUnits` and `manager` take Graph object ids. A target in the template
-  is `reference('name').id`; a pre-existing object is `reference(resourceId('Microsoft.Entra/groups', 'name'), '2026-10-01').id`.
+  is `reference('name').id`; a pre-existing object is `reference(resourceId('Microsoft.Entra/groups', 'name'), '2026-10-01-preview').id`.
   `memberOf` targets must be groups (not dynamic ones). `ownerOf` finds the target's kind from the template resource or
   `GET /directoryObjects/{id}`.
 - **`appRoleAssignments` entries.** `resourceId` is the resource service principal's object id; `resourceAppId` is its application id,

@@ -4,14 +4,14 @@
   "resources": [
     {
       "type": "Microsoft.Entra/applications",
-      "apiVersion": "2026-10-01",
+      "apiVersion": "2026-10-01-preview",
       "name": "orders-api",
       "properties": { "displayName": "Orders API" }
     },
     {
       // A top-level child must be named "parent/child"; this one has a single segment.
       "type": "Microsoft.Entra/applications/federatedIdentityCredentials",
-      "apiVersion": "2026-10-01",
+      "apiVersion": "2026-10-01-preview",
       "name": "github-main",
       "properties": { "issuer": "https://token.actions.githubusercontent.com", "subject": "repo:contoso/orders:ref:refs/heads/main" },
       "dependsOn": ["[resourceId('Microsoft.Entra/applications', 'orders-api')]"]

@@ -18,7 +18,7 @@
   "resources": [
     {
       "type": "Microsoft.Entra/groups",
-      "apiVersion": "2026-10-01",
+      "apiVersion": "2026-10-01-preview",
       "name": "[variables('group')]",
       "properties": {
         "displayName": "[variables('group')]",
@@ -29,7 +29,7 @@
     },
     {
       "type": "Microsoft.Entra/conditionalAccess/authenticationStrengths",
-      "apiVersion": "2026-10-01",
+      "apiVersion": "2026-10-01-preview",
       "name": "[variables('strength')]",
       "properties": {
         "description": "EntraARM integration test",
@@ -38,7 +38,7 @@
     },
     {
       "type": "Microsoft.Entra/conditionalAccess/authenticationContextClassReferences",
-      "apiVersion": "2026-10-01",
+      "apiVersion": "2026-10-01-preview",
       "name": "[parameters('contextId')]",
       "properties": {
         "displayName": "[format('{0}-ctx', parameters('prefix'))]",
@@ -48,7 +48,7 @@
     },
     {
       "type": "Microsoft.Entra/conditionalAccess/policies",
-      "apiVersion": "2026-10-01",
+      "apiVersion": "2026-10-01-preview",
       "name": "[variables('policy')]",
       "properties": {
         "state": "enabledForReportingButNotEnforced",

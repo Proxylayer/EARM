@@ -46,7 +46,7 @@ knobs are command-line flags. Unknown top-level keys are a warning (`UnknownTopL
 ```json
 {
   "type": "Microsoft.Entra/applications",
-  "apiVersion": "2026-10-01",
+  "apiVersion": "2026-10-01-preview",
   "name": "[variables('apiName')]",
   "condition": "[equals(parameters('env'), 'prod')]",
   "copy": { "name": "apps", "count": 2, "mode": "parallel", "batchSize": 1 },
@@ -61,7 +61,7 @@ knobs are command-line flags. Unknown top-level keys are a warning (`UnknownTopL
 | Key | Required | Rule |
 |---|---|---|
 | `type` | yes | A type of the [catalog](#resource-type-catalog); matched case-insensitively. Unknown type: `UnknownResourceType`. |
-| `apiVersion` | yes | A **literal**. `2026-10-01` maps to Microsoft Graph `v1.0`, `2026-10-01-preview` to `beta` (passthrough, no normalisation guarantees). Anything else: `UnknownApiVersion`. |
+| `apiVersion` | yes | A **literal**. `2026-10-01-preview` is the only normal version and maps to Microsoft Graph `v1.0`; `2026-10-01-preview.beta` maps to `beta` (passthrough, no normalisation guarantees). The format is in preview. The plain `2026-10-01` label was renamed `2026-10-01-preview` and is an `UnknownApiVersion` error with a rename hint; anything else is an `UnknownApiVersion` error too. |
 | `name` | yes | The ARM-style key of the resource (see below). May be an expression, but must be computable before deployment from literals, parameters and variables (or be the same deploy-time computation as another resource: a symbolic name). |
 | `properties` | no | The Graph properties to apply, plus the relationship properties of [edges.md](edges.md). An expression string for the whole object is accepted. |
 | `dependsOn` | no | Resource ids, `type/name`, unique bare names or copy-loop names. Implicit dependencies come from `reference()` and `resourceId()` of template resources (outside relationship properties) and from nesting. |
@@ -96,7 +96,7 @@ deterministic, the key of the state file and what the what-if output prints. `re
 | `location`, `sku`, `kind`, top-level `tags`, `identity`, `scope`, resource group and subscription | Not present: Entra objects have none of them (Graph `tags` live inside `properties`). `resourceGroup()`, `subscription()`, `managementGroup()`, `extensionResourceId()`, `subscriptionResourceId()`, `tenantResourceId()`, `listKeys()`, `listSecrets()`, `providers()` and `pickZones()` are errors (`UnsupportedArmFunction`) with a pointer to the alternative. |
 | PUT replaces the resource | Graph is merge-PATCH: only the **declared** properties are applied; omitted ones are untouched. Arrays and nested objects are replaced whole when declared. |
 | Implicit parent dependency of a child must be explicit | Inferred for nested children (a superset of the ARM rule). |
-| `existing` resources | `reference(resourceId('Microsoft.Entra/…', 'name'), '2026-10-01')` looks up an object that is not in the template (no dependency; an error when not found). |
+| `existing` resources | `reference(resourceId('Microsoft.Entra/…', 'name'), '2026-10-01-preview')` looks up an object that is not in the template (no dependency; an error when not found). |
 | Relationships live in separate resources | Arrays inside `properties`, declarable from either side; see [edges.md](edges.md). |
 
 ## Resource type catalog
@@ -200,7 +200,7 @@ only as parameter defaults.
   resource (`id`, `appId`, `uniqueName`, …) and adds an implicit dependency, except inside relationship properties, where it is
   evaluated in the edge pass after all objects exist and never creates a dependency (so mutual declarations are never cycles).
   In what-if, the object of a resource that does not exist yet is a `(deploy-time)` placeholder.
-- `reference(resourceId(...), '2026-10-01')` (with an `apiVersion`) looks up an object that is **not** in the template: no
+- `reference(resourceId(...), '2026-10-01-preview')` (with an `apiVersion`) looks up an object that is **not** in the template: no
   dependency, an error if it does not exist. Variables may do this; they may not reference template resources.
 - A bare `reference('name')` needs the name to be unique in the template, else `AmbiguousReference`.
 - A resource whose `name` is `[reference('app').appId]` gets a *symbolic id* during static evaluation, so everything that refers

@@ -10,7 +10,7 @@
       "before": {
         "name": "contoso-dev-api",
         "type": "Microsoft.Entra/applications",
-        "apiVersion": "2026-10-01",
+        "apiVersion": "2026-10-01-preview",
         "properties": {
           "uniqueName": "contoso-dev-api",
           "displayName": "Orders API (old)",
@@ -45,7 +45,7 @@
       "after": {
         "name": "contoso-dev-api",
         "type": "Microsoft.Entra/applications",
-        "apiVersion": "2026-10-01",
+        "apiVersion": "2026-10-01-preview",
         "properties": {
           "displayName": "Orders API",
           "signInAudience": "AzureADMyOrg",
@@ -238,7 +238,7 @@
       "before": {
         "name": "contoso-dev-orders-admins",
         "type": "Microsoft.Entra/groups",
-        "apiVersion": "2026-10-01",
+        "apiVersion": "2026-10-01-preview",
         "properties": {
           "uniqueName": "contoso-dev-orders-admins",
           "displayName": "Orders Admins",
@@ -251,7 +251,7 @@
       "after": {
         "name": "contoso-dev-orders-admins",
         "type": "Microsoft.Entra/groups",
-        "apiVersion": "2026-10-01",
+        "apiVersion": "2026-10-01-preview",
         "properties": {
           "displayName": "Orders Admins",
           "mailEnabled": false,
@@ -289,7 +289,7 @@
       "after": {
         "name": "contoso-dev-orders-auditors",
         "type": "Microsoft.Entra/groups",
-        "apiVersion": "2026-10-01",
+        "apiVersion": "2026-10-01-preview",
         "properties": {
           "displayName": "Orders Auditors",
           "mailEnabled": false,
@@ -305,7 +305,7 @@
       "before": {
         "name": "contoso-dev-orders-ops",
         "type": "Microsoft.Entra/groups",
-        "apiVersion": "2026-10-01",
+        "apiVersion": "2026-10-01-preview",
         "properties": {
           "uniqueName": "contoso-dev-orders-ops",
           "displayName": "Orders Ops",
@@ -318,7 +318,7 @@
       "after": {
         "name": "contoso-dev-orders-ops",
         "type": "Microsoft.Entra/groups",
-        "apiVersion": "2026-10-01",
+        "apiVersion": "2026-10-01-preview",
         "properties": {
           "displayName": "Orders Ops",
           "mailEnabled": false,
@@ -334,7 +334,7 @@
       "before": {
         "name": "contoso-legacy",
         "type": "Microsoft.Entra/groups",
-        "apiVersion": "2026-10-01",
+        "apiVersion": "2026-10-01-preview",
         "properties": {
           "uniqueName": "contoso-legacy",
           "displayName": "Legacy",
@@ -347,7 +347,7 @@
       "after": {
         "name": "contoso-legacy",
         "type": "Microsoft.Entra/groups",
-        "apiVersion": "2026-10-01",
+        "apiVersion": "2026-10-01-preview",
         "properties": {
           "displayName": "Legacy",
           "mailEnabled": false,
@@ -374,7 +374,7 @@
       "before": {
         "name": "bg-orders@contoso.com",
         "type": "Microsoft.Entra/users",
-        "apiVersion": "2026-10-01",
+        "apiVersion": "2026-10-01-preview",
         "properties": {
           "userPrincipalName": "bg-orders@contoso.com",
           "displayName": "Break Glass (Orders)",
@@ -385,7 +385,7 @@
       "after": {
         "name": "bg-orders@contoso.com",
         "type": "Microsoft.Entra/users",
-        "apiVersion": "2026-10-01",
+        "apiVersion": "2026-10-01-preview",
         "properties": {
           "displayName": "Break Glass (Orders)",
           "mailNickname": "bg-orders",

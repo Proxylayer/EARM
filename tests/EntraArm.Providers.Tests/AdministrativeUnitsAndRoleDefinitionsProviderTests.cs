@@ -313,7 +313,7 @@ public sealed class RoleDefinitionsProviderTests
     public async Task EmptyRolePermissions_AreNotCreated()
     {
         var host = new ProviderHost();
-        const string empty = "{ \"type\": \"Microsoft.Entra/roleDefinitions\", \"apiVersion\": \"2026-10-01\", \"name\": \"Empty Role\", \"properties\": { \"description\": \"x\", \"rolePermissions\": [] } }";
+        const string empty = "{ \"type\": \"Microsoft.Entra/roleDefinitions\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"Empty Role\", \"properties\": { \"description\": \"x\", \"rolePermissions\": [] } }";
 
         var whatIf = await host.WhatIfAsync(host.Resources(empty));
         var run = await host.CreateAsync(host.Resources(empty));

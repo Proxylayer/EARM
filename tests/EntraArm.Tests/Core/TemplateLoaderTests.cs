@@ -234,10 +234,10 @@ public sealed class TemplateLoaderTests
               "contentVersion": "1.0.0.0",
               "resources": [
                 {
-                  "type": "Microsoft.Entra/applications", "apiVersion": "2026-10-01", "name": "orders-api",
+                  "type": "Microsoft.Entra/applications", "apiVersion": "2026-10-01-preview", "name": "orders-api",
                   "resources": [
-                    { "type": "federatedIdentityCredentials", "apiVersion": "2026-10-01", "name": "github-main" },
-                    { "type": "Microsoft.Entra/applications/passwordCredentials", "apiVersion": "2026-10-01", "name": "ci-secret" }
+                    { "type": "federatedIdentityCredentials", "apiVersion": "2026-10-01-preview", "name": "github-main" },
+                    { "type": "Microsoft.Entra/applications/passwordCredentials", "apiVersion": "2026-10-01-preview", "name": "ci-secret" }
                   ]
                 }
               ]
@@ -270,8 +270,8 @@ public sealed class TemplateLoaderTests
               "$schema": "https://entraarm.dev/schemas/2026-10-01/deploymentTemplate.json#",
               "contentVersion": "1.0.0.0",
               "resources": [
-                { "type": "Microsoft.Entra/applications", "apiVersion": "2026-10-01", "name": "a",
-                  "resources": [ { "type": "federatedIdentityCredentials", "apiVersion": "2026-10-01", "name": "f", "resources": [] } ] }
+                { "type": "Microsoft.Entra/applications", "apiVersion": "2026-10-01-preview", "name": "a",
+                  "resources": [ { "type": "federatedIdentityCredentials", "apiVersion": "2026-10-01-preview", "name": "f", "resources": [] } ] }
               ]
             }
             """;
@@ -293,7 +293,7 @@ public sealed class TemplateLoaderTests
               "$schema": "https://entraarm.dev/schemas/2026-10-01/deploymentTemplate.json#", /* block comment */
               "contentVersion": "1.0.0.0",
               "resources": [
-                { "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01", "name": "g1", "properties": { "displayName": "G1", }, },
+                { "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01-preview", "name": "g1", "properties": { "displayName": "G1", }, },
               ],
             }
             """;
@@ -319,7 +319,7 @@ public sealed class TemplateLoaderTests
             {
               "$schema": "https://entraarm.dev/schemas/2026-10-01/deploymentTemplate.json#",
               "contentVersion": "1.0.0.0",
-              "resources": [ { "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01", "name": "[[not-an-expression]" } ]
+              "resources": [ { "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01-preview", "name": "[[not-an-expression]" } ]
             }
             """;
 
@@ -364,7 +364,7 @@ public sealed class TemplateLoaderTests
             {
               "$schema": "https://entraarm.dev/schemas/2026-10-01/deploymentTemplate.json#",
               "contentVersion": "1.0.0.0",
-              "resources": [ { "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01", "name": "g1" } ]
+              "resources": [ { "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01-preview", "name": "g1" } ]
             }
             """;
 

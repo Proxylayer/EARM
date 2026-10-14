@@ -107,8 +107,8 @@ public sealed class DeploymentExitCodeTests
     {
         using var sandbox = new CliSandbox(nameof(ASemanticallyInvalidTemplate_ExitsTwo_InEveryOutputFormat) + verb);
         string template = sandbox.WriteTemplate("dup.entra.json", "\"resources\": [ "
-            + "{ \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01\", \"name\": \"same\", \"properties\": { \"displayName\": \"A\" } }, "
-            + "{ \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01\", \"name\": \"same\", \"properties\": { \"displayName\": \"B\" } } ]");
+            + "{ \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"same\", \"properties\": { \"displayName\": \"A\" } }, "
+            + "{ \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"same\", \"properties\": { \"displayName\": \"B\" } } ]");
 
         var json = await CliRunner.RunAsync(Offline(sandbox, "deployment", verb, "-f", template, "-o", "json"));
         var table = await CliRunner.RunAsync(Offline(sandbox, "deployment", verb, "-f", template));

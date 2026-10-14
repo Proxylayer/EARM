@@ -155,7 +155,7 @@ public sealed class FederatedIdentityCredentialsProvider : ProviderBase
 
         if (desired.Api != GraphApi.Beta && JsonObjects.TryGetIgnoreCase(properties, FederatedIdentityCredentialsRules.PreviewOnlyProperty, out var preview) && !JsonObjects.IsAbsent(preview))
         {
-            return Unsupported(desired, existing, $"{desired.Describe()}: properties.{FederatedIdentityCredentialsRules.PreviewOnlyProperty} is only available on the beta endpoint; use apiVersion '2026-10-01-preview' or remove the property.");
+            return Unsupported(desired, existing, $"{desired.Describe()}: properties.{FederatedIdentityCredentialsRules.PreviewOnlyProperty} is only available on the beta endpoint; use apiVersion '2026-10-01-preview.beta' or remove the property.");
         }
 
         var pair = FederatedIdentityCredentialsRules.PairOf(properties);

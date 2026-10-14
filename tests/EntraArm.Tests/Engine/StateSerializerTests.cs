@@ -29,7 +29,7 @@ public sealed class StateSerializerTests
         {
             Id = identifier,
             Type = type,
-            ApiVersion = "2026-10-01",
+            ApiVersion = "2026-10-01-preview",
             Key = new Dictionary<string, string> { ["uniqueName"] = identifier.NameLeaf },
             GraphId = graphId,
             DependsOn = dependsOn,
@@ -47,7 +47,7 @@ public sealed class StateSerializerTests
         {
             Id = ResourceIdentifier.Create(Fixture.PasswordType, "aa/ci-secret"),
             Type = Fixture.PasswordType,
-            ApiVersion = "2026-10-01-preview",
+            ApiVersion = "2026-10-01-preview.beta",
             Key = new Dictionary<string, string> { ["displayName"] = "ci-secret" },
             GraphId = "K1",
             ParentGraphId = "A1",
@@ -123,7 +123,7 @@ public sealed class StateSerializerTests
         Assert.Equal("K1", child["extra"]!["keyId"]!.GetValue<string>());
         Assert.Equal("[\"G1\",\"G2\"]", child["relationships"]!["memberOf"]!.ToJsonString());
         Assert.Equal(["/providers/Microsoft.Entra/applications/aa", "/providers/Microsoft.Entra/applications/zz"], child["dependsOn"]!.AsArray().Select(d => d!.GetValue<string>()).ToList());
-        Assert.Equal("2026-10-01-preview", child["apiVersion"]!.GetValue<string>());
+        Assert.Equal("2026-10-01-preview.beta", child["apiVersion"]!.GetValue<string>());
 
         var operations = document["operations"]!.AsArray();
         Assert.Equal(3, operations.Count);
@@ -243,8 +243,8 @@ public sealed class StateSerializerTests
     [Fact]
     public void Deserialize_RejectsEntriesThatAreNotResourceIdsOfTheirType_OrLackAGraphId()
     {
-        var badKey = Assert.Throws<StateSchemaUnsupportedException>(() => StateSerializer.Deserialize("{ \"schemaVersion\": 1, \"resources\": { \"/providers/Microsoft.Entra/groups/g\": { \"type\": \"Microsoft.Entra/applications\", \"apiVersion\": \"2026-10-01\", \"id\": \"A1\" } } }", Name));
-        var noId = Assert.Throws<StateSchemaUnsupportedException>(() => StateSerializer.Deserialize("{ \"schemaVersion\": 1, \"resources\": { \"/providers/Microsoft.Entra/applications/a\": { \"type\": \"Microsoft.Entra/applications\", \"apiVersion\": \"2026-10-01\" } } }", Name));
+        var badKey = Assert.Throws<StateSchemaUnsupportedException>(() => StateSerializer.Deserialize("{ \"schemaVersion\": 1, \"resources\": { \"/providers/Microsoft.Entra/groups/g\": { \"type\": \"Microsoft.Entra/applications\", \"apiVersion\": \"2026-10-01-preview\", \"id\": \"A1\" } } }", Name));
+        var noId = Assert.Throws<StateSchemaUnsupportedException>(() => StateSerializer.Deserialize("{ \"schemaVersion\": 1, \"resources\": { \"/providers/Microsoft.Entra/applications/a\": { \"type\": \"Microsoft.Entra/applications\", \"apiVersion\": \"2026-10-01-preview\" } } }", Name));
 
         Assert.Contains("is not a resource id of type", badKey.Message);
         Assert.Contains("has no type or Graph id", noId.Message);

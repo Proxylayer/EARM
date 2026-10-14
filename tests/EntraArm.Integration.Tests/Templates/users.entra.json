@@ -16,7 +16,7 @@
   "resources": [
     {
       "type": "Microsoft.Entra/users",
-      "apiVersion": "2026-10-01",
+      "apiVersion": "2026-10-01-preview",
       "name": "[variables('u1')]",
       "properties": {
         "displayName": "[format('{0}-u1', parameters('prefix'))]",
@@ -27,7 +27,7 @@
     },
     {
       "type": "Microsoft.Entra/users",
-      "apiVersion": "2026-10-01",
+      "apiVersion": "2026-10-01-preview",
       "name": "[variables('u2')]",
       "properties": {
         "displayName": "[format('{0}-u2', parameters('prefix'))]",

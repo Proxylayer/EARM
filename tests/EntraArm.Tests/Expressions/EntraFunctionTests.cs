@@ -363,7 +363,7 @@ public sealed class EntraFunctionTests
         var analysis = new ExpressionValidator().Analyze(Expr.ParseBody(
             "\"parameters\": { \"p\": { \"type\": \"string\", \"defaultValue\": \"[roleTemplate('Global Reader')]\" } }, "
             + "\"variables\": { \"v\": \"[appRole('" + Graph + "', 'User.Read.All')]\", \"ok\": \"[wellKnownApp('MicrosoftGraph')]\" }, "
-            + "\"resources\": [ { \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01\", \"name\": \"g\", \"properties\": { \"x\": \"[tenant().tenantId]\" } } ]"));
+            + "\"resources\": [ { \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"g\", \"properties\": { \"x\": \"[tenant().tenantId]\" } } ]"));
 
         var codes = analysis.Diagnostics.Select(d => (d.Code, d.Path!.ToString())).ToList();
         Assert.Contains((DiagnosticCodes.FunctionNotAllowedHere, "parameters.p.defaultValue"), codes);
@@ -450,8 +450,8 @@ public sealed class EntraFunctionTests
     public void Scanner_RecordsATemplateApplicationNamedByAppRole_AsAnImplicitDependency()
     {
         var analysis = new ExpressionValidator().Analyze(Expr.ParseBody(
-            "\"resources\": [ { \"type\": \"Microsoft.Entra/applications\", \"apiVersion\": \"2026-10-01\", \"name\": \"app\", \"properties\": { \"displayName\": \"A\" } }, "
-            + "{ \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01\", \"name\": \"g\", \"properties\": { \"displayName\": \"G\", \"mailEnabled\": false, \"securityEnabled\": true, "
+            "\"resources\": [ { \"type\": \"Microsoft.Entra/applications\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"app\", \"properties\": { \"displayName\": \"A\" } }, "
+            + "{ \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"g\", \"properties\": { \"displayName\": \"G\", \"mailEnabled\": false, \"securityEnabled\": true, "
             + "\"description\": \"[appRole('app', 'Orders.Admin')]\", \"notes\": \"[permissionScope(resourceId('Microsoft.Entra/applications', 'app'), 'Orders.Read')]\", "
             + "\"graph\": \"[appRole(wellKnownApp('MicrosoftGraph'), 'User.Read.All')]\", \"other\": \"[appRole('" + AppId + "', 'X')]\" } } ]"));
 
@@ -468,7 +468,7 @@ public sealed class EntraFunctionTests
     public void Scanner_ReportsAnAppRoleTargetThatIsNotATemplateApplication()
     {
         var analysis = new ExpressionValidator().Analyze(Expr.ParseBody(
-            "\"resources\": [ { \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01\", \"name\": \"g\", \"properties\": { \"x\": \"[appRole('nope', 'r')]\" } } ]"));
+            "\"resources\": [ { \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"g\", \"properties\": { \"x\": \"[appRole('nope', 'r')]\" } } ]"));
 
         var error = Assert.Single(analysis.Diagnostics);
         Assert.Equal(DiagnosticCodes.InvalidFunctionArguments, error.Code);

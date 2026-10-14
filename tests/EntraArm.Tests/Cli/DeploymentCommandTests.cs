@@ -41,7 +41,7 @@ public sealed class DeploymentCommandTests
         {
             Id = EntraArm.Core.ResourceIdentifier.Create(Fixture.GroupType, "old-group"),
             Type = Fixture.GroupType,
-            ApiVersion = "2026-10-01",
+            ApiVersion = "2026-10-01-preview",
             Key = new System.Collections.Generic.Dictionary<string, string> { ["uniqueName"] = "old-group" },
             GraphId = "G-OLD",
             LastWriteOn = Start,

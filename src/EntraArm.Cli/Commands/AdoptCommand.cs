@@ -242,7 +242,7 @@ internal static class AdoptCommand
                 return ExitCodes.Failure;
             }
 
-            string apiVersion = definition.ApiVersions.Keys.FirstOrDefault(v => !v.EndsWith("-preview", StringComparison.OrdinalIgnoreCase)) ?? definition.ApiVersions.Keys.First();
+            string apiVersion = definition.ApiVersions.Where(pair => pair.Value == EntraArm.Core.Types.GraphApi.V1).Select(pair => pair.Key).FirstOrDefault() ?? definition.ApiVersions.Keys.First();
             state.Upsert(new StateEntry
             {
                 Id = identifier,

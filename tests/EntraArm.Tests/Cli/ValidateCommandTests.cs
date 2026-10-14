@@ -280,7 +280,7 @@ public sealed class ValidateCommandTests
         Assert.All(resources, r =>
         {
             Assert.NotNull(r!["type"]);
-            Assert.Equal("2026-10-01", r["apiVersion"]!.GetValue<string>());
+            Assert.Equal("2026-10-01-preview", r["apiVersion"]!.GetValue<string>());
             Assert.NotNull(r["name"]);
             Assert.NotNull(r["nested"]);
             Assert.NotNull(r["dependsOn"]);
@@ -354,6 +354,20 @@ public sealed class ValidateCommandTests
         Assert.Equal("SchemaViolation", Code(error));
         Assert.Equal("resources[0].location", error!["path"]!.GetValue<string>());
         Assert.Equal(JsonPath.Parse("resources[0].location"), JsonPath.Parse(error["path"]!.GetValue<string>()));
+    }
+
+    [Fact]
+    public async Task JsonReport_ForTheRetiredApiVersion_CarriesTheRenameHintAndExitsTwo()
+    {
+        var result = await CliRunner.ValidateJsonAsync(TestPaths.InvalidFixture("unknown-api-version-retired.entra.json"));
+
+        Assert.Equal(2, result.ExitCode);
+        var error = Assert.Single(result.Diagnostics);
+        Assert.Equal("UnknownApiVersion", Code(error));
+        Assert.Equal("resources[0].apiVersion", error!["path"]!.GetValue<string>());
+        string message = error["message"]!.GetValue<string>();
+        Assert.StartsWith("apiVersion '2026-10-01' was renamed '2026-10-01-preview' (the format is in preview);", message, StringComparison.Ordinal);
+        Assert.Contains("'2026-10-01-preview.beta' (Graph beta). Valid: 2026-10-01-preview, 2026-10-01-preview.beta", message, StringComparison.Ordinal);
     }
 
     // ---- table and none output ----

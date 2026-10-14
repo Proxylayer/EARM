@@ -260,7 +260,7 @@ public sealed class TemplateSchemaValidationTests
     public void RequiredMembersInsideProperties_AreReportedWithTheirPath(string type, string properties, string expectedPath)
     {
         string name = type == "users" ? "u@contoso.com" : "n";
-        var diagnostics = ValidateText(Envelope("\"resources\": [ { \"type\": \"Microsoft.Entra/" + type + "\", \"apiVersion\": \"2026-10-01\", \"name\": \"" + name + "\", \"properties\": { " + properties + " } } ]"));
+        var diagnostics = ValidateText(Envelope("\"resources\": [ { \"type\": \"Microsoft.Entra/" + type + "\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"" + name + "\", \"properties\": { " + properties + " } } ]"));
 
         var hit = Assert.Single(diagnostics, d => d.Code == DiagnosticCodes.SchemaViolation);
         Assert.Equal(expectedPath, hit.Path!.ToString());
@@ -273,8 +273,8 @@ public sealed class TemplateSchemaValidationTests
     {
         var diagnostics = ValidateText(Envelope(
             """
-            "resources": [ { "type": "Microsoft.Entra/applications", "apiVersion": "2026-10-01", "name": "app", "properties": { "displayName": "A" },
-              "resources": [ { "type": "federatedIdentityCredentials", "apiVersion": "2026-10-01", "name": "fic1",
+            "resources": [ { "type": "Microsoft.Entra/applications", "apiVersion": "2026-10-01-preview", "name": "app", "properties": { "displayName": "A" },
+              "resources": [ { "type": "federatedIdentityCredentials", "apiVersion": "2026-10-01-preview", "name": "fic1",
                                "properties": { "issuer": "https://x.example", "subject": "s", "audiences": ["a"], "claimsMatchingExpression": { "languageVersion": "one" } } } ] } ]
             """));
 
@@ -289,12 +289,33 @@ public sealed class TemplateSchemaValidationTests
         var diagnostics = ValidateText(Envelope(
             """
             "resources": [
-              { "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01", "name": "g", "properties": { } },
-              { "type": "Microsoft.Entra/applications", "apiVersion": "2026-10-01", "name": "app", "properties": { },
-                "resources": [ { "type": "federatedIdentityCredentials", "apiVersion": "2026-10-01", "name": "fic1", "properties": { } } ] } ]
+              { "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01-preview", "name": "g", "properties": { } },
+              { "type": "Microsoft.Entra/applications", "apiVersion": "2026-10-01-preview", "name": "app", "properties": { },
+                "resources": [ { "type": "federatedIdentityCredentials", "apiVersion": "2026-10-01-preview", "name": "fic1", "properties": { } } ] } ]
             """));
 
         Assert.Empty(diagnostics);
+    }
+
+    [Theory]
+    [InlineData("2026-10-01-preview", false)]
+    [InlineData("2026-10-01-preview.beta", false)]
+    [InlineData("2026-10-01", true)]
+    [InlineData("v1.0", true)]
+    public void ApiVersionLabels_OnlyThePreviewAndPreviewBetaLabelsAreAccepted(string apiVersion, bool rejected)
+    {
+        var diagnostics = ValidateText(Envelope("\"resources\": [ { \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"" + apiVersion + "\", \"name\": \"g\", \"properties\": { \"displayName\": \"G\", \"mailEnabled\": false, \"securityEnabled\": true } } ]"));
+
+        if (rejected)
+        {
+            var error = Assert.Single(diagnostics, d => d.IsError);
+            Assert.Equal(DiagnosticCodes.UnknownApiVersion, error.Code);
+            Assert.Equal("resources[0].apiVersion", error.Path!.ToString());
+        }
+        else
+        {
+            Assert.DoesNotContain(diagnostics, d => d.IsError);
+        }
     }
 
     // ---- envelope required skip ----
@@ -302,7 +323,7 @@ public sealed class TemplateSchemaValidationTests
     [Fact]
     public void MissingEnvelopeMembers_AreReportedWithTheirOwnCodes_NeverAsSchemaRequired()
     {
-        var diagnostics = ValidateText("{ \"$schema\": \"" + SchemaUri + "\", \"resources\": [ { \"apiVersion\": \"2026-10-01\", \"name\": \"g\" }, { \"type\": \"Microsoft.Entra/groups\", \"name\": \"h\" } ] }");
+        var diagnostics = ValidateText("{ \"$schema\": \"" + SchemaUri + "\", \"resources\": [ { \"apiVersion\": \"2026-10-01-preview\", \"name\": \"g\" }, { \"type\": \"Microsoft.Entra/groups\", \"name\": \"h\" } ] }");
 
         Assert.DoesNotContain(diagnostics, d => d.Code == DiagnosticCodes.SchemaViolation && d.Message.Contains("'required'", StringComparison.Ordinal));
         Assert.Contains(diagnostics, d => d.Code == DiagnosticCodes.MissingRequiredProperty);
@@ -333,7 +354,7 @@ public sealed class TemplateSchemaValidationTests
     [InlineData("roleAssignments", "not-a-guid")]
     public void NamePatternViolations_AreReportedAsInvalidResourceName(string type, string name)
     {
-        var diagnostics = ValidateText(Envelope("\"resources\": [ { \"type\": \"Microsoft.Entra/" + type + "\", \"apiVersion\": \"2026-10-01\", \"name\": \"" + name + "\", \"properties\": { } } ]"));
+        var diagnostics = ValidateText(Envelope("\"resources\": [ { \"type\": \"Microsoft.Entra/" + type + "\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"" + name + "\", \"properties\": { } } ]"));
 
         var error = Assert.Single(diagnostics, d => d.Code == DiagnosticCodes.InvalidResourceName);
         Assert.Equal("resources[0].name", error.Path!.ToString());
@@ -351,7 +372,7 @@ public sealed class TemplateSchemaValidationTests
     [InlineData("roleAssignments", "00000003-0000-0000-c000-000000000000")]
     public void ConformingNames_AreAccepted(string type, string name)
     {
-        var diagnostics = ValidateText(Envelope("\"resources\": [ { \"type\": \"Microsoft.Entra/" + type + "\", \"apiVersion\": \"2026-10-01\", \"name\": \"" + name + "\", \"properties\": { } } ]"));
+        var diagnostics = ValidateText(Envelope("\"resources\": [ { \"type\": \"Microsoft.Entra/" + type + "\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"" + name + "\", \"properties\": { } } ]"));
 
         Assert.DoesNotContain(diagnostics, d => d.Code == DiagnosticCodes.InvalidResourceName);
     }
@@ -364,8 +385,8 @@ public sealed class TemplateSchemaValidationTests
     public void NestedFederatedCredentialNames_FollowTheChildPattern(string childName)
     {
         var diagnostics = ValidateText(Envelope(
-            "\"resources\": [ { \"type\": \"Microsoft.Entra/applications\", \"apiVersion\": \"2026-10-01\", \"name\": \"app\", \"properties\": { \"displayName\": \"A\" }, " +
-            "\"resources\": [ { \"type\": \"federatedIdentityCredentials\", \"apiVersion\": \"2026-10-01\", \"name\": \"" + childName + "\", \"properties\": { } } ] } ]"));
+            "\"resources\": [ { \"type\": \"Microsoft.Entra/applications\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"app\", \"properties\": { \"displayName\": \"A\" }, " +
+            "\"resources\": [ { \"type\": \"federatedIdentityCredentials\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"" + childName + "\", \"properties\": { } } ] } ]"));
 
         var error = Assert.Single(diagnostics, d => d.Code == DiagnosticCodes.InvalidResourceName);
         Assert.Equal("resources[0].resources[0].name", error.Path!.ToString());

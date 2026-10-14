@@ -18,11 +18,11 @@ namespace EntraArm.Providers.Tests;
 /// </summary>
 public sealed class ApplyTimeFailureTests
 {
-    private const string Base = "{ \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01\", \"name\": \"base\", \"properties\": { \"displayName\": \"Base\" } }";
+    private const string Base = "{ \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"base\", \"properties\": { \"displayName\": \"Base\" } }";
 
     private static string Dependent(string name, string properties, string? extra = null)
     {
-        return "{ \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01\", \"name\": \"" + name + "\", \"properties\": { " + properties + " }"
+        return "{ \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"" + name + "\", \"properties\": { " + properties + " }"
             + (extra is null ? string.Empty : ", " + extra) + ", \"dependsOn\": [\"[resourceId('Microsoft.Entra/groups', 'base')]\"] }";
     }
 
@@ -31,7 +31,7 @@ public sealed class ApplyTimeFailureTests
     {
         var host = new ProviderHost();
         string failing = Dependent("divides", "\"displayName\": \"[string(div(1, sub(length(reference('base').displayName), 4)))]\"");
-        string dependent = "{ \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01\", \"name\": \"after\", \"properties\": { \"displayName\": \"After\" }, \"dependsOn\": [\"[resourceId('Microsoft.Entra/groups', 'divides')]\"] }";
+        string dependent = "{ \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"after\", \"properties\": { \"displayName\": \"After\" }, \"dependsOn\": [\"[resourceId('Microsoft.Entra/groups', 'divides')]\"] }";
         string independent = Dependent("fine", "\"displayName\": \"Fine\"");
 
         var run = await host.CreateAsync(host.Resources(Join(Base, failing, dependent, independent)), continueOnError: true);

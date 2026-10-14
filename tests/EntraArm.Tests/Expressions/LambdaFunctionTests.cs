@@ -202,7 +202,7 @@ public sealed class LambdaFunctionTests
     public void Validator_ReportsLambdaMisuse_WithoutEvaluating()
     {
         var analysis = Analyze("\"functions\": [ { \"namespace\": \"c\", \"members\": { \"f\": { \"parameters\": [ { \"name\": \"s\", \"type\": \"string\" } ], \"output\": { \"type\": \"string\", \"value\": \"[parameters('s')]\" } } } } ], "
-            + "\"resources\": [ { \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01\", \"name\": \"g\", \"properties\": { "
+            + "\"resources\": [ { \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"g\", \"properties\": { "
             + "\"a\": \"[lambda('x', 1)]\", "
             + "\"b\": \"[c.f(lambda('x', 1))]\", "
             + "\"c\": \"[map(createArray(1), 1)]\", "
@@ -234,7 +234,7 @@ public sealed class LambdaFunctionTests
     {
         var analysis = Analyze("\"parameters\": { \"cidrs\": { \"type\": \"array\", \"defaultValue\": [\"10.0.0.0/8\", \"192.168.0.0/16\"] } }, "
             + "\"variables\": { \"ranges\": \"[map(parameters('cidrs'), lambda('c', createObject('cidrAddress', lambdaVariables('c'))))]\" }, "
-            + "\"resources\": [ { \"type\": \"Microsoft.Entra/conditionalAccess/namedLocations\", \"apiVersion\": \"2026-10-01\", \"name\": \"Offices\", "
+            + "\"resources\": [ { \"type\": \"Microsoft.Entra/conditionalAccess/namedLocations\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"Offices\", "
             + "\"properties\": { \"@odata.type\": \"#microsoft.graph.ipNamedLocation\", \"isTrusted\": true, \"ipRanges\": \"[variables('ranges')]\" } } ]");
 
         Assert.Empty(analysis.Diagnostics);

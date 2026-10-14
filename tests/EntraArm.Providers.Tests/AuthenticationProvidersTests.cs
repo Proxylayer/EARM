@@ -363,7 +363,7 @@ public sealed class AuthenticationProvidersTests
     {
         var host = new ProviderHost();
         const string policy = """
-            { "type": "Microsoft.Entra/conditionalAccess/policies", "apiVersion": "2026-10-01", "name": "CA-Strength",
+            { "type": "Microsoft.Entra/conditionalAccess/policies", "apiVersion": "2026-10-01-preview", "name": "CA-Strength",
               "properties": { "conditions": { "users": { "includeGroups": ["aaaaaaaa-1111-2222-3333-444444444444"] }, "applications": { "includeApplications": ["All"] } },
                 "grantControls": { "authenticationStrength": { "id": "[reference('Phishing-resistant').id]" } } },
               "dependsOn": ["[resourceId('Microsoft.Entra/conditionalAccess/authenticationStrengths', 'Phishing-resistant')]"] }

@@ -33,7 +33,7 @@ public sealed class OutputWriterTests
             {
                 Id = ResourceIdentifier.Create(Fixture.AppType, "app" + i),
                 Type = Fixture.AppType,
-                ApiVersion = "2026-10-01",
+                ApiVersion = "2026-10-01-preview",
                 Key = new Dictionary<string, string> { ["uniqueName"] = "app" + i },
                 GraphId = "G" + i,
                 LastWriteOn = Start,

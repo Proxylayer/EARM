@@ -11,12 +11,12 @@
   "variables": {
     "appName":    "[format('{0}-asg-app', parameters('prefix'))]",
     "graphAppId": "[wellKnownApp('MicrosoftGraph')]",
-    "graphSpId":  "[reference(resourceId('Microsoft.Entra/servicePrincipals', variables('graphAppId')), '2026-10-01').id]"
+    "graphSpId":  "[reference(resourceId('Microsoft.Entra/servicePrincipals', variables('graphAppId')), '2026-10-01-preview').id]"
   },
   "resources": [
     {
       "type": "Microsoft.Entra/applications",
-      "apiVersion": "2026-10-01",
+      "apiVersion": "2026-10-01-preview",
       "name": "[variables('appName')]",
       "properties": {
         "displayName": "[variables('appName')]",
@@ -25,13 +25,13 @@
     },
     {
       "type": "Microsoft.Entra/servicePrincipals",
-      "apiVersion": "2026-10-01",
+      "apiVersion": "2026-10-01-preview",
       "name": "[reference(variables('appName')).appId]",
       "properties": {}
     },
     {
       "type": "Microsoft.Entra/appRoleAssignments",
-      "apiVersion": "2026-10-01",
+      "apiVersion": "2026-10-01-preview",
       "name": "[guid(parameters('prefix'), 'graph', 'User.Read.All')]",
       "properties": {
         "principalId": "[reference(resourceId('Microsoft.Entra/servicePrincipals', reference(variables('appName')).appId)).id]",
@@ -42,7 +42,7 @@
     },
     {
       "type": "Microsoft.Entra/oauth2PermissionGrants",
-      "apiVersion": "2026-10-01",
+      "apiVersion": "2026-10-01-preview",
       "name": "[guid(parameters('prefix'), 'graph', 'AllPrincipals')]",
       "properties": {
         "clientId": "[reference(resourceId('Microsoft.Entra/servicePrincipals', reference(variables('appName')).appId)).id]",

@@ -86,8 +86,21 @@ public sealed class TemplateValidatorTests
         var diagnostic = Assert.Single(diagnostics);
         Assert.Equal(DiagnosticCodes.UnknownApiVersion, diagnostic.Code);
         Assert.Equal(JsonPath.Parse("resources[0].apiVersion"), diagnostic.Path);
-        Assert.Contains("2026-10-01", diagnostic.Message);
         Assert.Contains("2026-10-01-preview", diagnostic.Message);
+        Assert.Contains("2026-10-01-preview.beta", diagnostic.Message);
+    }
+
+    [Fact]
+    public async Task RetiredApiVersion_ReportsExactlyOneUnknownApiVersionWithTheRenameHint()
+    {
+        var diagnostics = await ValidateFileAsync(TestPaths.InvalidFixture("unknown-api-version-retired.entra.json"));
+
+        var diagnostic = Assert.Single(diagnostics);
+        Assert.Equal(DiagnosticCodes.UnknownApiVersion, diagnostic.Code);
+        Assert.Equal(JsonPath.Parse("resources[0].apiVersion"), diagnostic.Path);
+        Assert.Equal(
+            "apiVersion '2026-10-01' was renamed '2026-10-01-preview' (the format is in preview); use '2026-10-01-preview' (Graph v1.0) or '2026-10-01-preview.beta' (Graph beta). Valid: 2026-10-01-preview, 2026-10-01-preview.beta.",
+            diagnostic.Message);
     }
 
     [Fact]
@@ -116,7 +129,7 @@ public sealed class TemplateValidatorTests
     {
         var diagnostics = ValidateText(Envelope(
             """
-            "resources": [ { "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01", "name": "g", "properties": { "displayName": "G", "mailEnabled": "nope" } } ]
+            "resources": [ { "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01-preview", "name": "g", "properties": { "displayName": "G", "mailEnabled": "nope" } } ]
             """));
 
         Assert.All(diagnostics, d => Assert.Equal(DiagnosticCodes.SchemaViolation, d.Code));
@@ -133,7 +146,7 @@ public sealed class TemplateValidatorTests
         // be a string") is not actionable: the author wrote an object, not an expression.
         var diagnostics = ValidateText(Envelope(
             """
-            "resources": [ { "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01", "name": "g", "properties": { "displayName": "G", "mailEnabled": "nope" } } ]
+            "resources": [ { "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01-preview", "name": "g", "properties": { "displayName": "G", "mailEnabled": "nope" } } ]
             """));
 
         Assert.DoesNotContain(diagnostics, d => d.Path == JsonPath.Parse("resources[0].properties"));
@@ -146,7 +159,7 @@ public sealed class TemplateValidatorTests
         // branch's message ("should be object") is the one reported, once.
         var diagnostics = ValidateText(Envelope(
             """
-            "resources": [ { "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01", "name": "g", "properties": 5 } ]
+            "resources": [ { "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01-preview", "name": "g", "properties": 5 } ]
             """));
 
         var diagnostic = Assert.Single(diagnostics);
@@ -162,7 +175,7 @@ public sealed class TemplateValidatorTests
         // Typed branches fail (an expression is not a boolean / array) but the expression branch passes.
         var diagnostics = ValidateText(Envelope(
             """
-            "resources": [ { "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01", "name": "g",
+            "resources": [ { "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01-preview", "name": "g",
                              "properties": { "displayName": "G", "mailEnabled": "[false()]", "groupTypes": "[createArray()]", "securityEnabled": true } } ]
             """));
 
@@ -174,7 +187,7 @@ public sealed class TemplateValidatorTests
     {
         var diagnostics = ValidateText(Envelope(
             """
-            "resources": [ { "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01", "name": "g",
+            "resources": [ { "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01-preview", "name": "g",
                              "condition": "[true()]", "copy": { "name": "c", "count": "[length(createArray(1))]" },
                              "properties": { "displayName": "[concat('a', 'b')]", "mailEnabled": "[false()]", "securityEnabled": true } } ]
             """));
@@ -199,18 +212,18 @@ public sealed class TemplateValidatorTests
     [InlineData("\"resources\": [], \"outputs\": { \"o\": { \"type\": \"string\" } }", DiagnosticCodes.MissingRequiredProperty, "outputs.o.value", DiagnosticSeverity.Error)]
     [InlineData("\"resources\": [], \"functions\": [ { \"namespace\": \"c\", \"members\": { \"f\": { \"output\": { \"type\": \"blob\", \"value\": 1 } } } } ]", DiagnosticCodes.InvalidOutputType, "functions[0].members.f.output.type", DiagnosticSeverity.Error)]
     [InlineData("\"resources\": [], \"functions\": [ { \"namespace\": \"c\", \"members\": { \"f\": { \"parameters\": [ { \"name\": \"p\", \"type\": \"blob\" } ], \"output\": { \"type\": \"string\", \"value\": 1 } } } } ]", DiagnosticCodes.InvalidParameterType, "functions[0].members.f.parameters[0].type", DiagnosticSeverity.Error)]
-    [InlineData("\"resources\": [ { \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01\", \"name\": \"g\", \"copy\": { \"name\": \"c\", \"count\": -1 } } ]", DiagnosticCodes.InvalidCopy, "resources[0].copy.count", DiagnosticSeverity.Error)]
-    [InlineData("\"resources\": [ { \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01\", \"name\": \"g\", \"copy\": { \"name\": \"c\", \"count\": 1, \"mode\": \"sideways\" } } ]", DiagnosticCodes.InvalidCopy, "resources[0].copy.mode", DiagnosticSeverity.Error)]
-    [InlineData("\"resources\": [ { \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01\", \"name\": \"g\", \"copy\": { \"name\": \"c\", \"count\": 1, \"batchSize\": 0 } } ]", DiagnosticCodes.InvalidCopy, "resources[0].copy.batchSize", DiagnosticSeverity.Error)]
-    [InlineData("\"resources\": [ { \"type\": \"Microsoft.Entra/users\", \"apiVersion\": \"2026-10-01\", \"name\": \"no-at-sign\" } ]", DiagnosticCodes.InvalidResourceName, "resources[0].name", DiagnosticSeverity.Error)]
-    [InlineData("\"resources\": [ { \"type\": \"Microsoft.Entra/servicePrincipals\", \"apiVersion\": \"2026-10-01\", \"name\": \"not-a-guid\" } ]", DiagnosticCodes.InvalidResourceName, "resources[0].name", DiagnosticSeverity.Error)]
-    [InlineData("\"resources\": [ { \"type\": \"Microsoft.Entra/applications/federatedIdentityCredentials\", \"apiVersion\": \"2026-10-01\", \"name\": \"app/1bad\" } ]", DiagnosticCodes.InvalidResourceName, "resources[0].name", DiagnosticSeverity.Error)]
-    [InlineData("\"resources\": [ { \"type\": \"Microsoft.Entra/applications\", \"apiVersion\": \"2026-10-01\", \"name\": \"a/\" } ]", DiagnosticCodes.InvalidResourceName, "resources[0].name", DiagnosticSeverity.Error)]
-    [InlineData("\"resources\": [ { \"type\": \"Microsoft.Entra/administrativeUnits\", \"apiVersion\": \"2026-10-01\", \"name\": \"au\", \"properties\": { \"membershipType\": \"Dynamic\", \"members\": [] } } ]", DiagnosticCodes.DynamicMembershipConflict, "resources[0].properties.members", DiagnosticSeverity.Error)]
-    [InlineData("\"resources\": [ { \"type\": \"Microsoft.Entra/users\", \"apiVersion\": \"2026-10-01\", \"name\": \"u@contoso.com\", \"properties\": { \"userPrincipalName\": \"other@contoso.com\" } } ]", DiagnosticCodes.NameMappedPropertyConflict, "resources[0].properties.userPrincipalName", DiagnosticSeverity.Error)]
-    [InlineData("\"resources\": [ { \"apiVersion\": \"2026-10-01\", \"name\": \"x\" } ]", DiagnosticCodes.MissingResourceType, "resources[0].type", DiagnosticSeverity.Error)]
-    [InlineData("\"resources\": [ { \"type\": \"Microsoft.Entra/groups/widgets\", \"apiVersion\": \"2026-10-01\", \"name\": \"g/w\" } ]", DiagnosticCodes.UnknownResourceType, "resources[0].type", DiagnosticSeverity.Error)]
-    [InlineData("\"resources\": [ { \"type\": \"Microsoft.Entra/groups/federatedIdentityCredentials\", \"apiVersion\": \"2026-10-01\", \"name\": \"g/f\" } ]", DiagnosticCodes.ParentChildTypeMismatch, "resources[0].type", DiagnosticSeverity.Error)]
+    [InlineData("\"resources\": [ { \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"g\", \"copy\": { \"name\": \"c\", \"count\": -1 } } ]", DiagnosticCodes.InvalidCopy, "resources[0].copy.count", DiagnosticSeverity.Error)]
+    [InlineData("\"resources\": [ { \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"g\", \"copy\": { \"name\": \"c\", \"count\": 1, \"mode\": \"sideways\" } } ]", DiagnosticCodes.InvalidCopy, "resources[0].copy.mode", DiagnosticSeverity.Error)]
+    [InlineData("\"resources\": [ { \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"g\", \"copy\": { \"name\": \"c\", \"count\": 1, \"batchSize\": 0 } } ]", DiagnosticCodes.InvalidCopy, "resources[0].copy.batchSize", DiagnosticSeverity.Error)]
+    [InlineData("\"resources\": [ { \"type\": \"Microsoft.Entra/users\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"no-at-sign\" } ]", DiagnosticCodes.InvalidResourceName, "resources[0].name", DiagnosticSeverity.Error)]
+    [InlineData("\"resources\": [ { \"type\": \"Microsoft.Entra/servicePrincipals\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"not-a-guid\" } ]", DiagnosticCodes.InvalidResourceName, "resources[0].name", DiagnosticSeverity.Error)]
+    [InlineData("\"resources\": [ { \"type\": \"Microsoft.Entra/applications/federatedIdentityCredentials\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"app/1bad\" } ]", DiagnosticCodes.InvalidResourceName, "resources[0].name", DiagnosticSeverity.Error)]
+    [InlineData("\"resources\": [ { \"type\": \"Microsoft.Entra/applications\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"a/\" } ]", DiagnosticCodes.InvalidResourceName, "resources[0].name", DiagnosticSeverity.Error)]
+    [InlineData("\"resources\": [ { \"type\": \"Microsoft.Entra/administrativeUnits\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"au\", \"properties\": { \"membershipType\": \"Dynamic\", \"members\": [] } } ]", DiagnosticCodes.DynamicMembershipConflict, "resources[0].properties.members", DiagnosticSeverity.Error)]
+    [InlineData("\"resources\": [ { \"type\": \"Microsoft.Entra/users\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"u@contoso.com\", \"properties\": { \"userPrincipalName\": \"other@contoso.com\" } } ]", DiagnosticCodes.NameMappedPropertyConflict, "resources[0].properties.userPrincipalName", DiagnosticSeverity.Error)]
+    [InlineData("\"resources\": [ { \"apiVersion\": \"2026-10-01-preview\", \"name\": \"x\" } ]", DiagnosticCodes.MissingResourceType, "resources[0].type", DiagnosticSeverity.Error)]
+    [InlineData("\"resources\": [ { \"type\": \"Microsoft.Entra/groups/widgets\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"g/w\" } ]", DiagnosticCodes.UnknownResourceType, "resources[0].type", DiagnosticSeverity.Error)]
+    [InlineData("\"resources\": [ { \"type\": \"Microsoft.Entra/groups/federatedIdentityCredentials\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"g/f\" } ]", DiagnosticCodes.ParentChildTypeMismatch, "resources[0].type", DiagnosticSeverity.Error)]
     public void SemanticChecks_ReportTheExpectedCodeAtTheExpectedPath(string body, string expectedCode, string expectedPath, DiagnosticSeverity expectedSeverity)
     {
         var diagnostics = ValidateText(Envelope(body));
@@ -293,8 +306,8 @@ public sealed class TemplateValidatorTests
         var diagnostics = ValidateText(Envelope(
             """
             "resources": [
-              { "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01-preview", "name": "g", "properties": { "displayName": "G" } },
-              { "type": "Microsoft.Entra/conditionalAccess/policies", "apiVersion": "2026-10-01-preview", "name": "p", "properties": { "state": "disabled" } }
+              { "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01-preview.beta", "name": "g", "properties": { "displayName": "G" } },
+              { "type": "Microsoft.Entra/conditionalAccess/policies", "apiVersion": "2026-10-01-preview.beta", "name": "p", "properties": { "state": "disabled" } }
             ]
             """));
 
@@ -307,8 +320,8 @@ public sealed class TemplateValidatorTests
         var duplicate = ValidateText(Envelope(
             """
             "resources": [
-              { "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01", "name": "g" },
-              { "type": "microsoft.entra/GROUPS", "apiVersion": "2026-10-01", "name": "g" }
+              { "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01-preview", "name": "g" },
+              { "type": "microsoft.entra/GROUPS", "apiVersion": "2026-10-01-preview", "name": "g" }
             ]
             """));
         var error = Assert.Single(duplicate, d => d.Code == DiagnosticCodes.DuplicateResourceId);
@@ -317,8 +330,8 @@ public sealed class TemplateValidatorTests
         var distinct = ValidateText(Envelope(
             """
             "resources": [
-              { "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01", "name": "g" },
-              { "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01", "name": "G" }
+              { "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01-preview", "name": "g" },
+              { "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01-preview", "name": "G" }
             ]
             """));
         Assert.DoesNotContain(distinct, d => d.Code == DiagnosticCodes.DuplicateResourceId);
@@ -329,7 +342,7 @@ public sealed class TemplateValidatorTests
     {
         var diagnostics = ValidateText(Envelope(
             """
-            "resources": [ { "type": "Microsoft.Entra/applications", "apiVersion": "2026-10-01", "name": "orders-api", "properties": { "uniqueName": "orders-api", "displayName": "Orders" } } ]
+            "resources": [ { "type": "Microsoft.Entra/applications", "apiVersion": "2026-10-01-preview", "name": "orders-api", "properties": { "uniqueName": "orders-api", "displayName": "Orders" } } ]
             """));
 
         Assert.Empty(diagnostics);
@@ -340,7 +353,7 @@ public sealed class TemplateValidatorTests
     {
         var diagnostics = ValidateText(Envelope(
             """
-            "resources": [ { "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01", "name": "g",
+            "resources": [ { "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01-preview", "name": "g",
                              "properties": { "displayName": "G", "isAssignableToRole": true, "directoryRoles": [ { "role": "Global Reader", "directoryScopeId": "/" } ] } } ]
             """));
 
@@ -353,8 +366,8 @@ public sealed class TemplateValidatorTests
         var diagnostics = ValidateText(Envelope(
             """
             "resources": [
-              { "type": "Microsoft.Entra/servicePrincipals", "apiVersion": "2026-10-01", "name": "[reference('app').appId]" },
-              { "type": "Microsoft.Entra/users", "apiVersion": "2026-10-01", "name": "[parameters('upn')]" }
+              { "type": "Microsoft.Entra/servicePrincipals", "apiVersion": "2026-10-01-preview", "name": "[reference('app').appId]" },
+              { "type": "Microsoft.Entra/users", "apiVersion": "2026-10-01-preview", "name": "[parameters('upn')]" }
             ],
             "parameters": { "upn": { "type": "string", "defaultValue": "u@contoso.com" } }
             """));
@@ -374,7 +387,7 @@ public sealed class TemplateValidatorTests
               "outputs": { "o": { "type": "blob", "value": 1 } },
               "resources": [
                 { "type": "Microsoft.Entra/groups", "apiVersion": "2020-01-01", "name": "g" },
-                { "type": "Microsoft.Entra/users", "apiVersion": "2026-10-01", "name": "no-at" }
+                { "type": "Microsoft.Entra/users", "apiVersion": "2026-10-01-preview", "name": "no-at" }
               ]
             }
             """;

@@ -174,7 +174,7 @@ public sealed class TaintSecretsTests
 
     // ---- through the engine ----
 
-    private const string UserWithLiteralPassword = "{ \"type\": \"Microsoft.Entra/users\", \"apiVersion\": \"2026-10-01\", \"name\": \"u@contoso.com\", \"properties\": { \"displayName\": \"U\", \"passwordProfile\": { \"password\": \"Literal-P@ss-1\", \"forceChangePasswordNextSignIn\": true } } }";
+    private const string UserWithLiteralPassword = "{ \"type\": \"Microsoft.Entra/users\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"u@contoso.com\", \"properties\": { \"displayName\": \"U\", \"passwordProfile\": { \"password\": \"Literal-P@ss-1\", \"forceChangePasswordNextSignIn\": true } } }";
 
     [Fact]
     public async Task EvaluateProperties_TaintsALiteralPasswordFromTheOverlay()

@@ -275,10 +275,10 @@ public sealed class PermissionsCommandTests
     // ---- purpose-built templates ----
 
     private const string OwnedApplication =
-        "{ \"type\": \"Microsoft.Entra/applications\", \"apiVersion\": \"2026-10-01\", \"name\": \"owned-app\", \"properties\": { \"displayName\": \"Owned\", \"owners\": [\"11111111-1111-1111-1111-111111111111\"] } }";
+        "{ \"type\": \"Microsoft.Entra/applications\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"owned-app\", \"properties\": { \"displayName\": \"Owned\", \"owners\": [\"11111111-1111-1111-1111-111111111111\"] } }";
 
     private const string UnownedApplication =
-        "{ \"type\": \"Microsoft.Entra/applications\", \"apiVersion\": \"2026-10-01\", \"name\": \"unowned-app\", \"properties\": { \"displayName\": \"Unowned\" } }";
+        "{ \"type\": \"Microsoft.Entra/applications\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"unowned-app\", \"properties\": { \"displayName\": \"Unowned\" } }";
 
     [Fact]
     public async Task ApplicationWithOwners_NeedsOwnedByInAppMode_AndAllInDelegatedMode()
@@ -324,7 +324,7 @@ public sealed class PermissionsCommandTests
     }
 
     private const string RoleAssignableGroup =
-        "{ \"condition\": \"[parameters('enabled')]\", \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01\", \"name\": \"admins\", " +
+        "{ \"condition\": \"[parameters('enabled')]\", \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"admins\", " +
         "\"properties\": { \"displayName\": \"Admins\", \"mailEnabled\": false, \"mailNickname\": \"admins\", \"securityEnabled\": true, \"isAssignableToRole\": true } }";
 
     [Fact]
@@ -373,7 +373,7 @@ public sealed class PermissionsCommandTests
         string description = "[format('{0}{1}{2}', roleTemplate('Global Reader'), appRole('00000003-0000-0000-c000-000000000000', 'User.Read.All'), permissionScope('00000003-0000-0000-c000-000000000000', 'User.Read'))]";
         string template = sandbox.WriteTemplate(
             "lookups.entra.json",
-            "\"resources\": [ { \"type\": \"Microsoft.Entra/applications\", \"apiVersion\": \"2026-10-01\", \"name\": \"lookup-app\", \"properties\": { \"displayName\": \"L\", \"owners\": [\"11111111-1111-1111-1111-111111111111\"], \"description\": \"" + description + "\" } } ]");
+            "\"resources\": [ { \"type\": \"Microsoft.Entra/applications\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"lookup-app\", \"properties\": { \"displayName\": \"L\", \"owners\": [\"11111111-1111-1111-1111-111111111111\"], \"description\": \"" + description + "\" } } ]");
 
         var result = await CliRunner.RunAsync("permissions", "-f", template, "-o", "json");
 
@@ -388,10 +388,10 @@ public sealed class PermissionsCommandTests
     public async Task ExistingResourceLookup_NeedsTheReadVariant_UnlessAWritePermissionCoversIt()
     {
         using var sandbox = new CliSandbox(nameof(ExistingResourceLookup_NeedsTheReadVariant_UnlessAWritePermissionCoversIt));
-        string lookups = "[format('{0}{1}', reference(resourceId('Microsoft.Entra/users', 'x@contoso.com'), '2026-10-01').displayName, reference(resourceId('Microsoft.Entra/groups', 'some-group'), '2026-10-01').displayName)]";
+        string lookups = "[format('{0}{1}', reference(resourceId('Microsoft.Entra/users', 'x@contoso.com'), '2026-10-01-preview').displayName, reference(resourceId('Microsoft.Entra/groups', 'some-group'), '2026-10-01-preview').displayName)]";
         string template = sandbox.WriteTemplate(
             "existing.entra.json",
-            "\"resources\": [ { \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01\", \"name\": \"plain-group\", \"properties\": { \"displayName\": \"Plain\", \"mailEnabled\": false, \"mailNickname\": \"plain\", \"securityEnabled\": true, \"description\": \"" + lookups + "\" } } ]");
+            "\"resources\": [ { \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"plain-group\", \"properties\": { \"displayName\": \"Plain\", \"mailEnabled\": false, \"mailNickname\": \"plain\", \"securityEnabled\": true, \"description\": \"" + lookups + "\" } } ]");
 
         var result = await CliRunner.RunAsync("permissions", "-f", template, "-o", "json");
 
@@ -408,7 +408,7 @@ public sealed class PermissionsCommandTests
         using var sandbox = new CliSandbox(nameof(GroupEdges_AddGroupMemberPermissionsAndTheirRoles));
         string template = sandbox.WriteTemplate(
             "edges.entra.json",
-            "\"resources\": [ { \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01\", \"name\": \"empty-members\", \"properties\": { \"displayName\": \"E\", \"mailEnabled\": false, \"mailNickname\": \"e\", \"securityEnabled\": true, \"members\": [] } } ]");
+            "\"resources\": [ { \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"empty-members\", \"properties\": { \"displayName\": \"E\", \"mailEnabled\": false, \"mailNickname\": \"e\", \"securityEnabled\": true, \"members\": [] } } ]");
 
         var app = await CliRunner.RunAsync("permissions", "-f", template, "-o", "json");
         var delegated = await CliRunner.RunAsync("permissions", "-f", template, "-o", "json", "--mode", "delegated");

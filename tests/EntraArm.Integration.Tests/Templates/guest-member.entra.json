@@ -14,14 +14,14 @@
   "resources": [
     {
       "type": "Microsoft.Entra/groups",
-      "apiVersion": "2026-10-01",
+      "apiVersion": "2026-10-01-preview",
       "name": "[variables('group')]",
       "properties": {
         "displayName": "[variables('group')]",
         "mailEnabled": false,
         "mailNickname": "[variables('group')]",
         "securityEnabled": true,
-        "members": ["[reference(resourceId('Microsoft.Entra/users', parameters('guestUpn')), '2026-10-01').id]"]
+        "members": ["[reference(resourceId('Microsoft.Entra/users', parameters('guestUpn')), '2026-10-01-preview').id]"]
       }
     }
   ]

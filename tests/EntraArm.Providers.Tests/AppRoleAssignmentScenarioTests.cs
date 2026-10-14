@@ -152,7 +152,7 @@ public sealed class AppRoleAssignmentScenarioTests
         string clientAppId = Guid.NewGuid().ToString("D");
         t.Host.Directory.AddServicePrincipal(clientAppId, "Client");
         string group = Group(Assignments(Item(ResourceAppId, "Orders.UserOnly")));
-        string sp = "{ \"type\": \"Microsoft.Entra/servicePrincipals\", \"apiVersion\": \"2026-10-01\", \"name\": \"" + clientAppId + "\", \"properties\": { " + Assignments(Item(ResourceAppId, "Orders.AppOnly")) + " } }";
+        string sp = "{ \"type\": \"Microsoft.Entra/servicePrincipals\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"" + clientAppId + "\", \"properties\": { " + Assignments(Item(ResourceAppId, "Orders.AppOnly")) + " } }";
 
         var run = await t.Host.CreateAsync(t.Host.Resources(Join(group, sp)));
 
@@ -183,11 +183,11 @@ public sealed class AppRoleAssignmentScenarioTests
     {
         var host = new ProviderHost();
         const string app = """
-            { "type": "Microsoft.Entra/applications", "apiVersion": "2026-10-01", "name": "orders-api",
+            { "type": "Microsoft.Entra/applications", "apiVersion": "2026-10-01-preview", "name": "orders-api",
               "properties": { "displayName": "Orders API", "appRoles": [ { "id": "6d2f1c0e-2b7a-4c1e-9a1b-4f3f1f6a0001", "value": "Orders.Read", "displayName": "Read", "description": "Read orders", "isEnabled": true, "allowedMemberTypes": ["User", "Application"] } ] } }
             """;
         const string sp = """
-            { "type": "Microsoft.Entra/servicePrincipals", "apiVersion": "2026-10-01", "name": "[reference('orders-api').appId]",
+            { "type": "Microsoft.Entra/servicePrincipals", "apiVersion": "2026-10-01-preview", "name": "[reference('orders-api').appId]",
               "properties": { }, "dependsOn": ["[resourceId('Microsoft.Entra/applications', 'orders-api')]"] }
             """;
         string alice = Alice(Assignments("{ \"resourceAppId\": \"[reference('orders-api').appId]\", \"appRole\": \"Orders.Read\" }"));

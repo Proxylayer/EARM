@@ -183,7 +183,7 @@
     "type": "Microsoft.Entra/servicePrincipals",
     "parentType": null,
     "graphPath": "/servicePrincipals",
-    "apiVersions": { "2026-10-01": "v1.0", "2026-10-01-preview": "beta" },
+    "apiVersions": { "2026-10-01-preview": "v1.0", "2026-10-01-preview.beta": "beta" },
     "nameMapsTo": "appId",
     "nameKind": "appId",
     "namePattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",

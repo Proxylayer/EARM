@@ -29,7 +29,7 @@ public sealed class SemanticCheckerShapeTests
 
     private static string Group(string name, string extra = "")
     {
-        return "{ \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01\", \"name\": \"" + name + "\", \"properties\": { \"displayName\": \"G\" }" + extra + " }";
+        return "{ \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"" + name + "\", \"properties\": { \"displayName\": \"G\" }" + extra + " }";
     }
 
     private static void AssertReports(IReadOnlyList<Diagnostic> diagnostics, string code, string pathFragment, string messageFragment)
@@ -98,7 +98,7 @@ public sealed class SemanticCheckerShapeTests
     [InlineData("trailing/")]
     public void ANameWithAnEmptySegment_IsInvalid(string name)
     {
-        var diagnostics = Validate("\"resources\": [ { \"type\": \"Microsoft.Entra/applications/federatedIdentityCredentials\", \"apiVersion\": \"2026-10-01\", \"name\": \"" + name + "\", \"properties\": { \"issuer\": \"https://i\", \"subject\": \"s\", \"audiences\": [\"a\"] } } ]");
+        var diagnostics = Validate("\"resources\": [ { \"type\": \"Microsoft.Entra/applications/federatedIdentityCredentials\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"" + name + "\", \"properties\": { \"issuer\": \"https://i\", \"subject\": \"s\", \"audiences\": [\"a\"] } } ]");
 
         Assert.Contains(diagnostics, d => d.IsError && d.Code == DiagnosticCodes.InvalidResourceName);
     }
@@ -106,8 +106,8 @@ public sealed class SemanticCheckerShapeTests
     [Fact]
     public void ANestedResourceOfTheWrongParentType_IsAParentChildTypeMismatch()
     {
-        string json = "\"resources\": [ { \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01\", \"name\": \"g\", \"properties\": { \"displayName\": \"G\" }, \"resources\": [ "
-            + "{ \"type\": \"federatedIdentityCredentials\", \"apiVersion\": \"2026-10-01\", \"name\": \"gh\", \"properties\": { \"issuer\": \"https://i\", \"subject\": \"s\", \"audiences\": [\"a\"] } } ] } ]";
+        string json = "\"resources\": [ { \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"g\", \"properties\": { \"displayName\": \"G\" }, \"resources\": [ "
+            + "{ \"type\": \"federatedIdentityCredentials\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"gh\", \"properties\": { \"issuer\": \"https://i\", \"subject\": \"s\", \"audiences\": [\"a\"] } } ] } ]";
 
         var diagnostics = Validate(json);
 
@@ -117,9 +117,9 @@ public sealed class SemanticCheckerShapeTests
     [Fact]
     public void ANestedUnknownChildType_IsUnknownResourceType_AndAChildTypeAtTheTopLevelIsRefused()
     {
-        string nested = "\"resources\": [ { \"type\": \"Microsoft.Entra/applications\", \"apiVersion\": \"2026-10-01\", \"name\": \"a\", \"properties\": { \"displayName\": \"A\" }, \"resources\": [ "
-            + "{ \"type\": \"noSuchChild\", \"apiVersion\": \"2026-10-01\", \"name\": \"c\", \"properties\": { } } ] } ]";
-        string topLevel = "\"resources\": [ { \"type\": \"Microsoft.Entra/applications/federatedIdentityCredentials\", \"apiVersion\": \"2026-10-01\", \"name\": \"onlyOneSegment\", \"properties\": { } } ]";
+        string nested = "\"resources\": [ { \"type\": \"Microsoft.Entra/applications\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"a\", \"properties\": { \"displayName\": \"A\" }, \"resources\": [ "
+            + "{ \"type\": \"noSuchChild\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"c\", \"properties\": { } } ] } ]";
+        string topLevel = "\"resources\": [ { \"type\": \"Microsoft.Entra/applications/federatedIdentityCredentials\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"onlyOneSegment\", \"properties\": { } } ]";
 
         Assert.Contains(Validate(nested), d => d.IsError && d.Code == DiagnosticCodes.UnknownResourceType);
         Assert.Contains(Validate(topLevel), d => d.IsError);

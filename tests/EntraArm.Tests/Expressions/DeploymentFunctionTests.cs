@@ -133,7 +133,7 @@ public sealed class DeploymentFunctionTests
     [InlineData("[reference(1)]", DiagnosticCodes.InvalidFunctionArguments)]
     [InlineData("[reference()]", DiagnosticCodes.InvalidFunctionArguments)]
     [InlineData("[reference('app', 1)]", DiagnosticCodes.InvalidFunctionArguments)]
-    [InlineData("[reference('missing', '2026-10-01')]", DiagnosticCodes.ReferenceTargetNotFound)]
+    [InlineData("[reference('missing', '2026-10-01-preview')]", DiagnosticCodes.ReferenceTargetNotFound)]
     public void Reference_RejectsUnresolvableTargets(string expression, string code)
     {
         var exception = Expr.Fails(expression, code, Expr.Context(resources: SampleIndex()));
@@ -159,34 +159,34 @@ public sealed class DeploymentFunctionTests
         var context = Expr.Context(resources: SampleIndex(), references: resolver);
         var groupId = ResourceIdentifier.Create("Microsoft.Entra/groups", "g");
 
-        Expr.Fails("[reference(resourceId('Microsoft.Entra/groups', 'g'), '2026-10-01')]", DiagnosticCodes.ReferenceTargetNotFound, context);
+        Expr.Fails("[reference(resourceId('Microsoft.Entra/groups', 'g'), '2026-10-01-preview')]", DiagnosticCodes.ReferenceTargetNotFound, context);
 
         resolver.Publish(groupId, new JsonObject { ["id"] = "gid", ["displayName"] = "G", ["tags"] = new JsonArray("t") }, "gid");
 
-        Assert.Equal("gid", Expr.AssertString(Expr.Eval("[reference(resourceId('Microsoft.Entra/groups', 'g'), '2026-10-01').id]", context)));
-        Assert.Equal("G", Expr.AssertString(Expr.Eval("[reference('Microsoft.Entra/groups/g', '2026-10-01').displayName]", context)));
-        Assert.Equal("t", Expr.AssertString(Expr.Eval("[reference('/providers/Microsoft.Entra/groups/g', '2026-10-01').tags[0]]", context)));
-        Expr.Fails("[reference('Microsoft.Entra/groups/g', '2026-10-01').nope]", DiagnosticCodes.ExpressionEvaluationFailed, context);
+        Assert.Equal("gid", Expr.AssertString(Expr.Eval("[reference(resourceId('Microsoft.Entra/groups', 'g'), '2026-10-01-preview').id]", context)));
+        Assert.Equal("G", Expr.AssertString(Expr.Eval("[reference('Microsoft.Entra/groups/g', '2026-10-01-preview').displayName]", context)));
+        Assert.Equal("t", Expr.AssertString(Expr.Eval("[reference('/providers/Microsoft.Entra/groups/g', '2026-10-01-preview').tags[0]]", context)));
+        Expr.Fails("[reference('Microsoft.Entra/groups/g', '2026-10-01-preview').nope]", DiagnosticCodes.ExpressionEvaluationFailed, context);
 
         // The live object is cloned on every use.
-        var live = Assert.IsType<JsonObject>(Expr.Eval("[reference('Microsoft.Entra/groups/g', '2026-10-01')]", context));
+        var live = Assert.IsType<JsonObject>(Expr.Eval("[reference('Microsoft.Entra/groups/g', '2026-10-01-preview')]", context));
         live["id"] = "changed";
-        Assert.Equal("gid", Expr.AssertString(Expr.Eval("[reference('Microsoft.Entra/groups/g', '2026-10-01').id]", context)));
+        Assert.Equal("gid", Expr.AssertString(Expr.Eval("[reference('Microsoft.Entra/groups/g', '2026-10-01-preview').id]", context)));
 
         // Same-template references still resolve as placeholders through the in-memory resolver.
         Assert.Equal(Expr.AppRef, Expr.AssertUnknown(Expr.Eval("[reference('app')]", context)).Symbol);
 
         Assert.True(resolver.Remove(groupId));
         Assert.False(resolver.Remove(groupId));
-        Expr.Fails("[reference(resourceId('Microsoft.Entra/groups', 'g'), '2026-10-01')]", DiagnosticCodes.ReferenceTargetNotFound, context);
+        Expr.Fails("[reference(resourceId('Microsoft.Entra/groups', 'g'), '2026-10-01-preview')]", DiagnosticCodes.ReferenceTargetNotFound, context);
     }
 
     [Fact]
     public void Reference_WithApiVersion_Offline_IsAPlaceholderWithTheVersionInTheSymbol()
     {
-        var unknown = Expr.AssertUnknown(Expr.Eval("[reference(resourceId('Microsoft.Entra/groups', 'g'), '2026-10-01')]", Expr.Context(resources: SampleIndex())));
+        var unknown = Expr.AssertUnknown(Expr.Eval("[reference(resourceId('Microsoft.Entra/groups', 'g'), '2026-10-01-preview')]", Expr.Context(resources: SampleIndex())));
 
-        Assert.Equal("ref(/providers/Microsoft.Entra/groups/g, '2026-10-01')", unknown.Symbol);
+        Assert.Equal("ref(/providers/Microsoft.Entra/groups/g, '2026-10-01-preview')", unknown.Symbol);
         Assert.Equal(ResourceIdentifier.Create("Microsoft.Entra/groups", "g"), unknown.Source);
     }
 
@@ -205,8 +205,8 @@ public sealed class DeploymentFunctionTests
     [InlineData(EvaluationScope.ParameterDefault, "[reference('app')]")]
     [InlineData(EvaluationScope.UserFunction, "[reference('app')]")]
     [InlineData(EvaluationScope.Variable, "[reference('app')]")]
-    [InlineData(EvaluationScope.ParameterDefault, "[reference('app', '2026-10-01')]")]
-    [InlineData(EvaluationScope.UserFunction, "[reference('app', '2026-10-01')]")]
+    [InlineData(EvaluationScope.ParameterDefault, "[reference('app', '2026-10-01-preview')]")]
+    [InlineData(EvaluationScope.UserFunction, "[reference('app', '2026-10-01-preview')]")]
     public void Reference_IsRejectedInScopesThatCannotUseIt(EvaluationScope scope, string expression)
     {
         Expr.Fails(expression, DiagnosticCodes.ReferenceNotAllowedHere, Expr.Context(resources: SampleIndex(), scope: scope));
@@ -215,7 +215,7 @@ public sealed class DeploymentFunctionTests
     [Fact]
     public void Reference_WithApiVersion_IsAllowedInVariablesAndOutputs()
     {
-        Assert.Equal("ref(/providers/Microsoft.Entra/applications/app, '2026-10-01')", Expr.AssertUnknown(Expr.Eval("[reference('app', '2026-10-01')]", Expr.Context(resources: SampleIndex(), scope: EvaluationScope.Variable))).Symbol);
+        Assert.Equal("ref(/providers/Microsoft.Entra/applications/app, '2026-10-01-preview')", Expr.AssertUnknown(Expr.Eval("[reference('app', '2026-10-01-preview')]", Expr.Context(resources: SampleIndex(), scope: EvaluationScope.Variable))).Symbol);
         Assert.Equal(Expr.AppRef, Expr.AssertUnknown(Expr.Eval("[reference('app')]", Expr.Context(resources: SampleIndex(), scope: EvaluationScope.Output))).Symbol);
     }
 

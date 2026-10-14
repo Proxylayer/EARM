@@ -32,9 +32,9 @@ internal sealed class ProviderHost
 {
     public const string DeploymentName = "providers-test";
 
-    public const string ApiVersion = "2026-10-01";
+    public const string ApiVersion = "2026-10-01-preview";
 
-    public const string PreviewApiVersion = "2026-10-01-preview";
+    public const string PreviewApiVersion = "2026-10-01-preview.beta";
 
     public const string GraphAppId = "00000003-0000-0000-c000-000000000000";
 

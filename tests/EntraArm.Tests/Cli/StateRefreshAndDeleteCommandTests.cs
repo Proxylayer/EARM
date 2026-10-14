@@ -37,7 +37,7 @@ public sealed class StateRefreshAndDeleteCommandTests
         {
             Id = ResourceIdentifier.Create(Fixture.AppType, uniqueName),
             Type = Fixture.AppType,
-            ApiVersion = "2026-10-01",
+            ApiVersion = "2026-10-01-preview",
             Key = new Dictionary<string, string> { ["uniqueName"] = uniqueName },
             GraphId = graphId,
             LastWriteOn = Start,

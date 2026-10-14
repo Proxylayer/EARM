@@ -4,13 +4,13 @@
   "resources": [
     {
       "type": "Microsoft.Entra/users",
-      "apiVersion": "2026-10-01",
+      "apiVersion": "2026-10-01-preview",
       "name": "bg-orders@contoso.com",
       "properties": { "displayName": "Break Glass (Orders)" }
     },
     {
       "type": "Microsoft.Entra/users",
-      "apiVersion": "2026-10-01",
+      "apiVersion": "2026-10-01-preview",
       "name": "bg-orders@contoso.com",
       "properties": { "displayName": "Break Glass (Orders) duplicate" }
     }

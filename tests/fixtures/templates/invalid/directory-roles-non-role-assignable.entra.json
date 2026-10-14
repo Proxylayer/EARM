@@ -4,7 +4,7 @@
   "resources": [
     {
       "type": "Microsoft.Entra/groups",
-      "apiVersion": "2026-10-01",
+      "apiVersion": "2026-10-01-preview",
       "name": "orders-readers",
       "properties": {
         "displayName": "Orders Readers",

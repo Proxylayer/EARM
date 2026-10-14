@@ -2,6 +2,14 @@
 
 ARM-style JSON templates for **Microsoft Entra ID**, applied through the **Azure CLI**.
 
+> **Preview.** The template format and `apiVersion` `2026-10-01-preview` are in preview: breaking changes are possible and nothing is released
+> yet. EntraARM has **not been validated against a real tenant**: the integration suite that would do so is gated (see
+> [Contributing and testing](#contributing-and-testing)) and has not been run against one. Microsoft Graph **v1.0** is used by default
+> (`apiVersion` `2026-10-01-preview`); the beta endpoint is opt-in per resource with `2026-10-01-preview.beta` (passthrough, no normalisation
+> guarantees). The plain `2026-10-01` label was renamed `2026-10-01-preview` and is rejected with an `UnknownApiVersion` error that says so.
+
+Repository: <https://github.com/Proxylayer/EARM>
+
 Azure has ARM templates; Entra ID has no true equivalent. EntraARM is a template format that mimics classic ARM templates as closely as it
 can, but whose resources are Entra objects under a `Microsoft.Entra` provider namespace, plus a .NET tool (`entraarm`) whose verbs mirror
 `az deployment group …`. It reads and writes Microsoft Graph with `az rest`, reusing your `az login` session: no Graph SDK, no app
@@ -19,6 +27,46 @@ registration of its own.
   state locking, tenant pinning, soft-delete awareness, a Conditional Access enforcement guard.
 - **Editor support**: JSON Schemas for the envelope and every resource type, installable into VS Code with one command.
 
+## Status
+
+Implemented (a working pre-release, see [Limitations](#limitations-v1) for what is deferred):
+
+- **15 resource types**: `applications`, `applications/federatedIdentityCredentials`, `applications/passwordCredentials`, `servicePrincipals`,
+  `groups`, `users`, `appRoleAssignments`, `oauth2PermissionGrants`, `roleAssignments`, `roleDefinitions`, `administrativeUnits`,
+  `conditionalAccess/policies`, `conditionalAccess/namedLocations`, `conditionalAccess/authenticationStrengths` and
+  `conditionalAccess/authenticationContextClassReferences` (all under `Microsoft.Entra/`).
+- The verbs `deployment validate | what-if | create | show | list | delete`, `deployment operation list`, `permissions`, `schema print | install` and
+  `state unlock | forget | adopt`.
+- Tests: **4,202** unit and in-process tests pass (606 in `EntraArm.Az.Tests`, 980 in `EntraArm.Providers.Tests`, 2,616 in `EntraArm.Tests`;
+  4 more skipped by design), against fakes of the Azure CLI and Graph. Line coverage is about 95 % ([tests/COVERAGE.md](tests/COVERAGE.md)).
+  The tenant-backed integration suite is gated behind `ENTRAARM_IT_TENANT` and is not part of those numbers.
+
+## Quick start
+
+From a clean clone (prerequisites: [.NET 10 SDK](global.json) (10.0.301 or a later patch), PowerShell 7.4+ and, for anything that touches a tenant,
+the Azure CLI; see [Install](#install)):
+
+```powershell
+git clone https://github.com/Proxylayer/EARM.git
+cd EARM
+
+pwsh -File build.ps1        # build the solution: prints BUILD OK, zero warnings
+pwsh -File test.ps1         # run the whole suite headless (about 3 minutes)
+pwsh -File deploy.ps1       # pack the CLI and install it as the global tool `entraarm`
+
+# offline: no Azure CLI or tenant needed
+entraarm deployment validate -f samples/orders-api.entra.json -p '@samples/orders-api.parameters.json'
+
+# against a DEV tenant you may write to
+az login --allow-no-subscriptions
+entraarm deployment what-if -f samples/app-with-sp-and-secret.entra.json -p '@samples/app-with-sp-and-secret.parameters.json'
+entraarm deployment create  -f samples/app-with-sp-and-secret.entra.json -p '@samples/app-with-sp-and-secret.parameters.json' -c --secure-outputs-file ./secrets.json
+```
+
+`orders-api` is the full tour but its parameter file references a Key Vault secret (replace that entry before a real run); the
+`app-with-sp-and-secret` sample deploys without one. Every sample is described in [samples/README.md](samples/README.md). `create` writes real objects:
+read the `what-if` first, and use a throwaway tenant while the format is in preview.
+
 ## A template at a glance
 
 ```json
@@ -28,15 +76,15 @@ registration of its own.
   "parameters": { "env": { "type": "string", "allowedValues": ["dev", "prod"] } },
   "variables":  { "appName": "[format('contoso-{0}-web', parameters('env'))]" },
   "resources": [
-    { "type": "Microsoft.Entra/applications", "apiVersion": "2026-10-01", "name": "[variables('appName')]",
+    { "type": "Microsoft.Entra/applications", "apiVersion": "2026-10-01-preview", "name": "[variables('appName')]",
       "properties": { "displayName": "Contoso Web", "signInAudience": "AzureADMyOrg",
                       "web": { "redirectUris": ["https://web.contoso.com/signin-oidc"] },
                       "appRoles": [{ "value": "Reports.Admin", "displayName": "Reports admin", "description": "Manage reports", "allowedMemberTypes": ["User"] }] },
       "resources": [
-        { "type": "passwordCredentials", "apiVersion": "2026-10-01", "name": "ci-secret", "properties": { "rotationTag": "2026Q4" } } ] },
-    { "type": "Microsoft.Entra/servicePrincipals", "apiVersion": "2026-10-01",
+        { "type": "passwordCredentials", "apiVersion": "2026-10-01-preview", "name": "ci-secret", "properties": { "rotationTag": "2026Q4" } } ] },
+    { "type": "Microsoft.Entra/servicePrincipals", "apiVersion": "2026-10-01-preview",
       "name": "[reference(variables('appName')).appId]", "properties": { "appRoleAssignmentRequired": true } },
-    { "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01", "name": "contoso-web-admins",
+    { "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01-preview", "name": "contoso-web-admins",
       "properties": { "displayName": "Contoso Web admins", "mailEnabled": false, "securityEnabled": true,
                       "appRoleAssignments": [{ "resourceAppId": "[reference(variables('appName')).appId]", "appRole": "Reports.Admin" }] } }
   ],
@@ -50,14 +98,14 @@ nested like an ARM child resource; changing `rotationTag` rotates the secret. Mo
 
 ## Install
 
-Prerequisites on the machine that runs `entraarm`:
+Prerequisites on the machine that builds or runs `entraarm`:
 
 | Needs | Why |
 |---|---|
 | **PowerShell 7.4+** (`pwsh` on `PATH`) | EntraARM starts `pwsh` and calls the Azure CLI from it (the Windows `az` launcher needs PowerShell's quoting). It never launches `cmd.exe`. |
 | **Azure CLI** (`winget install Microsoft.AzureCLI`) | The transport. |
 | `az login --allow-no-subscriptions` | A session for the tenant (no Azure subscription is needed). Use `az login --service-principal …` for unattended runs. |
-| **.NET 10** | To run (or build) the tool. |
+| **.NET 10 SDK** (`global.json`: 10.0.301, later patches allowed) | To build, test and install the tool from a checkout (the installed tool runs on the .NET 10 runtime). |
 
 From a checkout (builds, packs and installs the global tool `entraarm`):
 
@@ -158,3 +206,44 @@ Manifest tables and warnings: [docs/permissions.md](docs/permissions.md).
 | [docs/diagnostics.md](docs/diagnostics.md) | Every diagnostic code |
 | [samples/README.md](samples/README.md) | The sample templates |
 | [schemas/2026-10-01](schemas/2026-10-01) | The JSON Schemas (generated per-type properties: `tools/New-TypeSchemas.ps1`) |
+
+## Repository layout
+
+| Path | Content |
+|---|---|
+| `src/EntraArm.Cli` | The `entraarm` command-line tool (System.CommandLine verbs, output rendering, schema installer) |
+| `src/EntraArm.Core` | Template loading, validation, diagnostics, the resource type catalog and the embedded JSON Schemas |
+| `src/EntraArm.Expressions` | The template expression language: parser, evaluator, deployment, string, array, object, lambda and Entra functions |
+| `src/EntraArm.Engine` | Planner, dependency graph, executor, what-if, state, the provider contract |
+| `src/EntraArm.Providers` | One provider per resource type family (applications, groups, users, directory roles, Conditional Access, ...) |
+| `src/EntraArm.Az` | The Azure CLI transport (`az rest` through PowerShell), Graph client, retry and error mapping |
+| `schemas/2026-10-01` | The JSON Schemas of the template format (envelope, parameters and one per resource type); the folder names the template-schema version, not the resource `apiVersion` |
+| `samples` | Sample templates and parameter files ([samples/README.md](samples/README.md)) |
+| `docs` | Format, CLI, engine, providers, what-if, permissions and diagnostics documentation (see [Documentation](#documentation)) |
+| `tests` | xUnit v3 projects (`EntraArm.Tests`, `EntraArm.Providers.Tests`, `EntraArm.Az.Tests`, gated `EntraArm.Integration.Tests`), the shared fakes in `EntraArm.TestSupport`, a fake `az` (`tests/fake-az`) and the golden `fixtures` |
+| `tools` | `New-TypeSchemas.ps1` (regenerates the per-type property schemas) and `Get-CoverageReport.ps1` |
+| `build.ps1`, `test.ps1`, `deploy.ps1` | Build, test and install-as-global-tool scripts |
+
+## Contributing and testing
+
+Use the repository scripts rather than ad-hoc `dotnet` commands:
+
+```powershell
+pwsh -File build.ps1                         # simple: errors and a BUILD OK / BUILD FAIL line (-Detailed for full output, -Target <project>)
+pwsh -File test.ps1                          # whole suite, headless (-Detailed, -Target <test project>, -Filter <expression>, -Coverage)
+pwsh -File deploy.ps1                        # pack and install the global tool (only when you mean to)
+pwsh -File tools/New-TypeSchemas.ps1         # regenerate schemas/2026-10-01/types after changing a type's properties (a test checks the output is current)
+```
+
+The build must stay at zero warnings and `test.ps1` all green. Per-type schemas are generated: edit `tools/New-TypeSchemas.ps1` (or the
+`x-entraarm` overlay at the end of a type schema for behaviour) and regenerate; do not hand-edit the property parts.
+
+`EntraArm.Integration.Tests` writes to a real **dev** tenant and is skipped unless `ENTRAARM_IT_TENANT` is set (it can also be run explicitly with
+`test.ps1 -Target EntraArm.Integration.Tests`, when every test skips cleanly without a tenant). It is driven by environment variables:
+`ENTRAARM_IT_TENANT` (required), `ENTRAARM_IT_PREFIX`, `ENTRAARM_IT_DOMAIN`, `ENTRAARM_IT_AZ`, `ENTRAARM_IT_ALLOW_CA`, `ENTRAARM_IT_ALLOW_ROLES` and
+`ENTRAARM_IT_SWEEP`; read [tests/EntraArm.Integration.Tests/README.md](tests/EntraArm.Integration.Tests/README.md) first (what it creates, how it
+cleans up, which permissions it needs). Coverage tooling: [tests/COVERAGE.md](tests/COVERAGE.md).
+
+## Licence
+
+No licence file yet: all rights reserved until one is added.

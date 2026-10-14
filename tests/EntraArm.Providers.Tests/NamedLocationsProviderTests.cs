@@ -26,12 +26,12 @@ public sealed class NamedLocationsProviderTests
 
     private static string IpLocation(string ranges = "{ \"cidrAddress\": \"10.0.0.0/8\" }, { \"cidrAddress\": \"2001:db8::/32\" }", string extra = "", string name = LocName)
     {
-        return "{ \"type\": \"" + LocType + "\", \"apiVersion\": \"2026-10-01\", \"name\": \"" + name + "\", \"properties\": { \"@odata.type\": \"#microsoft.graph.ipNamedLocation\", \"ipRanges\": [ " + ranges + " ]" + extra + " } }";
+        return "{ \"type\": \"" + LocType + "\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"" + name + "\", \"properties\": { \"@odata.type\": \"#microsoft.graph.ipNamedLocation\", \"ipRanges\": [ " + ranges + " ]" + extra + " } }";
     }
 
     private static string CountryLocation(string codes = "\"gb\", \"IE\"", string extra = "", string name = LocName)
     {
-        return "{ \"type\": \"" + LocType + "\", \"apiVersion\": \"2026-10-01\", \"name\": \"" + name + "\", \"properties\": { \"@odata.type\": \"#microsoft.graph.countryNamedLocation\", \"countriesAndRegions\": [ " + codes + " ]" + extra + " } }";
+        return "{ \"type\": \"" + LocType + "\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"" + name + "\", \"properties\": { \"@odata.type\": \"#microsoft.graph.countryNamedLocation\", \"countriesAndRegions\": [ " + codes + " ]" + extra + " } }";
     }
 
     [Fact]
@@ -169,15 +169,15 @@ public sealed class NamedLocationsProviderTests
         var foreign = await host.WhatIfAsync(host.Resources(CountryLocation(extra: ", \"isTrusted\": true")));
         Assert.True(Assert.Single(foreign.Plan.Changes).HasError);
 
-        var ex = await Assert.ThrowsAsync<ValidationFailedException>(() => host.WhatIfAsync(host.Resources("{ \"type\": \"" + LocType + "\", \"apiVersion\": \"2026-10-01\", \"name\": \"x\", \"properties\": { \"@odata.type\": \"#microsoft.graph.somethingElse\" } }")));
+        var ex = await Assert.ThrowsAsync<ValidationFailedException>(() => host.WhatIfAsync(host.Resources("{ \"type\": \"" + LocType + "\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"x\", \"properties\": { \"@odata.type\": \"#microsoft.graph.somethingElse\" } }")));
         Assert.Contains("@odata.type", ex.Message, StringComparison.Ordinal);
 
-        var badKind = await host.WhatIfAsync(host.Resources("{ \"type\": \"" + LocType + "\", \"apiVersion\": \"2026-10-01\", \"name\": \"x\", \"properties\": { \"@odata.type\": \"[concat('#microsoft.graph.', 'somethingElse')]\" } }"));
+        var badKind = await host.WhatIfAsync(host.Resources("{ \"type\": \"" + LocType + "\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"x\", \"properties\": { \"@odata.type\": \"[concat('#microsoft.graph.', 'somethingElse')]\" } }"));
         var badRow = Assert.Single(badKind.Plan.Changes);
         Assert.True(badRow.HasError);
         Assert.Contains("must be", badRow.UnsupportedReason, StringComparison.Ordinal);
 
-        var noKind = await host.WhatIfAsync(host.Resources("{ \"type\": \"" + LocType + "\", \"apiVersion\": \"2026-10-01\", \"name\": \"x\", \"properties\": { \"isTrusted\": true } }"));
+        var noKind = await host.WhatIfAsync(host.Resources("{ \"type\": \"" + LocType + "\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"x\", \"properties\": { \"isTrusted\": true } }"));
         var noKindRow = Assert.Single(noKind.Plan.Changes);
         Assert.True(noKindRow.HasError);
         Assert.Contains("@odata.type", noKindRow.UnsupportedReason, StringComparison.Ordinal);

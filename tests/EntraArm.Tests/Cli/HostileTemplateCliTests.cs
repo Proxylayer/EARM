@@ -20,7 +20,7 @@ public sealed class HostileTemplateCliTests
 
     private static string GroupTemplate(string displayNameJson)
     {
-        return Header + "\"resources\": [ { \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01\", \"name\": \"g\", \"properties\": { \"displayName\": " + displayNameJson + " } } ] }";
+        return Header + "\"resources\": [ { \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"g\", \"properties\": { \"displayName\": " + displayNameJson + " } } ] }";
     }
 
     private static string NestedCalls(int depth)

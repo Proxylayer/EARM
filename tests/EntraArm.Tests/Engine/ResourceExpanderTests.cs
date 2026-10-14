@@ -15,7 +15,7 @@ public sealed class ResourceExpanderTests
 
     private static string Group(string name, string? extra = null)
     {
-        return "{ \"type\": \"" + GroupType + "\", \"apiVersion\": \"2026-10-01\", \"name\": \"" + name + "\", \"properties\": { \"displayName\": \"G\", \"mailEnabled\": false, \"securityEnabled\": true }" + (extra is null ? string.Empty : ", " + extra) + " }";
+        return "{ \"type\": \"" + GroupType + "\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"" + name + "\", \"properties\": { \"displayName\": \"G\", \"mailEnabled\": false, \"securityEnabled\": true }" + (extra is null ? string.Empty : ", " + extra) + " }";
     }
 
     private static string GroupLoop(string copy, string? extra = null)
@@ -232,9 +232,9 @@ public sealed class ResourceExpanderTests
     [Fact]
     public async Task TopLevelParentChildName_IsLinkedToItsParentInstance_AndAnExistingParentIsNot()
     {
-        const string fic = "{ \"type\": \"Microsoft.Entra/applications/federatedIdentityCredentials\", \"apiVersion\": \"2026-10-01\", \"name\": \"app/github\", \"properties\": { \"issuer\": \"i\", \"subject\": \"s\" }, \"dependsOn\": [\"/providers/Microsoft.Entra/applications/app\"] }";
-        const string app = "{ \"type\": \"Microsoft.Entra/applications\", \"apiVersion\": \"2026-10-01\", \"name\": \"app\", \"properties\": { \"displayName\": \"A\" } }";
-        const string orphanFic = "{ \"type\": \"Microsoft.Entra/applications/federatedIdentityCredentials\", \"apiVersion\": \"2026-10-01\", \"name\": \"existing-app/github\", \"properties\": { \"issuer\": \"i\", \"subject\": \"s\" } }";
+        const string fic = "{ \"type\": \"Microsoft.Entra/applications/federatedIdentityCredentials\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"app/github\", \"properties\": { \"issuer\": \"i\", \"subject\": \"s\" }, \"dependsOn\": [\"/providers/Microsoft.Entra/applications/app\"] }";
+        const string app = "{ \"type\": \"Microsoft.Entra/applications\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"app\", \"properties\": { \"displayName\": \"A\" } }";
+        const string orphanFic = "{ \"type\": \"Microsoft.Entra/applications/federatedIdentityCredentials\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"existing-app/github\", \"properties\": { \"issuer\": \"i\", \"subject\": \"s\" } }";
 
         var linked = await ExpandAsync(fic + ", " + app);
         var standalone = await ExpandAsync(orphanFic);

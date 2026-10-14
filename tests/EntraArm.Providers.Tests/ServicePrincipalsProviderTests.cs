@@ -23,31 +23,31 @@ public sealed class ServicePrincipalsProviderTests
     private const string AppName = "test-api";
 
     private const string AppResource = """
-        { "type": "Microsoft.Entra/applications", "apiVersion": "2026-10-01", "name": "test-api",
+        { "type": "Microsoft.Entra/applications", "apiVersion": "2026-10-01-preview", "name": "test-api",
           "properties": { "displayName": "Test API",
             "appRoles": [ { "id": "6d2f1c0e-2b7a-4c1e-9a1b-4f3f1f6a0002", "value": "Orders.Admin", "displayName": "Orders admin", "description": "Full", "allowedMemberTypes": ["User"], "isEnabled": true } ] } }
         """;
 
     /// <summary>Matches what <c>AddApplication(AppName, "Test API", appId)</c> seeds, so the app itself is NoChange.</summary>
     private const string AppMinimalResource = """
-        { "type": "Microsoft.Entra/applications", "apiVersion": "2026-10-01", "name": "test-api", "properties": { "displayName": "Test API" } }
+        { "type": "Microsoft.Entra/applications", "apiVersion": "2026-10-01-preview", "name": "test-api", "properties": { "displayName": "Test API" } }
         """;
 
     private const string AppWithOwnersResource = """
-        { "type": "Microsoft.Entra/applications", "apiVersion": "2026-10-01", "name": "test-api",
+        { "type": "Microsoft.Entra/applications", "apiVersion": "2026-10-01-preview", "name": "test-api",
           "properties": { "displayName": "Test API", "owners": ["00000000-0000-0000-0000-00000000aaaa"] } }
         """;
 
     private const string SpProperties = """{ "appRoleAssignmentRequired": true, "tags": ["WindowsAzureActiveDirectoryIntegratedApp"], "notes": "managed by EntraARM" }""";
 
     private const string SpResource =
-        "{ \"type\": \"Microsoft.Entra/servicePrincipals\", \"apiVersion\": \"2026-10-01\", \"name\": \"[reference('test-api').appId]\", "
+        "{ \"type\": \"Microsoft.Entra/servicePrincipals\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"[reference('test-api').appId]\", "
         + "\"properties\": " + SpProperties + ", "
         + "\"dependsOn\": [\"[resourceId('Microsoft.Entra/applications', 'test-api')]\"] }";
 
     private static string LiteralSp(string appId, string properties, string? dependsOn = null)
     {
-        return "{ \"type\": \"Microsoft.Entra/servicePrincipals\", \"apiVersion\": \"2026-10-01\", \"name\": \"" + appId + "\", \"properties\": " + properties
+        return "{ \"type\": \"Microsoft.Entra/servicePrincipals\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"" + appId + "\", \"properties\": " + properties
             + (dependsOn is null ? string.Empty : ", \"dependsOn\": [\"" + dependsOn + "\"]") + " }";
     }
 
@@ -233,7 +233,7 @@ public sealed class ServicePrincipalsProviderTests
     {
         var host = new ProviderHost();
         var graphSp = host.Directory.AddServicePrincipal(ProviderHost.GraphAppId, "Microsoft Graph");
-        const string outputs = """ "graphSpId": { "type": "string", "value": "[reference(resourceId('Microsoft.Entra/servicePrincipals', '00000003-0000-0000-c000-000000000000'), '2026-10-01').id]" } """;
+        const string outputs = """ "graphSpId": { "type": "string", "value": "[reference(resourceId('Microsoft.Entra/servicePrincipals', '00000003-0000-0000-c000-000000000000'), '2026-10-01-preview').id]" } """;
 
         var run = await host.CreateAsync(host.Resources(AppResource, outputs));
 
@@ -299,7 +299,7 @@ public sealed class ServicePrincipalsProviderTests
     public async Task NonGuidName_FailsWithoutWriting_AndDeclaredAppIdMustEqualTheName()
     {
         const string byDisplayName = """
-            { "type": "Microsoft.Entra/servicePrincipals", "apiVersion": "2026-10-01", "name": "[reference('test-api').displayName]",
+            { "type": "Microsoft.Entra/servicePrincipals", "apiVersion": "2026-10-01-preview", "name": "[reference('test-api').displayName]",
               "properties": { }, "dependsOn": ["[resourceId('Microsoft.Entra/applications', 'test-api')]"] }
             """;
         var host = new ProviderHost();

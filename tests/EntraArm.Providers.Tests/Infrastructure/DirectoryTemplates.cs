@@ -48,28 +48,28 @@ internal static class DirectoryTemplates
 
     public static string Alice(string? edges = null)
     {
-        return "{ \"type\": \"Microsoft.Entra/users\", \"apiVersion\": \"2026-10-01\", \"name\": \"alice@contoso.com\", \"properties\": { \"displayName\": \"Alice\"" + (edges is null ? string.Empty : ", " + edges) + " } }";
+        return "{ \"type\": \"Microsoft.Entra/users\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"alice@contoso.com\", \"properties\": { \"displayName\": \"Alice\"" + (edges is null ? string.Empty : ", " + edges) + " } }";
     }
 
     public static string Group(string? edges = null, bool assignable = true, string? dependsOn = null)
     {
-        return "{ \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01\", \"name\": \"test-admins\", \"properties\": { \"displayName\": \"Test Admins\", \"securityEnabled\": true, \"mailEnabled\": false, \"isAssignableToRole\": "
+        return "{ \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"test-admins\", \"properties\": { \"displayName\": \"Test Admins\", \"securityEnabled\": true, \"mailEnabled\": false, \"isAssignableToRole\": "
             + (assignable ? "true" : "\"[equals(1, 2)]\"") + (edges is null ? string.Empty : ", " + edges) + " }" + (dependsOn is null ? string.Empty : ", \"dependsOn\": [" + dependsOn + "]") + " }";
     }
 
     public static string Au(string name = "Orders AU", string props = "\"description\": \"Scoped admin for Orders\"", string? dependsOn = null)
     {
-        return "{ \"type\": \"Microsoft.Entra/administrativeUnits\", \"apiVersion\": \"2026-10-01\", \"name\": \"" + name + "\", \"properties\": { " + props + " }" + (dependsOn is null ? string.Empty : ", \"dependsOn\": [" + dependsOn + "]") + " }";
+        return "{ \"type\": \"Microsoft.Entra/administrativeUnits\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"" + name + "\", \"properties\": { " + props + " }" + (dependsOn is null ? string.Empty : ", \"dependsOn\": [" + dependsOn + "]") + " }";
     }
 
     public static string RoleDef(string actions = "\"microsoft.directory/users/password/update\", \"microsoft.directory/users/standard/read\"", string extra = "", string name = "Orders Support")
     {
-        return "{ \"type\": \"Microsoft.Entra/roleDefinitions\", \"apiVersion\": \"2026-10-01\", \"name\": \"" + name + "\", \"properties\": { \"description\": \"Reset passwords for Orders staff\"" + extra + ", \"rolePermissions\": [{ \"allowedResourceActions\": [" + actions + "] }] } }";
+        return "{ \"type\": \"Microsoft.Entra/roleDefinitions\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"" + name + "\", \"properties\": { \"description\": \"Reset passwords for Orders staff\"" + extra + ", \"rolePermissions\": [{ \"allowedResourceActions\": [" + actions + "] }] } }";
     }
 
     public static string Standalone(string props, string name = "[guid('alice', 'role', 'test')]", string? dependsOn = null)
     {
-        return "{ \"type\": \"Microsoft.Entra/roleAssignments\", \"apiVersion\": \"2026-10-01\", \"name\": \"" + name + "\", \"properties\": { " + props + " }" + (dependsOn is null ? string.Empty : ", \"dependsOn\": [" + dependsOn + "]") + " }";
+        return "{ \"type\": \"Microsoft.Entra/roleAssignments\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"" + name + "\", \"properties\": { " + props + " }" + (dependsOn is null ? string.Empty : ", \"dependsOn\": [" + dependsOn + "]") + " }";
     }
 
     public static string DirectoryRoles(params string[] items)

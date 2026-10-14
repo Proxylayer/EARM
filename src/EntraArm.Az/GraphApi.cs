@@ -2,7 +2,7 @@ using System;
 
 namespace EntraArm.Az;
 
-/// <summary>Microsoft Graph API surface. Template <c>apiVersion</c> <c>2026-10-01</c> maps to <see cref="V1"/>, <c>2026-10-01-preview</c> to <see cref="Beta"/>.</summary>
+/// <summary>Microsoft Graph API surface. Template <c>apiVersion</c> <c>2026-10-01-preview</c> maps to <see cref="V1"/>, <c>2026-10-01-preview.beta</c> to <see cref="Beta"/>.</summary>
 public enum GraphApi
 {
     V1,

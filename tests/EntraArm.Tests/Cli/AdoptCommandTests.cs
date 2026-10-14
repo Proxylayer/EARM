@@ -62,7 +62,7 @@ public sealed class AdoptCommandTests
         {
             Id = ParseId(resourceId),
             Type = type,
-            ApiVersion = "2026-10-01",
+            ApiVersion = "2026-10-01-preview",
             Key = new Dictionary<string, string> { [keyName] = keyValue },
             GraphId = graphId,
             ParentGraphId = parent,
@@ -99,7 +99,7 @@ public sealed class AdoptCommandTests
         Assert.Equal(resourceId, entry.Id.Id);
         Assert.Equal("Microsoft.Entra/" + type, entry.Type);
         Assert.Equal(Obj1, entry.GraphId);
-        Assert.Equal("2026-10-01", entry.ApiVersion);
+        Assert.Equal("2026-10-01-preview", entry.ApiVersion);
         Assert.Equal(new Dictionary<string, string> { [keyName] = keyValue }, entry.Key.ToDictionary(p => p.Key, p => p.Value));
         Assert.Null(entry.ParentGraphId);
         Assert.Null(state.TenantId);
@@ -392,7 +392,7 @@ public sealed class AdoptCommandTests
         {
             Id = entry.Id,
             Type = entry.Type,
-            ApiVersion = "2026-10-01-preview",
+            ApiVersion = "2026-10-01-preview.beta",
             Key = entry.Key,
             GraphId = entry.GraphId,
             DependsOn = [Provider + "applications/orders-api"],
@@ -405,7 +405,7 @@ public sealed class AdoptCommandTests
         Assert.Equal(0, result.ExitCode);
         var updated = (await sandbox.Store.LoadAsync(Dep, Ct))!.Find(Provider + "groups/contoso-admins")!;
         Assert.Equal(Obj1, updated.GraphId);
-        Assert.Equal("2026-10-01-preview", updated.ApiVersion);
+        Assert.Equal("2026-10-01-preview.beta", updated.ApiVersion);
         Assert.Equal([Provider + "applications/orders-api"], updated.DependsOn);
     }
 

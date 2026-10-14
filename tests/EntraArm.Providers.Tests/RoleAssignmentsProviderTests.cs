@@ -129,7 +129,7 @@ public sealed class RoleAssignmentsProviderTests
         Check.Succeeded(byReference);
         Check.NoWrites(byReference);
 
-        var byLookup = await host.CreateAsync(host.Resources(Join(Alice(), RoleDef(), Standalone(AliceRef + ", \"roleDefinitionId\": \"[reference(resourceId('Microsoft.Entra/roleDefinitions', 'Orders Support'), '2026-10-01').id]\"", name))));
+        var byLookup = await host.CreateAsync(host.Resources(Join(Alice(), RoleDef(), Standalone(AliceRef + ", \"roleDefinitionId\": \"[reference(resourceId('Microsoft.Entra/roleDefinitions', 'Orders Support'), '2026-10-01-preview').id]\"", name))));
         Check.Succeeded(byLookup);
         Check.NoWrites(byLookup);
         Assert.Equal(ChangeType.NoChange, byLookup.Op(AssignmentId(byLookup)).ChangeType);

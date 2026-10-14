@@ -16,7 +16,7 @@ public sealed class CopyLoopDiagnosticsTests
 {
     private static string Loop(string copy, string name = "[concat('g', copyIndex('loop'))]")
     {
-        return "{ \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01\", \"name\": \"" + name + "\", \"copy\": " + copy + ", \"properties\": { \"displayName\": \"G\" } }";
+        return "{ \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"" + name + "\", \"copy\": " + copy + ", \"properties\": { \"displayName\": \"G\" } }";
     }
 
     private static string Copy(string count, string? batchSize = null, string? mode = null, string name = "loop")

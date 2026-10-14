@@ -21,12 +21,12 @@
     "offices":    "[format('{0}-offices', parameters('prefix'))]",
     "policy":     "[format('{0}-ca-admins-mfa', parameters('prefix'))]",
     "graphAppId": "[wellKnownApp('MicrosoftGraph')]",
-    "graphSpId":  "[reference(resourceId('Microsoft.Entra/servicePrincipals', variables('graphAppId')), '2026-10-01').id]"
+    "graphSpId":  "[reference(resourceId('Microsoft.Entra/servicePrincipals', variables('graphAppId')), '2026-10-01-preview').id]"
   },
   "resources": [
     {
       "type": "Microsoft.Entra/applications",
-      "apiVersion": "2026-10-01",
+      "apiVersion": "2026-10-01-preview",
       "name": "[variables('apiName')]",
       "properties": {
         "displayName": "[variables('apiName')]",
@@ -54,7 +54,7 @@
       "resources": [
         {
           "type": "federatedIdentityCredentials",
-          "apiVersion": "2026-10-01",
+          "apiVersion": "2026-10-01-preview",
           "copy": { "name": "fics", "count": 2, "mode": "parallel" },
           "name": "[format('github-{0}', copyIndex('fics'))]",
           "properties": {
@@ -65,7 +65,7 @@
         },
         {
           "type": "passwordCredentials",
-          "apiVersion": "2026-10-01",
+          "apiVersion": "2026-10-01-preview",
           "name": "ci-secret",
           "properties": { "rotationTag": "2026Q4" }
         }
@@ -73,14 +73,14 @@
     },
     {
       "type": "Microsoft.Entra/servicePrincipals",
-      "apiVersion": "2026-10-01",
+      "apiVersion": "2026-10-01-preview",
       "name": "[reference(variables('apiName')).appId]",
       "properties": { "appRoleAssignmentRequired": true },
       "dependsOn": ["[resourceId('Microsoft.Entra/applications', variables('apiName'))]"]
     },
     {
       "type": "Microsoft.Entra/users",
-      "apiVersion": "2026-10-01",
+      "apiVersion": "2026-10-01-preview",
       "name": "[variables('userName')]",
       "properties": {
         "displayName": "[format('{0}-bg', parameters('prefix'))]",
@@ -97,7 +97,7 @@
     },
     {
       "type": "Microsoft.Entra/groups",
-      "apiVersion": "2026-10-01",
+      "apiVersion": "2026-10-01-preview",
       "name": "[variables('adminsName')]",
       "properties": {
         "displayName": "[variables('adminsName')]",
@@ -115,7 +115,7 @@
     },
     {
       "type": "Microsoft.Entra/roleDefinitions",
-      "apiVersion": "2026-10-01",
+      "apiVersion": "2026-10-01-preview",
       "name": "[variables('supportRole')]",
       "properties": {
         "description": "Reset passwords for Orders staff",
@@ -127,19 +127,19 @@
     },
     {
       "type": "Microsoft.Entra/conditionalAccess/authenticationStrengths",
-      "apiVersion": "2026-10-01",
+      "apiVersion": "2026-10-01-preview",
       "name": "[variables('strength')]",
       "properties": { "description": "FIDO2 or WHfB only", "allowedCombinations": ["fido2", "windowsHelloForBusiness"] }
     },
     {
       "type": "Microsoft.Entra/conditionalAccess/authenticationContextClassReferences",
-      "apiVersion": "2026-10-01",
+      "apiVersion": "2026-10-01-preview",
       "name": "[parameters('contextId')]",
       "properties": { "displayName": "[format('{0}-orders-ctx', parameters('prefix'))]", "description": "Step-up for order refunds", "isAvailable": true }
     },
     {
       "type": "Microsoft.Entra/appRoleAssignments",
-      "apiVersion": "2026-10-01",
+      "apiVersion": "2026-10-01-preview",
       "name": "[guid(variables('adminsName'), variables('apiName'), 'Orders.Admin')]",
       "properties": {
         "principalId": "[reference(variables('adminsName')).id]",
@@ -150,7 +150,7 @@
     },
     {
       "type": "Microsoft.Entra/oauth2PermissionGrants",
-      "apiVersion": "2026-10-01",
+      "apiVersion": "2026-10-01-preview",
       "name": "[guid(variables('apiName'), variables('graphAppId'), 'AllPrincipals')]",
       "properties": {
         "clientId": "[reference(resourceId('Microsoft.Entra/servicePrincipals', reference(variables('apiName')).appId)).id]",
@@ -162,7 +162,7 @@
     },
     {
       "type": "Microsoft.Entra/conditionalAccess/namedLocations",
-      "apiVersion": "2026-10-01",
+      "apiVersion": "2026-10-01-preview",
       "name": "[variables('offices')]",
       "properties": {
         "@odata.type": "#microsoft.graph.ipNamedLocation",
@@ -172,7 +172,7 @@
     },
     {
       "type": "Microsoft.Entra/conditionalAccess/policies",
-      "apiVersion": "2026-10-01",
+      "apiVersion": "2026-10-01-preview",
       "name": "[variables('policy')]",
       "properties": {
         "state": "enabledForReportingButNotEnforced",
@@ -192,7 +192,7 @@
     },
     {
       "type": "Microsoft.Entra/administrativeUnits",
-      "apiVersion": "2026-10-01",
+      "apiVersion": "2026-10-01-preview",
       "name": "[variables('unitName')]",
       "properties": {
         "description": "Scoped admin for Orders",
@@ -202,7 +202,7 @@
     },
     {
       "type": "Microsoft.Entra/roleAssignments",
-      "apiVersion": "2026-10-01",
+      "apiVersion": "2026-10-01-preview",
       "name": "[guid(reference(variables('apiName')).appId, 'Directory Readers', '/')]",
       "properties": {
         "roleDefinitionId": "[roleTemplate('Directory Readers')]",

@@ -10,7 +10,7 @@
   "resources": {
     "/providers/Microsoft.Entra/groups/contoso-dev-orders-ops": {
       "type": "Microsoft.Entra/groups",
-      "apiVersion": "2026-10-01",
+      "apiVersion": "2026-10-01-preview",
       "key": {
         "uniqueName": "contoso-dev-orders-ops"
       },
@@ -20,7 +20,7 @@
     },
     "/providers/Microsoft.Entra/groups/contoso-dev-retired": {
       "type": "Microsoft.Entra/groups",
-      "apiVersion": "2026-10-01",
+      "apiVersion": "2026-10-01-preview",
       "key": {
         "uniqueName": "contoso-dev-retired"
       },

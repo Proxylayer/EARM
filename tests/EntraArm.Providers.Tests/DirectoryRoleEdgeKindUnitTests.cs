@@ -96,7 +96,7 @@ public sealed class DirectoryRoleEdgeKindUnitTests
     public async Task ResolveItem_AnApplicationDeclarer_CannotHoldARole()
     {
         var host = NewHost();
-        var app = await InstanceOf(host, "{ \"type\": \"Microsoft.Entra/applications\", \"apiVersion\": \"2026-10-01\", \"name\": \"test-app\", \"properties\": { \"displayName\": \"Test App\" } }");
+        var app = await InstanceOf(host, "{ \"type\": \"Microsoft.Entra/applications\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"test-app\", \"properties\": { \"displayName\": \"Test App\" } }");
 
         var resolved = await Resolve(host, app, "{ \"role\": \"Global Reader\" }");
 

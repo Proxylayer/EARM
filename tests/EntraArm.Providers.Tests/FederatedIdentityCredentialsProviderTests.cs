@@ -28,7 +28,7 @@ public sealed class FederatedIdentityCredentialsProviderTests
     private static string App(string? owners = null, string nested = "")
     {
         string ownersJson = owners is null ? string.Empty : ", \"owners\": [\"" + owners + "\"]";
-        return """{ "type": "Microsoft.Entra/applications", "apiVersion": "2026-10-01", "name": "test-api", "properties": { "displayName": "Test API" """ + ownersJson + " }" + nested + " }";
+        return """{ "type": "Microsoft.Entra/applications", "apiVersion": "2026-10-01-preview", "name": "test-api", "properties": { "displayName": "Test API" """ + ownersJson + " }" + nested + " }";
     }
 
     private static string Fic(string name, string subject, string extra = "", string apiVersion = ProviderHost.ApiVersion, bool flat = true)
@@ -45,7 +45,7 @@ public sealed class FederatedIdentityCredentialsProviderTests
     private static string CopyTemplate(int count)
     {
         return App() + """
-            , { "type": "Microsoft.Entra/applications/federatedIdentityCredentials", "apiVersion": "2026-10-01",
+            , { "type": "Microsoft.Entra/applications/federatedIdentityCredentials", "apiVersion": "2026-10-01-preview",
                 "copy": { "name": "fics", "count":
             """ + count + """
             , "mode": "parallel" },
@@ -284,7 +284,7 @@ public sealed class FederatedIdentityCredentialsProviderTests
         var ex = await Assert.ThrowsAsync<ValidationFailedException>(() => host.CreateAsync(host.Resources(App() + ", " + Fic("1bad", "repo:x"))));
         Assert.Contains(ex.Diagnostics, d => d.Message.Contains("1bad", StringComparison.Ordinal));
 
-        var expression = host.Resources(App() + """, { "type": "Microsoft.Entra/applications/federatedIdentityCredentials", "apiVersion": "2026-10-01", "name": "[concat('test-api/1', 'bad')]", "properties": { "issuer": "https://token.actions.githubusercontent.com", "subject": "repo:x" } }""");
+        var expression = host.Resources(App() + """, { "type": "Microsoft.Entra/applications/federatedIdentityCredentials", "apiVersion": "2026-10-01-preview", "name": "[concat('test-api/1', 'bad')]", "properties": { "issuer": "https://token.actions.githubusercontent.com", "subject": "repo:x" } }""");
         var whatIf = await host.WhatIfAsync(expression);
         var row = whatIf.ChangeOfType(FicType);
         Assert.True(row.HasError);
@@ -412,18 +412,18 @@ public sealed class FederatedIdentityCredentialsProviderTests
             return run.ChangeOfType(FicType);
         }
 
-        var http = await RowAsync(App() + """, { "type": "Microsoft.Entra/applications/federatedIdentityCredentials", "apiVersion": "2026-10-01", "name": "test-api/github-main", "properties": { "issuer": "http://insecure", "subject": "repo:x" } }""");
+        var http = await RowAsync(App() + """, { "type": "Microsoft.Entra/applications/federatedIdentityCredentials", "apiVersion": "2026-10-01-preview", "name": "test-api/github-main", "properties": { "issuer": "http://insecure", "subject": "repo:x" } }""");
         Assert.True(http.HasError);
         Assert.Contains("https", http.UnsupportedReason, StringComparison.Ordinal);
 
-        const string emptySubject = """, { "type": "Microsoft.Entra/applications/federatedIdentityCredentials", "apiVersion": "2026-10-01", "name": "test-api/github-main", "properties": { "issuer": "https://ok", "subject": "SUBJECT" } }""";
+        const string emptySubject = """, { "type": "Microsoft.Entra/applications/federatedIdentityCredentials", "apiVersion": "2026-10-01-preview", "name": "test-api/github-main", "properties": { "issuer": "https://ok", "subject": "SUBJECT" } }""";
         var literal = await Assert.ThrowsAsync<ValidationFailedException>(() => RowAsync(App() + emptySubject.Replace("SUBJECT", string.Empty, StringComparison.Ordinal)));
         Assert.Contains(literal.Diagnostics, d => d.Code == "SchemaViolation" && d.Message.Contains("minLength", StringComparison.Ordinal));
         var empty = await RowAsync(App() + emptySubject.Replace("SUBJECT", "[concat('', '')]", StringComparison.Ordinal));
         Assert.True(empty.HasError);
         Assert.Contains("subject", empty.UnsupportedReason, StringComparison.Ordinal);
 
-        var missing = await RowAsync(App() + """, { "type": "Microsoft.Entra/applications/federatedIdentityCredentials", "apiVersion": "2026-10-01", "name": "test-api/github-main", "properties": { "issuer": "https://ok" } }""");
+        var missing = await RowAsync(App() + """, { "type": "Microsoft.Entra/applications/federatedIdentityCredentials", "apiVersion": "2026-10-01-preview", "name": "test-api/github-main", "properties": { "issuer": "https://ok" } }""");
         Assert.True(missing.HasError);
         Assert.Contains("subject", missing.UnsupportedReason, StringComparison.Ordinal);
 

@@ -323,7 +323,7 @@ internal sealed partial class SemanticChecker
 
             if (resource.ApiVersion is not null && !definition.ApiVersions.ContainsKey(resource.ApiVersion))
             {
-                Error(DiagnosticCodes.UnknownApiVersion, $"apiVersion '{resource.ApiVersion}' is not valid for type '{definition.Type}'; supported: {string.Join(", ", definition.ApiVersions.Keys)}.", resource.Path.Append("apiVersion"));
+                Error(DiagnosticCodes.UnknownApiVersion, definition.DescribeUnknownApiVersion(resource.ApiVersion), resource.Path.Append("apiVersion"));
             }
 
             string? leafName = CheckName(resource, definition);

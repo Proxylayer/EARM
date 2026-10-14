@@ -13,7 +13,7 @@
   },
   "resources": [
     {
-      "type": "Microsoft.Entra/applications", "apiVersion": "2026-10-01", "name": "[variables('apiName')]",
+      "type": "Microsoft.Entra/applications", "apiVersion": "2026-10-01-preview", "name": "[variables('apiName')]",
       "properties": {
         "displayName": "Orders API", "signInAudience": "AzureADMyOrg",
         "identifierUris": ["[format('api://{0}', variables('apiName'))]"],
@@ -27,30 +27,30 @@
       }
     },
     {
-      "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01", "name": "[variables('adminsName')]",
+      "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01-preview", "name": "[variables('adminsName')]",
       "properties": {
         "displayName": "Orders Admins", "mailEnabled": false, "mailNickname": "orders-admins", "securityEnabled": true,
         "members": ["22222222-0000-0000-0000-000000000002", "22222222-0000-0000-0000-000000000003"]
       }
     },
     {
-      "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01", "name": "[variables('auditorsName')]",
+      "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01-preview", "name": "[variables('auditorsName')]",
       "properties": { "displayName": "Orders Auditors", "mailEnabled": false, "mailNickname": "orders-auditors", "securityEnabled": true }
     },
     {
-      "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01", "name": "contoso-legacy",
+      "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01-preview", "name": "contoso-legacy",
       "properties": { "displayName": "Legacy", "mailEnabled": false, "mailNickname": "legacy-renamed", "securityEnabled": true }
     },
     {
-      "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01", "name": "contoso-dev-orders-ops",
+      "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01-preview", "name": "contoso-dev-orders-ops",
       "properties": { "displayName": "Orders Ops", "mailEnabled": false, "mailNickname": "orders-ops", "securityEnabled": true }
     },
     {
-      "type": "Microsoft.Entra/users", "apiVersion": "2026-10-01", "name": "bg-orders@contoso.com",
+      "type": "Microsoft.Entra/users", "apiVersion": "2026-10-01-preview", "name": "bg-orders@contoso.com",
       "properties": {
         "displayName": "Break Glass (Orders)", "mailNickname": "bg-orders", "accountEnabled": true, "usageLocation": "GB",
         "passwordProfile": { "password": "[parameters('initialPassword')]", "forceChangePasswordNextSignIn": true },
-        "manager": "[reference(resourceId('Microsoft.Entra/users', 'cto@contoso.com'), '2026-10-01').id]",
+        "manager": "[reference(resourceId('Microsoft.Entra/users', 'cto@contoso.com'), '2026-10-01-preview').id]",
         "memberOf": ["[reference(variables('auditorsName')).id]"]
       }
     }

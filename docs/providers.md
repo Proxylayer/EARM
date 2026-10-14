@@ -251,8 +251,8 @@ state), otherwise `/applications(uniqueName='…')`.
 | Delete | `DELETE {parent}/federatedIdentityCredentials(name='…')`; a 404 is "already gone" |
 
 `Plan` refuses (an unsupported what-if row, a failed create) a name outside the overlay pattern
-(`^[A-Za-z][A-Za-z0-9-]{2,119}$`), a non-https `issuer`, an empty `subject`, `claimsMatchingExpression` on the v1.0
-apiVersion, an `issuer` + `subject` pair already used by another credential of the application (live, or declared
+(`^[A-Za-z][A-Za-z0-9-]{2,119}$`), a non-https `issuer`, an empty `subject`, `claimsMatchingExpression` on `2026-10-01-preview`
+(Graph v1.0; it needs `2026-10-01-preview.beta`), an `issuer` + `subject` pair already used by another credential of the application (live, or declared
 elsewhere in the same deployment) and a 21st credential. A rename is a new resource: the old credential is detached
 (Incremental) or deleted by the mode pass (Complete) after the apply pass, so a rename that keeps issuer and subject is
 refused until the old credential is gone. Permissions follow the parent rule of the password credentials above.
@@ -329,7 +329,7 @@ what Graph would reject or the plan guards against: `state: enabled` without `--
 applications include, no control at all, `block` combined with another control, `mfa` together with
 `authenticationStrength`, the lockout pattern (all users + all applications + block with no exclusion) and the
 preview-only properties (`templateId`, `partialEnablementStrategy`, `sessionControls.continuousAccessEvaluation`) on
-the v1.0 apiVersion. References are by id: users and groups by object id, `includeApplications` by application (client) id,
+`2026-10-01-preview` (Graph v1.0; use `2026-10-01-preview.beta` for them). References are by id: users and groups by object id, `includeApplications` by application (client) id,
 locations by named location id (`reference('Contoso offices').id` makes the dependency), roles by role template id. The
 last `PlanOptions` seen is kept so a direct `CreateAsync`/`UpdateAsync` applies the same guard.
 
@@ -354,7 +354,7 @@ ordering dependency).
 `Microsoft.Entra/conditionalAccess/authenticationStrengths`: the name is the `displayName`; only custom strengths
 (`policyType: custom`) are managed. The built-in ones (Multifactor authentication, Passwordless MFA, Phishing-resistant
 MFA) are read-only: reference them with
-`reference(resourceId('Microsoft.Entra/conditionalAccess/authenticationStrengths', '<display name>'), '2026-10-01').id`
+`reference(resourceId('Microsoft.Entra/conditionalAccess/authenticationStrengths', '<display name>'), '2026-10-01-preview').id`
 (the existing-resource lookup matches built-ins too) or the well-known ids
 (`00000000-0000-0000-0000-000000000002` MFA, `…0003` passwordless, `…0004` phishing-resistant).
 

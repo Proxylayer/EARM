@@ -36,7 +36,7 @@ public sealed class ExpressionValidatorTests
 
     private static string Resource(string type, string name, string extra = "")
     {
-        return "{ \"type\": \"" + type + "\", \"apiVersion\": \"2026-10-01\", \"name\": \"" + name + "\"" + (extra.Length == 0 ? string.Empty : ", " + extra) + " }";
+        return "{ \"type\": \"" + type + "\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"" + name + "\"" + (extra.Length == 0 ? string.Empty : ", " + extra) + " }";
     }
 
     // ---- names and ids ----
@@ -66,7 +66,7 @@ public sealed class ExpressionValidatorTests
     [Fact]
     public void ApiVersionExpression_IsRejected()
     {
-        var analysis = Analyze("\"resources\": [ { \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"[variables('v')]\", \"name\": \"g\" } ], \"variables\": { \"v\": \"2026-10-01\" }");
+        var analysis = Analyze("\"resources\": [ { \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"[variables('v')]\", \"name\": \"g\" } ], \"variables\": { \"v\": \"2026-10-01-preview\" }");
 
         Single(analysis, DiagnosticCodes.ApiVersionMustBeLiteral, "resources[0].apiVersion");
     }
@@ -308,7 +308,7 @@ public sealed class ExpressionValidatorTests
     {
         var analysis = Analyze("\"variables\": { "
             + "\"v\": \"[reference('app')]\", "
-            + "\"w\": \"[reference(resourceId('Microsoft.Entra/groups', 'x'), '2026-10-01').id]\", "
+            + "\"w\": \"[reference(resourceId('Microsoft.Entra/groups', 'x'), '2026-10-01-preview').id]\", "
             + "\"cyc\": \"[variables('cyc')]\", "
             + "\"undef\": \"[variables('nope')]\", "
             + "\"ok\": \"[concat('a', 'b')]\", "
@@ -326,7 +326,7 @@ public sealed class ExpressionValidatorTests
         Assert.Equal(5, analysis.Diagnostics.Count);
 
         Assert.Equal("ab", Expr.AssertString(analysis.Static.Variables.Get("ok")));
-        Assert.Equal("ref(/providers/Microsoft.Entra/groups/x, '2026-10-01').id", Expr.AssertUnknown(analysis.Static.Variables.Get("w")).Symbol);
+        Assert.Equal("ref(/providers/Microsoft.Entra/groups/x, '2026-10-01-preview').id", Expr.AssertUnknown(analysis.Static.Variables.Get("w")).Symbol);
     }
 
     [Fact]
@@ -418,7 +418,7 @@ public sealed class ExpressionValidatorTests
     {
         var analysis = Analyze("\"resources\": [ "
             + Resource("Microsoft.Entra/applications", "app") + ", "
-            + Resource("Microsoft.Entra/groups", "g", "\"properties\": { \"owners\": [ \"[reference('app').id]\", \"[reference(resourceId('Microsoft.Entra/applications', 'app'), '2026-10-01').id]\" ], \"tag\": \"[resourceId('Microsoft.Entra/applications', 'app')]\", \"ext\": \"[resourceId('Microsoft.Entra/groups', 'elsewhere')]\" }") + " ]");
+            + Resource("Microsoft.Entra/groups", "g", "\"properties\": { \"owners\": [ \"[reference('app').id]\", \"[reference(resourceId('Microsoft.Entra/applications', 'app'), '2026-10-01-preview').id]\" ], \"tag\": \"[resourceId('Microsoft.Entra/applications', 'app')]\", \"ext\": \"[resourceId('Microsoft.Entra/groups', 'elsewhere')]\" }") + " ]");
 
         Assert.False(analysis.HasErrors);
         var references = analysis.Static.Resources[1].References;
@@ -483,8 +483,8 @@ public sealed class ExpressionValidatorTests
               "contentVersion": "1.0.0.0",
               "outputs": { "o": { "type": "string", "value": "[nope()]" } },
               "resources": [
-                { "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01", "name": "[utcNow()]" },
-                { "type": "Microsoft.Entra/users", "apiVersion": "2026-10-01", "name": "u@contoso.com", "properties": { "x": "[concat('a']" } }
+                { "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01-preview", "name": "[utcNow()]" },
+                { "type": "Microsoft.Entra/users", "apiVersion": "2026-10-01-preview", "name": "u@contoso.com", "properties": { "x": "[concat('a']" } }
               ]
             }
             """;
@@ -504,8 +504,8 @@ public sealed class ExpressionValidatorTests
     {
         var analysis = Analyze("\"resources\": [ "
             + Resource("Microsoft.Entra/applications", "app") + ", "
-            + "{ \"type\": \"Microsoft.Entra/applications\", \"apiVersion\": \"2026-10-01\", \"name\": \"[concat(reference('app').appId, '-child-host')]\", "
-            + "\"resources\": [ { \"type\": \"passwordCredentials\", \"apiVersion\": \"2026-10-01\", \"name\": \"s\" } ] } ]");
+            + "{ \"type\": \"Microsoft.Entra/applications\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"[concat(reference('app').appId, '-child-host')]\", "
+            + "\"resources\": [ { \"type\": \"passwordCredentials\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"s\" } ] } ]");
 
         Assert.False(analysis.HasErrors, string.Join("\n", analysis.Diagnostics));
         var host = analysis.Static.Resources[1];

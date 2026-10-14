@@ -202,7 +202,7 @@
     "type": "Microsoft.Entra/groups",
     "parentType": null,
     "graphPath": "/groups",
-    "apiVersions": { "2026-10-01": "v1.0", "2026-10-01-preview": "beta" },
+    "apiVersions": { "2026-10-01-preview": "v1.0", "2026-10-01-preview.beta": "beta" },
     "nameMapsTo": "uniqueName",
     "nameKind": "uniqueName",
     "namePattern": "^\\S(.{0,254}\\S)?$",

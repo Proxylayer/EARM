@@ -78,21 +78,40 @@ public sealed class ResourceTypeCatalogTests
     {
         Assert.True(Catalog.TryGet(type, out var definition));
 
-        Assert.True(definition.TryGetGraphApi("2026-10-01", out var v1));
+        Assert.True(definition.TryGetGraphApi("2026-10-01-preview", out var v1));
         Assert.Equal(GraphApi.V1, v1);
-        Assert.True(definition.TryGetGraphApi("2026-10-01-preview", out var beta));
+        Assert.True(definition.TryGetGraphApi("2026-10-01-preview.beta", out var beta));
         Assert.Equal(GraphApi.Beta, beta);
 
-        Assert.True(Catalog.TryGetGraphApi(type, "2026-10-01", out var viaCatalog));
+        Assert.True(Catalog.TryGetGraphApi(type, "2026-10-01-preview", out var viaCatalog));
         Assert.Equal(GraphApi.V1, viaCatalog);
-        Assert.True(Catalog.TryGetGraphApi(type.ToUpperInvariant(), "2026-10-01-preview", out var viaCatalogBeta));
+        Assert.True(Catalog.TryGetGraphApi(type.ToUpperInvariant(), "2026-10-01-preview.beta", out var viaCatalogBeta));
         Assert.Equal(GraphApi.Beta, viaCatalogBeta);
 
         Assert.False(definition.TryGetGraphApi("2020-01-01", out _));
+        Assert.False(definition.TryGetGraphApi("2026-10-01", out _));
+        Assert.False(Catalog.TryGetGraphApi(type, "2026-10-01", out _));
         Assert.False(definition.TryGetGraphApi("v1.0", out _));
         Assert.False(definition.TryGetGraphApi("beta", out _));
         Assert.False(definition.TryGetGraphApi(null, out _));
         Assert.Equal(2, definition.ApiVersions.Count);
+    }
+
+    [Theory]
+    [MemberData(nameof(AllTypes))]
+    public void DescribeUnknownApiVersion_ExplainsTheRenameForTheRetiredLabelAndListsTheValidOnesOtherwise(string type)
+    {
+        Assert.True(Catalog.TryGet(type, out var definition));
+
+        Assert.Equal(
+            "apiVersion '2026-10-01' was renamed '2026-10-01-preview' (the format is in preview); use '2026-10-01-preview' (Graph v1.0) or '2026-10-01-preview.beta' (Graph beta). Valid: 2026-10-01-preview, 2026-10-01-preview.beta.",
+            definition.DescribeUnknownApiVersion("2026-10-01"));
+
+        string other = definition.DescribeUnknownApiVersion("2020-01-01");
+        Assert.Contains("'2020-01-01'", other, StringComparison.Ordinal);
+        Assert.Contains(definition.Type, other, StringComparison.Ordinal);
+        Assert.Contains("2026-10-01-preview, 2026-10-01-preview.beta", other, StringComparison.Ordinal);
+        Assert.DoesNotContain("renamed", other, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -285,11 +304,11 @@ public sealed class ResourceTypeCatalogTests
     }
 
     [Theory]
-    [InlineData("{ \"x-entraarm\": { \"graphPath\": \"/x\", \"apiVersions\": { \"2026-10-01\": \"v1.0\" }, \"nameKind\": \"displayName\" } }", "type")]
-    [InlineData("{ \"x-entraarm\": { \"type\": \"Microsoft.Entra/x\", \"apiVersions\": { \"2026-10-01\": \"v1.0\" }, \"nameKind\": \"displayName\" } }", "graphPath")]
+    [InlineData("{ \"x-entraarm\": { \"graphPath\": \"/x\", \"apiVersions\": { \"2026-10-01-preview\": \"v1.0\" }, \"nameKind\": \"displayName\" } }", "type")]
+    [InlineData("{ \"x-entraarm\": { \"type\": \"Microsoft.Entra/x\", \"apiVersions\": { \"2026-10-01-preview\": \"v1.0\" }, \"nameKind\": \"displayName\" } }", "graphPath")]
     [InlineData("{ \"x-entraarm\": { \"type\": \"Microsoft.Entra/x\", \"graphPath\": \"/x\", \"nameKind\": \"displayName\" } }", "apiVersions")]
-    [InlineData("{ \"x-entraarm\": { \"type\": \"Microsoft.Entra/x\", \"graphPath\": \"/x\", \"apiVersions\": { \"2026-10-01\": \"v3\" }, \"nameKind\": \"displayName\" } }", "v3")]
-    [InlineData("{ \"x-entraarm\": { \"type\": \"Microsoft.Entra/x\", \"graphPath\": \"/x\", \"apiVersions\": { \"2026-10-01\": \"v1.0\" } } }", "nameKind")]
+    [InlineData("{ \"x-entraarm\": { \"type\": \"Microsoft.Entra/x\", \"graphPath\": \"/x\", \"apiVersions\": { \"2026-10-01-preview\": \"v3\" }, \"nameKind\": \"displayName\" } }", "v3")]
+    [InlineData("{ \"x-entraarm\": { \"type\": \"Microsoft.Entra/x\", \"graphPath\": \"/x\", \"apiVersions\": { \"2026-10-01-preview\": \"v1.0\" } } }", "nameKind")]
     public void ParseOverlay_RejectsIncompleteOverlays(string schemaJson, string expectedMention)
     {
         var exception = Assert.Throws<InvalidOperationException>(() => ResourceTypeCatalog.ParseOverlay(schemaJson, "test.json"));
@@ -300,12 +319,12 @@ public sealed class ResourceTypeCatalogTests
     public void FromDefinitions_RejectsUnknownParentsAndDuplicates()
     {
         var orphan = ResourceTypeCatalog.ParseOverlay(
-            "{ \"x-entraarm\": { \"type\": \"Microsoft.Entra/things/parts\", \"parentType\": \"Microsoft.Entra/things\", \"graphPath\": \"/x\", \"apiVersions\": { \"2026-10-01\": \"v1.0\" }, \"nameKind\": \"childName\" } }",
+            "{ \"x-entraarm\": { \"type\": \"Microsoft.Entra/things/parts\", \"parentType\": \"Microsoft.Entra/things\", \"graphPath\": \"/x\", \"apiVersions\": { \"2026-10-01-preview\": \"v1.0\" }, \"nameKind\": \"childName\" } }",
             "orphan.json");
         Assert.Throws<InvalidOperationException>(() => ResourceTypeCatalog.FromDefinitions([orphan]));
 
         var thing = ResourceTypeCatalog.ParseOverlay(
-            "{ \"x-entraarm\": { \"type\": \"Microsoft.Entra/things\", \"graphPath\": \"/x\", \"apiVersions\": { \"2026-10-01\": \"v1.0\" }, \"nameKind\": \"displayName\" } }",
+            "{ \"x-entraarm\": { \"type\": \"Microsoft.Entra/things\", \"graphPath\": \"/x\", \"apiVersions\": { \"2026-10-01-preview\": \"v1.0\" }, \"nameKind\": \"displayName\" } }",
             "thing.json");
         Assert.Throws<InvalidOperationException>(() => ResourceTypeCatalog.FromDefinitions([thing, thing]));
 

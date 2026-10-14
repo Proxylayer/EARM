@@ -62,7 +62,7 @@ The deployment would make the following changes:
   + /providers/Microsoft.Entra/applications/contoso-dev-api [Microsoft.Entra/applications]
       name: "contoso-dev-api"
       type: "Microsoft.Entra/applications"
-      apiVersion: "2026-10-01"
+      apiVersion: "2026-10-01-preview"
       properties:
         displayName: "Orders API"
         identifierUris: [
@@ -166,8 +166,8 @@ Rules:
     {
       "resourceId": "/providers/Microsoft.Entra/applications/contoso-dev-api",
       "changeType": "Modify",
-      "before": { "name": "contoso-dev-api", "type": "Microsoft.Entra/applications", "apiVersion": "2026-10-01", "properties": { "displayName": "Orders API (old)" } },
-      "after":  { "name": "contoso-dev-api", "type": "Microsoft.Entra/applications", "apiVersion": "2026-10-01", "properties": { "displayName": "Orders API" } },
+      "before": { "name": "contoso-dev-api", "type": "Microsoft.Entra/applications", "apiVersion": "2026-10-01-preview", "properties": { "displayName": "Orders API (old)" } },
+      "after":  { "name": "contoso-dev-api", "type": "Microsoft.Entra/applications", "apiVersion": "2026-10-01-preview", "properties": { "displayName": "Orders API" } },
       "delta": [
         { "path": "properties.displayName", "propertyChangeType": "Modify", "before": "Orders API (old)", "after": "Orders API" },
         { "path": "properties.appRoles", "propertyChangeType": "Array", "before": [ "..." ], "after": [ "..." ],
@@ -182,7 +182,7 @@ Rules:
     {
       "resourceId": "/providers/Microsoft.Entra/users/bg-orders@contoso.com",
       "changeType": "Create",
-      "after": { "name": "bg-orders@contoso.com", "type": "Microsoft.Entra/users", "apiVersion": "2026-10-01",
+      "after": { "name": "bg-orders@contoso.com", "type": "Microsoft.Entra/users", "apiVersion": "2026-10-01-preview",
                  "properties": { "passwordProfile": { "password": "***" }, "manager": "U-CIO", "memberOf": [ "(deploy-time)" ] } },
       "unsupportedReason": null,
       "reasons": [ "some property values are only known at deployment time" ]
@@ -203,7 +203,7 @@ Rules:
   ],
   "diagnostics": [ { "level": "Warning", "code": "DestructiveDelete", "target": null, "message": "..." } ],
   "requiredPermissions": [ "Application.ReadWrite.All", "Group.ReadWrite.All" ],
-  "unresolvedReferences": [ { "resourceId": "/providers/Microsoft.Entra/users/cio@contoso.com", "apiVersion": "2026-10-01", "reason": "..." } ],
+  "unresolvedReferences": [ { "resourceId": "/providers/Microsoft.Entra/users/cio@contoso.com", "apiVersion": "2026-10-01-preview", "reason": "..." } ],
   "summary": { "create": 1, "modify": 2, "delete": 1, "noChange": 1, "ignore": 1, "unsupported": 0, "edges": { "add": 1, "remove": 1 } }
 }
 ```

@@ -17,7 +17,7 @@
   "resources": [
     {
       "type": "Microsoft.Entra/conditionalAccess/namedLocations",
-      "apiVersion": "2026-10-01",
+      "apiVersion": "2026-10-01-preview",
       "name": "Contoso offices",
       "properties": {
         "@odata.type": "#microsoft.graph.ipNamedLocation",
@@ -27,7 +27,7 @@
     },
     {
       "type": "Microsoft.Entra/conditionalAccess/namedLocations",
-      "apiVersion": "2026-10-01",
+      "apiVersion": "2026-10-01-preview",
       "name": "Allowed countries",
       "properties": {
         "@odata.type": "#microsoft.graph.countryNamedLocation",
@@ -38,7 +38,7 @@
     },
     {
       "type": "Microsoft.Entra/conditionalAccess/authenticationStrengths",
-      "apiVersion": "2026-10-01",
+      "apiVersion": "2026-10-01-preview",
       "name": "Admin phishing-resistant",
       "properties": {
         "description": "FIDO2 security key or Windows Hello for Business only",
@@ -47,7 +47,7 @@
     },
     {
       "type": "Microsoft.Entra/conditionalAccess/authenticationContextClassReferences",
-      "apiVersion": "2026-10-01",
+      "apiVersion": "2026-10-01-preview",
       "name": "c10",
       "properties": {
         "displayName": "Sensitive actions",
@@ -57,7 +57,7 @@
     },
     {
       "type": "Microsoft.Entra/roleDefinitions",
-      "apiVersion": "2026-10-01",
+      "apiVersion": "2026-10-01-preview",
       "name": "Security Policy Reviewer",
       "properties": {
         "description": "Read conditional access policies and named locations",
@@ -74,7 +74,7 @@
     },
     {
       "type": "Microsoft.Entra/administrativeUnits",
-      "apiVersion": "2026-10-01",
+      "apiVersion": "2026-10-01-preview",
       "name": "Security AU",
       "properties": {
         "description": "Scope for delegated user administration",
@@ -83,7 +83,7 @@
     },
     {
       "type": "Microsoft.Entra/groups",
-      "apiVersion": "2026-10-01",
+      "apiVersion": "2026-10-01-preview",
       "name": "[variables('breakGlass')]",
       "comments": "Excluded from every policy below so an outage of the policies can never lock the tenant out. Add the emergency-access accounts here.",
       "properties": {
@@ -96,7 +96,7 @@
     },
     {
       "type": "Microsoft.Entra/groups",
-      "apiVersion": "2026-10-01",
+      "apiVersion": "2026-10-01-preview",
       "name": "[variables('adminsName')]",
       "comments": "Role-assignable groups are immutable in that respect and limited to 500 per tenant; directoryRoles is only allowed on such a group.",
       "properties": {
@@ -115,7 +115,7 @@
     },
     {
       "type": "Microsoft.Entra/conditionalAccess/policies",
-      "apiVersion": "2026-10-01",
+      "apiVersion": "2026-10-01-preview",
       "name": "CA-Admins-PhishingResistant",
       "properties": {
         "state": "enabledForReportingButNotEnforced",
@@ -139,7 +139,7 @@
     },
     {
       "type": "Microsoft.Entra/conditionalAccess/policies",
-      "apiVersion": "2026-10-01",
+      "apiVersion": "2026-10-01-preview",
       "name": "CA-SensitiveActions-StepUp",
       "properties": {
         "state": "enabledForReportingButNotEnforced",

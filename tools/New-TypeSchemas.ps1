@@ -284,7 +284,7 @@ $specs['applications.federatedIdentityCredentials'] = [ordered]@{
         subject     = Str 'Required: the subject claim (case-sensitive); issuer + subject must be unique per application.' -Min 1
         audiences   = StrArr 'Defaults to ["api://AzureADTokenExchange"].' -Unique
         description = Str 'Description (up to 600 characters).' -Nullable
-        claimsMatchingExpression = Obj -d 'Flexible federated identity credential expression. Preview apiVersion (2026-10-01-preview) only.' -Nullable -Props (Props ([ordered]@{
+        claimsMatchingExpression = Obj -d 'Flexible federated identity credential expression. Beta apiVersion (2026-10-01-preview.beta) only.' -Nullable -Props (Props ([ordered]@{
             languageVersion = Int 'Expression language version (1).' -Enum 1
             value           = Str 'The claims matching expression.'
         }))
@@ -564,7 +564,7 @@ $specs['conditionalAccess.policies'] = [ordered]@{
                 isEnabled = Bool 'Enable the control.'
                 mode      = Str 'always or never.' -Enum 'always', 'never'
             }))
-            continuousAccessEvaluation      = Obj -d 'Continuous access evaluation. Preview apiVersion only.' -Nullable -Props (Props ([ordered]@{
+            continuousAccessEvaluation      = Obj -d 'Continuous access evaluation. Beta apiVersion (2026-10-01-preview.beta) only.' -Nullable -Props (Props ([ordered]@{
                 mode = Str 'disabled or strictEnforcement.' -Enum 'disabled', 'strictEnforcement', 'unknownFutureValue'
             }))
             disableResilienceDefaults       = Bool 'Disable resilience defaults.' -Nullable

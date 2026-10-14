@@ -72,7 +72,7 @@
     "type": "Microsoft.Entra/conditionalAccess/namedLocations",
     "parentType": null,
     "graphPath": "/identity/conditionalAccess/namedLocations",
-    "apiVersions": { "2026-10-01": "v1.0", "2026-10-01-preview": "beta" },
+    "apiVersions": { "2026-10-01-preview": "v1.0", "2026-10-01-preview.beta": "beta" },
     "nameMapsTo": "displayName",
     "nameKind": "displayName",
     "namePattern": "^\\S(.{0,254}\\S)?$",

@@ -101,4 +101,28 @@ public sealed record ResourceTypeDefinition
         api = GraphApi.V1;
         return apiVersion is not null && ApiVersions.TryGetValue(apiVersion, out api);
     }
+
+    /// <summary>The retired label of the former Graph v1.0 <c>apiVersion</c>; it was renamed <see cref="PreviewApiVersion"/> and is now an <c>UnknownApiVersion</c> error.</summary>
+    public const string RetiredApiVersion = "2026-10-01";
+
+    /// <summary>The one normal <c>apiVersion</c>; maps to Graph v1.0.</summary>
+    public const string PreviewApiVersion = "2026-10-01-preview";
+
+    /// <summary>The passthrough <c>apiVersion</c> (no normalisation guarantees); maps to Graph beta.</summary>
+    public const string PreviewBetaApiVersion = "2026-10-01-preview.beta";
+
+    /// <summary>
+    /// The <c>UnknownApiVersion</c> message for <paramref name="apiVersion"/>: the rename hint for the retired
+    /// <see cref="RetiredApiVersion"/> label, otherwise the list of versions this type supports.
+    /// </summary>
+    public string DescribeUnknownApiVersion(string apiVersion)
+    {
+        string valid = string.Join(", ", ApiVersions.Keys);
+        if (string.Equals(apiVersion, RetiredApiVersion, StringComparison.OrdinalIgnoreCase))
+        {
+            return $"apiVersion '{apiVersion}' was renamed '{PreviewApiVersion}' (the format is in preview); use '{PreviewApiVersion}' (Graph v1.0) or '{PreviewBetaApiVersion}' (Graph beta). Valid: {valid}.";
+        }
+
+        return $"apiVersion '{apiVersion}' is not valid for type '{Type}'; supported: {valid}.";
+    }
 }

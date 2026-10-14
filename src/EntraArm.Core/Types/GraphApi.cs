@@ -5,10 +5,10 @@ namespace EntraArm.Core.Types;
 /// <summary>The Microsoft Graph endpoint an <c>apiVersion</c> maps to.</summary>
 public enum GraphApi
 {
-    /// <summary><c>https://graph.microsoft.com/v1.0</c> (apiVersion <c>2026-10-01</c>).</summary>
+    /// <summary><c>https://graph.microsoft.com/v1.0</c> (apiVersion <c>2026-10-01-preview</c>).</summary>
     V1,
 
-    /// <summary><c>https://graph.microsoft.com/beta</c> (apiVersion <c>2026-10-01-preview</c>).</summary>
+    /// <summary><c>https://graph.microsoft.com/beta</c> (apiVersion <c>2026-10-01-preview.beta</c>).</summary>
     Beta,
 }
 

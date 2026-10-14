@@ -4,7 +4,7 @@
   "resources": [
     {
       "type": "Microsoft.Entra/applications",
-      "apiVersion": "2026-10-01",
+      "apiVersion": "2026-10-01-preview",
       "properties": { "displayName": "Orders API" }
     }
   ]

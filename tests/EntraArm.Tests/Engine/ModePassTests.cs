@@ -37,7 +37,7 @@ public sealed class ModePassTests
         {
             Id = StateSerializer.ParseResourceId(id, type)!,
             Type = type,
-            ApiVersion = "2026-10-01",
+            ApiVersion = "2026-10-01-preview",
             Key = new Dictionary<string, string> { [keyName] = keyValue },
             GraphId = graphId,
             ParentGraphId = parentGraphId,
