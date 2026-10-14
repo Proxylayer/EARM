@@ -66,6 +66,31 @@ public sealed class ResourceExpanderTests
         Assert.Empty(zero.Batches);
     }
 
+    /// <summary>A whole number counts as an integer however it is written: <c>3.0</c> and <c>1.5e1</c> loop like <c>3</c> and <c>15</c>.</summary>
+    [Theory]
+    [InlineData("3.0", 3)]
+    [InlineData("1.5e1", 15)]
+    [InlineData("-0.0", 0)]
+    public async Task CopyCount_AndBatchSize_AcceptAWholeNumberSpelledWithAFractionOrExponent(string number, int expected)
+    {
+        var literal = await ExpandAsync(GroupLoop("{ \"name\": \"loop\", \"count\": " + number + ", \"mode\": \"parallel\" }"));
+        var fromParameter = await new EngineHost().ExpandAsync(Templates.Parse("\"parameters\": { \"n\": { \"type\": \"int\", \"defaultValue\": " + number + " } }, \"resources\": [" + GroupLoop("{ \"name\": \"loop\", \"count\": \"[parameters('n')]\" }") + "]"));
+
+        Assert.Equal(expected, literal.Instances.Count);
+        Assert.Equal(expected, fromParameter.Instances.Count);
+
+        var batched = await ExpandAsync(GroupLoop("{ \"name\": \"loop\", \"count\": 4, \"mode\": \"serial\", \"batchSize\": 2.0 }"));
+        Assert.Equal(4, batched.Instances.Count);
+    }
+
+    [Fact]
+    public async Task CopyCount_WithAFraction_IsStillRejected()
+    {
+        var failure = await FailsAsync(GroupLoop("{ \"name\": \"loop\", \"count\": 3.5 }"));
+
+        Assert.Contains(failure.Diagnostics, d => d.Code == DiagnosticCodes.InvalidCopy);
+    }
+
     [Fact]
     public async Task SerialCopy_DefaultsToBatchSizeOne_AndChainsIterations()
     {

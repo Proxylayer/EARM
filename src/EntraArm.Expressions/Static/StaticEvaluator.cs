@@ -387,7 +387,7 @@ public sealed class StaticEvaluator
                 return result;
             }
 
-            if (!JsonValues.TryGetInt64(value, out long count) || count < 0)
+            if (!JsonValues.TryGetWholeNumber(value, out long count) || count < 0)
             {
                 Error(DiagnosticCodes.InvalidCopy, $"copy.count must evaluate to a non-negative integer, got {JsonValues.Render(value)}.", path);
                 return result;

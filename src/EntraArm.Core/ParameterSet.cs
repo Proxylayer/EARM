@@ -142,7 +142,7 @@ public sealed class ParameterSet
             {
                 values[entry.Key] = new ParameterValue
                 {
-                    Reference = ParseKeyVaultReference(referenceNode, entry.Key, sourcePath, entryPath.Append("reference")),
+                    Reference = ParseKeyVaultReference(referenceNode, entry.Key, sourcePath, entryPath.Append("reference"), utf8),
                     Source = ParameterValueSource.File,
                     SourcePath = sourcePath,
                 };
@@ -199,21 +199,35 @@ public sealed class ParameterSet
         return name.Length > 0;
     }
 
-    private static KeyVaultReference ParseKeyVaultReference(JsonNode? node, string parameterName, string? sourcePath, JsonPath path)
+    private static KeyVaultReference ParseKeyVaultReference(JsonNode? node, string parameterName, string? sourcePath, JsonPath path, ReadOnlyMemory<byte> utf8)
     {
         if (node is not JsonObject reference)
         {
-            throw new TemplateLoadException(DiagnosticCodes.InvalidParameterFile, $"Parameter '{parameterName}': 'reference' must be an object.", sourcePath, path: path);
+            throw new TemplateLoadException(DiagnosticCodes.InvalidParameterFile, $"Parameter '{parameterName}': 'reference' must be an object.", sourcePath, Locate(utf8, path), path);
         }
 
         string? vaultId = reference["keyVault"] is JsonObject keyVault ? TemplateJson.AsString(keyVault["id"]) : null;
         string? secretName = TemplateJson.AsString(reference["secretName"]);
         string? secretVersion = TemplateJson.AsString(reference["secretVersion"]);
+        if (secretVersion is null && reference["secretVersion"] is not null)
+        {
+            // A pinned version that is not a string (for example the number 2) must not be dropped silently: the latest version would be
+            // resolved instead. Numbers are not coerced; an absent or explicit-null secretVersion means "latest".
+            JsonPath versionPath = path.Append("secretVersion");
+            throw new TemplateLoadException(DiagnosticCodes.InvalidParameterFile, $"Parameter '{parameterName}': secretVersion must be a string.", sourcePath, Locate(utf8, versionPath), versionPath);
+        }
+
         if (string.IsNullOrWhiteSpace(vaultId) || string.IsNullOrWhiteSpace(secretName))
         {
-            throw new TemplateLoadException(DiagnosticCodes.InvalidParameterFile, $"Parameter '{parameterName}': a Key Vault reference needs 'keyVault.id' and 'secretName'.", sourcePath, path: path);
+            throw new TemplateLoadException(DiagnosticCodes.InvalidParameterFile, $"Parameter '{parameterName}': a Key Vault reference needs 'keyVault.id' and 'secretName'.", sourcePath, Locate(utf8, path), path);
         }
 
         return KeyVaultReference.Create(vaultId, secretName, secretVersion);
+    }
+
+    /// <summary>The line/column of a path (or its nearest recorded ancestor); built only on the error path.</summary>
+    private static SourceLocation? Locate(ReadOnlyMemory<byte> utf8, JsonPath path)
+    {
+        return SourceMap.Build(utf8).FindNearest(path);
     }
 }

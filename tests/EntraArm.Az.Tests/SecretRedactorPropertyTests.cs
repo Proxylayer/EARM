@@ -79,12 +79,7 @@ public sealed class SecretRedactorPropertyTests
         var random = new Random(Seed);
         for (int i = 0; i < Cases; i++)
         {
-            // A "--authorization=..." argument is a known gap, pinned by Defect_PrefixedAuthorizationNames_AreNotMasked.
             string name = SecretNames[random.Next(SecretNames.Length)];
-            if (format == "dashed-argument" && name.Equals("Authorization", StringComparison.OrdinalIgnoreCase))
-            {
-                name = "password";
-            }
 
             string value = Value(random, i);
             string input = Format(format, name, value);
@@ -143,19 +138,62 @@ public sealed class SecretRedactorPropertyTests
     }
 
     /// <summary>
-    /// DEFECT (low severity, not fixed here: src/ is out of scope for the test pass). SecretRedactor.IsSecretName matches "authorization" only
-    /// as the whole name, so credential-carrying names that merely contain it (<c>Proxy-Authorization</c>, <c>--authorization</c>,
-    /// <c>x-ms-authorization</c>) are not masked in free text and the credential reaches logs / exception messages.
-    /// Expected: the value after any name containing "authorization" is masked. Actual: left as is (src/EntraArm.Az/SecretRedactor.cs, IsSecretName).
+    /// Any name that contains "authorization" is a secret name, not only the whole word: the name is also tested part by part (split on
+    /// <c>-</c>, <c>_</c>, <c>.</c>, <c>$</c>), so prefixes and leading dashes do not hide it. The "Basic" scheme word after the name is
+    /// swallowed like "Bearer", so the credential itself (not just the scheme) is masked.
     /// </summary>
-    [Theory(Skip = "DEFECT: names containing authorization (Proxy-Authorization, --authorization, x-ms-authorization) are not treated as secret names (SecretRedactor.IsSecretName).")]
+    [Theory]
     [InlineData("Proxy-Authorization: Basic dXNlcjpwYXNzd29yZA==", "dXNlcjpwYXNzd29yZA==")]
     [InlineData("--authorization=opaque-credential-value", "opaque-credential-value")]
     [InlineData("x-ms-authorization: opaque-credential-value", "opaque-credential-value")]
-    public void Defect_PrefixedAuthorizationNames_AreNotMasked(string text, string secret)
+    [InlineData("Authorization: Basic dXNlcjpwYXNzd29yZA==", "dXNlcjpwYXNzd29yZA==")]
+    [InlineData("proxy_authorization=opaque-credential-value", "opaque-credential-value")]
+    [InlineData("X.Authorization.Header: Negotiate YIIabc123opaque", "YIIabc123opaque")]
+    [InlineData("WWW-Authorization-Info: Bearer opaque-credential-value", "opaque-credential-value")]
+    [InlineData("{\"Proxy-Authorization\": \"Basic dXNlcjpwYXNzd29yZA==\"}", "dXNlcjpwYXNzd29yZA==")]
+    public void PrefixedAuthorizationNames_AreMasked(string text, string secret)
     {
         Assert.DoesNotContain(secret, SecretRedactor.RedactText(text), StringComparison.Ordinal);
     }
+
+    [Theory]
+    [InlineData("Proxy-Authorization")]
+    [InlineData("--authorization")]
+    [InlineData("x-ms-authorization")]
+    [InlineData("X_MS_AUTHORIZATION")]
+    [InlineData("--Proxy-Authorization")]
+    [InlineData("x.authorization.y")]
+    [InlineData("--client-secret")]
+    [InlineData("--access-token")]
+    [InlineData("x-ms-token")]
+    public void IsSecretName_TestsTheWholeNameAndItsParts(string name)
+    {
+        Assert.True(SecretRedactor.IsSecretName(name), name);
+        Assert.Equal(name + "=" + SecretRedactor.Mask, SecretRedactor.RedactArgument(name + "=value"));
+        Assert.Equal(SecretRedactor.Mask, SecretRedactor.RedactValue(name, "value"));
+        Assert.Equal(SecretRedactor.Mask, SecretRedactor.RedactJson(new JsonObject { [name] = "value" })![name]!.GetValue<string>());
+    }
+
+    [Theory]
+    [InlineData("$skiptoken")]
+    [InlineData("skiptoken")]
+    [InlineData("$deltatoken")]
+    [InlineData("deltaToken")]
+    [InlineData("SkipToken")]
+    [InlineData("displayName")]
+    [InlineData("auth")]
+    [InlineData("author")]
+    [InlineData("x-ms-client-request-id")]
+    [InlineData("$filter")]
+    [InlineData("-")]
+    [InlineData("--")]
+    [InlineData("$")]
+    public void IsSecretName_KeepsThePagingTokenAndOrdinaryNamesPlain(string name)
+    {
+        Assert.False(SecretRedactor.IsSecretName(name), name);
+        Assert.Equal("value", SecretRedactor.RedactValue(name, "value"));
+    }
+
     [Fact]
     public void BearerTokensAndJwts_AreMasked_WhereverTheyAreEmbedded()
     {
@@ -251,20 +289,176 @@ public sealed class SecretRedactorPropertyTests
     }
 
     /// <summary>
-    /// DEFECT (medium-low severity, not fixed here: src/ is out of scope for the test pass). SecretRedactor.RedactText takes quadratic time on a long
-    /// unbroken run of word characters: the KeyValueSecretPattern (src/EntraArm.Az/SecretRedactor.cs, `[\w$.-]+` followed by `\s*[=:]`) is retried from
-    /// every start position and scans to the end of the run each time. Measured on this machine: 4,000 chars 0.33 s, 8,000 chars 1.3 s, 16,000 chars 5.4 s,
-    /// ~200,000 chars effectively never returns. GraphException / AzCliException redact stderr and messages on construction, so one long unspaced token
-    /// (a base64 body, a long opaque id list) in az output can stall the CLI. Expected: linear time (under a second for 100,000 characters).
+    /// RedactText is linear: every pass (key/value scan, JSON, bearer and JWT patterns) stays well under a second on 100,000 adversarial
+    /// characters. The key/value pattern used to be retried from every start position of a long unbroken word run (16,000 chars took
+    /// seconds), and the JWT pattern from every <c>-eyJ</c> boundary of a long base64-looking run. The inputs are the shapes that make a
+    /// backtracking engine super-linear: unbroken runs, runs of quotes, repeated scheme words and separators, unterminated JSON.
     /// </summary>
-    [Fact(Skip = "DEFECT: RedactText is quadratic on long unbroken word-character runs (16,000 chars take 5+ s); this input would not return.")]
-    public void Defect_RedactText_IsQuadraticOnALongUnbrokenToken()
+    [Theory]
+    [InlineData("unbroken word run")]
+    [InlineData("quotes")]
+    [InlineData("bearer words")]
+    [InlineData("base64")]
+    [InlineData("jwt segments")]
+    [InlineData("name=value chain")]
+    [InlineData("name: value chain")]
+    [InlineData("unterminated json name")]
+    [InlineData("unterminated json value")]
+    [InlineData("backslash run in json value")]
+    [InlineData("spaces after separator")]
+    [InlineData("many names and spaces")]
+    [InlineData("bearer and spaces")]
+    [InlineData("dotted dash name run")]
+    [InlineData("password words")]
+    [InlineData("alternating pairs")]
+    public void RedactText_IsLinear_OnAdversarialInput(string shape)
+    {
+        const int Length = 100_000;
+        string input = shape switch
+        {
+            "unbroken word run" => new string('x', Length),
+            "quotes" => new string('"', Length),
+            "bearer words" => string.Concat(Enumerable.Repeat("Bearer ", Length / 7)),
+            "base64" => new string('A', Length),
+            "jwt segments" => string.Concat(Enumerable.Repeat("eyJAAAAAAAA-", Length / 12)),
+            "name=value chain" => string.Concat(Enumerable.Repeat("a=", Length / 2)),
+            "name: value chain" => string.Concat(Enumerable.Repeat("a: ", Length / 3)),
+            "unterminated json name" => "\"" + string.Concat(Enumerable.Repeat("password", Length / 8)),
+            "unterminated json value" => "{\"password\":\"" + new string('a', Length),
+            "backslash run in json value" => "{\"secret\":\"" + new string((char)92, Length),
+            "spaces after separator" => "a=" + new string(' ', Length),
+            "many names and spaces" => string.Concat(Enumerable.Repeat("a      ", Length / 7)),
+            "bearer and spaces" => "Bearer" + new string(' ', Length),
+            "dotted dash name run" => string.Concat(Enumerable.Repeat("x.-", Length / 3)),
+            "password words" => string.Concat(Enumerable.Repeat("password=", Length / 9)),
+            "alternating pairs" => string.Concat(Enumerable.Repeat("a=b;password=c,", Length / 15)),
+            _ => throw new ArgumentOutOfRangeException(nameof(shape)),
+        };
+
+        // Warm up (JIT, lazy DFA construction) so the measurement is the steady-state cost of the input.
+        SecretRedactor.RedactText("warm=up Bearer abc {\"password\":\"x\"} eyJabcdefgh.abcdefgh.abcdefgh");
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        string redacted = SecretRedactor.RedactText(input);
+        watch.Stop();
+
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(1), $"[{shape}] took {watch.Elapsed}");
+        Assert.NotNull(redacted);
+    }
+
+    [Fact]
+    public void RedactText_OfALongUnbrokenToken_IsLinear_AndUnchanged()
     {
         string input = new string('x', 100_000);
 
         var watch = System.Diagnostics.Stopwatch.StartNew();
-        SecretRedactor.RedactText(input);
+        string redacted = SecretRedactor.RedactText(input);
+        watch.Stop();
 
-        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(2), "took " + watch.Elapsed);
+        Assert.Equal(input, redacted);
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(1), "took " + watch.Elapsed);
+    }
+
+    /// <summary>
+    /// Every pass must keep finding secrets in a huge text. (A regex-based version of the bearer and JWT passes silently missed matches
+    /// in texts of about 100,000 characters or more: .NET's NonBacktracking engine drops <c>\b</c> matches there. The passes are scanners now.)
+    /// </summary>
+    [Theory]
+    [InlineData(1_000)]
+    [InlineData(60_000)]
+    [InlineData(100_000)]
+    [InlineData(300_000)]
+    public void RedactText_StillMasksEverySecretKind_InAHugeText(int noiseLength)
+    {
+        string noise = new string('x', noiseLength);
+        string jwt = "eyJabcdefghij.klmnopqrstuv.wxyz0123456789";
+
+        string redacted = SecretRedactor.RedactText(
+            noise + " password=hunter2-canary " + noise + " Bearer opaque-canary-token " + noise + " " + jwt + " " + noise + " {\"client_secret\": \"json-canary\"}");
+
+        Assert.DoesNotContain("hunter2-canary", redacted, StringComparison.Ordinal);
+        Assert.DoesNotContain("opaque-canary-token", redacted, StringComparison.Ordinal);
+        Assert.DoesNotContain("klmnopqrstuv", redacted, StringComparison.Ordinal);
+        Assert.DoesNotContain("json-canary", redacted, StringComparison.Ordinal);
+        Assert.Contains("password=***", redacted, StringComparison.Ordinal);
+        Assert.Equal(4 * noiseLength, redacted.Count(c => c == 'x'));
+    }
+
+    [Theory]
+    [InlineData("{\"password\": \"abc", "{\"password\": \"***")]
+    [InlineData("stderr: {\"x\": 1, \"client_secret\": \"abc\\\"def", "stderr: {\"x\": 1, \"client_secret\": \"***")]
+    [InlineData("{\"a\": \"b\", \"token\" : \"abc\"} tail", "{\"a\": \"b\", \"token\": \"***\"} tail")]
+    [InlineData("{\"displayName\": \"password\"}", "{\"displayName\": \"password\"}")]
+    [InlineData("{\"password\": 5}", "{\"password\": 5}")]
+    [InlineData("{\"password\" \n : \n \"a\\\"b\", \"n\": 1}", "{\"password\": \"***\", \"n\": 1}")]
+    public void JsonPass_MasksStringValues_AndAValueCutOffByTruncationToTheEnd(string input, string expected)
+    {
+        Assert.Equal(expected, SecretRedactor.RedactText(input));
+        Assert.Equal(expected, SecretRedactor.RedactText(expected));
+    }
+
+    [Theory]
+    [InlineData("Bearer abc.def-ghi_jkl~+/==", "Bearer ***")]
+    [InlineData("header BEARER   tok1", "header Bearer ***")]
+    [InlineData("xBearer tok1", "xBearer tok1")]
+    [InlineData("Bearer ", "Bearer ")]
+    [InlineData("Bearer", "Bearer")]
+    [InlineData("Bearertok1", "Bearertok1")]
+    [InlineData("Bearer Bearer tok1", "Bearer *** tok1")]
+    [InlineData("a eyJabcdefgh.abcdefgh.abcdefgh b", "a *** b")]
+    [InlineData("a eyJabcdefg.abcdefgh.abcdefgh b", "a eyJabcdefg.abcdefgh.abcdefgh b")]
+    [InlineData("xeyJabcdefgh.abcdefgh.abcdefgh", "xeyJabcdefgh.abcdefgh.abcdefgh")]
+    [InlineData("-eyJabcdefgh.abcdefgh.abcdefgh-", "-***")]
+    [InlineData("EYJabcdefgh.abcdefgh.abcdefgh", "EYJabcdefgh.abcdefgh.abcdefgh")]
+    [InlineData("eyJabcdefgh.abcdefgh.abcdefgh.abcdefgh", "***.abcdefgh")]
+    [InlineData("eyJ-eyJabcdefgh.abcdefgh.abcdefgh", "***")]
+    public void BearerAndJwtPasses_KeepTheirShapes(string input, string expected)
+    {
+        Assert.Equal(expected, SecretRedactor.RedactText(input));
+    }
+
+    /// <summary>
+    /// The old key/value pass rescanned the value of every non-secret pair by recursion, one stack frame per pair, so a long
+    /// <c>a=a=a=...</c> chain overflowed the stack and killed the process. The pass is now one forward scan.
+    /// </summary>
+    [Theory]
+    [InlineData("a=")]
+    [InlineData("a: ")]
+    [InlineData("x.y=")]
+    public void RedactText_OfAVeryLongChainOfNonSecretPairs_DoesNotOverflowTheStack(string pair)
+    {
+        string chain = string.Concat(Enumerable.Repeat(pair, 100_000 / pair.Length));
+
+        Assert.Equal(chain, SecretRedactor.RedactText(chain));
+        Assert.Equal(chain + "password=***", SecretRedactor.RedactText(chain + "password=hunter2"));
+    }
+
+    [Theory]
+    [InlineData("a=b password=hunter2 c=d", "a=b password=*** c=d")]
+    [InlineData("WARNING: secretText=hunter2 (retry)", "WARNING: secretText=*** (retry)")]
+    [InlineData("a=b&password=hunter2&c=d", "a=b&password=***")]
+    [InlineData("a=password=hunter2", "a=password=***")]
+    [InlineData("Authorization: Bearer opaque-canary", "Authorization: ***")]
+    [InlineData("Authorization: Basic dXNlcjpwYXNzd29yZA==", "Authorization: ***")]
+    [InlineData("authorization: bearer opaque-canary", "authorization: ***")]
+    [InlineData("password = hunter2", "password = ***")]
+    [InlineData("password:hunter2;next=1", "password:***;next=1")]
+    [InlineData("pre.password=hunter2", "pre.password=***")]
+    [InlineData("note: basic setup done", "note: basic setup done")]
+    [InlineData("password=", "password=")]
+    [InlineData("password= ", "password= ")]
+    [InlineData("password=,x", "password=,x")]
+    public void KeyValuePass_KeepsItsExistingShapes(string input, string expected)
+    {
+        Assert.Equal(expected, SecretRedactor.RedactText(input));
+    }
+
+    [Fact]
+    public void RedactText_IsAFixedPoint_OnTheKeyValueShapes()
+    {
+        foreach (var input in new[] { "a=b password=hunter2 c=d", "Authorization: Basic dXNlcjpwYXNzd29yZA==", "pre.password=hunter2" })
+        {
+            string once = SecretRedactor.RedactText(input);
+            Assert.Equal(once, SecretRedactor.RedactText(once));
+        }
     }
 }

@@ -1,6 +1,7 @@
 using System;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using EntraArm.Core.Json;
 using EntraArm.Core.Secrets;
 
 namespace EntraArm.Core;
@@ -120,26 +121,7 @@ public static class TemplateParameterTypes
 
     private static bool IsIntegral(JsonValue value)
     {
-        if (value.TryGetValue<long>(out _) || value.TryGetValue<int>(out _))
-        {
-            return true;
-        }
-
-        if (value.TryGetValue<JsonElement>(out var element))
-        {
-            return element.ValueKind == JsonValueKind.Number && element.TryGetInt64(out _);
-        }
-
-        if (value.TryGetValue<double>(out var d))
-        {
-            return Math.Floor(d) == d;
-        }
-
-        if (value.TryGetValue<decimal>(out var m))
-        {
-            return decimal.Truncate(m) == m;
-        }
-
-        return false;
+        // One definition of "integral number" for the whole pipeline (TemplateJson.AsInt64): 3.0 and 1.5e3 are integers, 3.5 is not.
+        return TemplateJson.AsInt64(value) is not null;
     }
 }

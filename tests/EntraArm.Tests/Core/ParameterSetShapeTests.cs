@@ -80,26 +80,48 @@ public sealed class ParameterSetShapeTests
     }
 
     /// <summary>
-    /// DEFECT (low severity, not fixed here: src/ is out of scope for the test pass). ParameterSet.ParseKeyVaultReference
-    /// (src/EntraArm.Core/ParameterSet.cs:199) reads <c>secretVersion</c> through <c>TemplateJson.AsString</c>, which is <c>null</c> for any
-    /// non-string, so a numeric version (<c>"secretVersion": 2</c>) is silently dropped and the LATEST secret version is resolved instead of the
-    /// pinned one. Expected: an InvalidParameterFile error (or the number taken as text). Actual: parsed with SecretVersion = null.
+    /// A pinned secret version that is present but not a string (a number such as <c>2</c>, a bool, an object, an array) is refused rather than
+    /// silently dropped, which would resolve the LATEST version instead of the pinned one. Numbers are not coerced to text.
     /// </summary>
-    [Fact(Skip = "DEFECT: a non-string secretVersion is silently ignored, so the latest secret version is used instead of the pinned one (ParameterSet.cs:199).")]
-    public void Defect_ANumericSecretVersion_ShouldNotBeSilentlyDropped()
+    [Theory]
+    [InlineData("2")]
+    [InlineData("2.5")]
+    [InlineData("0")]
+    [InlineData("true")]
+    [InlineData("false")]
+    [InlineData("{ \"v\": \"1\" }")]
+    [InlineData("[ \"1\" ]")]
+    [InlineData("[]")]
+    public void ANonStringSecretVersion_IsAnInvalidParameterFile_WithThePathAndPosition(string version)
     {
-        var parse = () => Parse(Reference("{ \"keyVault\": { \"id\": \"kv\" }, \"secretName\": \"s\", \"secretVersion\": 2 }"));
+        string json = "{\n  \"parameters\": {\n    \"pw\": {\n      \"reference\": { \"keyVault\": { \"id\": \"kv\" }, \"secretName\": \"s\", \"secretVersion\": " + version + " }\n    }\n  }\n}";
 
-        try
-        {
-            var set = parse();
-            Assert.True(set.TryGet("pw", out var value));
-            Assert.NotNull(value.Reference!.SecretVersion);
-        }
-        catch (TemplateLoadException ex)
-        {
-            Assert.Equal(DiagnosticCodes.InvalidParameterFile, ex.Code);
-        }
+        var ex = Assert.Throws<TemplateLoadException>(() => Parse(json));
+
+        Assert.Equal(DiagnosticCodes.InvalidParameterFile, ex.Code);
+        Assert.Contains("secretVersion must be a string", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("'pw'", ex.Message, StringComparison.Ordinal);
+        Assert.Equal("parameters.pw.reference.secretVersion", ex.Path!.ToString());
+        Assert.Equal("params.json", ex.Source);
+        Assert.Equal(4, ex.Location!.Value.Line);
+    }
+
+    [Fact]
+    public void AnAbsentOrNullSecretVersion_MeansTheLatestVersion_AndAStringVersionIsKept()
+    {
+        Assert.Null(Parse(Reference("{ \"keyVault\": { \"id\": \"kv\" }, \"secretName\": \"s\" }")).Values["pw"].Reference!.SecretVersion);
+        Assert.Null(Parse(Reference("{ \"keyVault\": { \"id\": \"kv\" }, \"secretName\": \"s\", \"secretVersion\": null }")).Values["pw"].Reference!.SecretVersion);
+        Assert.Equal("2", Parse(Reference("{ \"keyVault\": { \"id\": \"kv\" }, \"secretName\": \"s\", \"secretVersion\": \"2\" }")).Values["pw"].Reference!.SecretVersion);
+    }
+
+    [Fact]
+    public void AWrongTypedVaultIdOrSecretName_IsStillRefused_WithTheReferencePositionToo()
+    {
+        var ex = Assert.Throws<TemplateLoadException>(() => Parse("{\n \"parameters\": { \"pw\": { \"reference\": { \"keyVault\": { \"id\": 5 }, \"secretName\": 7 } } }\n}"));
+
+        Assert.Equal(DiagnosticCodes.InvalidParameterFile, ex.Code);
+        Assert.Equal("parameters.pw.reference", ex.Path!.ToString());
+        Assert.Equal(2, ex.Location!.Value.Line);
     }
 
     // ---- value / reference conflicts and layouts ----

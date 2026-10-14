@@ -114,7 +114,7 @@ public sealed class ResourceExpander
                 return;
             }
 
-            if (!JsonValues.TryGetInt64(batchValue, out long size) || size < 1)
+            if (!JsonValues.TryGetWholeNumber(batchValue, out long size) || size < 1)
             {
                 Error(document, diagnostics, DiagnosticCodes.InvalidCopy, $"copy.batchSize must be a positive integer, got {JsonValues.Render(batchValue)}.", copy.Path.Append("batchSize"));
                 return;
@@ -160,7 +160,7 @@ public sealed class ResourceExpander
             return null;
         }
 
-        if (!JsonValues.TryGetInt64(value, out long count) || count < 0)
+        if (!JsonValues.TryGetWholeNumber(value, out long count) || count < 0)
         {
             Error(document, diagnostics, DiagnosticCodes.InvalidCopy, $"copy.count must evaluate to a non-negative integer, got {JsonValues.Render(value)}.", path);
             return null;

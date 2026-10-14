@@ -304,18 +304,138 @@ public sealed class TemplateInputRobustnessTests
     }
 
     /// <summary>
-    /// DEFECT (low severity, not fixed here: src/ is out of scope for the test pass). TemplateJson.AsInt64 (src/EntraArm.Core/Json/TemplateJson.cs:104)
-    /// is documented as "the integral value of a leaf node", but for a parsed (JsonElement-backed) number it only accepts integer syntax:
-    /// <c>3.0</c> and <c>1.5e3</c> give <c>null</c>, while the same values held as CLR doubles (<c>JsonValue.Create(3.0)</c>) give 3 and 1500.
-    /// Expected: the same answer for the same number however it was created. Actual: parsed 3.0 / 1.5e3 are "not integral".
+    /// <c>TemplateJson.AsInt64</c> depends only on a number's exact value, never on how the node was created: any JSON number that is a
+    /// whole number inside the <see cref="long"/> range yields it (<c>3.0</c>, <c>1.5e3</c>, <c>-0.0</c>, <c>1e2</c>), and fractions,
+    /// out-of-range values and non-numbers yield <c>null</c>. The check reads the decimal digits, so large integers do not lose precision.
     /// </summary>
-    [Fact(Skip = "DEFECT: AsInt64 treats parsed 3.0 / 1.5e3 as non-integral but CLR double 3.0 as 3 (TemplateJson.cs:104).")]
-    public void Defect_AsInt64_ParsedIntegralFloatsAreNotIntegral()
+    [Theory]
+    [InlineData("3", 3L)]
+    [InlineData("3.0", 3L)]
+    [InlineData("-0.0", 0L)]
+    [InlineData("-0", 0L)]
+    [InlineData("0.000", 0L)]
+    [InlineData("0e999999999999", 0L)]
+    [InlineData("1.5e3", 1500L)]
+    [InlineData("1E+2", 100L)]
+    [InlineData("1e2", 100L)]
+    [InlineData("30e-1", 3L)]
+    [InlineData("0.1e1", 1L)]
+    [InlineData("100000e-5", 1L)]
+    [InlineData("1500.000", 1500L)]
+    [InlineData("-2.5e1", -25L)]
+    [InlineData("1e18", 1_000_000_000_000_000_000L)]
+    [InlineData("9007199254740993", 9007199254740993L)]
+    [InlineData("9007199254740993.0", 9007199254740993L)]
+    [InlineData("90071992547409930e-1", 9007199254740993L)]
+    [InlineData("9223372036854775807", long.MaxValue)]
+    [InlineData("9223372036854775807.0", long.MaxValue)]
+    [InlineData("-9223372036854775808", long.MinValue)]
+    [InlineData("-9223372036854775808.0", long.MinValue)]
+    [InlineData("-9.223372036854775808e18", long.MinValue)]
+    [InlineData("9223372036854775808", null)]
+    [InlineData("9223372036854775808.0", null)]
+    [InlineData("-9223372036854775809", null)]
+    [InlineData("9.223372036854775808e18", null)]
+    [InlineData("1e19", null)]
+    [InlineData("1E+400", null)]
+    [InlineData("1e-400", null)]
+    [InlineData("123456789012345678901234567890", null)]
+    [InlineData("1.5", null)]
+    [InlineData("3.5", null)]
+    [InlineData("-0.5", null)]
+    [InlineData("1e-1", null)]
+    [InlineData("15e-1", null)]
+    [InlineData("3.0000000000000000000000000000001", null)]
+    [InlineData("9007199254740993.5", null)]
+    [InlineData("\"3\"", null)]
+    [InlineData("true", null)]
+    [InlineData("null", null)]
+    [InlineData("[3]", null)]
+    [InlineData("{}", null)]
+    public void AsInt64_IsValueBased_ForParsedNumbers(string json, long? expected)
     {
-        var document = Loader.Parse(Envelope + ", \"metadata\": { \"three\": 3.0, \"exp\": 1.5e3 } }", "x.json", ParameterSet.Empty);
+        Assert.Equal(expected, TemplateJson.AsInt64(JsonNode.Parse(json)));
+    }
 
-        Assert.Equal(TemplateJson.AsInt64(JsonValue.Create(3.0)), TemplateJson.AsInt64(document.Metadata!["three"]));
-        Assert.Equal(1500L, TemplateJson.AsInt64(document.Metadata["exp"]));
+    [Fact]
+    public void AsInt64_ParsedIntegralFloatsAreIntegral_ThroughTheLoader()
+    {
+        var document = Loader.Parse(Envelope + ", \"metadata\": { \"three\": 3.0, \"exp\": 1.5e3, \"negZero\": -0.0, \"hundred\": 1e2, \"half\": 1.5, \"over\": 1e19 } }", "x.json", ParameterSet.Empty);
+
+        var metadata = document.Metadata!;
+        Assert.Equal(TemplateJson.AsInt64(JsonValue.Create(3.0)), TemplateJson.AsInt64(metadata["three"]));
+        Assert.Equal(3L, TemplateJson.AsInt64(metadata["three"]));
+        Assert.Equal(1500L, TemplateJson.AsInt64(metadata["exp"]));
+        Assert.Equal(0L, TemplateJson.AsInt64(metadata["negZero"]));
+        Assert.Equal(100L, TemplateJson.AsInt64(metadata["hundred"]));
+        Assert.Null(TemplateJson.AsInt64(metadata["half"]));
+        Assert.Null(TemplateJson.AsInt64(metadata["over"]));
+    }
+
+    /// <summary>The CLR-backed numbers (what code builds with <c>JsonValue.Create</c>) agree with the parsed ones.</summary>
+    [Fact]
+    public void AsInt64_AgreesBetweenClrBackedAndParsedNumbers()
+    {
+        string[] texts = ["3", "3.0", "-0.0", "1500", "1.5e3", "1e2", "1e18", "9007199254740992", "1.5", "-0.25", "1e19", "9223372036854775808", "-9223372036854775808", "1e300"];
+        foreach (var text in texts)
+        {
+            long? parsed = TemplateJson.AsInt64(JsonNode.Parse(text));
+            double asDouble = double.Parse(text, System.Globalization.CultureInfo.InvariantCulture);
+
+            Assert.True(parsed == TemplateJson.AsInt64(JsonValue.Create(asDouble)), $"double {text}");
+            if (decimal.TryParse(text, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var asDecimal))
+            {
+                Assert.True(parsed == TemplateJson.AsInt64(JsonValue.Create(asDecimal)), $"decimal {text}");
+            }
+        }
+
+        Assert.Equal(9007199254740992L, TemplateJson.AsInt64(JsonValue.Create(9007199254740992d)));
+        Assert.Null(TemplateJson.AsInt64(JsonValue.Create(double.NaN)));
+        Assert.Null(TemplateJson.AsInt64(JsonValue.Create(double.PositiveInfinity)));
+        Assert.Null(TemplateJson.AsInt64(JsonValue.Create(double.NegativeInfinity)));
+        Assert.Equal(3L, TemplateJson.AsInt64(JsonValue.Create(3f)));
+        Assert.Null(TemplateJson.AsInt64(JsonValue.Create(3.5f)));
+        Assert.Equal(7L, TemplateJson.AsInt64(JsonValue.Create((byte)7)));
+        Assert.Equal(-7L, TemplateJson.AsInt64(JsonValue.Create((sbyte)-7)));
+        Assert.Equal(7L, TemplateJson.AsInt64(JsonValue.Create((short)7)));
+        Assert.Equal(7L, TemplateJson.AsInt64(JsonValue.Create((ushort)7)));
+        Assert.Equal(7L, TemplateJson.AsInt64(JsonValue.Create(7u)));
+        Assert.Equal(7L, TemplateJson.AsInt64(JsonValue.Create(7UL)));
+        Assert.Null(TemplateJson.AsInt64(JsonValue.Create(ulong.MaxValue)));
+        Assert.Equal(3L, TemplateJson.AsInt64(JsonValue.Create(3.0m)));
+        Assert.Null(TemplateJson.AsInt64(JsonValue.Create(3.5m)));
+        Assert.Null(TemplateJson.AsInt64(JsonValue.Create(79228162514264337593543950335m)));
+    }
+
+    [Theory]
+    [InlineData("3", true)]
+    [InlineData("3.0", true)]
+    [InlineData("1.5e3", true)]
+    [InlineData("-0.0", true)]
+    [InlineData("3.5", false)]
+    [InlineData("1e19", false)]
+    [InlineData("9223372036854775808", false)]
+    [InlineData("\"3\"", false)]
+    public void ACopyCountAndBatchSize_AcceptAnyWholeNumberSpelling(string number, bool accepted)
+    {
+        string resource = "{ \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01\", \"name\": \"g\", \"copy\": { \"name\": \"c\", \"count\": " + number + ", \"batchSize\": " + number + " } }";
+        var document = Loader.Parse(Envelope.Replace("\"resources\": []", "\"resources\": [ " + resource + " ]", StringComparison.Ordinal) + "}", "x.json", ParameterSet.Empty);
+
+        var diagnostics = new TemplateValidator(EntraArm.Core.Types.ResourceTypeCatalog.Default).Validate(document);
+
+        var count = diagnostics.Where(d => d.Code == DiagnosticCodes.InvalidCopy && d.Path?.ToString() == "resources[0].copy.count").ToList();
+        var batch = diagnostics.Where(d => d.Code == DiagnosticCodes.InvalidCopy && d.Path?.ToString() == "resources[0].copy.batchSize").ToList();
+        if (accepted)
+        {
+            Assert.Empty(count);
+            // A zero-valued number is a valid count but not a valid batch size (must be positive).
+            Assert.Equal(number == "-0.0" ? 1 : 0, batch.Count);
+        }
+        else
+        {
+            Assert.Single(count);
+            Assert.Single(batch);
+        }
     }
 
     [Fact]
@@ -446,7 +566,7 @@ public sealed class TemplateInputRobustnessTests
         Assert.Equal(3L, TemplateJson.AsInt64(JsonValue.Create(3.0)));
         Assert.Null(TemplateJson.AsInt64(JsonValue.Create(3.5)));
         Assert.Null(TemplateJson.AsInt64(JsonValue.Create(1e20)));
-        Assert.Null(TemplateJson.AsInt64(JsonValue.Create(9007199254740992d)));
+        Assert.Equal(9007199254740992L, TemplateJson.AsInt64(JsonValue.Create(9007199254740992d)));
         Assert.Equal(9007199254740991L, TemplateJson.AsInt64(JsonValue.Create(9007199254740991d)));
         Assert.Null(TemplateJson.LiteralString(null));
         Assert.Equal("plain", TemplateJson.LiteralString(JsonValue.Create("plain")));

@@ -446,21 +446,74 @@ public sealed class AzGraphClientEdgeTests
     }
 
     /// <summary>
-    /// DEFECT (low severity, not fixed here: src/ is out of scope for the test pass). AzGraphClient.BuildBatchItem (src/EntraArm.Az/AzGraphClient.cs:280)
-    /// tests <c>headers.ContainsKey("Content-Type")</c> on a case-sensitive JsonObject, while the single-request path (SendAsync) uses a case-insensitive
-    /// dictionary. A caller-supplied lower-case <c>content-type</c> therefore yields two Content-Type entries in the sub-request.
-    /// Expected: one Content-Type header (the caller's). Actual: both "content-type" and "Content-Type".
+    /// HTTP header names are case-insensitive, so a caller-supplied Content-Type in any case is the one Content-Type of a batch
+    /// sub-request: the caller's value and spelling win and no second entry is added (the single-request path always behaved this way).
     /// </summary>
-    [Fact(Skip = "DEFECT: batch sub-requests duplicate a caller-supplied lower-case content-type header (AzGraphClient.cs:280).")]
-    public async Task Defect_Batch_ACallerContentTypeInAnotherCase_IsDuplicated()
+    [Theory]
+    [InlineData("content-type")]
+    [InlineData("Content-Type")]
+    [InlineData("CONTENT-TYPE")]
+    [InlineData("Content-type")]
+    public async Task Batch_ACallerContentTypeInAnyCase_IsTheOnlyContentType(string callerName)
     {
         var runner = ScriptedAzRunner.Sequence(Envelope(Sub(1, 204)));
         var (client, _, _) = Create(runner);
-        var request = new BatchRequest("POST", "/groups/g/members/$ref", new JsonObject { ["a"] = 2 }) { Headers = new Dictionary<string, string> { ["content-type"] = "application/json; charset=utf-8" } };
+        var request = new BatchRequest("POST", "/groups/g/members/$ref", new JsonObject { ["a"] = 2 }) { Headers = new Dictionary<string, string> { [callerName] = "application/json; charset=utf-8" } };
 
         await client.BatchAsync([request], GraphApi.V1, RetryHint.Default, Ct);
 
         var headers = ((JsonObject)((JsonArray)runner.Requests[0].Body!["requests"]!)[0]!)["headers"]!.AsObject();
-        Assert.Single(headers, h => string.Equals(h.Key, "Content-Type", StringComparison.OrdinalIgnoreCase));
+        var contentType = Assert.Single(headers, h => string.Equals(h.Key, "Content-Type", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(callerName, contentType.Key);
+        Assert.Equal("application/json; charset=utf-8", contentType.Value!.GetValue<string>());
+    }
+
+    [Fact]
+    public async Task Batch_WithABodyAndOtherHeaders_AddsTheDefaultContentTypeOnce()
+    {
+        var runner = ScriptedAzRunner.Sequence(Envelope(Sub(1, 204)));
+        var (client, _, _) = Create(runner);
+        var request = new BatchRequest("PATCH", "/groups/g", new JsonObject { ["a"] = 2 }) { Headers = new Dictionary<string, string> { ["prefer"] = "create-if-missing", ["ConsistencyLevel"] = "eventual" } };
+
+        await client.BatchAsync([request], GraphApi.V1, RetryHint.Default, Ct);
+
+        var headers = ((JsonObject)((JsonArray)runner.Requests[0].Body!["requests"]!)[0]!)["headers"]!.AsObject();
+        Assert.Equal(3, headers.Count);
+        Assert.Equal("application/json", headers["Content-Type"]!.GetValue<string>());
+        Assert.Equal("create-if-missing", headers["prefer"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public async Task Batch_WithoutABody_NeverAddsAContentType()
+    {
+        var runner = ScriptedAzRunner.Sequence(Envelope(Sub(1, 200)));
+        var (client, _, _) = Create(runner);
+
+        await client.BatchAsync([new BatchRequest("GET", "/users") { Headers = new Dictionary<string, string> { ["x-one"] = "1" } }], GraphApi.V1, RetryHint.Default, Ct);
+
+        var headers = ((JsonObject)((JsonArray)runner.Requests[0].Body!["requests"]!)[0]!)["headers"]!.AsObject();
+        Assert.False(headers.ContainsKey("Content-Type"));
+    }
+
+    [Theory]
+    [InlineData("prefer")]
+    [InlineData("PREFER")]
+    [InlineData("Prefer")]
+    public void PreferAndConsistencyHeaders_AreFoundIgnoringCase(string spelling)
+    {
+        var request = new GraphRequest("/x", headers: new Dictionary<string, string> { [spelling] = "return=representation", ["consistencylevel"] = "eventual" }, advanced: true);
+
+        // Merging into an existing directive keeps it, whatever its spelling, and leaves one Prefer header.
+        var merged = request.WithPrefer("create-if-missing");
+        var prefer = Assert.Single(merged.Headers!, h => string.Equals(h.Key, "Prefer", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal("return=representation, create-if-missing", prefer.Value);
+
+        // The advanced flag does not add a second ConsistencyLevel next to the caller's.
+        var effective = request.EffectiveHeaders();
+        Assert.Single(effective, h => string.Equals(h.Key, "ConsistencyLevel", StringComparison.OrdinalIgnoreCase));
+
+        // A create-if-missing directive set under any spelling still yields 201 for a PATCH that returns an id.
+        var upsert = new GraphRequest("/x", headers: new Dictionary<string, string> { [spelling] = "create-if-missing" });
+        Assert.Equal(HttpStatusCode.Created, GraphResultMapper.InferStatus("PATCH", upsert, JsonNode.Parse("{\"id\":\"1\"}")));
     }
 }

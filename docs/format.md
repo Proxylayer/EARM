@@ -219,7 +219,9 @@ exists only in Graph request bodies and in `--reveal-secure-outputs` / `--secure
 
 ## Parameters and parameter files
 
-Parameter types: `string`, `securestring`, `int`, `bool`, `object`, `secureObject`, `array`. A value is supplied, in precedence order, by
+Parameter types: `string`, `securestring`, `int`, `bool`, `object`, `secureObject`, `array`. An `int` accepts any JSON number whose exact
+value is a whole number in the 64-bit range, however it is spelled (`3`, `3.0`, `1.5e3`, `-0.0`); a fraction (`3.5`) or a number outside
+the range is a `ParameterValueTypeMismatch`, and `copy.count` / `copy.batchSize` follow the same rule. A value is supplied, in precedence order, by
 `-p name=value` (inline; converted to the parameter type), by a parameter file (`-p @file.json`, later files and values win), then by
 `defaultValue`. An unknown parameter name is an error (`UnknownParameter`); a value of the wrong type or outside `allowedValues` is
 reported (`ParameterValueTypeMismatch`, `ParameterValueNotAllowed`). A parameter without a value is a warning in `deployment validate`
@@ -245,7 +247,9 @@ and an error for `create` and `what-if`.
 
 An entry with `reference` instead of `value` is a Key Vault secret. For `create` and `what-if` the CLI resolves it after the
 preflight with `az keyvault secret show --vault-name <vault> --name <secretName> [--version <v>] --query value`, through the same
-Azure CLI session; the vault name is the last segment of `keyVault.id` (a bare name is accepted). The value is **always secure
+Azure CLI session; the vault name is the last segment of `keyVault.id` (a bare name is accepted). `secretVersion` is optional and must be a string
+(absent, `null` or blank means the latest version); a number or any other non-string is an `InvalidParameterFile` error with the
+path and position, never silently replaced by the latest version. The value is **always secure
 (tainted)**, whatever the declared parameter type. The identity behind the Azure CLI session needs read access to the secret (`Key Vault
 Secrets User` or the `get` secret permission of an access policy); that is an Azure permission, not a Graph one
 ([permissions.md](permissions.md)). `deployment validate` stays offline and does not resolve references; a failed resolution is

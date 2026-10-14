@@ -133,9 +133,31 @@ public sealed record GraphRequest
     public GraphRequest WithPrefer(string directive)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(directive);
-        var existing = Headers is not null && Headers.TryGetValue("Prefer", out var current) ? current : null;
+        var existing = TryGetHeader(Headers, "Prefer", out var current) ? current : null;
         var merged = string.IsNullOrEmpty(existing) ? directive : existing + ", " + directive;
         return WithHeader("Prefer", merged);
+    }
+
+    /// <summary>
+    /// Looks a header up by name ignoring case (HTTP header names are case-insensitive, but a caller-supplied dictionary may
+    /// not be), so a <c>prefer</c> or <c>consistencylevel</c> spelling is honoured exactly like <c>Prefer</c>.
+    /// </summary>
+    internal static bool TryGetHeader(IReadOnlyDictionary<string, string>? headers, string name, out string value)
+    {
+        if (headers is not null)
+        {
+            foreach (var pair in headers)
+            {
+                if (string.Equals(pair.Key, name, StringComparison.OrdinalIgnoreCase))
+                {
+                    value = pair.Value;
+                    return true;
+                }
+            }
+        }
+
+        value = string.Empty;
+        return false;
     }
 
     public GraphRequest WithConsistencyLevelEventual()

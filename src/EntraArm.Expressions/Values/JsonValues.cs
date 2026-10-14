@@ -177,6 +177,26 @@ public static class JsonValues
         return false;
     }
 
+    /// <summary>
+    /// Reads a whole number by its exact value, however it was written or created (<c>3</c>, <c>3.0</c>, <c>1.5e3</c>, a CLR double):
+    /// the rule the template checker and the parameter type check use (<see cref="EntraArm.Core.Json.TemplateJson.AsInt64"/>). Used for
+    /// loop sizes (<c>copy.count</c>, <c>copy.batchSize</c>), so a count computed from an <c>int</c> parameter supplied as <c>3.0</c> expands
+    /// like the literal <c>3</c>. Arithmetic keeps using <see cref="TryGetInt64"/>, where a fractional-syntax number stays a float
+    /// (<c>div(7.0, 2)</c> is <c>3.5</c>).
+    /// </summary>
+    public static bool TryGetWholeNumber(JsonNode? node, out long result)
+    {
+        result = 0;
+        if (node is not JsonValue value || SecretJson.IsSecret(value) || UnknownJson.IsUnknown(value))
+        {
+            return false;
+        }
+
+        long? whole = EntraArm.Core.Json.TemplateJson.AsInt64(value);
+        result = whole.GetValueOrDefault();
+        return whole is not null;
+    }
+
     /// <summary>Reads any number as a double.</summary>
     public static bool TryGetDouble(JsonNode? node, out double result)
     {

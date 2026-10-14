@@ -268,16 +268,20 @@ public sealed class AzGraphClient : IGraphClient
             ["url"] = BuildBatchUrl(request),
         };
 
+        // JsonObject keys are case-sensitive but HTTP header names are not: track a caller-supplied Content-Type of any case so
+        // the default is added only when none exists, and the caller's value and spelling win.
         var headers = new JsonObject();
+        var hasContentType = false;
         if (request.Headers is not null)
         {
             foreach (var pair in request.Headers)
             {
                 headers[pair.Key] = pair.Value;
+                hasContentType |= string.Equals(pair.Key, "Content-Type", StringComparison.OrdinalIgnoreCase);
             }
         }
 
-        if (request.Body is not null && !headers.ContainsKey("Content-Type"))
+        if (request.Body is not null && !hasContentType)
         {
             headers["Content-Type"] = "application/json";
         }
@@ -394,7 +398,7 @@ internal static class GraphResultMapper
                 return hasId ? HttpStatusCode.Created : HttpStatusCode.OK;
             case "PATCH":
             {
-                var prefer = request.Headers is not null && request.Headers.TryGetValue("Prefer", out var value) ? value : string.Empty;
+                var prefer = GraphRequest.TryGetHeader(request.Headers, "Prefer", out var value) ? value : string.Empty;
                 return hasId && prefer.Contains("create-if-missing", StringComparison.OrdinalIgnoreCase) ? HttpStatusCode.Created : HttpStatusCode.OK;
             }
 

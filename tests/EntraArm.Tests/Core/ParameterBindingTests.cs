@@ -122,6 +122,41 @@ public sealed class ParameterBindingTests
         Assert.Equal(JsonPath.Parse("parameters.count.value"), diagnostic.Path);
     }
 
+    /// <summary>An <c>int</c> parameter accepts any whole number whatever its spelling (3.0, 1.5e3) and binds as that integer; a fraction or an out-of-range value is a type mismatch.</summary>
+    [Theory]
+    [InlineData("3", 3L)]
+    [InlineData("3.0", 3L)]
+    [InlineData("1.5e3", 1500L)]
+    [InlineData("-0.0", 0L)]
+    [InlineData("9007199254740993", 9007199254740993L)]
+    [InlineData("9007199254740993.0", 9007199254740993L)]
+    [InlineData("3.5", null)]
+    [InlineData("1e19", null)]
+    [InlineData("9223372036854775808", null)]
+    [InlineData("1e-400", null)]
+    public async Task FileValue_OfAnIntParameter_IsAnyWholeNumberSpelling(string number, long? expected)
+    {
+        var file = ParameterSet.Parse(
+            "{ \"parameters\": { \"count\": { \"value\": " + number + " }, \"enabled\": { \"value\": true }, \"settings\": { \"value\": {} }, \"list\": { \"value\": [] }, \"secret\": { \"value\": \"s\" }, \"secretObj\": { \"value\": {} } } }",
+            "values.parameters.json");
+
+        var document = await LoadAsync(file);
+        var diagnostics = Validator.Validate(document);
+
+        Assert.Empty(document.LoadDiagnostics);
+        if (expected is null)
+        {
+            var diagnostic = Assert.Single(diagnostics);
+            Assert.Equal(DiagnosticCodes.ParameterValueTypeMismatch, diagnostic.Code);
+            Assert.Equal(JsonPath.Parse("parameters.count.value"), diagnostic.Path);
+        }
+        else
+        {
+            Assert.Empty(diagnostics);
+            Assert.Equal(expected, TemplateJson.AsInt64(document.ParameterValues["count"].Value));
+        }
+    }
+
     [Fact]
     public async Task MissingValues_ReportOneWarningPerParameterWithoutADefault()
     {
