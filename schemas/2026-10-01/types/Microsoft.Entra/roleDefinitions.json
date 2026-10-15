@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/roleDefinitions.json",
   "title": "Microsoft.Entra/roleDefinitions",
-  "description": "A custom directory role definition. The resource name is the displayName; the Graph id is pinned in state. Built-in roles cannot be managed.",
+  "description": "A custom directory role definition. The resource name is the displayName; it is looked up by displayName on every run (more than one match is an error). Built-in roles cannot be managed.",
   "type": "object",
   "properties": {
     "displayName": {

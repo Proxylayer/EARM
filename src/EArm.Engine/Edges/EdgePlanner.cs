@@ -643,7 +643,7 @@ public sealed class EdgePlanner
         property.SingleDelta = new PropertyDelta(path, live is null ? PropertyChangeType.Create : PropertyChangeType.Modify, live is null ? null : JsonValue.Create(live), AfterOf(declaration));
     }
 
-    /// <summary>Leaves a relationship property alone: no operations, no deltas, the state keeps its record; the reason is a row warning and a diagnostic.</summary>
+    /// <summary>Leaves a relationship property alone: no operations, no deltas; the reason is a row warning and a diagnostic.</summary>
     private void SkipProperty(EdgeRow row, EdgePropertyPlan property, string code, string message)
     {
         property.IsSkipped = true;

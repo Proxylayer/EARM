@@ -15,7 +15,7 @@ namespace EArm.Providers.Tests;
 
 /// <summary>
 /// The update path of every provider type: a changed property is applied with one write and shows as a Modify row first; a refused
-/// update fails the resource, keeps the previous state entry untouched, and the next run (without the failure) converges.
+/// update fails the resource, and the next run (without the failure) converges.
 /// </summary>
 public sealed class ProviderModifyTests
 {
@@ -84,11 +84,10 @@ public sealed class ProviderModifyTests
 
     [Theory]
     [MemberData(nameof(Cases))]
-    public async Task ARefusedUpdate_FailsTheResource_KeepsItsStateEntry_AndTheNextRunConverges(string name)
+    public async Task ARefusedUpdate_FailsTheResource_AndTheNextRunConverges(string name)
     {
         var host = new ProviderHost();
         Check.Succeeded(await host.CreateAsync(host.Resources(Original(name))));
-        var before = JsonNode.Parse(host.StateDocument!)!["resources"]!.AsObject().ToDictionary(p => p.Key, p => p.Value!["contentHash"]?.GetValue<string>());
         var changed = host.Resources(Modified(name));
         host.Fake.Failures.Add("PATCH", string.Empty, request => new GraphException(HttpStatusCode.Forbidden, "Authorization_RequestDenied", "denied", request.Hint), times: 1);
         host.Fake.Failures.Add("PUT", string.Empty, request => new GraphException(HttpStatusCode.Forbidden, "Authorization_RequestDenied", "denied", request.Hint), times: 1);
@@ -101,9 +100,6 @@ public sealed class ProviderModifyTests
         {
             var op = failed.Executed.Operations.First(o => o.Status == OperationStatus.Failed);
             Assert.False(string.IsNullOrWhiteSpace(op.ErrorCode));
-            var after = JsonNode.Parse(host.StateDocument!)!["resources"]!.AsObject().ToDictionary(p => p.Key, p => p.Value!["contentHash"]?.GetValue<string>());
-            Assert.Equal(before.Keys.Order(StringComparer.Ordinal), after.Keys.Order(StringComparer.Ordinal));
-            Assert.Equal(before[op.Id.Id], after[op.Id.Id]);
         }
 
         host.Fake.Failures.Forbid("never-matches", "GET");

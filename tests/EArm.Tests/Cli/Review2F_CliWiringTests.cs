@@ -10,7 +10,6 @@ using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 using EArm.Cli.Hosting;
-using EArm.Engine.State;
 using EArm.Graph.Auth;
 using EArm.TestSupport;
 using Xunit;
@@ -44,7 +43,7 @@ public sealed class Review2F_CliWiringTests
 
     private static string[] Deploy(CliSandbox sandbox, string template, string verb, params string[] extra)
     {
-        return ["deployment", verb, "-f", template, "--state-dir", sandbox.StateDir, "-o", "json", .. extra];
+        return ["deployment", verb, "-f", template, "-o", "json", .. extra];
     }
 
     private static JsonObject Operation(CliResult result, string resourceName)
@@ -55,11 +54,6 @@ public sealed class Review2F_CliWiringTests
     private static string StatusOf(CliResult result, string resourceName)
     {
         return Operation(result, resourceName)["status"]!.GetValue<string>();
-    }
-
-    private static JsonObject ReadState(CliSandbox sandbox, string name)
-    {
-        return JsonNode.Parse(File.ReadAllText(sandbox.StatePath(name)))!.AsObject();
     }
 
     // ---- a transport probe: concurrency, holding requests open, injected answers ----
@@ -221,10 +215,8 @@ public sealed class Review2F_CliWiringTests
         Assert.Equal("Skipped", StatusOf(result, "grp-d"));
         Assert.Equal((1, 1, 2), (result.Json["succeeded"]!.GetValue<int>(), result.Json["failed"]!.GetValue<int>(), result.Json["skipped"]!.GetValue<int>()));
         Assert.Null(directory.Find("/groups", "uniqueName", "grp-c"));
-        var state = ReadState(sandbox, "stop");
-        Assert.Equal("Failed", state["lastStatus"]!.GetValue<string>());
-        Assert.Equal(["/providers/Microsoft.Entra/groups/grp-b"], state["resources"]!.AsObject().Select(p => p.Key).ToArray());
-        Assert.Equal(4, state["operations"]!.AsArray().Count);
+        Assert.Equal(4, result.Json["operations"]!.AsArray().Count);
+        Assert.Empty(sandbox.UnexpectedFiles());
     }
 
     [Fact]
@@ -245,15 +237,12 @@ public sealed class Review2F_CliWiringTests
         Assert.Equal((2, 1, 1), (result.Json["succeeded"]!.GetValue<int>(), result.Json["failed"]!.GetValue<int>(), result.Json["skipped"]!.GetValue<int>()));
         Assert.NotNull(directory.Find("/groups", "uniqueName", "grp-c"));
         Assert.Null(directory.Find("/groups", "uniqueName", "grp-d"));
-        var state = ReadState(sandbox, "go-on");
-        Assert.Equal("Failed", state["lastStatus"]!.GetValue<string>());
-        Assert.Equal(["/providers/Microsoft.Entra/groups/grp-b", "/providers/Microsoft.Entra/groups/grp-c"], state["resources"]!.AsObject().Select(p => p.Key).Order(StringComparer.Ordinal).ToArray());
     }
 
     [Fact]
-    public async Task ARunWithNoFailureAndNoSkip_IsSucceeded_InTheResultAndInTheState()
+    public async Task ARunWithNoFailureAndNoSkip_IsSucceeded()
     {
-        using var sandbox = new CliSandbox(nameof(ARunWithNoFailureAndNoSkip_IsSucceeded_InTheResultAndInTheState));
+        using var sandbox = new CliSandbox(nameof(ARunWithNoFailureAndNoSkip_IsSucceeded));
         sandbox.Handler.Directory = new FakeDirectory();
         string template = sandbox.WriteTemplate("ok.entra.json", Resources(Group("grp-a"), Group("grp-b", after: "grp-a")));
 
@@ -262,70 +251,6 @@ public sealed class Review2F_CliWiringTests
         Assert.Equal(0, result.ExitCode);
         Assert.Equal("Succeeded", result.Json["status"]!.GetValue<string>());
         Assert.Equal((2, 0, 0), (result.Json["succeeded"]!.GetValue<int>(), result.Json["failed"]!.GetValue<int>(), result.Json["skipped"]!.GetValue<int>()));
-        Assert.Equal("Succeeded", ReadState(sandbox, "fine")["lastStatus"]!.GetValue<string>());
-    }
-
-    // ---- --lock-timeout, and which verbs lock ----
-
-    [Fact]
-    public async Task LockTimeout_APositiveValueWaitsForTheHolder_ThenTheRunProceeds()
-    {
-        using var sandbox = new CliSandbox(nameof(LockTimeout_APositiveValueWaitsForTheHolder_ThenTheRunProceeds));
-        sandbox.UsePreflightOk();
-        string template = sandbox.WriteEmptyTemplate();
-        var holder = await sandbox.Store.LockAsync("empty", TimeSpan.Zero, Ct);
-
-        var run = CliRunner.RunAsync(Deploy(sandbox, template, "create", "-y", "--lock-timeout", "20"));
-        await Task.Delay(700, Ct);
-        Assert.False(run.IsCompleted, "the run must be waiting for the lock, not have failed or finished");
-        await holder.DisposeAsync();
-        var result = await run.WaitAsync(TimeSpan.FromSeconds(30), Ct);
-
-        Assert.Equal(0, result.ExitCode);
-        Assert.Equal("Succeeded", result.Json["status"]!.GetValue<string>());
-        Assert.False(File.Exists(sandbox.LockPath("empty")));
-    }
-
-    [Fact]
-    [Trait("Category", "Timing")]
-    public async Task LockTimeout_IsHonouredInSeconds_ThenExitsFour()
-    {
-        using var sandbox = new CliSandbox(nameof(LockTimeout_IsHonouredInSeconds_ThenExitsFour));
-        sandbox.UsePreflightOk();
-        string template = sandbox.WriteEmptyTemplate();
-        await using var holder = await sandbox.Store.LockAsync("empty", TimeSpan.Zero, Ct);
-
-        var clock = Stopwatch.StartNew();
-        var result = await CliRunner.RunAsync(Deploy(sandbox, template, "create", "-y", "--lock-timeout", "1"));
-        clock.Stop();
-
-        Assert.Equal(4, result.ExitCode);
-        Assert.InRange(clock.Elapsed, TimeSpan.FromMilliseconds(900), TimeSpan.FromSeconds(60));
-        // -o json: the refusal is the one JSON document on stdout (review round 2, S2-20), not prose on stderr.
-        Assert.Equal("Failed", result.Json["status"]!.GetValue<string>());
-        Assert.Contains("is locked", result.Json["diagnostics"]![0]!["message"]!.GetValue<string>(), StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task WhatIfTakesNoLock_ButCreateDoes()
-    {
-        using var sandbox = new CliSandbox(nameof(WhatIfTakesNoLock_ButCreateDoes));
-        sandbox.UsePreflightOk();
-        string template = sandbox.WriteEmptyTemplate();
-        await sandbox.WriteStateAsync(StateFile.CreateNew("empty", CliSandbox.Tenant, DateTimeOffset.UtcNow));
-        await using var holder = await sandbox.Store.LockAsync("empty", TimeSpan.Zero, Ct);
-
-        var whatIf = await CliRunner.RunAsync(Deploy(sandbox, template, "what-if"));
-        sandbox.UsePreflightOk();
-        var whatIfAlias = await CliRunner.RunAsync(Deploy(sandbox, template, "create", "--what-if"));
-        sandbox.UsePreflightOk();
-        var create = await CliRunner.RunAsync(Deploy(sandbox, template, "create", "-y", "--lock-timeout", "0"));
-
-        Assert.Equal(0, whatIf.ExitCode);
-        Assert.Equal(0, whatIfAlias.ExitCode);
-        Assert.Contains("without taking its lock", whatIf.StandardError, StringComparison.Ordinal);
-        Assert.Equal(4, create.ExitCode);
-        Assert.True(File.Exists(sandbox.StatePath("empty")));
     }
 
     // ---- --on-soft-deleted-conflict ----
@@ -384,7 +309,7 @@ public sealed class Review2F_CliWiringTests
         Assert.Equal(5, alias.ExitCode);
         Assert.Equal(0, aliasPlain.ExitCode);
         Assert.Null(directory.Find("/groups", "uniqueName", "grp-a"));
-        Assert.False(File.Exists(sandbox.StatePath("changes")), "a what-if never writes a state");
+        Assert.Empty(sandbox.UnexpectedFiles());
         Assert.DoesNotContain(sandbox.RecordedRequests(), r => r.Method != "GET");
 
         // Once deployed the same flag exits 0: it follows the what-if, not the verb.
@@ -434,45 +359,29 @@ public sealed class Review2F_CliWiringTests
         Assert.Contains('\n', prettyCreate.StandardOutput.Trim());
     }
 
-    // ---- -n / --name and --state-dir ----
+    // ---- -n / --name: only a label ----
 
     [Theory]
     [InlineData("-n")]
     [InlineData("--name")]
-    public async Task Name_ChoosesTheStateFile_TheLockAndTheReportedDeploymentName(string flag)
+    public async Task Name_IsTheReportedDeploymentName_AndNothingIsWritten(string flag)
     {
-        using var sandbox = new CliSandbox(nameof(Name_ChoosesTheStateFile_TheLockAndTheReportedDeploymentName) + flag.Length);
+        using var sandbox = new CliSandbox(nameof(Name_IsTheReportedDeploymentName_AndNothingIsWritten) + flag.Length);
         sandbox.UsePreflightOk();
         string template = sandbox.WriteEmptyTemplate("stem.entra.json");
-        sandbox.WriteLock("chosen", DateTimeOffset.UtcNow);
 
-        var locked = await CliRunner.RunAsync(Deploy(sandbox, template, "create", "-y", "--lock-timeout", "0", flag, "chosen"));
-        var unlocked = await CliRunner.RunAsync(Deploy(sandbox, template, "create", "-y", "--lock-timeout", "0"));
+        var named = await CliRunner.RunAsync(Deploy(sandbox, template, "create", "-y", flag, "chosen"));
+        sandbox.UsePreflightOk();
+        var unnamed = await CliRunner.RunAsync(Deploy(sandbox, template, "create", "-y"));
+        sandbox.UsePreflightOk();
         var whatIf = await CliRunner.RunAsync(Deploy(sandbox, template, "what-if", flag, "other"));
 
-        Assert.Equal(4, locked.ExitCode);
-        Assert.Contains("'chosen'", locked.Json["diagnostics"]![0]!["message"]!.GetValue<string>(), StringComparison.Ordinal);
-        Assert.Equal(0, unlocked.ExitCode);
-        Assert.Equal("stem", unlocked.Json["deploymentName"]!.GetValue<string>());
-        Assert.True(File.Exists(sandbox.StatePath("stem")));
-        Assert.False(File.Exists(sandbox.StatePath("chosen")));
+        Assert.Equal(0, named.ExitCode);
+        Assert.Equal("chosen", named.Json["deploymentName"]!.GetValue<string>());
+        Assert.Equal(0, unnamed.ExitCode);
+        Assert.Equal("stem", unnamed.Json["deploymentName"]!.GetValue<string>());
         Assert.Equal("other", whatIf.Json["deploymentName"]!.GetValue<string>());
-    }
-
-    [Fact]
-    public async Task StateDir_IsWhereTheStateLands_AndNothingIsWrittenNextToTheTemplate()
-    {
-        using var sandbox = new CliSandbox(nameof(StateDir_IsWhereTheStateLands_AndNothingIsWrittenNextToTheTemplate));
-        sandbox.UsePreflightOk();
-        string template = sandbox.WriteEmptyTemplate();
-        string custom = Path.Combine(sandbox.Root, "custom-state");
-
-        var result = await CliRunner.RunAsync("deployment", "create", "-f", template, "-y", "-o", "json", "--state-dir", custom);
-
-        Assert.Equal(0, result.ExitCode);
-        Assert.True(File.Exists(Path.Combine(custom, "empty.json")));
-        Assert.False(Directory.Exists(sandbox.StateDir));
-        Assert.False(Directory.Exists(Path.Combine(sandbox.TemplatesDir, ".earm")));
+        Assert.Empty(sandbox.UnexpectedFiles());
     }
 
     // ---- the preflight's tenant, cloud and principal reach the engine ----

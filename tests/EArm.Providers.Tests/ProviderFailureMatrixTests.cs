@@ -18,7 +18,7 @@ namespace EArm.Providers.Tests;
 /// <summary>
 /// One valid template per provider type, run against scripted Graph failures: forbidden, throttled, unavailable and a
 /// vanished object, on writes and on reads. Contract for every type: no exception escapes the engine, a failed write
-/// is a failed operation with an error code and a message, nothing half-applied is recorded in the state, the retry policy
+/// is a failed operation with an error code and a message, nothing half-applied is reported as applied, the retry policy
 /// is bounded, and no secret appears in any error text.
 /// </summary>
 public sealed class ProviderFailureMatrixTests
@@ -71,12 +71,11 @@ public sealed class ProviderFailureMatrixTests
     {
         Assert.DoesNotContain(Canary, ErrorText(run), StringComparison.Ordinal);
         Assert.DoesNotContain(host.Logs.Lines, l => l.Contains(Canary, StringComparison.Ordinal));
-        Assert.DoesNotContain(Canary, host.StateDocument ?? string.Empty, StringComparison.Ordinal);
     }
 
     [Theory]
     [MemberData(nameof(Cases))]
-    public async Task ForbiddenWrites_FailTheResource_WithAMessage_AndRecordNothing(string name)
+    public async Task ForbiddenWrites_FailTheResource_WithAMessage(string name)
     {
         var host = new ProviderHost();
         host.Fake.Failures.Add("POST", string.Empty, request => new GraphException(HttpStatusCode.Forbidden, "Authorization_RequestDenied", "Insufficient privileges " + Canary.Replace("Hunter2", "x", StringComparison.Ordinal), request.Hint), times: -1);
@@ -94,8 +93,7 @@ public sealed class ProviderFailureMatrixTests
             Assert.False(string.IsNullOrWhiteSpace(o.Error));
         });
         Assert.DoesNotContain(failed, o => o.Error!.Contains("Unhandled", StringComparison.OrdinalIgnoreCase));
-        var stateKeys = run.State?.Resources.Keys.ToList() ?? [];
-        Assert.DoesNotContain(failed.Select(o => o.Id.Id), id => stateKeys.Contains(id));
+        Assert.All(failed, o => Assert.Null(o.GraphId));
         Assert.Empty(host.Directory.Objects("/oauth2PermissionGrants"));
     }
 

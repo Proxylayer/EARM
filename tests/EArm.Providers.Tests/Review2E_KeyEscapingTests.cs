@@ -49,7 +49,6 @@ public sealed class Review2E_KeyEscapingTests
         var template = host.Resources(Templates.Resource("Microsoft.Entra/applications", name, """{ "displayName": "Escaped" }"""));
 
         Check.Succeeded(await host.CreateAsync(template));
-        host.TrackState = false;
         var rerun = await host.CreateAsync(host.Resources(Templates.Resource("Microsoft.Entra/applications", name, """{ "displayName": "Escaped" }""")));
 
         Assert.Contains(host.Fake.Requests, r => r.Path == KeyPath("applications", encoded));
@@ -67,7 +66,6 @@ public sealed class Review2E_KeyEscapingTests
         var template = host.Resources(Templates.Resource("Microsoft.Entra/groups", name, """{ "displayName": "Escaped" }"""));
 
         Check.Succeeded(await host.CreateAsync(template));
-        host.TrackState = false;
         var rerun = await host.CreateAsync(host.Resources(Templates.Resource("Microsoft.Entra/groups", name, """{ "displayName": "Escaped" }""")));
 
         Assert.Contains(host.Fake.Requests, r => r.Path == KeyPath("groups", encoded));

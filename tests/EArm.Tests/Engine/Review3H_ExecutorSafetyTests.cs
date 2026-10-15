@@ -13,7 +13,6 @@ using EArm.Engine;
 using EArm.Engine.Execution;
 using EArm.Engine.Planning;
 using EArm.Engine.Providers;
-using EArm.Engine.State;
 using EArm.Graph;
 using EArm.Providers;
 using EArm.TestSupport;
@@ -82,9 +81,9 @@ internal sealed class Review3HHookedProvider : IResourceProvider, IExistingResou
 }
 
 /// <summary>
-/// Review round 2, findings S2-03 (a recreate bypassed the delete guards), S2-05 (a failed principal under <c>--continue-on-error</c> lost its live edges), S2-06 (edge records
-/// lost), S2-07 (blind outer retry of a create), S2-08 (a failure after the primary write lost the object and its one-time secret), S2-09 (no catch-all), S2-10 (Ctrl-C
-/// in the end phase), S2-17 (provenance after an uncertain create).
+/// Review round 2, findings S2-03 (a recreate bypassed the delete guards), S2-05 (a failed principal under <c>--continue-on-error</c> lost its live edges), S2-06 (an edge add
+/// whose answer was lost), S2-07 (blind outer retry of a create), S2-08 (a failure after the primary write lost the object and its one-time secret), S2-09 (no
+/// catch-all), S2-10 (Ctrl-C in the end phase), S2-17 (an uncertain create).
 /// </summary>
 public sealed class Review3H_ExecutorSafetyTests
 {
@@ -142,7 +141,7 @@ public sealed class Review3H_ExecutorSafetyTests
         var host = new EngineHost();
         SeedApplicationWithCredential(host);
 
-        var (_, result, _) = await ExecuteAsync(host, NewState(), Templates.Resources(PasswordFixtureDoc()), execute: new ExecuteOptions { ApprovedRecreates = new HashSet<string>() });
+        var (_, result) = await ExecuteAsync(host, Templates.Resources(PasswordFixtureDoc()), execute: new ExecuteOptions { ApprovedRecreates = new HashSet<string>() });
 
         Assert.False(result.Succeeded);
         var credential = Assert.Single(result.Operations, o => o.Type.EndsWith("passwordCredentials", StringComparison.Ordinal));
@@ -154,12 +153,12 @@ public sealed class Review3H_ExecutorSafetyTests
     }
 
     [Fact]
-    public async Task ARecreate_IsPlannedAsADeleteAndCreate_InTheWhatIf_WhateverCreatedTheObject()
+    public async Task ARecreate_IsPlannedAsADeleteAndCreate_InTheWhatIf()
     {
         var host = new EngineHost();
         SeedApplicationWithCredential(host);
 
-        var plan = await host.WhatIfAsync(Templates.Resources(PasswordFixtureDoc()), NewState());
+        var plan = await host.WhatIfAsync(Templates.Resources(PasswordFixtureDoc()));
 
         var row = Assert.Single(plan.Changes, c => c.ResourceType.EndsWith("passwordCredentials", StringComparison.Ordinal));
         Assert.False(row.HasError);
@@ -186,7 +185,7 @@ public sealed class Review3H_ExecutorSafetyTests
             + "{ \"type\": \"Microsoft.Entra/users\", \"apiVersion\": \"" + ApiVersion + "\", \"name\": \"u1@contoso.com\", \"properties\": { \"displayName\": \"U1 new\", " + userBody + ", \"memberOf\": [ \"" + IdOf(group) + "\" ] } }, "
             + "{ \"type\": \"Microsoft.Entra/users\", \"apiVersion\": \"" + ApiVersion + "\", \"name\": \"u2@contoso.com\", \"properties\": { \"displayName\": \"U2\", " + userBody + " } }");
 
-        var (_, result, _) = await ExecuteAsync(host, NewState(), document, execute: new ExecuteOptions { ContinueOnError = true });
+        var (_, result) = await ExecuteAsync(host, document, execute: new ExecuteOptions { ContinueOnError = true });
 
         Assert.Equal(OperationStatus.Failed, result.Operations.Single(o => o.Id.Id.EndsWith("u1@contoso.com", StringComparison.Ordinal)).Status);
         Assert.DoesNotContain(host.Fake.Writes, w => w.Method == "DELETE" && w.Path.Contains("/members/", StringComparison.Ordinal));
@@ -211,7 +210,7 @@ public sealed class Review3H_ExecutorSafetyTests
             + "{ \"type\": \"Microsoft.Entra/users\", \"apiVersion\": \"" + ApiVersion + "\", \"name\": \"u1@contoso.com\", \"properties\": { \"displayName\": \"U1\", " + userBody + ", \"memberOf\": [ \"" + IdOf(group) + "\" ] } }, "
             + "{ \"type\": \"Microsoft.Entra/users\", \"apiVersion\": \"" + ApiVersion + "\", \"name\": \"u2@contoso.com\", \"properties\": { \"displayName\": \"U2\", " + userBody + " } }");
 
-        var plan = await host.WhatIfAsync(document, NewState());
+        var plan = await host.WhatIfAsync(document);
 
         Assert.True(plan.Changes.Single(c => c.Id.Id.EndsWith("u1@contoso.com", StringComparison.Ordinal)).HasError);
         var groupRow = plan.Changes.Single(c => c.Id.Id == GroupId("g"));
@@ -229,7 +228,7 @@ public sealed class Review3H_ExecutorSafetyTests
         await AddMemberAsync(host, IdOf(group), IdOf(stranger));
         var document = Templates.Resources(GroupDoc("g", ", \"members\": []"));
 
-        var (_, result, _) = await ExecuteAsync(host, NewState(), document, execute: new ExecuteOptions { ContinueOnError = true });
+        var (_, result) = await ExecuteAsync(host, document, execute: new ExecuteOptions { ContinueOnError = true });
 
         Assert.True(result.Succeeded, string.Join("\n", result.Operations.Select(o => o.Error)));
         Assert.DoesNotContain(IdOf(stranger), MembersOf(host, IdOf(group)), StringComparer.OrdinalIgnoreCase);
@@ -238,7 +237,7 @@ public sealed class Review3H_ExecutorSafetyTests
     // ---- principal-side edges are ensure-only ----
 
     [Fact]
-    public async Task APrincipalSideEdge_NoLongerDeclared_IsNeverRemoved_EvenWhenTheStateRecordsIt()
+    public async Task APrincipalSideEdge_NoLongerDeclared_IsNeverRemoved()
     {
         var host = new EngineHost();
         var g1 = host.Directory.AddGroup("g1", "g1");
@@ -246,15 +245,10 @@ public sealed class Review3H_ExecutorSafetyTests
         var user = host.Directory.AddUser("u@contoso.com", "U");
         await AddMemberAsync(host, IdOf(g1), IdOf(user));
         await AddMemberAsync(host, IdOf(g2), IdOf(user));
-        var state = NewState();
-        state.Upsert(Entry("/providers/Microsoft.Entra/users/u@contoso.com", Fixture.UserType, IdOf(user), "userPrincipalName", "u@contoso.com") with
-        {
-            Relationships = new JsonObject { ["memberOf"] = new JsonArray(IdOf(g1), IdOf(g2)) },
-        });
         var document = Templates.Resources("{ \"type\": \"Microsoft.Entra/users\", \"apiVersion\": \"" + ApiVersion + "\", \"name\": \"u@contoso.com\", \"properties\": { \"displayName\": \"U\", \"accountEnabled\": true, \"passwordProfile\": { \"password\": \"Initial-P@ssw0rd-1\" }, \"memberOf\": [ \"" + IdOf(g1) + "\" ] } }");
 
-        var plan = await host.WhatIfAsync(document, state);
-        var (_, result, _) = await ExecuteAsync(host, state, document);
+        var plan = await host.WhatIfAsync(document);
+        var (_, result) = await ExecuteAsync(host, document);
 
         Assert.DoesNotContain(plan.Changes.SelectMany(c => c.Deltas).SelectMany(d => d.Children ?? []), c => c.Kind == PropertyChangeType.Delete);
         Assert.True(result.Succeeded, string.Join("\n", result.Operations.Select(o => o.Error)));
@@ -271,9 +265,8 @@ public sealed class Review3H_ExecutorSafetyTests
         var group = created.Directory.AddGroup("g", "g");
         var user = created.Directory.AddUser("u@contoso.com", "U");
         var document = Templates.Resources("{ \"type\": \"Microsoft.Entra/users\", \"apiVersion\": \"" + ApiVersion + "\", \"name\": \"u@contoso.com\", \"properties\": { \"displayName\": \"U\", \"accountEnabled\": true, \"passwordProfile\": { \"password\": \"Initial-P@ssw0rd-1\" }, \"memberOf\": [ \"" + IdOf(group) + "\" ] } }");
-        var state = NewState();
 
-        var (_, result, _) = await ExecuteAsync(host, state, document);
+        var (_, result) = await ExecuteAsync(host, document);
 
         Assert.True(result.Succeeded, string.Join("\n", result.Operations.Select(o => o.Error)) + string.Join("\n", result.Diagnostics));
         Assert.Contains(IdOf(user), MembersOf(host, IdOf(group)), StringComparer.OrdinalIgnoreCase);
@@ -287,7 +280,7 @@ public sealed class Review3H_ExecutorSafetyTests
         var host = new EngineHost();
         host.Fake.Failures.ServerError("/users", times: 1, method: "POST");
 
-        var (_, result, _) = await ExecuteAsync(host, NewState(), Users("u1@contoso.com"));
+        var (_, result) = await ExecuteAsync(host, Users("u1@contoso.com"));
 
         Assert.False(result.Succeeded);
         Assert.Single(host.Fake.Writes, w => w.Method == "POST" && w.Path == "/users");
@@ -301,7 +294,7 @@ public sealed class Review3H_ExecutorSafetyTests
         var host = new EngineHost();
         host.Fake.Failures.Throttle("/users", times: 1, method: "POST");
 
-        var (_, result, _) = await ExecuteAsync(host, NewState(), Users("u1@contoso.com"));
+        var (_, result) = await ExecuteAsync(host, Users("u1@contoso.com"));
 
         Assert.True(result.Succeeded, string.Join("\n", result.Operations.Select(o => o.Error)));
         Assert.Equal(2, host.Fake.Writes.Count(w => w.Method == "POST" && w.Path == "/users"));
@@ -319,36 +312,33 @@ public sealed class Review3H_ExecutorSafetyTests
     }
 
     [Fact]
-    public async Task AFailureAfterTheObjectWasCreated_RecordsTheObject_AndFailsTheResource_ARerunConverges()
+    public async Task AFailureAfterTheObjectWasCreated_FailsTheResource_ARerunFindsItByKeyAndConverges()
     {
         var (host, hook) = HostWithHook(Fixture.UserType);
         hook.AfterCreate = (_, _) => throw new GraphException(HttpStatusCode.Forbidden, "Authorization_RequestDenied", "licenses could not be assigned", RetryHint.Default);
-        var state = NewState();
 
-        var (_, result, _) = await ExecuteAsync(host, state, Users("g1@contoso.com"));
+        var (_, result) = await ExecuteAsync(host, Users("g1@contoso.com"));
 
         Assert.False(result.Succeeded);
         var op = Assert.Single(result.Operations);
         Assert.Equal(OperationStatus.Failed, op.Status);
         Assert.Equal(EngineDiagnosticCodes.ResourceApplyFailed, op.ErrorCode);
-        Assert.Contains("recorded in the state", op.Error, StringComparison.Ordinal);
+        Assert.Contains("Run the deployment again", op.Error, StringComparison.Ordinal);
         Assert.Equal(1, host.Directory.Count("/users"));
-        var entry = state.Find(UserResourceId("g1@contoso.com"));
-        Assert.NotNull(entry);
-        Assert.Equal(StateProvenance.Created, entry.Provenance);
+        Assert.Equal(IdOf(host.Directory.Objects("/users").Single()), op.GraphId);
         Assert.Contains(result.Diagnostics, d => d.Code == EngineDiagnosticCodes.ResourceApplyFailed && d.Message.Contains("exists in the tenant", StringComparison.Ordinal));
 
         hook.AfterCreate = null;
-        var (_, rerun, _) = await ExecuteAsync(host, state, Users("g1@contoso.com"));
+        var (_, rerun) = await ExecuteAsync(host, Users("g1@contoso.com"));
         Assert.True(rerun.Succeeded, string.Join("\n", rerun.Operations.Select(o => o.Error)));
         Assert.Equal(1, host.Directory.Count("/users"));
     }
 
     [Fact]
-    public async Task AProviderThatHandsOverThePartialResult_HasItsObjectAndItsOneTimeSecretRecorded()
+    public async Task AProviderThatHandsOverThePartialResult_HasItsOneTimeSecretSaved()
     {
         var (host, hook) = HostWithHook(Fixture.UserType);
-        using var directory = new TestDirectory(nameof(AProviderThatHandsOverThePartialResult_HasItsObjectAndItsOneTimeSecretRecorded));
+        using var directory = new TestDirectory(nameof(AProviderThatHandsOverThePartialResult_HasItsOneTimeSecretSaved));
         string secrets = directory.File("secure.json");
         hook.AfterCreate = (instance, applied) =>
         {
@@ -357,22 +347,16 @@ public sealed class Review3H_ExecutorSafetyTests
             var partial = applied with { Live = live, Extra = new JsonObject { ["generatedPassword"] = true } };
             throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, "assigning the licenses failed", instance.Id) { Partial = partial };
         };
-        var state = NewState();
         var document = Templates.Resources("{ \"type\": \"Microsoft.Entra/users\", \"apiVersion\": \"" + ApiVersion + "\", \"name\": \"u@contoso.com\", \"properties\": { \"displayName\": \"U\", \"accountEnabled\": true, \"passwordProfile\": { \"password\": \"Initial-P@ssw0rd-1\" } } }");
 
-        var (_, result, _) = await ExecuteAsync(host, state, document, execute: new ExecuteOptions { SecureOutputsFile = secrets });
+        var (_, result) = await ExecuteAsync(host, document, execute: new ExecuteOptions { SecureOutputsFile = secrets });
 
         Assert.False(result.Succeeded);
-        Assert.NotNull(state.Find(UserResourceId("u@contoso.com")));
+        Assert.Equal(IdOf(host.Directory.Objects("/users").Single()), Assert.Single(result.Operations).GraphId);
         string file = await File.ReadAllTextAsync(secrets, Ct);
         Assert.Contains("generatedPassword", file, StringComparison.Ordinal);
         Assert.Contains("Generated-P@ss-1", file, StringComparison.Ordinal);
         Assert.DoesNotContain("Generated-P@ss-1", string.Join("\n", result.Operations.Select(o => o.Error)) + string.Join("\n", result.Diagnostics.Select(d => d.Message)), StringComparison.Ordinal);
-    }
-
-    private static string UserResourceId(string upn)
-    {
-        return "/providers/Microsoft.Entra/users/" + upn;
     }
 
     // ---- S2-09: a catch-all around one resource ----
@@ -382,12 +366,11 @@ public sealed class Review3H_ExecutorSafetyTests
     {
         var (host, hook) = HostWithHook(Fixture.GroupType);
         hook.BeforeCreate = instance => instance.Id.NameLeaf == "boom" ? throw new NullReferenceException("a provider bug") : Task.CompletedTask;
-        var state = NewState();
         var secrets = new TestDirectory(nameof(AnUnexpectedException_FailsOnlyThatResource_TheSiblingsAndTheEndPhaseStillRun));
         using var _ = secrets;
         var document = Templates.Resources(GroupDoc("ok1") + ", " + GroupDoc("boom") + ", " + GroupDoc("ok2"), []);
 
-        var (plan, result, store) = await ExecuteAsync(host, state, document, execute: new ExecuteOptions { ContinueOnError = true });
+        var (plan, result) = await ExecuteAsync(host, document, execute: new ExecuteOptions { ContinueOnError = true });
 
         Assert.False(result.Succeeded);
         Assert.Equal(DeploymentStatus.Failed, result.Status);
@@ -397,44 +380,7 @@ public sealed class Review3H_ExecutorSafetyTests
         Assert.Equal(OperationStatus.Failed, boom.Status);
         Assert.Equal(EngineDiagnosticCodes.ResourceApplyFailed, boom.ErrorCode);
         Assert.Contains("NullReferenceException", boom.Error, StringComparison.Ordinal);
-        Assert.Equal(StateFile.StatusFailed, state.LastStatus);
-        Assert.NotEqual(StateFile.StatusRunning, StateSerializer.Deserialize(store.DocumentOf(EngineHost.DeploymentName)!, EngineHost.DeploymentName).LastStatus);
         Assert.NotNull(plan);
-    }
-
-    [Fact]
-    public async Task AnEngineFailureOutsideAnyResource_StillRunsTheEndPhase_TheStateIsNeverLeftRunning()
-    {
-        var host = new EngineHost();
-        var sink = new ThrowingSkipSink();
-        var state = NewState();
-        var document = Templates.Resources(UserDoc("first@contoso.com") + ", " + UserDoc("second@contoso.com", "first@contoso.com"));
-        host.Fake.Failures.Forbid("/users", "POST");
-        var plan = await host.ExpandAsync(document, state);
-
-        var result = await host.Executor().ExecuteAsync(plan, new ExecuteOptions { StateSink = sink, State = state }, Ct);
-
-        Assert.Equal(DeploymentStatus.Failed, result.Status);
-        Assert.Contains("Completed:Failed", sink.Calls);
-        Assert.Contains(result.Diagnostics, d => d.IsError && d.Message.Contains("unexpected error", StringComparison.Ordinal));
-    }
-
-    /// <summary>A sink whose "skipped" record fails with a bug-like exception (not an I/O error): the batch loop itself throws.</summary>
-    private sealed class ThrowingSkipSink : IStateSink
-    {
-        public List<string> Calls { get; } = [];
-
-        public Task ResourceAppliedAsync(ResourceInstance instance, ResourceChange change, AppliedResource applied, CancellationToken cancellationToken) => Task.CompletedTask;
-
-        public Task ResourceFailedAsync(ResourceInstance instance, string error, CancellationToken cancellationToken) => Task.CompletedTask;
-
-        public Task ResourceSkippedAsync(ResourceInstance instance, string reason, CancellationToken cancellationToken) => throw new InvalidCastException("a sink bug");
-
-        public Task CompletedAsync(DeploymentStatus status, CancellationToken cancellationToken)
-        {
-            Calls.Add("Completed:" + status);
-            return Task.CompletedTask;
-        }
     }
 
     // ---- S2-10: Ctrl-C in the end phase ----
@@ -517,9 +463,8 @@ public sealed class Review3H_ExecutorSafetyTests
 
             return Task.CompletedTask;
         };
-        var state = NewState();
 
-        var (_, result, _) = await ExecuteAsync(host, state, Users("old@contoso.com"));
+        var (_, result) = await ExecuteAsync(host, Users("old@contoso.com"));
 
         Assert.True(result.Succeeded, string.Join("\n", result.Operations.Select(o => o.Error)));
         Assert.Contains(result.Diagnostics, d => d.Code == EngineDiagnosticCodes.CreateOutcomeUncertain);
@@ -530,12 +475,12 @@ public sealed class Review3H_ExecutorSafetyTests
     public async Task AnUncertainCreate_WhoseObjectWasCreatedDuringTheRun_IsStillCreated()
     {
         var host = new EngineHost(graph => new CommitThenFailGraphClient(graph, r => r.Path == "/users", _ => new GraphException(HttpStatusCode.ServiceUnavailable, "ServiceUnavailable", "lost", RetryHint.Default)));
-        var state = NewState();
 
-        var (_, result, _) = await ExecuteAsync(host, state, Users("fresh@contoso.com"));
+        var (_, result) = await ExecuteAsync(host, Users("fresh@contoso.com"));
 
         Assert.True(result.Succeeded, string.Join("\n", result.Operations.Select(o => o.Error)));
-        Assert.Equal(StateProvenance.Created, state.Find(UserResourceId("fresh@contoso.com"))!.Provenance);
+        Assert.Equal(ChangeType.Create, Assert.Single(result.Operations).ChangeType);
+        Assert.Equal(IdOf(host.Directory.Objects("/users").Single()), Assert.Single(result.Operations).GraphId);
     }
 
     [Fact]
@@ -544,9 +489,8 @@ public sealed class Review3H_ExecutorSafetyTests
         EngineHost? created = null;
         var host = new EngineHost(graph => new RacingApplicationClient(graph, () => created!.Directory.AddApplication("racy", "Racy (somebody else's name)")));
         created = host;
-        var state = NewState();
 
-        var (_, result, _) = await ExecuteAsync(host, state, Apps("racy"));
+        var (_, result) = await ExecuteAsync(host, Apps("racy"));
 
         Assert.True(result.Succeeded, string.Join("\n", result.Operations.Select(o => o.Error)));
         Assert.Equal("racy", host.Directory.Find("/applications", "uniqueName", "racy")!["displayName"]!.GetValue<string>());

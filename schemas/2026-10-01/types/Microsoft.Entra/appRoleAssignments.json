@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/appRoleAssignments.json",
   "title": "Microsoft.Entra/appRoleAssignments",
-  "description": "An app role assignment (principal -> app role on a resource service principal). The resource name is a deterministic GUID chosen with guid(); the object is matched by (principalId, resourceId, appRoleId) and its Graph id pinned in state. Equivalent to an appRoleAssignments entry on the principal.",
+  "description": "An app role assignment (principal -> app role on a resource service principal). The resource name is a deterministic GUID chosen with guid(); the object is matched by (principalId, resourceId, appRoleId) and looked up live on every run. Equivalent to an appRoleAssignments entry on the principal.",
   "type": "object",
   "properties": {
     "principalId": {

@@ -10,7 +10,7 @@ namespace EArm.Engine.Providers;
 /// </summary>
 public static class ProviderReads
 {
-    /// <summary>The <c>createdDateTime</c> of a live object (the immutable fingerprint recorded in the state), or <c>null</c> when it has none.</summary>
+    /// <summary>The <c>createdDateTime</c> of a live object (its immutable fingerprint), or <c>null</c> when it has none.</summary>
     public static DateTimeOffset? CreatedDateTimeOf(JsonObject? raw)
     {
         if (raw is null || !JsonObjects.TryGetIgnoreCase(raw, "createdDateTime", out var node) || node is not JsonValue value)

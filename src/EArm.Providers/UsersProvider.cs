@@ -34,7 +34,7 @@ namespace EArm.Providers;
 /// UPN local part (create only, see <see cref="UsersRules.DeriveMailNickname"/>), <c>passwordProfile.forceChangePasswordNextSignIn: true</c>.
 /// <c>passwordProfile</c> is create-only and write-only: it is never diffed (a declared one on an existing user is
 /// ignored), never sent in a PATCH and its <c>password</c> is tainted at plan time (<see cref="UsersRules.TaintSecrets"/>),
-/// so what-if, logs, diagnostics and the state hash only ever see <c>***</c>; the plain text exists in the
+/// so what-if, logs and diagnostics only ever see <c>***</c>; the plain text exists in the
 /// <c>POST /users</c> body alone. When no password is declared, a random 24-character one is generated at create
 /// time. In both cases the initial password is published on the live object as a <see cref="SecretValue"/>, so
 /// <c>[reference('alice@contoso.com').passwordProfile.password]</c> can feed a <c>securestring</c> output in the
@@ -218,7 +218,7 @@ public sealed class UsersProvider : ProviderBase
             return base.Plan(desired, existing, options);
         }
 
-        // A literal password must never be seen in plain text after this point (what-if rows, state hash, messages).
+        // A literal password must never be seen in plain text after this point (what-if rows, messages).
         UsersRules.TaintSecrets(properties, Definition.Secure);
 
         string name = desired.Id.NameLeaf;

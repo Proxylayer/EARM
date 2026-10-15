@@ -12,7 +12,6 @@ using EArm.Core.Validation;
 using EArm.Engine.Edges;
 using EArm.Engine.Execution;
 using EArm.Engine.Providers;
-using EArm.Engine.State;
 using EArm.Expressions;
 using EArm.Expressions.Evaluation;
 using EArm.Expressions.Validation;
@@ -73,7 +72,7 @@ public sealed class DeploymentPlanner
 
     /// <exception cref="ValidationFailedException">The template has errors (validation, expansion or graph).</exception>
     /// <exception cref="UnknownProviderException">A resource type has no registered provider.</exception>
-    public async Task<DeploymentPlan> PlanAsync(TemplateDocument document, StateFile? state, DeploymentMode mode, PlanMode planMode, CancellationToken cancellationToken)
+    public async Task<DeploymentPlan> PlanAsync(TemplateDocument document, DeploymentMode mode, PlanMode planMode, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(document);
         var catalog = _options.Catalog;
@@ -164,7 +163,6 @@ public sealed class DeploymentPlanner
             PlanMode = planMode,
             AllowCaEnforce = _options.AllowCaEnforce,
             OnSoftDeletedConflict = _options.OnSoftDeletedConflict,
-            State = state,
         };
 
         var plan = new DeploymentPlan(

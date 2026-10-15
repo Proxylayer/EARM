@@ -9,7 +9,6 @@ using EArm.Core;
 using EArm.Engine;
 using EArm.Engine.Execution;
 using EArm.Engine.Providers;
-using EArm.Engine.State;
 using EArm.Expressions.Values;
 using EArm.Providers.Tests.Infrastructure;
 using EArm.TestSupport;
@@ -76,9 +75,9 @@ public sealed class PermissionGrantScenarioTests
         return new ResourceKey { Type = GrantType, Values = values };
     }
 
-    private static StateEntry Entry(Tenant t, string graphId)
+    private static DeleteTarget Entry(Tenant t, string graphId)
     {
-        return new StateEntry
+        return new DeleteTarget
         {
             Id = ResourceIdentifier.Create(GrantType, GrantName),
             Type = GrantType,
@@ -400,15 +399,15 @@ public sealed class PermissionGrantScenarioTests
         var existing = t.Host.Directory.Add(GrantsPath, new JsonObject { ["clientId"] = t.ClientId, ["resourceId"] = t.ResourceId, ["consentType"] = "AllPrincipals", ["principalId"] = null, ["scope"] = "orders.read" });
         string id = existing["id"]!.GetValue<string>();
 
-        await t.Provider.DeleteAsync(DeleteTarget.KeyOf(Entry(t, id)), DeleteTarget.LiveOf(Entry(t, id)), t.Host.Fake, ProviderHost.Ct);
+        await t.Provider.DeleteAsync(Entry(t, id).ResourceKey, Entry(t, id).Live, t.Host.Fake, ProviderHost.Ct);
         Assert.Empty(t.Host.Directory.Objects(GrantsPath));
 
-        await t.Provider.DeleteAsync(DeleteTarget.KeyOf(Entry(t, id)), DeleteTarget.LiveOf(Entry(t, id)), t.Host.Fake, ProviderHost.Ct);
+        await t.Provider.DeleteAsync(Entry(t, id).ResourceKey, Entry(t, id).Live, t.Host.Fake, ProviderHost.Ct);
 
         t.Host.Fake.Failures.Forbid(GrantsPath, "DELETE");
-        var ex = await Assert.ThrowsAsync<GraphException>(() => t.Provider.DeleteAsync(DeleteTarget.KeyOf(Entry(t, id)), DeleteTarget.LiveOf(Entry(t, id)), t.Host.Fake, ProviderHost.Ct));
+        var ex = await Assert.ThrowsAsync<GraphException>(() => t.Provider.DeleteAsync(Entry(t, id).ResourceKey, Entry(t, id).Live, t.Host.Fake, ProviderHost.Ct));
         Assert.True(ex.IsForbidden);
         await Assert.ThrowsAsync<ArgumentNullException>(() => t.Provider.DeleteAsync(null!, null!, t.Host.Fake, ProviderHost.Ct));
-        await Assert.ThrowsAsync<ArgumentNullException>(() => t.Provider.DeleteAsync(DeleteTarget.KeyOf(Entry(t, id)), DeleteTarget.LiveOf(Entry(t, id)), null!, ProviderHost.Ct));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => t.Provider.DeleteAsync(Entry(t, id).ResourceKey, Entry(t, id).Live, null!, ProviderHost.Ct));
     }
 }

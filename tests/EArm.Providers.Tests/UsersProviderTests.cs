@@ -10,7 +10,6 @@ using EArm.Core.Types;
 using EArm.Engine.Execution;
 using EArm.Engine.Planning;
 using EArm.Engine.Providers;
-using EArm.Engine.State;
 using EArm.Engine.WhatIf;
 using EArm.Providers.Tests.Infrastructure;
 using Xunit;
@@ -37,31 +36,6 @@ public sealed class UsersProviderTests
     private static void SeedSkus(ProviderHost host)
     {
         host.Directory.Add("/subscribedSkus", new JsonObject { ["skuId"] = Sku, ["skuPartNumber"] = "ENTERPRISEPACK", ["prepaidUnits"] = new JsonObject { ["enabled"] = 10 }, ["consumedUnits"] = 1 });
-    }
-
-    private static StateEntry UserEntry(string upn, string graphId)
-    {
-        return new StateEntry
-        {
-            Id = ResourceIdentifier.Create(Type, upn),
-            Type = Type,
-            ApiVersion = ProviderHost.ApiVersion,
-            Key = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["userPrincipalName"] = upn },
-            GraphId = graphId,
-            LastWriteOn = Now,
-        };
-    }
-
-    private static async Task SeedStateAsync(ProviderHost host, params StateEntry[] entries)
-    {
-        var state = StateFile.CreateNew(ProviderHost.DeploymentName, host.Directory.TenantId, Now);
-        foreach (var entry in entries)
-        {
-            state.Upsert(entry);
-        }
-
-        state.CompleteRun(true, "Incremental", "sha256:previous", Now);
-        await host.Store.SaveAsync(state, ProviderHost.Ct);
     }
 
     [Fact]
@@ -109,9 +83,6 @@ public sealed class UsersProviderTests
         Assert.False(body.ContainsKey("id"));
         Assert.Equal(1, host.Fake.Requests.Count(r => r.Body is not null && r.Body.ToJsonString().Contains(password, StringComparison.Ordinal)));
         Assert.Equal(RetryHint.Default, post.Hint);
-        Assert.DoesNotContain(password, host.StateDocument, StringComparison.Ordinal);
-        var entry = run.Entry(Id("alice@contoso.com"));
-        Assert.False(entry.Extra!["generatedPassword"]!.GetValue<bool>());
         Assert.False(host.Logs.Contains(password));
         Assert.Equal("Dev", host.Directory.Find("/users", "userPrincipalName", "alice@contoso.com")!["jobTitle"]!.GetValue<string>());
         Assert.Single(whatIf.Plan.Changes, c => c.ResourceType == Type);
@@ -142,9 +113,6 @@ public sealed class UsersProviderTests
         Assert.Contains(generated, c => !char.IsLetterOrDigit(c));
         Assert.Equal(generated, run.SecureOutput("bobInitialPassword")!.GetValue<string>());
         Assert.Equal("***", run.Output("bobInitialPassword")!.GetValue<string>());
-        var entry = run.Entry(Id("bob@contoso.com"));
-        Assert.True(entry.Extra!["generatedPassword"]!.GetValue<bool>());
-        Assert.DoesNotContain(generated, host.StateDocument, StringComparison.Ordinal);
         Assert.False(host.Logs.Contains(generated));
         Assert.DoesNotContain(generated, WhatIfJson.Build(whatIf.Plan).ToJsonString(), StringComparison.Ordinal);
 
@@ -331,7 +299,6 @@ public sealed class UsersProviderTests
         Assert.False(empty.Change("gina@contoso.com").HasError);
     }
 
-    // The state file only accepts GUID Graph ids (strict validation), so the seeded users carry GUIDs.
     private const string UserOldId = "0a0a0a0a-0000-4000-8000-0000000000a1";
     private const string UserIvanId = "0a0a0a0a-0000-4000-8000-0000000000a2";
     private const string UserGoneId = "0a0a0a0a-0000-4000-8000-0000000000a3";
@@ -341,11 +308,10 @@ public sealed class UsersProviderTests
     {
         var host = new ProviderHost();
         var old = host.Directory.AddUser("old@contoso.com", "Renamed", u => u["id"] = UserOldId);
-        await SeedStateAsync(host, UserEntry("new@contoso.com", old["id"]!.GetValue<string>()));
 
         var whatIf = await host.WhatIfAsync(host.Resources(User("new@contoso.com", "\"displayName\": \"Renamed\"")));
 
-        // Identity is the live key (ARM rule): the recorded object is never consulted, so a user renamed outside the template is not the declared one.
+        // Identity is the live key (ARM rule): a user renamed outside the template is not the declared one.
         // The declared UPN is looked up live and, absent, is a create; the renamed user is never read by its id or planned against.
         var change = whatIf.Change("new@contoso.com");
         Assert.False(change.HasError);
@@ -404,7 +370,6 @@ public sealed class UsersProviderTests
         Assert.Equal("/users/U-DEL", writes[1].Path);
         Assert.Equal("""{"displayName":"Henry","jobTitle":"Returning","accountEnabled":true,"mailNickname":"henry"}""", writes[1].Body!.ToJsonString());
         Assert.DoesNotContain(restored.Requests, r => r.Body is not null && r.Body.ToJsonString().Contains("passwordProfile", StringComparison.Ordinal));
-        Assert.False(restored.Entry(Id("henry@contoso.com")).Extra!["generatedPassword"]!.GetValue<bool>());
         Assert.Equal("Returning", host.Directory.Find("/users", "userPrincipalName", "henry@contoso.com")!["jobTitle"]!.GetValue<string>());
     }
 

@@ -9,7 +9,6 @@ using EArm.Engine;
 using EArm.Engine.Execution;
 using EArm.Engine.Planning;
 using EArm.Engine.Providers;
-using EArm.Engine.State;
 using EArm.Providers.Tests.Infrastructure;
 using EArm.TestSupport;
 using Xunit;
@@ -207,10 +206,7 @@ public sealed class FederatedIdentityCredentialsProviderTests
         var first = await host.CreateAsync(host.Resources(App() + ", " + Fic("github-old", "repo:contoso/orders:ref:refs/heads/old")));
         Check.Succeeded(first);
         string appId = host.IdOf("/applications", "uniqueName", AppName);
-        var oldEntry = first.Entry(AppResourceId + "/federatedIdentityCredentials/github-old");
-        Assert.Equal(appId, oldEntry.ParentGraphId);
-        Assert.Equal("github-old", oldEntry.Key["name"]);
-        Assert.Contains(AppResourceId, oldEntry.DependsOn);
+        Assert.Equal(1, host.Directory.Count("/applications/" + appId + "/federatedIdentityCredentials"));
 
         var incremental = await host.CreateAsync(host.Resources(App() + ", " + Fic("github-new", "repo:contoso/orders:ref:refs/heads/new")));
         Check.Succeeded(incremental);
@@ -231,7 +227,7 @@ public sealed class FederatedIdentityCredentialsProviderTests
         var orphan = Assert.Single(run.Executed.Orphans);
         Assert.Equal(OrphanReason.Undeclared, orphan.Orphan);
         Assert.Equal(oldId, orphan.GraphId);
-        Assert.Equal(oldEntry.Id.Id, orphan.Id.Id);
+        Assert.Equal(AppResourceId + "/federatedIdentityCredentials/github-old", orphan.Id.Id, StringComparer.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -352,9 +348,9 @@ public sealed class FederatedIdentityCredentialsProviderTests
         // Review 3I (intentional change): a parent known only by its uniqueName is resolved to its object id first (Learn documents the credential endpoints
         // under /applications/{id} and /applications(appId=...), not under the uniqueName key), so a parent that is gone means nothing to delete and no write.
         var provider = host.Provider(FicType);
-        var entry = new StateEntry { Id = ResourceIdentifier.Create(FicType, AppName + "/github-main"), Type = FicType, ApiVersion = ProviderHost.ApiVersion, Key = new Dictionary<string, string> { ["name"] = "github-main" }, GraphId = "whatever" };
+        var entry = new DeleteTarget { Id = ResourceIdentifier.Create(FicType, AppName + "/github-main"), Type = FicType, ApiVersion = ProviderHost.ApiVersion, Key = new Dictionary<string, string> { ["name"] = "github-main" }, GraphId = "whatever" };
         host.ClearRequests();
-        await provider.DeleteAsync(DeleteTarget.KeyOf(entry), DeleteTarget.LiveOf(entry), host.Fake, ProviderHost.Ct);
+        await provider.DeleteAsync(entry.ResourceKey, entry.Live, host.Fake, ProviderHost.Ct);
         Assert.Empty(host.Fake.Writes);
         Assert.Contains(host.Fake.Requests, r => r.Method == "GET" && r.Path == "/applications(uniqueName='test-api')");
     }
@@ -387,15 +383,14 @@ public sealed class FederatedIdentityCredentialsProviderTests
         Assert.True(upsert.HasHeader("Prefer", "create-if-missing"));
         Assert.Equal(RetryHint.Default, upsert.Hint);
         Assert.DoesNotContain(requests, r => r.Path.Contains("(uniqueName='test-api')/", StringComparison.Ordinal));
-        var entry = run.Entry(AppResourceId + "/federatedIdentityCredentials/github-main");
-        Assert.Equal(appId, entry.ParentGraphId);
+        string ficId = run.GraphIdOf(AppResourceId + "/federatedIdentityCredentials/github-main");
         Assert.Equal(1, host.Directory.Count("/applications/" + appId + "/federatedIdentityCredentials"));
 
         var rerun = await host.CreateAsync(document);
         Assert.Equal(ChangeType.NoChange, rerun.Executed.Operations[0].ChangeType);
         Check.NoWrites(rerun);
         Assert.Contains(rerun.Requests, r => r.Path == parentPath + "/federatedIdentityCredentials(name='github-main')");
-        Assert.DoesNotContain(rerun.Requests, r => r.Path == parentPath + "/federatedIdentityCredentials/" + entry.GraphId);
+        Assert.DoesNotContain(rerun.Requests, r => r.Path == parentPath + "/federatedIdentityCredentials/" + ficId);
         var missing = await new ProviderHost().CreateAsync(host.Resources(Fic("github-main", "repo:x")));
         Assert.Equal(DeploymentStatus.Failed, missing.Executed.Status);
         Assert.Equal(EngineDiagnosticCodes.ResourceApplyFailed, missing.Executed.Operations[0].ErrorCode);

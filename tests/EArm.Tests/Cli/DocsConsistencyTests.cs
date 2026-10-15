@@ -328,27 +328,6 @@ public sealed class DocsConsistencyTests
         }
     }
 
-    [Theory]
-    [InlineData("deployment show", "deployment")]
-    [InlineData("state", "state")]
-    public void TheVerbSyntaxTables_NameFlagsTheirVerbsHave(string heading, string parent)
-    {
-        var root = Root();
-        var rows = TableRows(SectionStartingWith(heading));
-
-        Assert.NotEmpty(rows);
-        foreach (var row in rows)
-        {
-            string[] path = [parent, .. row[0].Replace("`", string.Empty, StringComparison.Ordinal).Split(' ', StringSplitOptions.RemoveEmptyEntries)];
-            Assert.True(Resolve(root, path) is not null, "docs/cli.md lists the verb '" + string.Join(' ', path) + "'");
-            var valid = FlagsOf(root, path);
-            foreach (string flag in FlagsIn(row[1]))
-            {
-                Assert.True(valid.Contains(flag), $"docs/cli.md: '{string.Join(' ', path)}' is documented with {flag}, which it does not have");
-            }
-        }
-    }
-
     [Fact]
     public void EveryCommandOptionInTheTree_IsMentionedInTheDocument()
     {

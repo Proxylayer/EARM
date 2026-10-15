@@ -22,7 +22,7 @@ public static class ProviderWarnings
     /// <summary>A password credential expires (or expired) and rotating it would not extend its life (the declared or default end date is not later).</summary>
     public const string SecretExpiresSoon = EngineDiagnosticCodes.SecretExpiresSoon;
 
-    /// <summary>A live password credential's displayName carries no rotation tag while the template declares one (an upgrade from the state-kept tag): it is treated as matching and the next rotation writes the tag into the name.</summary>
+    /// <summary>A live password credential's displayName carries no rotation tag while the template declares one (a credential created before the tag was carried in the name): it is treated as matching and the next rotation writes the tag into the name.</summary>
     public const string RotationTagNotStamped = EngineDiagnosticCodes.RotationTagNotStamped;
 
     /// <summary>A group is created without owners declared: created with an application token it is ownerless ("anonymous") and cannot be managed by anyone but an administrator.</summary>

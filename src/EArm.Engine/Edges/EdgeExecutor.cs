@@ -27,7 +27,7 @@ public sealed record EdgeOperationResult(bool Succeeded, bool AlreadyInPlace, st
     }
 }
 
-/// <summary>What the edge executor did: per-operation results, the edges it added (for state recording) and the failed rows.</summary>
+/// <summary>What the edge executor did: per-operation results, the edges it added and the failed rows.</summary>
 public sealed class EdgeApplyResult
 {
     private readonly Dictionary<EdgeOperation, EdgeOperationResult> _results = [];
@@ -221,8 +221,8 @@ public static class EdgeExecutor
 
     /// <summary>
     /// An add whose answer was lost (timeout, dropped connection, 5xx) may have been committed: read the edge back, and when it is live count it as
-    /// created by this run (the planner only plans an add for an edge that was not there), so it is recorded in the state and can be removed later
-    /// (review round 2, S2-06). A read that fails leaves the add recorded as failed.
+    /// created by this run (the planner only plans an add for an edge that was not there) instead of failing the row (review round 2, S2-06). A read that
+    /// fails leaves the add reported as failed.
     /// </summary>
     private static async Task ReconcileAmbiguousAddAsync(EdgeOperation operation, Exception? failure, EdgeApplyResult result, EdgeGraphContext context)
     {

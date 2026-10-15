@@ -9,7 +9,6 @@ using EArm.Core.Types;
 using EArm.Engine;
 using EArm.Engine.Execution;
 using EArm.Engine.Providers;
-using EArm.Engine.State;
 using EArm.Providers.Tests.Infrastructure;
 using EArm.TestSupport;
 using Xunit;
@@ -110,25 +109,20 @@ public sealed class ApplicationsProviderTests
     }
 
     [Fact]
-    public async Task Rerun_IsNoChange_WithZeroWrites_AndDerivedIdsSurviveInStateExtra()
+    public async Task Rerun_IsNoChange_WithZeroWrites()
     {
         var host = new ProviderHost();
         var document = host.Resources(FullAppWithOwner(host));
         var first = await host.CreateAsync(document);
         Check.Succeeded(first);
         string expectedRoleId = ApplicationsRules.DeriveMemberId(Name, "Orders.Read").ToString("D");
-        var extra = first.Entry(ResourceId).Extra;
-        Assert.NotNull(extra);
-        Assert.Equal(expectedRoleId, extra["derivedIds"]!["appRoles"]!["Orders.Read"]!.GetValue<string>());
-        Assert.Contains("\"derivedIds\"", host.StateDocument, StringComparison.Ordinal);
 
         var rerun = await host.CreateAsync(document);
 
         Check.Succeeded(rerun);
         Assert.Equal(ChangeType.NoChange, rerun.OpOfType(Type).ChangeType);
         Check.NoWrites(rerun);
-        Assert.Equal(extra.ToJsonString(), rerun.Entry(ResourceId).Extra!.ToJsonString());
-        Assert.Equal(StateFile.StatusSucceeded, rerun.State!.LastStatus);
+        Assert.Equal(DeploymentStatus.Succeeded, rerun.Executed.Status);
 
         // Fresh tenant: the derived ids are the same.
         var fresh = new ProviderHost();
@@ -247,7 +241,7 @@ public sealed class ApplicationsProviderTests
         var reads = run.Requests.Where(r => r.Method == "GET" && r.Path.Contains("uniqueName=", StringComparison.Ordinal)).ToList();
         Assert.Equal(2, reads.Count);
         Assert.Equal(RetryHint.ExpectReplicationLag, reads[1].Hint);
-        Assert.Equal(seeded["id"]!.GetValue<string>(), run.Entry(ResourceId).GraphId);
+        Assert.Equal(seeded["id"]!.GetValue<string>(), run.GraphIdOf(ResourceId));
     }
 
     [Fact]
@@ -365,7 +359,7 @@ public sealed class ApplicationsProviderTests
         var host = new ProviderHost();
         var seeded = host.Directory.AddApplication(Name, "Test API");
         var provider = host.Provider<ApplicationsProvider>(Type);
-        var entry = new StateEntry
+        var entry = new DeleteTarget
         {
             Id = ResourceIdentifier.Create(Type, Name),
             Type = Type,
@@ -374,14 +368,14 @@ public sealed class ApplicationsProviderTests
             GraphId = seeded["id"]!.GetValue<string>(),
         };
 
-        await provider.DeleteAsync(DeleteTarget.KeyOf(entry), DeleteTarget.LiveOf(entry), host.Fake, ProviderHost.Ct);
+        await provider.DeleteAsync(entry.ResourceKey, entry.Live, host.Fake, ProviderHost.Ct);
 
         var write = Assert.Single(host.Fake.Writes);
         Assert.Equal("DELETE", write.Method);
         Assert.Equal("/applications/" + entry.GraphId, write.Path);
         Assert.Equal(0, host.Directory.Count("/applications"));
 
-        await provider.DeleteAsync(DeleteTarget.KeyOf(entry), DeleteTarget.LiveOf(entry), host.Fake, ProviderHost.Ct);
+        await provider.DeleteAsync(entry.ResourceKey, entry.Live, host.Fake, ProviderHost.Ct);
         Assert.Equal(2, host.Fake.Writes.Count);
     }
 
@@ -391,7 +385,7 @@ public sealed class ApplicationsProviderTests
         var host = new ProviderHost();
         var first = await host.CreateAsync(host.Resources(App("""{ "displayName": "Test API" }""")));
         Check.Succeeded(first);
-        string oldId = first.Entry(ResourceId).GraphId;
+        string oldId = first.GraphIdOf(ResourceId);
 
         var rerun = await host.CreateAsync(host.Resources(App("""{ "displayName": "Test API" }""")));
         Assert.Contains("applications(uniqueName='test-api')", rerun.Requests[0].Path, StringComparison.Ordinal);
@@ -408,8 +402,7 @@ public sealed class ApplicationsProviderTests
         Assert.Contains("applications(uniqueName='test-api')", drift.Requests[0].Path, StringComparison.Ordinal);
         Assert.DoesNotContain(drift.Requests, r => r.Path == "/applications/" + oldId);
         Assert.Equal(ChangeType.NoChange, drift.OpOfType(Type).ChangeType);
-        Assert.Equal(newId, drift.Entry(ResourceId).GraphId);
-        Assert.Equal(newId, host.StateEntryJson(ResourceId)!["id"]!.GetValue<string>());
+        Assert.Equal(newId, drift.GraphIdOf(ResourceId));
     }
 
     [Fact]

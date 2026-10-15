@@ -35,7 +35,7 @@ internal static class GroupsShape
         /// <summary>Mail-enabled, not security-enabled, without <c>Unified</c>: a distribution list, not creatable through Graph.</summary>
         public bool IsDistributionList => !IsUnified && EffectiveMailEnabled && !EffectiveSecurityEnabled;
 
-        /// <summary><c>security</c>, <c>microsoft365</c>, <c>mailEnabledSecurity</c> or <c>distribution</c> (recorded in the state's <c>extra.kind</c>).</summary>
+        /// <summary><c>security</c>, <c>microsoft365</c>, <c>mailEnabledSecurity</c> or <c>distribution</c> (the applied resource's <c>extra.kind</c>).</summary>
         public string Kind => IsUnified ? "microsoft365" : IsMailEnabledSecurity ? "mailEnabledSecurity" : IsDistributionList ? "distribution" : "security";
 
         /// <summary>

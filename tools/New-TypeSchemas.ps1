@@ -406,7 +406,7 @@ $specs['users'] = [ordered]@{
 # --- roleDefinitions ------------------------------------------------------------------------------------------------
 $specs['roleDefinitions'] = [ordered]@{
     NamePattern = $uniqueNamePattern
-    Description = 'A custom directory role definition. The resource name is the displayName; the Graph id is pinned in state. Built-in roles cannot be managed.'
+    Description = 'A custom directory role definition. The resource name is the displayName; it is looked up by displayName on every run (more than one match is an error). Built-in roles cannot be managed.'
     Props       = [ordered]@{
         displayName     = Str 'Set from the resource name; declaring it is only allowed when it equals the name.'
         description     = Str 'Description.' -Nullable
@@ -445,7 +445,7 @@ $specs['conditionalAccess.authenticationStrengths'] = [ordered]@{
 # --- appRoleAssignments (standalone) --------------------------------------------------------------------------------
 $specs['appRoleAssignments'] = [ordered]@{
     NamePattern = $script:GuidPattern
-    Description = 'An app role assignment (principal -> app role on a resource service principal). The resource name is a deterministic GUID chosen with guid(); the object is matched by (principalId, resourceId, appRoleId) and its Graph id pinned in state. Equivalent to an appRoleAssignments entry on the principal.'
+    Description = 'An app role assignment (principal -> app role on a resource service principal). The resource name is a deterministic GUID chosen with guid(); the object is matched by (principalId, resourceId, appRoleId) and looked up live on every run. Equivalent to an appRoleAssignments entry on the principal.'
     Props       = [ordered]@{
         principalId   = Str 'Required: object id of the user, group or service principal.'
         resourceId    = Str 'Object id of the resource service principal (or use resourceAppId).'
@@ -472,7 +472,7 @@ $specs['oauth2PermissionGrants'] = [ordered]@{
 # --- conditionalAccess/namedLocations -------------------------------------------------------------------------------
 $specs['conditionalAccess.namedLocations'] = [ordered]@{
     NamePattern = $uniqueNamePattern
-    Description = 'An IP or country named location. The resource name is the displayName; the Graph id is pinned in state. @odata.type selects the kind and is immutable (a kind change recreates the location).'
+    Description = 'An IP or country named location. The resource name is the displayName; it is looked up by displayName on every run (more than one match is an error). @odata.type selects the kind and is immutable (a kind change recreates the location).'
     Props       = [ordered]@{
         displayName = Str 'Set from the resource name; declaring it is only allowed when it equals the name.'
         '@odata.type' = Str 'Required: #microsoft.graph.ipNamedLocation or #microsoft.graph.countryNamedLocation.' -Enum '#microsoft.graph.ipNamedLocation', '#microsoft.graph.countryNamedLocation'
@@ -496,7 +496,7 @@ $filterRule = { param($what) Obj -d "Filter on $what." -Nullable -Required 'mode
 
 $specs['conditionalAccess.policies'] = [ordered]@{
     NamePattern = $uniqueNamePattern
-    Description = 'A conditional access policy. The resource name is the displayName; the Graph id is pinned in state. state: enabled requires --allow-ca-enforce at deployment time. Reference users and groups by object id, applications by application (client) id, locations by named location id, roles by role template id.'
+    Description = 'A conditional access policy. The resource name is the displayName; it is looked up by displayName on every run (more than one match is an error). state: enabled requires --allow-ca-enforce at deployment time. Reference users and groups by object id, applications by application (client) id, locations by named location id, roles by role template id.'
     Props       = [ordered]@{
         displayName   = Str 'Set from the resource name; declaring it is only allowed when it equals the name.'
         state         = Str 'Defaults to enabledForReportingButNotEnforced. enabled needs --allow-ca-enforce.' -Enum 'enabled', 'disabled', 'enabledForReportingButNotEnforced'
@@ -576,7 +576,7 @@ $specs['conditionalAccess.policies'] = [ordered]@{
 # --- administrativeUnits --------------------------------------------------------------------------------------------
 $specs['administrativeUnits'] = [ordered]@{
     NamePattern = $uniqueNamePattern
-    Description = 'An administrative unit. The resource name is the displayName; the Graph id is pinned in state. Dynamic administrative units reject explicit members.'
+    Description = 'An administrative unit. The resource name is the displayName; it is looked up by displayName on every run (more than one match is an error). Dynamic administrative units reject explicit members.'
     Props       = [ordered]@{
         displayName                   = Str 'Set from the resource name; declaring it is only allowed when it equals the name.'
         description                   = Str 'Description.' -Nullable

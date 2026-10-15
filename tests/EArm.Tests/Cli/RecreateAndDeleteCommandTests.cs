@@ -53,7 +53,6 @@ public sealed class RecreateAndDeleteCommandTests
             TemplateFile = template,
             Yes = yes,
             Output = output,
-            StateDir = sandbox.StateDir,
             Connection = sandbox.Connection,
         };
     }
@@ -115,7 +114,7 @@ public sealed class RecreateAndDeleteCommandTests
         using var _ = sandbox;
         string template = SeedReplacement(sandbox, directory);
 
-        var result = await CliRunner.RunAsync("deployment", "create", "-f", template, "-y", "--state-dir", sandbox.StateDir, "-o", "json");
+        var result = await CliRunner.RunAsync("deployment", "create", "-f", template, "-y", "-o", "json");
 
         Assert.True(result.ExitCode == 0, result.StandardOutput + result.StandardError);
         Assert.DoesNotContain("Replace them?", result.StandardError, StringComparison.Ordinal);
@@ -130,7 +129,7 @@ public sealed class RecreateAndDeleteCommandTests
         using var _ = sandbox;
         string template = SeedReplacement(sandbox, directory);
 
-        var result = await CliRunner.RunAsync("deployment", "create", "-f", template, "--state-dir", sandbox.StateDir, "-o", "json");
+        var result = await CliRunner.RunAsync("deployment", "create", "-f", template, "-o", "json");
 
         Assert.Equal(1, result.ExitCode);
         Assert.Contains("pass --yes to confirm", result.StandardError, StringComparison.Ordinal);
@@ -218,18 +217,17 @@ public sealed class RecreateAndDeleteCommandTests
     }
 
     [Fact]
-    public async Task Delete_NeverReadsOrTouchesTheStateFile()
+    public async Task Delete_WritesNothingToDisk()
     {
-        var (sandbox, directory) = Setup(nameof(Delete_NeverReadsOrTouchesTheStateFile));
+        var (sandbox, directory) = Setup(nameof(Delete_WritesNothingToDisk));
         using var _ = sandbox;
         SeedAppWithCredential(directory);
         string template = AppWithCredentialTemplate(sandbox);
-        sandbox.WriteRawState("app", "this is not a state file");
 
-        var result = await CliRunner.RunAsync("deployment", "delete", "-f", template, "-y", "--state-dir", sandbox.StateDir);
+        var result = await CliRunner.RunAsync("deployment", "delete", "-f", template, "-y");
 
         Assert.True(result.ExitCode == 0, result.StandardOutput + result.StandardError);
-        Assert.Equal("this is not a state file", File.ReadAllText(sandbox.StatePath("app")));
+        Assert.Empty(sandbox.UnexpectedFiles());
         Assert.Contains("deleted 2 object(s)", result.StandardOutput, StringComparison.Ordinal);
     }
 }

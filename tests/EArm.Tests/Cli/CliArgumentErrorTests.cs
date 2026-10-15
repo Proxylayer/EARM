@@ -7,9 +7,9 @@ using Xunit;
 namespace EArm.Tests.Cli;
 
 /// <summary>
-/// Argument and input errors of <c>permissions</c>, <c>state unlock / forget</c>, <c>deployment list / show / delete</c> and the
-/// output switches (<c>-o none</c>, <c>-o json</c>, a bad <c>-o</c>): the exit code (1 for anything the user can fix on the command
-/// line, 2 for an invalid template, 4 for a held lock), where the message goes, and that nothing is written when it fails.
+/// Argument and input errors of <c>permissions</c>, <c>deployment delete</c>, the removed state commands and the output switches
+/// (<c>-o none</c>, <c>-o json</c>, a bad <c>-o</c>): the exit code (1 for anything the user can fix on the command line, 2 for an
+/// invalid template), where the message goes, and that nothing is written when it fails.
 /// </summary>
 [Collection(CliCollection.Name)]
 public sealed class CliArgumentErrorTests
@@ -89,45 +89,6 @@ public sealed class CliArgumentErrorTests
         Assert.Contains("--template-file", noTemplate.StandardError, StringComparison.Ordinal);
     }
 
-    // ---- state commands ----
-
-    [Fact]
-    public async Task StateUnlock_AndForget_RequireANameAndAnExistingDeployment()
-    {
-        using var sandbox = new CliSandbox(nameof(StateUnlock_AndForget_RequireANameAndAnExistingDeployment));
-
-        var unlockNoName = await CliRunner.RunAsync("state", "unlock", "--state-dir", sandbox.StateDir);
-        var forgetNoName = await CliRunner.RunAsync("state", "forget", "--state-dir", sandbox.StateDir, "-r", "/providers/Microsoft.Entra/groups/g");
-        var forgetMissing = await CliRunner.RunAsync("state", "forget", "-n", "ghost", "--state-dir", sandbox.StateDir, "-r", "/providers/Microsoft.Entra/groups/g", "-y");
-        var unlockBadName = await CliRunner.RunAsync("state", "unlock", "-n", "bad name", "--state-dir", sandbox.StateDir);
-
-        Assert.Equal(1, unlockNoName.ExitCode);
-        Assert.Contains("--name", unlockNoName.StandardError, StringComparison.Ordinal);
-        Assert.Equal(1, forgetNoName.ExitCode);
-        Assert.Equal(1, forgetMissing.ExitCode);
-        Assert.True(unlockNoName.StandardError.Contains("--name", StringComparison.Ordinal), unlockNoName.StandardError + "|" + unlockNoName.StandardOutput);
-        Assert.Equal(1, unlockBadName.ExitCode);
-        Assert.Contains("is not valid", unlockBadName.StandardError, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task DeploymentList_OfAMissingDirectory_AndOutputNone_AreQuietSuccesses()
-    {
-        using var sandbox = new CliSandbox(nameof(DeploymentList_OfAMissingDirectory_AndOutputNone_AreQuietSuccesses));
-        string missing = Path.Combine(sandbox.Root, "never-created");
-
-        var table = await CliRunner.RunAsync("deployment", "list", "--state-dir", missing);
-        var none = await CliRunner.RunAsync("deployment", "list", "--state-dir", missing, "-o", "none");
-        var json = await CliRunner.RunAsync("deployment", "list", "--state-dir", missing, "-o", "json");
-
-        Assert.Equal(0, table.ExitCode);
-        Assert.Contains("No deployments.", table.StandardOutput, StringComparison.Ordinal);
-        Assert.Equal(0, none.ExitCode);
-        Assert.Equal(string.Empty, none.StandardOutput);
-        Assert.Empty(json.Json["deployments"]!.AsArray());
-        Assert.False(Directory.Exists(missing));
-    }
-
     [Fact]
     public async Task DeploymentDelete_WithoutATemplate_OrOfAMissingOne_ExitsOne_AndTheOutputSwitchIsRejectedWhenUnknown()
     {
@@ -135,7 +96,7 @@ public sealed class CliArgumentErrorTests
 
         var noTemplate = await CliRunner.RunAsync("deployment", "delete", "-n", "dep", "-y");
         var ghost = await CliRunner.RunAsync("deployment", "delete", "-f", Path.Combine(sandbox.Root, "ghost.entra.json"), "-y");
-        var badOutput = await CliRunner.RunAsync("deployment", "list", "--state-dir", sandbox.StateDir, "-o", "xml");
+        var badOutput = await CliRunner.RunAsync("deployment", "delete", "-f", Path.Combine(sandbox.Root, "ghost.entra.json"), "-o", "xml");
 
         Assert.Equal(1, noTemplate.ExitCode);
         Assert.Contains("--template-file", noTemplate.StandardError, StringComparison.Ordinal);
@@ -146,14 +107,15 @@ public sealed class CliArgumentErrorTests
     }
 
     [Fact]
-    public async Task OperationList_OfAMissingDeployment_ExitsOne_AndTheHelpOfEveryGroupExitsZero()
+    public async Task TheRemovedStateCommands_AreUnknown_AndTheHelpOfEveryGroupExitsZero()
     {
-        using var sandbox = new CliSandbox(nameof(OperationList_OfAMissingDeployment_ExitsOne_AndTheHelpOfEveryGroupExitsZero));
+        foreach (string[] removed in new[] { new[] { "state", "unlock", "-n", "dep" }, new[] { "deployment", "operation", "list", "-n", "dep" }, new[] { "deployment", "show", "-n", "dep" }, new[] { "deployment", "list" } })
+        {
+            var result = await CliRunner.RunAsync(removed);
+            Assert.Equal(1, result.ExitCode);
+        }
 
-        var missing = await CliRunner.RunAsync("deployment", "operation", "list", "-n", "ghost", "--state-dir", sandbox.StateDir);
-
-        Assert.Equal(1, missing.ExitCode);
-        foreach (string[] help in new[] { new[] { "state", "--help" }, new[] { "deployment", "operation", "--help" }, new[] { "schema", "--help" }, new[] { "permissions", "--help" } })
+        foreach (string[] help in new[] { new[] { "deployment", "--help" }, new[] { "auth", "--help" }, new[] { "schema", "--help" }, new[] { "permissions", "--help" } })
         {
             var result = await CliRunner.RunAsync(help);
             Assert.Equal(0, result.ExitCode);

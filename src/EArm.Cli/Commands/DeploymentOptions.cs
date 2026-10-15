@@ -48,15 +48,6 @@ internal sealed record DeploymentInvocation
 
     public string? SecureOutputsFile { get; init; }
 
-    /// <summary><c>--force-unlock</c>: break an existing state lock before acquiring it.</summary>
-    public bool ForceUnlock { get; init; }
-
-    /// <summary><c>--lock-timeout</c>: seconds to wait for the state lock before giving up (exit 4).</summary>
-    public int LockTimeoutSeconds { get; init; } = 10;
-
-    /// <summary><c>--state-dir</c> (global); <c>null</c> resolves to <c>EARM_STATE_DIR</c> or <c>.earm/state</c> next to the template.</summary>
-    public string? StateDir { get; init; }
-
     public required OutputFormat Output { get; init; }
 
     public required ConnectionSettings Connection { get; init; }
@@ -101,7 +92,7 @@ internal sealed class DeploymentOptions
 
     public Option<string?> Name { get; } = new("--name", "-n")
     {
-        Description = "Deployment name (state file name). Default: the template file stem.",
+        Description = "Deployment name (a label shown in the output). Default: the template file stem.",
     };
 
     public Option<string> Mode { get; } = CreateChoice("--mode", "Incremental: create/update declared resources. Complete: additionally report (never delete) the live objects of the declared types that the template does not declare.", "Incremental", "Incremental", "Complete");
@@ -159,13 +150,6 @@ internal sealed class DeploymentOptions
         Description = "Write the secure outputs (in clear text) to this file with owner-only permissions.",
     };
 
-    public Option<bool> ForceUnlock { get; } = new("--force-unlock")
-    {
-        Description = "Break the deployment's state lock before starting (when a previous run died without releasing it).",
-    };
-
-    public Option<int> LockTimeout { get; } = CreateBounded("--lock-timeout", "Seconds to wait for the deployment's state lock held by another run before giving up (exit code 4).", 10, minimum: 0);
-
     public void AddCommon(Command command)
     {
         ArgumentNullException.ThrowIfNull(command);
@@ -195,8 +179,6 @@ internal sealed class DeploymentOptions
         command.Options.Add(ContinueOnError);
         command.Options.Add(RevealSecureOutputs);
         command.Options.Add(SecureOutputsFile);
-        command.Options.Add(ForceUnlock);
-        command.Options.Add(LockTimeout);
         command.Options.Add(ResultFormat);
         command.Options.Add(ExitCodeOnChanges);
         command.Options.Add(NoPrettyPrint);
@@ -224,16 +206,13 @@ internal sealed class DeploymentOptions
             ContinueOnError = parseResult.GetValue(ContinueOnError),
             RevealSecureOutputs = parseResult.GetValue(RevealSecureOutputs),
             SecureOutputsFile = parseResult.GetValue(SecureOutputsFile),
-            ForceUnlock = parseResult.GetValue(ForceUnlock),
-            LockTimeoutSeconds = Math.Max(0, parseResult.GetValue(LockTimeout)),
-            StateDir = parseResult.GetValue(GlobalOptions.StateDir),
             Output = GlobalOptions.GetOutputFormat(parseResult),
             Connection = GlobalOptions.BuildConnection(parseResult, parallelism),
             LogLevel = GlobalOptions.GetLogLevel(parseResult),
         };
     }
 
-    /// <summary>An integer option with a lower bound: a value below it is a usage error (a negative <c>--parallelism</c> or <c>--lock-timeout</c> used to be clamped silently).</summary>
+    /// <summary>An integer option with a lower bound: a value below it is a usage error (a negative <c>--parallelism</c> used to be clamped silently).</summary>
     private static Option<int> CreateBounded(string name, string description, int defaultValue, int minimum)
     {
         var option = new Option<int>(name)

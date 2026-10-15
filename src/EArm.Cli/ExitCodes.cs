@@ -12,7 +12,7 @@ internal static class ExitCodes
 
     public const int AuthOrPreflight = 3;
 
-    public const int StateLocked = 4;
+    // 4 was StateLocked (the local state lock, removed with the state subsystem); it is not reused so the other codes keep their meaning.
 
     public const int WhatIfChangesDetected = 5;
 }

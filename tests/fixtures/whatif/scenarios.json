@@ -7,7 +7,6 @@
     "tenantId": "11111111-1111-1111-1111-111111111111",
     "template": "create-incremental.entra.json",
     "seed": "create-incremental.seed.json",
-    "state": null,
     "parameters": {
       "env": "dev",
       "initialPassword": "Hunter2-Secret-Value!"
@@ -23,7 +22,6 @@
     "tenantId": "11111111-1111-1111-1111-111111111111",
     "template": "modify-incremental.entra.json",
     "seed": "modify-incremental.seed.json",
-    "state": null,
     "parameters": {
       "env": "dev",
       "initialPassword": "Hunter2-Secret-Value!"
@@ -39,7 +37,6 @@
     "tenantId": "11111111-1111-1111-1111-111111111111",
     "template": "modify-incremental.entra.json",
     "seed": "modify-incremental.seed.json",
-    "state": null,
     "parameters": {
       "env": "dev",
       "initialPassword": "Hunter2-Secret-Value!"
@@ -55,7 +52,6 @@
     "tenantId": "11111111-1111-1111-1111-111111111111",
     "template": "orphans-complete.entra.json",
     "seed": "orphans-complete.seed.json",
-    "state": null,
     "parameters": {},
     "expectedText": "orphans-complete.expected.txt",
     "expectedJson": "orphans-complete.expected.json"
@@ -68,7 +64,6 @@
     "tenantId": "11111111-1111-1111-1111-111111111111",
     "template": "orphans-complete.entra.json",
     "seed": "orphans-complete.seed.json",
-    "state": null,
     "parameters": {},
     "expectedText": "retained-incremental.expected.txt",
     "expectedJson": "retained-incremental.expected.json"

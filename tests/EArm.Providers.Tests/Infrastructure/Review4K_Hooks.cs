@@ -5,7 +5,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using EArm.Engine.Execution;
 using EArm.Engine.Providers;
-using EArm.Engine.State;
 using EArm.Graph;
 using Microsoft.Extensions.Logging;
 
@@ -136,92 +135,5 @@ internal sealed class HookLogger<T>(Action<EventId> onLog) : ILogger<T>
     public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
     {
         onLog(eventId);
-    }
-}
-
-/// <summary>
-/// A state sink that throws <see cref="OperationCanceledException"/> when it is called with a cancelled token, and records every call that reached it. The end phase of a
-/// run records work that already happened and must never hand the caller's (cancelled) token to such a call.
-/// </summary>
-internal sealed class TokenStrictSink(IStateSink inner) : IStateSink
-{
-    private readonly object _gate = new();
-    private readonly List<string> _calls = [];
-
-    public IReadOnlyList<string> Calls
-    {
-        get
-        {
-            lock (_gate)
-            {
-                return [.. _calls];
-            }
-        }
-    }
-
-    private Task Run(string call, CancellationToken cancellationToken, Func<Task> forward)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        lock (_gate)
-        {
-            _calls.Add(call);
-        }
-
-        return forward();
-    }
-
-    public Task ResourceAppliedAsync(ResourceInstance instance, ResourceChange change, AppliedResource applied, CancellationToken cancellationToken)
-    {
-        return Run("Applied:" + instance.Id.Id, cancellationToken, () => inner.ResourceAppliedAsync(instance, change, applied, cancellationToken));
-    }
-
-    public Task ResourceFailedAsync(ResourceInstance instance, string error, CancellationToken cancellationToken)
-    {
-        return Run("Failed:" + instance.Id.Id, cancellationToken, () => inner.ResourceFailedAsync(instance, error, cancellationToken));
-    }
-
-    public Task CompletedAsync(DeploymentStatus status, CancellationToken cancellationToken)
-    {
-        return Run("Completed:" + status, cancellationToken, () => inner.CompletedAsync(status, cancellationToken));
-    }
-
-    public Task ResourceStartingAsync(ResourceInstance instance, CancellationToken cancellationToken)
-    {
-        return Run("Starting:" + instance.Id.Id, cancellationToken, () => inner.ResourceStartingAsync(instance, cancellationToken));
-    }
-
-    public Task ResourceSkippedAsync(ResourceInstance instance, string reason, CancellationToken cancellationToken)
-    {
-        return Run("Skipped:" + instance.Id.Id, cancellationToken, () => inner.ResourceSkippedAsync(instance, reason, cancellationToken));
-    }
-
-    public Task ResourceIgnoredAsync(ResourceInstance instance, string reason, CancellationToken cancellationToken)
-    {
-        return Run("Ignored:" + instance.Id.Id, cancellationToken, () => inner.ResourceIgnoredAsync(instance, reason, cancellationToken));
-    }
-
-    public Task ResourceDetachedAsync(StateEntry entry, CancellationToken cancellationToken)
-    {
-        return Run("Detached:" + entry.Id.Id, cancellationToken, () => inner.ResourceDetachedAsync(entry, cancellationToken));
-    }
-
-    public Task ResourceDeletedAsync(StateEntry entry, CancellationToken cancellationToken)
-    {
-        return Run("Deleted:" + entry.Id.Id, cancellationToken, () => inner.ResourceDeletedAsync(entry, cancellationToken));
-    }
-
-    public Task ResourceDeleteFailedAsync(StateEntry entry, string error, CancellationToken cancellationToken)
-    {
-        return Run("DeleteFailed:" + entry.Id.Id, cancellationToken, () => inner.ResourceDeleteFailedAsync(entry, error, cancellationToken));
-    }
-
-    public Task ResourceEdgesAppliedAsync(ResourceInstance instance, JsonObject? relationships, CancellationToken cancellationToken)
-    {
-        return Run("EdgesApplied:" + instance.Id.Id, cancellationToken, () => inner.ResourceEdgesAppliedAsync(instance, relationships, cancellationToken));
-    }
-
-    public Task ResourceEdgesFailedAsync(ResourceInstance instance, string error, CancellationToken cancellationToken)
-    {
-        return Run("EdgesFailed:" + instance.Id.Id, cancellationToken, () => inner.ResourceEdgesFailedAsync(instance, error, cancellationToken));
     }
 }

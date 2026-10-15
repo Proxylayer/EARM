@@ -543,7 +543,7 @@ public sealed class PermissionsCommandTests
         using var sandbox = new CliSandbox(nameof(Permissions_NeverSendsARequestOrAsksForAToken));
         sandbox.UseNotLoggedIn();
 
-        string[] args = ["permissions", "-f", TestPaths.Sample("orders-api.entra.json"), "-p", "@" + TestPaths.Sample("orders-api.parameters.json"), "-o", "json", .. sandbox.StateArgs];
+        string[] args = ["permissions", "-f", TestPaths.Sample("orders-api.entra.json"), "-p", "@" + TestPaths.Sample("orders-api.parameters.json"), "-o", "json"];
         var result = await CliRunner.RunAsync(args);
 
         Assert.Equal(0, result.ExitCode);

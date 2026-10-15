@@ -132,10 +132,8 @@ public sealed class RoleScenarioTests : IntegrationTestBase
 
         AssertNoChanges(await Fixture.Cli.WhatIfAsync(run, Ct, "--exit-code-on-changes"), "what-if after create");
 
-        var state = await Fixture.Store.LoadAsync(run.Name, Ct);
-        Assert.NotNull(state);
-        int managed = state.Resources.Count;
-        Assert.True(managed >= 15, $"Expected at least 15 state entries, found {managed}.");
+        int managed = created.Json["operations"]!.AsArray().Count(o => (string?)o?["status"] == "Succeeded");
+        Assert.True(managed >= 15, $"Expected at least 15 applied resources, found {managed}.");
 
         // Complete mode never deletes: with the full template it changes nothing and lists no orphan of its own objects.
         var completePreview = await Fixture.Cli.WhatIfAsync(run, Ct, "--mode", "Complete", "--exit-code-on-changes");

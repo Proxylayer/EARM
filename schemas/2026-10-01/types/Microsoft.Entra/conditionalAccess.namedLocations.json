@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/conditionalAccess.namedLocations.json",
   "title": "Microsoft.Entra/conditionalAccess/namedLocations",
-  "description": "An IP or country named location. The resource name is the displayName; the Graph id is pinned in state. @odata.type selects the kind and is immutable (a kind change recreates the location).",
+  "description": "An IP or country named location. The resource name is the displayName; it is looked up by displayName on every run (more than one match is an error). @odata.type selects the kind and is immutable (a kind change recreates the location).",
   "type": "object",
   "properties": {
     "displayName": {

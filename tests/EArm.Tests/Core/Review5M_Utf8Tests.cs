@@ -7,15 +7,14 @@ using System.Threading.Tasks;
 using EArm.Core;
 using EArm.Core.Diagnostics;
 using EArm.Core.Loading;
-using EArm.Engine.State;
 using EArm.Tests.Engine;
 using Xunit;
 
 namespace EArm.Tests;
 
 /// <summary>
-/// Review 5M: input that is not valid UTF-8 (the review 4L defect: <c>0xC3 0x28</c> inside a string) is refused at load as <c>InvalidJson</c> for templates, parameter files
-/// and state files, through the loader and through the real command line, never as an unhandled exception.
+/// Review 5M: input that is not valid UTF-8 (the review 4L defect: <c>0xC3 0x28</c> inside a string) is refused at load as <c>InvalidJson</c> for templates and parameter files,
+/// through the loader and through the real command line, never as an unhandled exception.
 /// </summary>
 [Collection(CliCollection.Name)]
 public sealed class Review5M_Utf8Tests
@@ -122,35 +121,5 @@ public sealed class Review5M_Utf8Tests
         Assert.Equal("InvalidJson", diagnostic!["code"]!.GetValue<string>());
         Assert.Equal(parameters, diagnostic["source"]!.GetValue<string>());
         Assert.Equal(string.Empty, result.StandardError);
-    }
-
-    [Fact]
-    public async Task AStateFileWithInvalidUtf8_IsACleanStateStoreException_NotSilentReplacementCharacters()
-    {
-        using var directory = new TestDirectory(nameof(AStateFileWithInvalidUtf8_IsACleanStateStoreException_NotSilentReplacementCharacters));
-        var store = new FileStateStore(directory.Path);
-        Directory.CreateDirectory(store.Directory);
-        await File.WriteAllBytesAsync(store.PathFor("r5m"), WithBadBytesInAString("{ \"schemaVersion\": 1, \"deploymentName\": \"r5m\", \"note\": \"", "\" }"), TestContext.Current.CancellationToken);
-
-        var ex = await Assert.ThrowsAsync<StateStoreException>(() => store.LoadAsync("r5m", TestContext.Current.CancellationToken));
-
-        Assert.Equal("r5m", ex.DeploymentName);
-        Assert.Contains("not valid UTF-8", ex.Message, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task AValidMultiByteStateFile_StillLoadsPastTheEncodingCheck()
-    {
-        using var directory = new TestDirectory(nameof(AValidMultiByteStateFile_StillLoadsPastTheEncodingCheck));
-        var store = new FileStateStore(directory.Path);
-        Directory.CreateDirectory(store.Directory);
-        await File.WriteAllBytesAsync(store.PathFor("r5m"), Utf8("{ \"note\": \"café\" "), TestContext.Current.CancellationToken);
-
-        var ex = await Record.ExceptionAsync(() => store.LoadAsync("r5m", TestContext.Current.CancellationToken));
-
-        // The truncated JSON is refused as JSON, which proves the bytes were decoded and parsed (not rejected as malformed UTF-8).
-        Assert.NotNull(ex);
-        Assert.IsNotType<StateStoreException>(ex);
-        Assert.DoesNotContain("UTF-8", ex.Message, StringComparison.Ordinal);
     }
 }

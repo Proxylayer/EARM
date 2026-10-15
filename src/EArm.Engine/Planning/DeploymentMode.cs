@@ -3,10 +3,10 @@ namespace EArm.Engine.Planning;
 /// <summary>ARM deployment modes.</summary>
 public enum DeploymentMode
 {
-    /// <summary>Create/update declared resources; resources that vanished from the template are detached from state with a warning.</summary>
+    /// <summary>Create/update declared resources; nothing else is touched (retained assignments and grants of declared principals are reported).</summary>
     Incremental,
 
-    /// <summary>As <see cref="Incremental"/>, plus state-managed resources absent from the template are deleted.</summary>
+    /// <summary>As <see cref="Incremental"/>, plus a report (never a delete) of the live objects of the declared types that the template does not declare.</summary>
     Complete,
 }
 

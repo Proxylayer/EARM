@@ -69,7 +69,6 @@ public sealed class Review1D_ProviderFixesTests
         Check.Succeeded(await host.CreateAsync(host.Resources(Templates.Resource(AppType, "fb-app", """{ "displayName": "Fallback" }""") + "," + Templates.Resource(GroupType, "fb-group", """{ "displayName": "Fallback group" }"""))));
         host.Fake.Failures.Add("GET", "(uniqueName=", BadRequest, times: -1);
         host.ClearRequests();
-        host.TrackState = false; // no pinned ids: the read goes through the uniqueName key
 
         var rerun = await host.CreateAsync(host.Resources(Templates.Resource(AppType, "fb-app", """{ "displayName": "Fallback" }""") + "," + Templates.Resource(GroupType, "fb-group", """{ "displayName": "Fallback group" }""")));
 
@@ -408,7 +407,6 @@ public sealed class Review1D_ProviderFixesTests
         // rejects the parent lookup itself.
         host.Fake.Failures.Add("GET", "applications(uniqueName='fic-app')", BadRequest, times: -1);
         host.ClearRequests();
-        host.TrackState = false;
 
         // The application is not part of this template: the credential's parent is addressed by its uniqueName.
         const string onlyTheCredential = """

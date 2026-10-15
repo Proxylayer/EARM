@@ -40,10 +40,8 @@ namespace EArm.Providers.Edges;
 /// <para>
 /// De-duplication with the standalone <c>Microsoft.Entra/roleAssignments</c> resource: the object pass applies the
 /// standalone resource before the edge pass runs, so the principal-side item finds its assignment in place and the
-/// edge pass neither writes nor records it; the standalone resource owns the assignment (Complete mode deletes it
-/// when the resource is removed, Incremental mode detaches it), and removing only the principal-side item changes
-/// nothing. The state records <c>{ roleDefinitionId, principalId, directoryScopeId, id }</c> under
-/// <c>relationships.directoryRoles</c> for edges the pass created itself.
+/// edge pass does not write it again; removing either declaration never removes the assignment (principal-side
+/// edges are ensure-only; a retained assignment of a declared principal is reported, never deleted).
 /// </para>
 /// </summary>
 [EntraEdgeKind(EdgeKind.DirectoryRole)]
@@ -283,93 +281,6 @@ public sealed class DirectoryRoleEdgeKind : IEdgeKindHandler
             ?? JsonObjects.GetId(edge.Extra)
             ?? throw new InvalidOperationException($"The directory role edge {Describe(edge)} has no assignment id; it must be read before it can be removed.");
         return new BatchRequest("DELETE", RoleAssignmentsLookup.AssignmentPath(id));
-    }
-
-    // ---- state ----
-
-    public JsonNode RecordEntry(Edge edge, JsonObject? applied)
-    {
-        ArgumentNullException.ThrowIfNull(edge);
-        var (roleDefinitionId, scope) = Composite(edge);
-        var record = new JsonObject
-        {
-            ["roleDefinitionId"] = roleDefinitionId,
-            ["principalId"] = RoleAssignmentsRules.NormalizeId(edge.PrincipalId),
-            ["directoryScopeId"] = scope,
-        };
-
-        string? id = JsonObjects.GetId(applied) ?? JsonObjects.GetId(edge.Extra);
-        if (id is not null)
-        {
-            record["id"] = id;
-        }
-
-        return record;
-    }
-
-    public async Task<Edge?> FromRecordAsync(JsonNode? record, string principalId, GraphApi api, EdgeGraphContext context, CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(principalId);
-        ArgumentNullException.ThrowIfNull(context);
-
-        if (record is not JsonObject obj || JsonObjects.GetString(obj, "roleDefinitionId") is not { } roleDefinitionId || !RoleAssignmentsRules.IsGuid(roleDefinitionId))
-        {
-            return null;
-        }
-
-        string scope = RoleAssignmentsRules.NormalizeScope(JsonObjects.GetString(obj, "directoryScopeId"));
-        string? id = JsonObjects.GetId(obj);
-        if (id is null)
-        {
-            // Recorded without the assignment id (a rerun that found the edge in place): look it up from the principal.
-            var live = await ReadPrincipalAssignmentsAsync(principalId, api, context, cancellationToken).ConfigureAwait(false);
-            if (live.TryGetValue(Edge.NormalizeId(RoleAssignmentsRules.TargetKey(roleDefinitionId, scope)), out var extra))
-            {
-                id = JsonObjects.GetId(extra);
-            }
-
-            if (id is null)
-            {
-                // Not in place any more: nothing to remove, and nothing to interpret.
-                return null;
-            }
-        }
-
-        var recorded = new JsonObject
-        {
-            ["roleDefinitionId"] = RoleAssignmentsRules.NormalizeId(roleDefinitionId),
-            ["directoryScopeId"] = scope,
-            ["id"] = id,
-        };
-        return new Edge(Kind, RoleAssignmentsRules.TargetKey(roleDefinitionId, scope), principalId, Collection, recorded);
-    }
-
-    /// <summary>GET the recorded assignment by id: it must be the assignment of this principal for the recorded role and scope (a tampered state could name anybody's assignment).</summary>
-    public async Task<bool> VerifyRecordedAsync(Edge edge, string principalId, GraphApi api, EdgeGraphContext context, CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(edge);
-        ArgumentNullException.ThrowIfNull(context);
-        string? id = JsonObjects.GetId(edge.Extra);
-        if (id is null)
-        {
-            return false;
-        }
-
-        var (roleDefinitionId, scope) = Composite(edge);
-        JsonNode? live;
-        try
-        {
-            live = await context.GetAsync(new GraphRequest(RoleAssignmentsLookup.AssignmentPath(id), api), cancellationToken).ConfigureAwait(false);
-        }
-        catch (GraphException ex) when (ex.IsNotFound)
-        {
-            return false;
-        }
-
-        return live is JsonObject assignment
-            && Edge.IdEquals(JsonObjects.GetString(assignment, "principalId"), principalId)
-            && Edge.IdEquals(JsonObjects.GetString(assignment, "roleDefinitionId"), roleDefinitionId)
-            && RoleAssignmentsRules.ScopeEquals(JsonObjects.GetString(assignment, "directoryScopeId"), scope);
     }
 
     // ---- identity ----

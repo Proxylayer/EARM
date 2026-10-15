@@ -209,29 +209,7 @@ public sealed class DirectoryRoleEdgeKindUnitTests
         Assert.Empty(app.Edges);
     }
 
-    // ---- records and identity ----
-
-    [Fact]
-    public async Task FromRecord_RebuildsWithAnId_LooksTheIdUp_AndDropsStaleOrMalformedRecords()
-    {
-        var host = NewHost();
-        string userId = host.Directory.AddUser("alice@contoso.com", "Alice")["id"]!.GetValue<string>();
-        string assignmentId = host.Directory.Add(BuiltInRoles.AssignmentsPath, new JsonObject { ["roleDefinitionId"] = BuiltInRoles.GlobalReader, ["principalId"] = userId, ["directoryScopeId"] = "/" })["id"]!.GetValue<string>();
-        var context = Context(host);
-        var ct = ProviderHost.Ct;
-
-        var withId = await Handler.FromRecordAsync(new JsonObject { ["roleDefinitionId"] = BuiltInRoles.GlobalReader, ["directoryScopeId"] = "/", ["id"] = "recorded-1" }, userId, GraphApi.V1, context, ct);
-        var lookedUp = await Handler.FromRecordAsync(new JsonObject { ["roleDefinitionId"] = BuiltInRoles.GlobalReader }, userId, GraphApi.V1, context, ct);
-        var stale = await Handler.FromRecordAsync(new JsonObject { ["roleDefinitionId"] = BuiltInRoles.SecurityReader }, userId, GraphApi.V1, context, ct);
-
-        Assert.Equal("recorded-1", withId!.Extra!["id"]!.GetValue<string>());
-        Assert.Equal(assignmentId, lookedUp!.Extra!["id"]!.GetValue<string>());
-        Assert.Null(stale);
-        Assert.Null(await Handler.FromRecordAsync(null, userId, GraphApi.V1, context, ct));
-        Assert.Null(await Handler.FromRecordAsync(JsonValue.Create(3), userId, GraphApi.V1, context, ct));
-        Assert.Null(await Handler.FromRecordAsync(new JsonObject { ["roleDefinitionId"] = "not-a-guid" }, userId, GraphApi.V1, context, ct));
-        Assert.Null(await Handler.FromRecordAsync(new JsonObject { ["directoryScopeId"] = "/" }, userId, GraphApi.V1, context, ct));
-    }
+    // ---- identity ----
 
     [Fact]
     public void Composite_FallsBackToTheExtras_AndRejectsEdgesWithoutOne()
@@ -247,7 +225,7 @@ public sealed class DirectoryRoleEdgeKindUnitTests
     }
 
     [Fact]
-    public void RequestsAndRecords_UseTheAppliedIdThenTheEdgeExtraId()
+    public void Requests_UseTheLiveIdThenTheEdgeExtraId()
     {
         string key = RoleAssignmentsRules.TargetKey(BuiltInRoles.GlobalReader, "/");
         var edge = new Edge(EdgeKind.DirectoryRole, key, Guid1, null, null);
@@ -261,11 +239,6 @@ public sealed class DirectoryRoleEdgeKindUnitTests
         Assert.EndsWith("/live-id", Handler.RemoveRequest(edge, new JsonObject { ["id"] = "live-id" }, GraphApi.V1).Path, StringComparison.Ordinal);
         Assert.EndsWith("/extra-id", Handler.RemoveRequest(withExtra, null, GraphApi.V1).Path, StringComparison.Ordinal);
         Assert.Throws<InvalidOperationException>(() => Handler.RemoveRequest(edge, null, GraphApi.V1));
-
-        Assert.Equal("applied-id", ((JsonObject)Handler.RecordEntry(edge, new JsonObject { ["id"] = "applied-id" }))["id"]!.GetValue<string>());
-        Assert.Equal("extra-id", ((JsonObject)Handler.RecordEntry(withExtra, null))["id"]!.GetValue<string>());
-        Assert.False(((JsonObject)Handler.RecordEntry(edge, null)).ContainsKey("id"));
-        Assert.Equal(RoleAssignmentsRules.NormalizeId(Guid1), ((JsonObject)Handler.RecordEntry(edge, null))["principalId"]!.GetValue<string>());
     }
 
     [Fact]

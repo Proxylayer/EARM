@@ -11,7 +11,6 @@ using EArm.Engine;
 using EArm.Engine.Execution;
 using EArm.Engine.Planning;
 using EArm.Engine.Providers;
-using EArm.Engine.State;
 using EArm.Graph;
 using EArm.Providers.Tests.Infrastructure;
 using Microsoft.Extensions.Logging;
@@ -63,10 +62,10 @@ public sealed partial class Review4K_ExecutorTests
         return "/providers/Microsoft.Entra/groups/" + name;
     }
 
-    private sealed record Outcome(DeploymentPlan Plan, DeploymentResult Result, StateFile State);
+    private sealed record Outcome(DeploymentPlan Plan, DeploymentResult Result);
 
     /// <summary>
-    /// Plans (Create mode) and executes with the state sink of <c>deployment create</c> over the host's store, with the hooks a test can ask for.
+    /// Plans (Create mode) and executes as <c>deployment create</c> does, with the hooks a test can ask for.
     /// </summary>
     private static async Task<Outcome> ExecuteAsync(
         ProviderHost host,
@@ -75,26 +74,14 @@ public sealed partial class Review4K_ExecutorTests
         ExecuteOptions? execute = null,
         IGraphClient? graph = null,
         ILogger<DeploymentExecutor>? logger = null,
-        Func<IStateSink, IStateSink>? wrapSink = null,
         CancellationToken? token = null,
         Func<PlannerOptions, PlannerOptions>? plannerOptions = null)
     {
-        var state = await host.LoadStateAsync();
         var options = plannerOptions is null ? host.Options() : plannerOptions(host.Options());
-        var plan = await new DeploymentPlanner(host.Registry, host.Fake, options, host.Logs.For<DeploymentPlanner>()).PlanAsync(document, state, mode, PlanMode.Create, Ct);
-        state ??= StateFile.CreateNew(ProviderHost.DeploymentName, host.Directory.TenantId, DateTimeOffset.UtcNow);
-        var sink = new FileStateSink(host.Store, state, plan, host.Logs.For<FileStateSink>()) { SaveRetryBaseDelay = TimeSpan.FromMilliseconds(1) };
-        await sink.BeginAsync(Ct);
-        IStateSink effective = wrapSink is null ? sink : wrapSink(sink);
-        var executeOptions = (execute ?? new ExecuteOptions { Parallelism = 1 }) with { StateSink = effective, State = state };
+        var plan = await new DeploymentPlanner(host.Registry, host.Fake, options, host.Logs.For<DeploymentPlanner>()).PlanAsync(document, mode, PlanMode.Create, Ct);
         var executor = new DeploymentExecutor(host.Registry, graph ?? host.Fake, logger ?? host.Logs.For<DeploymentExecutor>());
-        var result = await executor.ExecuteAsync(plan, executeOptions, token ?? Ct);
-        return new Outcome(plan, result, state);
-    }
-
-    private static async Task<StateFile> StateOfAsync(ProviderHost host)
-    {
-        return await host.LoadStateAsync() ?? throw new InvalidOperationException("no state");
+        var result = await executor.ExecuteAsync(plan, execute ?? new ExecuteOptions { Parallelism = 1 }, token ?? Ct);
+        return new Outcome(plan, result);
     }
 
     // ---- DE01 / DE09: a failure that is neither the caller's cancellation nor an expected exception fails one resource ----
@@ -120,7 +107,6 @@ public sealed partial class Review4K_ExecutorTests
         Assert.Contains("unexpected error", boom.Error, StringComparison.Ordinal);
         Assert.Contains(kind == "null-reference" ? "NullReferenceException" : "TaskCanceledException", boom.Error, StringComparison.Ordinal);
         Assert.Equal("yes", outcome.Result.Outputs["done"]!["value"]!.GetValue<string>());
-        Assert.Equal(StateFile.StatusFailed, (await StateOfAsync(host)).LastStatus);
     }
 
     // ---- DE03: a cancelled run judges nothing (no orphan report), and Complete mode never deletes anyway ----
@@ -137,44 +123,39 @@ public sealed partial class Review4K_ExecutorTests
 
         Assert.DoesNotContain(host.Fake.Writes, w => w.Method == "DELETE");
         Assert.NotNull(host.Directory.Find("/groups", "uniqueName", "orphan"));
-        var state = await StateOfAsync(host);
-        Assert.NotNull(state.Find(GroupResourceId("orphan")));
-        Assert.Equal(StateFile.StatusCancelled, state.LastStatus);
     }
 
-    // ---- DE06 / DE07 / DE08 / DE25: recording what already happened never observes the cancelled token ----
+    // ---- DE06 / DE07 / DE08 / DE25: an edge write already sent is not undone by a cancellation ----
 
     [Fact]
-    public async Task TheEdgesAddedBeforeACancellation_StayAdded_AndTheFailureIsRecorded_WithoutTheCancelledToken()
+    public async Task TheEdgesAddedBeforeACancellation_StayAdded()
     {
         var host = new ProviderHost();
         string first = host.Directory.AddGroup("team-a", "Team A")["id"]!.GetValue<string>();
         string second = host.Directory.AddGroup("team-b", "Team B")["id"]!.GetValue<string>();
         using var source = CancellationTokenSource.CreateLinkedTokenSource(Ct);
         var hooked = new HookedGraphClient(host.Fake) { After = (method, request) => method == "POST" && request.Path.EndsWith("/members/$ref", StringComparison.Ordinal) ? source.CancelAsync() : Task.CompletedTask };
-        TokenStrictSink? strict = null;
         var document = host.Resources(DirectoryTemplates.Alice("\"memberOf\": [\"" + first + "\", \"" + second + "\"]"));
 
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => ExecuteAsync(host, document, graph: hooked, token: source.Token, wrapSink: sink => strict = new TokenStrictSink(sink)));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => ExecuteAsync(host, document, graph: hooked, token: source.Token));
 
         Assert.Equal(1, host.Directory.References("/groups/" + first + "/members").Count + host.Directory.References("/groups/" + second + "/members").Count);
-        Assert.Contains("EdgesFailed:" + DirectoryTemplates.AliceId, strict!.Calls);
     }
 
-    // ---- DE40: a row with validation errors records no edges ----
+    // ---- DE40: a row with validation errors writes no edges ----
 
     [Fact]
-    public async Task ARowThatFailedValidation_RecordsNoEdges()
+    public async Task ARowThatFailedValidation_WritesNoEdges()
     {
         var host = new ProviderHost();
-        TokenStrictSink? strict = null;
         string ghostGroup = Guid.NewGuid().ToString("D");
 
-        var outcome = await ExecuteAsync(host, host.Resources(DirectoryTemplates.Alice("\"memberOf\": [\"" + ghostGroup + "\"]")), wrapSink: sink => strict = new TokenStrictSink(sink));
+        var outcome = await ExecuteAsync(host, host.Resources(DirectoryTemplates.Alice("\"memberOf\": [\"" + ghostGroup + "\"]")));
 
-        Assert.Contains(outcome.Result.Operations, o => o.Status == OperationStatus.Failed && o.ErrorCode == EngineDiagnosticCodes.EdgeValidationFailed);
-        Assert.DoesNotContain(strict!.Calls, c => c.StartsWith("EdgesApplied:", StringComparison.Ordinal));
-        Assert.Contains("EdgesFailed:" + DirectoryTemplates.AliceId, strict.Calls);
+        var alice = outcome.Result.Operations.Single(o => o.Id.Id == DirectoryTemplates.AliceId);
+        Assert.Equal(OperationStatus.Failed, alice.Status);
+        Assert.Equal(EngineDiagnosticCodes.EdgeValidationFailed, alice.ErrorCode);
+        Assert.DoesNotContain(host.Fake.Writes, w => w.Path.EndsWith("/$ref", StringComparison.Ordinal));
     }
 
     // ---- DE10: ExecuteOptions.Parallelism wins over the plan's ----
@@ -191,7 +172,7 @@ public sealed partial class Review4K_ExecutorTests
 
         var outcome = await ExecuteAsync(host, document, execute: new ExecuteOptions { Parallelism = optionsParallelism }, graph: hooked, plannerOptions: o => o with { Parallelism = planParallelism });
 
-        Check.Succeeded(new Run(outcome.Plan, outcome.Result, outcome.State, []));
+        Check.Succeeded(new Run(outcome.Plan, outcome.Result, []));
         Assert.InRange(hooked.MaxInFlight, minObserved, maxObserved);
     }
 

@@ -9,7 +9,6 @@ using EArm.Graph;
 using EArm.Core;
 using EArm.Engine;
 using EArm.Engine.Providers;
-using EArm.Engine.State;
 using EArm.Expressions.Values;
 using EArm.Providers.Tests.Infrastructure;
 using EArm.TestSupport;
@@ -223,7 +222,7 @@ public sealed class RoleAssignmentGapTests
     public async Task Delete_ToleratesAMissingAssignment_AndPropagatesOtherErrors()
     {
         var t = NewTenant();
-        var entry = new StateEntry
+        var entry = new DeleteTarget
         {
             Id = ResourceIdentifier.Create(AssignmentType, AssignmentName),
             Type = AssignmentType,
@@ -231,12 +230,12 @@ public sealed class RoleAssignmentGapTests
             GraphId = Guid.NewGuid().ToString("D"),
         };
 
-        await t.Provider.DeleteAsync(DeleteTarget.KeyOf(entry), DeleteTarget.LiveOf(entry), t.Host.Fake, ProviderHost.Ct);
+        await t.Provider.DeleteAsync(entry.ResourceKey, entry.Live, t.Host.Fake, ProviderHost.Ct);
 
         t.Host.Fake.Failures.Forbid(BuiltInRoles.AssignmentsPath, "DELETE");
-        var ex = await Assert.ThrowsAsync<GraphException>(() => t.Provider.DeleteAsync(DeleteTarget.KeyOf(entry), DeleteTarget.LiveOf(entry), t.Host.Fake, ProviderHost.Ct));
+        var ex = await Assert.ThrowsAsync<GraphException>(() => t.Provider.DeleteAsync(entry.ResourceKey, entry.Live, t.Host.Fake, ProviderHost.Ct));
         Assert.True(ex.IsForbidden);
         await Assert.ThrowsAsync<ArgumentNullException>(() => t.Provider.DeleteAsync(null!, null!, t.Host.Fake, ProviderHost.Ct));
-        await Assert.ThrowsAsync<ArgumentNullException>(() => t.Provider.DeleteAsync(DeleteTarget.KeyOf(entry), DeleteTarget.LiveOf(entry), null!, ProviderHost.Ct));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => t.Provider.DeleteAsync(entry.ResourceKey, entry.Live, null!, ProviderHost.Ct));
     }
 }

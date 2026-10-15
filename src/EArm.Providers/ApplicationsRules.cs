@@ -15,7 +15,7 @@ public sealed record DerivedMemberIds(IReadOnlyDictionary<string, string> AppRol
 {
     public bool IsEmpty => AppRoles.Count == 0 && Scopes.Count == 0;
 
-    /// <summary>The <c>extra</c> block recorded in the state file, or <c>null</c> when nothing was derived.</summary>
+    /// <summary>The <c>extra</c> block of the applied resource (the derived ids), or <c>null</c> when nothing was derived.</summary>
     public JsonObject? ToExtra()
     {
         if (IsEmpty)

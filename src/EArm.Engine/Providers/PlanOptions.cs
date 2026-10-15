@@ -1,5 +1,4 @@
 using EArm.Engine.Planning;
-using EArm.Engine.State;
 
 namespace EArm.Engine.Providers;
 
@@ -23,11 +22,4 @@ public sealed record PlanOptions
     public bool AllowCaEnforce { get; init; }
 
     public SoftDeletedConflict OnSoftDeletedConflict { get; init; } = SoftDeletedConflict.Error;
-
-    /// <summary>
-    /// The deployment's state before this run (<c>null</c> when there is none). No provider reads it (password credentials
-    /// carry their <c>rotationTag</c> in the live <c>displayName</c>); it goes away with the state subsystem. Read-only for
-    /// providers; the executor keeps writing entries while a batch runs, so look an entry up and copy what you need.
-    /// </summary>
-    public StateFile? State { get; init; }
 }

@@ -182,7 +182,7 @@ public sealed class ServicePrincipalsProvider : ProviderBase, IOrphanCandidateSo
         string? liveAppId = JsonObjects.GetString(existing.Raw, "appId");
         if (!desired.IsSymbolic && liveAppId is not null && !JsonObjects.KeyEquals(liveAppId, name))
         {
-            return Unsupported(desired, existing, $"{desired.Describe()}: the live service principal ({existing.GraphId}) belongs to application '{liveAppId}', not '{name}' (appId is immutable); remove the stale state entry or declare the right application id.");
+            return Unsupported(desired, existing, $"{desired.Describe()}: the live service principal ({existing.GraphId}) belongs to application '{liveAppId}', not '{name}' (appId is immutable); declare the right application id.");
         }
 
         return base.Plan(desired, NormalizedExisting(existing, properties), options);

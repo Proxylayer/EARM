@@ -23,8 +23,8 @@ internal static class Program
     /// <summary>
     /// How long the process waits, after Ctrl+C / SIGINT / SIGTERM, for the command to finish before System.CommandLine lets it exit (its default is 2 s).
     /// A cancelled deployment does not stop dead: a write already sent to Graph is let finish (bounded by the 120 s request timeout,
-    /// <see cref="GraphOptions.Timeout"/>), an object whose create answer was lost is looked up once more (one more request timeout), and the state
-    /// and the secure outputs file are saved (30 s bound per save). Killing the process inside that window would orphan the object just written and
+    /// <see cref="GraphOptions.Timeout"/>), an object whose create answer was lost is looked up once more (one more request timeout), and the secure
+    /// outputs file is saved (30 s bound per save). Killing the process inside that window would orphan the object just written and
     /// its one-time secret, which is exactly what the uncancellable end phase prevents; 5 minutes covers that worst case with margin. Not <c>null</c>:
     /// that would disable the cancellation token altogether, and Ctrl+C would kill the process at once.
     /// </summary>
@@ -201,12 +201,10 @@ internal static class Program
         root.Options.Add(GlobalOptions.Auth);
         root.Options.Add(GlobalOptions.Tenant);
         root.Options.Add(GlobalOptions.ClientId);
-        root.Options.Add(GlobalOptions.StateDir);
         root.Options.Add(GlobalOptions.Verbose);
         root.Options.Add(GlobalOptions.Debug);
         root.Options.Add(GlobalOptions.EvaluationTimeout);
         root.Subcommands.Add(DeploymentCommand.Build());
-        root.Subcommands.Add(StateCommand.Build());
         root.Subcommands.Add(AuthCommand.Build());
         root.Subcommands.Add(PermissionsCommand.Build());
         root.Subcommands.Add(SchemaCommand.Build());

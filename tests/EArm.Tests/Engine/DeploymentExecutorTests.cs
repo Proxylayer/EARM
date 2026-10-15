@@ -499,50 +499,46 @@ public sealed class DeploymentExecutorTests
         Assert.StartsWith("fake-secret-", Value(result.SecureOutputs, "ciSecret"), StringComparison.Ordinal);
     }
 
-    // ---- state sink ----
+    // ---- operations ----
 
     [Fact]
-    public async Task StateSink_ReceivesStartingAppliedIgnoredAndCompleted_InBatchOrder()
+    public async Task Operations_ReportSucceededAndIgnored_InBatchOrder()
     {
         var host = new EngineHost();
         host.SeedExisting();
-        var sink = new RecordingStateSink();
 
-        var (plan, result) = await host.CreateAsync(await Templates.FixtureAsync(), new ExecuteOptions { StateSink = sink });
+        var (plan, result) = await host.CreateAsync(await Templates.FixtureAsync());
         string spId = EngineHost.Instance(plan, Fixture.SpSymbolic).Id.Id;
 
         Assert.True(result.Succeeded);
-        var calls = sink.Calls;
-        Assert.Equal("Completed:Succeeded", calls[^1]);
-        Assert.Equal(Fixture.InstanceCount, calls.Count(c => c.StartsWith("Starting:", StringComparison.Ordinal)));
-        Assert.Equal(15, calls.Count(c => c.StartsWith("Applied:", StringComparison.Ordinal)));
-        Assert.Equal(["Ignored:" + Fixture.Policy], calls.Where(c => c.StartsWith("Ignored:", StringComparison.Ordinal)).ToList());
-        Assert.DoesNotContain(calls, c => c.StartsWith("Failed:", StringComparison.Ordinal) || c.StartsWith("Skipped:", StringComparison.Ordinal) || c.StartsWith("Detached:", StringComparison.Ordinal));
-        Assert.True(sink.IndexOf("Starting:" + Fixture.User) < sink.IndexOf("Applied:" + Fixture.User));
-        Assert.True(sink.IndexOf("Applied:" + Fixture.User) < sink.IndexOf("Starting:" + Fixture.App));
-        Assert.True(sink.IndexOf("Applied:" + Fixture.App) < sink.IndexOf("Starting:" + spId));
-        Assert.True(sink.IndexOf("Applied:" + spId) < sink.IndexOf("Starting:" + Fixture.Group));
-        Assert.Contains("Applied:" + spId, calls);
-        Assert.DoesNotContain("Applied:" + Fixture.SpSymbolic, calls);
+        var operations = result.Operations;
+        Assert.Equal(Fixture.InstanceCount, operations.Count);
+        Assert.Equal(15, operations.Count(o => o.Status == OperationStatus.Succeeded));
+        Assert.Equal([Fixture.Policy], operations.Where(o => o.Status == OperationStatus.Ignored).Select(o => o.Id.Id).ToList());
+        Assert.DoesNotContain(operations, o => o.Status is OperationStatus.Failed or OperationStatus.Skipped);
+        int BatchOf(string id) => operations.Single(o => o.Id.Id == id).Batch;
+        Assert.True(BatchOf(Fixture.User) < BatchOf(Fixture.App));
+        Assert.True(BatchOf(Fixture.App) < BatchOf(spId));
+        Assert.True(BatchOf(spId) < BatchOf(Fixture.Group));
+        Assert.DoesNotContain(operations, o => o.Id.Id == Fixture.SpSymbolic);
     }
 
     [Fact]
-    public async Task StateSink_ReceivesFailedAndSkipped_WhenARunStopsEarly()
+    public async Task Operations_ReportFailedAndSkipped_WhenARunStopsEarly()
     {
         var host = new EngineHost();
         host.SeedExisting();
         host.Fake.Failures.Forbid("/users", "POST");
-        var sink = new RecordingStateSink();
 
-        var (_, result) = await host.CreateAsync(await Templates.FixtureAsync(), new ExecuteOptions { StateSink = sink });
+        var (_, result) = await host.CreateAsync(await Templates.FixtureAsync());
 
         Assert.False(result.Succeeded);
-        Assert.Equal("Completed:Failed", sink.Calls[^1]);
-        Assert.Contains("Failed:" + Fixture.User, sink.Calls);
-        Assert.Equal(11, sink.Calls.Count(c => c.StartsWith("Skipped:", StringComparison.Ordinal)));
-        Assert.Contains("Skipped:" + Fixture.SpSymbolic, sink.Calls);
-        Assert.Equal(1, sink.Calls.Count(c => c.StartsWith("Failed:", StringComparison.Ordinal)));
-        Assert.DoesNotContain(sink.Calls, c => c.StartsWith("Starting:" + Fixture.App, StringComparison.Ordinal));
+        Assert.Equal(DeploymentStatus.Failed, result.Status);
+        var failed = Assert.Single(result.Operations, o => o.Status == OperationStatus.Failed);
+        Assert.Equal(Fixture.User, failed.Id.Id);
+        Assert.Equal(11, result.Operations.Count(o => o.Status == OperationStatus.Skipped));
+        Assert.Contains(result.Operations, o => o.Status == OperationStatus.Skipped && o.Id.Id == Fixture.SpSymbolic);
+        Assert.Equal(OperationStatus.Skipped, result.Operations.Single(o => o.Id.Id == Fixture.App).Status);
     }
 
     // ---- outputs ----

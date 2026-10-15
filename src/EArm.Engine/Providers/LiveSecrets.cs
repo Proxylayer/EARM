@@ -19,7 +19,7 @@ namespace EArm.Engine.Providers;
 /// <c>null</c> with the <see cref="EngineDiagnosticCodes.SecretNotAvailableOnRerun"/> warning, as <c>null</c>, and
 /// leaves it out of the secure outputs file.</item>
 /// </list>
-/// The marker never reaches the state file (it lives in the published live object only).
+/// The marker is never persisted (it lives in the published live object only).
 /// </summary>
 public static class LiveSecrets
 {

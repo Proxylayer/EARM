@@ -25,11 +25,6 @@ public sealed class DirectoryRoleEdgeTests
         return host;
     }
 
-    private static JsonArray? Records(ProviderHost host, string resourceId)
-    {
-        return host.StateEntryJson(resourceId)?["relationships"]?["directoryRoles"] as JsonArray;
-    }
-
     [Fact]
     public async Task DirectoryRoles_IsAPartBEdgeKind_NoLongerEdgeKindNotSupported()
     {
@@ -88,7 +83,6 @@ public sealed class DirectoryRoleEdgeTests
         Check.Succeeded(run);
         Assert.Single(run.Writes, w => w.Path.Contains("roleAssignments", StringComparison.Ordinal));
         Assert.Single(host.Directory.Objects(BuiltInRoles.AssignmentsPath));
-        Assert.Null(Records(host, GroupId));
 
         var removed = await host.CreateAsync(host.Resources(Join(Group(), standalone)));
         Check.Succeeded(removed);

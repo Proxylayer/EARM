@@ -6,7 +6,7 @@ using EArm.Graph;
 using EArm.Core;
 using EArm.Engine.Execution;
 using EArm.Engine.Planning;
-using EArm.Engine.State;
+using EArm.Engine.Providers;
 using EArm.Providers.Tests.Infrastructure;
 using Xunit;
 using static EArm.Providers.Tests.Infrastructure.DirectoryTemplates;
@@ -33,10 +33,7 @@ public sealed class CancellationTests
         var host = new ProviderHost { UseRetry = false };
         var document = host.Resources(ThreeGroups());
         using var cts = new CancellationTokenSource();
-        var plan = await host.Planner().PlanAsync(document, null, DeploymentMode.Incremental, PlanMode.Create, ProviderHost.Ct);
-        var state = StateFile.CreateNew(ProviderHost.DeploymentName, host.Directory.TenantId, DateTimeOffset.UtcNow);
-        var sink = new FileStateSink(host.Store, state, plan, host.Logs.For<FileStateSink>());
-        await sink.BeginAsync(ProviderHost.Ct);
+        var plan = await host.Planner().PlanAsync(document, DeploymentMode.Incremental, PlanMode.Create, ProviderHost.Ct);
         int applied = 0;
         var graph = new InterceptingGraphClient(host.Fake)
         {
@@ -54,7 +51,7 @@ public sealed class CancellationTests
         };
         var executor = new DeploymentExecutor(host.Registry, graph, host.Logs.For<DeploymentExecutor>());
 
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => executor.ExecuteAsync(plan, new ExecuteOptions { Parallelism = 1, StateSink = sink, State = state }, cts.Token));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => executor.ExecuteAsync(plan, new ExecuteOptions { Parallelism = 1 }, cts.Token));
         return (host, document);
     }
 
@@ -66,7 +63,7 @@ public sealed class CancellationTests
         using var cts = new CancellationTokenSource();
         await cts.CancelAsync();
 
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => host.Planner().PlanAsync(document, null, DeploymentMode.Incremental, PlanMode.WhatIf, cts.Token));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => host.Planner().PlanAsync(document, DeploymentMode.Incremental, PlanMode.WhatIf, cts.Token));
 
         Assert.Empty(host.Fake.Requests);
     }
@@ -83,41 +80,23 @@ public sealed class CancellationTests
 
         Check.Succeeded(resumed);
         Assert.Equal(3, host.Directory.Objects("/groups").Count);
-        Assert.Equal(3, (await host.LoadStateAsync())!.Resources.Count);
-    }
-
-    /// <summary>
-    /// When the deployment was cancelled right after a resource was written, the state sink persisted that entry with the same (already
-    /// cancelled) token, so the save threw OperationCanceledException and the applied object was never recorded: it existed in the tenant but
-    /// not in the state (anything Graph generates, such as a password credential's secret and key id, would be orphaned). A save that follows a
-    /// completed write is no longer cancellable (a private 30 s bound instead); cancellation still stops new work.
-    /// </summary>
-    [Fact]
-    public async Task ARecordIsKept_ForTheObjectWrittenJustBeforeTheCancellation()
-    {
-        var (host, _) = await CancelAfterTheFirstWriteAsync();
-
-        var saved = await host.LoadStateAsync();
-
-        Assert.NotNull(saved);
-        Assert.Equal(host.Directory.Objects("/groups").Count, saved.Resources.Count);
-        Assert.Single(saved.Resources);
-        Assert.Single(saved.Operations, o => o.Status == OperationStatus.Succeeded);
+        Assert.Equal(3, resumed.Executed.Operations.Count(o => o.Status == OperationStatus.Succeeded));
     }
 
     [Fact]
-    public async Task ACancellationRightAfterAWrite_StillStopsNewWork_AndTheResumedRunKeepsTheRecordedEntry()
+    public async Task ACancellationRightAfterAWrite_StillStopsNewWork_AndTheResumedRunFindsTheWrittenObjectByKey()
     {
         var (host, document) = await CancelAfterTheFirstWriteAsync();
-        var recorded = (await host.LoadStateAsync())!.Resources.Single();
+        var written = Assert.Single(host.Directory.Objects("/groups"));
+        string writtenId = written["id"]!.GetValue<string>();
+        string writtenName = written["uniqueName"]!.GetValue<string>();
 
         var resumed = await host.CreateAsync(document);
 
         Check.Succeeded(resumed);
-        var final = (await host.LoadStateAsync())!;
-        Assert.Equal(3, final.Resources.Count);
-        Assert.Equal(recorded.Value.GraphId, final.Resources[recorded.Key].GraphId);
         Assert.Equal(3, host.Directory.Objects("/groups").Count);
+        Assert.Equal(ChangeType.NoChange, resumed.Op("/" + writtenName).ChangeType);
+        Assert.Equal(writtenId, resumed.Op("/" + writtenName).GraphId);
     }
 
     [Fact]

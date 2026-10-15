@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <Description>EARM deployment engine: expansion, dependency graph, provider contract, planner, executor, state and what-if.</Description>
+    <Description>EARM deployment engine: expansion, dependency graph, provider contract, planner, executor and what-if.</Description>
   </PropertyGroup>
 
   <ItemGroup>

@@ -12,7 +12,6 @@ using EArm.Graph.Auth;
 using EArm.Core.Types;
 using EArm.Engine.Edges;
 using EArm.Engine.Providers;
-using EArm.Engine.State;
 using EArm.Providers;
 using Microsoft.Extensions.Logging;
 using Xunit;
@@ -25,13 +24,13 @@ namespace EArm.Integration.Tests;
 /// Construction never touches the network: when <c>EARM_IT_TENANT</c> is unset the fixture only records why the
 /// tests skip. When it is set, <see cref="InitializeAsync"/> builds the stack the CLI uses
 /// (<see cref="GraphAuthFactory"/> → <see cref="IGraphTokenProvider"/> → <see cref="HttpGraphClient"/> + <see cref="RetryPolicy"/>,
-/// <see cref="ProviderDiscovery"/>, a <see cref="FileStateStore"/> in a temp directory; compare
+/// <see cref="ProviderDiscovery"/>; compare
 /// <c>src/EArm.Cli/Hosting/EngineServices.cs</c>) and runs the real <see cref="GraphPreflight"/>; a missing sign-in or
 /// a tenant other than <c>EARM_IT_TENANT</c> turns every test into a skip with that reason.
 /// </para>
 /// <para>
 /// Cleanup guard: <see cref="DisposeAsync"/> (1) sweeps everything whose name starts with the run
-/// prefix (<see cref="TenantCleanup"/>) and purges their soft-deleted copies, (2) writes a log next to the state
+/// prefix (<see cref="TenantCleanup"/>) and purges their soft-deleted copies, (2) writes a log into the run
 /// directory and fails loudly when a live object with the prefix could not be removed. Objects without the prefix are
 /// never touched.
 /// </para>
@@ -45,14 +44,13 @@ public sealed class IntegrationFixture : IAsyncLifetime
     private HttpClient? _http;
     private IGraphTokenProvider? _tokens;
     private HttpGraphClient? _graph;
-    private FileStateStore? _store;
     private string _unavailableReason = string.Empty;
 
     public IntegrationFixture()
     {
         Settings = IntegrationSettings.FromEnvironment();
         string runDirectory = Path.Combine(Path.GetTempPath(), "earm-it", Settings.Prefix);
-        StateDirectory = Path.Combine(runDirectory, "state");
+        RunDirectory = runDirectory;
         ScratchDirectory = Path.Combine(runDirectory, "scratch");
         _unavailableReason = Settings.IsConfigured
             ? string.Empty
@@ -64,10 +62,10 @@ public sealed class IntegrationFixture : IAsyncLifetime
     /// <summary>Name prefix of every object this run creates.</summary>
     public string Prefix => Settings.Prefix;
 
-    /// <summary>The run's private state directory (never the template directory, never <c>EARM_STATE_DIR</c>).</summary>
-    public string StateDirectory { get; }
+    /// <summary>The run's private folder in the temp directory: the cleanup log and <see cref="ScratchDirectory"/>.</summary>
+    public string RunDirectory { get; }
 
-    /// <summary>Where the tests write secure-output files and template variants; kept apart from <see cref="StateDirectory"/> because every <c>*.json</c> there is taken for a deployment state.</summary>
+    /// <summary>Where the tests write secure-output files and template variants.</summary>
     public string ScratchDirectory { get; }
 
     /// <summary>True when the tenant is configured and the sign-in works for it.</summary>
@@ -86,12 +84,10 @@ public sealed class IntegrationFixture : IAsyncLifetime
 
     internal EdgeKindRegistry EdgeKinds { get; private set; } = EdgeKindRegistry.Default;
 
-    internal FileStateStore Store => _store ?? throw NotAvailable();
-
     /// <summary>Live objects the last sweep could not remove (empty when the cleanup was complete).</summary>
     internal IReadOnlyList<string> Leftovers => _leftovers;
 
-    internal CliDriver Cli { get; private set; } = new CliDriver(Path.GetTempPath());
+    internal CliDriver Cli { get; } = new CliDriver();
 
     /// <summary>What the cleanup guard did (filled by <see cref="DisposeAsync"/> or <see cref="SweepNowAsync"/>).</summary>
     public IReadOnlyList<string> CleanupLog { get; private set; } = [];
@@ -130,7 +126,7 @@ public sealed class IntegrationFixture : IAsyncLifetime
         return Path.Combine(AppContext.BaseDirectory, "Templates", file);
     }
 
-    /// <summary>A deployment whose state name carries the prefix, with the <c>prefix</c> template parameter set.</summary>
+    /// <summary>A deployment whose name (a label) carries the prefix, with the <c>prefix</c> template parameter set.</summary>
     internal DeploymentRun NewRun(string shortName, string templateFile)
     {
         return new DeploymentRun(Name(shortName), TemplatePath(templateFile), ["-p", "prefix=" + Prefix]);
@@ -176,7 +172,6 @@ public sealed class IntegrationFixture : IAsyncLifetime
         }
 
         var cancellationToken = TestContext.Current.CancellationToken;
-        Directory.CreateDirectory(StateDirectory);
         Directory.CreateDirectory(ScratchDirectory);
 
         _loggerFactory = LoggerFactory.Create(builder =>
@@ -193,8 +188,6 @@ public sealed class IntegrationFixture : IAsyncLifetime
         _graph = new HttpGraphClient(_http, _tokens, retryPolicy, new GraphOptions { Cloud = cloud }, _loggerFactory.CreateLogger<HttpGraphClient>());
         var preflight = new GraphPreflight(_tokens, _graph, cloud, auth.Mode, _loggerFactory.CreateLogger<GraphPreflight>());        Providers = ProviderDiscovery.CreateRegistry(ResourceTypeCatalog.Default);
         EdgeKinds = ProviderDiscovery.CreateEdgeKinds(ResourceTypeCatalog.Default);
-        _store = new FileStateStore(StateDirectory, logger: _loggerFactory.CreateLogger<FileStateStore>());
-        Cli = new CliDriver(StateDirectory);
 
         try
         {
@@ -234,7 +227,7 @@ public sealed class IntegrationFixture : IAsyncLifetime
             (_tokens as IDisposable)?.Dispose();
             _loggerFactory?.Dispose();
             _logCapture.Dispose();
-            TryDeleteStateDirectory();
+            TryDeleteRunDirectory();
         }
     }
 
@@ -243,7 +236,7 @@ public sealed class IntegrationFixture : IAsyncLifetime
     /// <summary>The cleanup guard: sweeps the prefix and purges soft-deleted copies. Safe to call repeatedly.</summary>
     internal async Task SweepNowAsync(CancellationToken cancellationToken)
     {
-        if (Session is null || _graph is null || _store is null)
+        if (Session is null || _graph is null)
         {
             return;
         }
@@ -276,9 +269,8 @@ public sealed class IntegrationFixture : IAsyncLifetime
         string text = string.Join(Environment.NewLine, log.Prepend($"EARM integration cleanup, prefix '{Prefix}', tenant {Settings.TenantId}, {DateTimeOffset.UtcNow:O}"));
         try
         {
-            string directory = Path.GetDirectoryName(StateDirectory)!;
-            Directory.CreateDirectory(directory);
-            File.WriteAllText(Path.Combine(directory, "cleanup.log"), text, new UTF8Encoding(false));
+            Directory.CreateDirectory(RunDirectory);
+            File.WriteAllText(Path.Combine(RunDirectory, "cleanup.log"), text, new UTF8Encoding(false));
         }
         catch (IOException)
         {
@@ -288,29 +280,26 @@ public sealed class IntegrationFixture : IAsyncLifetime
         TestContext.Current.SendDiagnosticMessage(text);
     }
 
-    private void TryDeleteStateDirectory()
+    private void TryDeleteRunDirectory()
     {
-        // Keep the directory (and cleanup.log) when something is left behind: its states are the record of what to remove.
+        // Keep the scratch files (and cleanup.log) when something is left behind: they help to find what to remove.
         if (_leftovers.Count > 0)
         {
             return;
         }
 
-        foreach (string directory in new[] { StateDirectory, ScratchDirectory })
+        try
         {
-            try
+            if (Directory.Exists(ScratchDirectory))
             {
-                if (Directory.Exists(directory))
-                {
-                    Directory.Delete(directory, recursive: true);
-                }
+                Directory.Delete(ScratchDirectory, recursive: true);
             }
-            catch (IOException)
-            {
-            }
-            catch (UnauthorizedAccessException)
-            {
-            }
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
         }
     }
 

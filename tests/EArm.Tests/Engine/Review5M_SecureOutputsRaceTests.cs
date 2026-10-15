@@ -25,6 +25,26 @@ public sealed class Review5M_SecureOutputsRaceTests
         return new JsonObject { ["secretText"] = value };
     }
 
+    /// <summary>
+    /// Closes <paramref name="handle"/> after <paramref name="delay"/> on a dedicated thread. A thread-pool task (<c>Task.Run</c> + <c>Task.Delay</c>) is not used: in a
+    /// busy parallel test run the pool is saturated by blocking work, the release then lands seconds late, after the merge has used up its retry window (about three
+    /// seconds of replace retries), and the test fails with "access denied" although the product retried as designed.
+    /// </summary>
+    private static Thread ReleaseAfter(IDisposable handle, TimeSpan delay)
+    {
+        var thread = new Thread(() =>
+        {
+            Thread.Sleep(delay);
+            handle.Dispose();
+        })
+        {
+            IsBackground = true,
+            Name = "release-after",
+        };
+        thread.Start();
+        return thread;
+    }
+
     private static string[] PendingFiles(string path)
     {
         return Directory.GetFiles(Path.GetDirectoryName(path)!, Path.GetFileName(path) + ".pending-*");
@@ -41,14 +61,10 @@ public sealed class Review5M_SecureOutputsRaceTests
         // meanwhile gives UnauthorizedAccessException on Windows (not the IOException of a held lock).
         var scanner = new FileStream(lockPath, FileMode.Create, FileAccess.ReadWrite, FileShare.ReadWrite | FileShare.Delete);
         File.Delete(lockPath);
-        var release = Task.Run(async () =>
-        {
-            await Task.Delay(400, Ct);
-            await scanner.DisposeAsync();
-        }, Ct);
+        var release = ReleaseAfter(scanner, TimeSpan.FromMilliseconds(400));
 
         SecureOutputsFile.MergeOneTimeSecret(path, ResourceId, Secret("s1"), TimeSpan.FromSeconds(20));
-        await release;
+        release.Join();
 
         var bucket = JsonNode.Parse(await File.ReadAllTextAsync(path, Ct))!["oneTimeSecrets"]!.AsObject();
         Assert.Equal("s1", bucket[ResourceId]!["secretText"]!.GetValue<string>());
@@ -64,14 +80,10 @@ public sealed class Review5M_SecureOutputsRaceTests
 
         // A reader that does not share delete: Windows refuses to replace the file under it until it is closed.
         var reader = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-        var release = Task.Run(async () =>
-        {
-            await Task.Delay(400, Ct);
-            await reader.DisposeAsync();
-        }, Ct);
+        var release = ReleaseAfter(reader, TimeSpan.FromMilliseconds(400));
 
         SecureOutputsFile.MergeOneTimeSecret(path, ResourceId + "1", Secret("s1"));
-        await release;
+        release.Join();
 
         var bucket = JsonNode.Parse(await File.ReadAllTextAsync(path, Ct))!["oneTimeSecrets"]!.AsObject();
         Assert.Equal("s0", bucket[ResourceId + "0"]!["secretText"]!.GetValue<string>());

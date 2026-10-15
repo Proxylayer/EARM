@@ -22,7 +22,7 @@ public sealed class Review1D_CaFlagTests
 
     private static string[] Deploy(CliSandbox sandbox, string template, string verb, params string[] extra)
     {
-        return ["deployment", verb, "-f", template, "--state-dir", sandbox.StateDir, "-o", "json", .. extra];
+        return ["deployment", verb, "-f", template, "-o", "json", .. extra];
     }
 
     [Fact]

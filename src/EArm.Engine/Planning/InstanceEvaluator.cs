@@ -184,7 +184,7 @@ public static class InstanceEvaluator
     /// <see cref="SecretJson"/> leaf, a deploy-time-unknown leaf keeps its symbol and is marked tainted, and leaves
     /// that are already secret, already tainted or <c>null</c> are left alone, so calling it twice (the engine
     /// here, a provider again in its own <c>Plan</c>) is a no-op. A literal secret in a template therefore renders
-    /// as <c>***</c> in what-if rows, diagnostics, logs and the state hash; only <c>ProviderBase.BuildCreateBody</c>
+    /// as <c>***</c> in what-if rows, diagnostics and logs; only <c>ProviderBase.BuildCreateBody</c>
     /// / <c>BuildPatchBody</c> reveal it. Property names match case-insensitively; a path segment that does not
     /// exist is skipped.
     /// </summary>

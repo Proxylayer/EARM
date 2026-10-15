@@ -31,7 +31,7 @@ namespace EArm.Providers;
 /// <c>@odata.type</c> selects the kind and is immutable: a kind change is a <see cref="ChangeMode.Recreate"/>
 /// (delete, then create; Graph refuses the delete while a policy references the location). <see cref="Plan"/>
 /// normalises the evaluated properties in place (see <see cref="NamedLocationsRules.NormalizeDesired"/>) so that
-/// what-if rows, request bodies and the state hash describe the same object; the live object is normalised the
+/// what-if rows and request bodies describe the same object; the live object is normalised the
 /// same way on read, so reordered or differently spelt ranges and country codes are not drift.
 /// </para>
 /// </summary>

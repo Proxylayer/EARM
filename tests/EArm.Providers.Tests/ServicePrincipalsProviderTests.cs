@@ -9,7 +9,6 @@ using EArm.Core.Types;
 using EArm.Engine;
 using EArm.Engine.Execution;
 using EArm.Engine.Providers;
-using EArm.Engine.State;
 using EArm.Providers.Tests.Infrastructure;
 using EArm.TestSupport;
 using Xunit;
@@ -81,7 +80,7 @@ public sealed class ServicePrincipalsProviderTests
         Assert.Equal(sp["id"]!.GetValue<string>(), run.OpOfType(SpType).GraphId);
         Assert.Single(sp["appRoles"]!.AsArray());
         Assert.Equal(1, host.Directory.Count("/servicePrincipals"));
-        Assert.Equal(sp["id"]!.GetValue<string>(), run.Entry("/providers/Microsoft.Entra/servicePrincipals/" + appId).GraphId);
+        Assert.Equal(sp["id"]!.GetValue<string>(), run.GraphIdOf("/providers/Microsoft.Entra/servicePrincipals/" + appId));
 
         var rerun = await host.CreateAsync(host.Resources(AppResource + "," + SpResource));
         Check.Succeeded(rerun);
@@ -261,7 +260,7 @@ public sealed class ServicePrincipalsProviderTests
         string appId = Guid.NewGuid().ToString("D");
         var seeded = host.Directory.AddServicePrincipal(appId, "Test API");
         var provider = host.Provider<ServicePrincipalsProvider>(SpType);
-        var entry = new StateEntry
+        var entry = new DeleteTarget
         {
             Id = ResourceIdentifier.Create(SpType, appId),
             Type = SpType,
@@ -270,13 +269,13 @@ public sealed class ServicePrincipalsProviderTests
             GraphId = seeded["id"]!.GetValue<string>(),
         };
 
-        await provider.DeleteAsync(DeleteTarget.KeyOf(entry), DeleteTarget.LiveOf(entry), host.Fake, ProviderHost.Ct);
+        await provider.DeleteAsync(entry.ResourceKey, entry.Live, host.Fake, ProviderHost.Ct);
         var write = Assert.Single(host.Fake.Writes);
         Assert.Equal("DELETE", write.Method);
         Assert.Equal("/servicePrincipals/" + entry.GraphId, write.Path);
         Assert.Equal(0, host.Directory.Count("/servicePrincipals"));
 
-        await provider.DeleteAsync(DeleteTarget.KeyOf(entry), DeleteTarget.LiveOf(entry), host.Fake, ProviderHost.Ct);
+        await provider.DeleteAsync(entry.ResourceKey, entry.Live, host.Fake, ProviderHost.Ct);
         Assert.Equal(2, host.Fake.Writes.Count);
     }
 

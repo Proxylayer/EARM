@@ -54,13 +54,11 @@ public sealed class RoleAssignmentsProviderTests
         Assert.Equal(BuiltInRoles.AssignmentsPath, post.Path);
         Assert.Equal(RetryHint.ExpectReplicationLag, post.Hint);
         Assert.Equal("{\"@odata.type\":\"#microsoft.graph.unifiedRoleAssignment\",\"roleDefinitionId\":\"" + BuiltInRoles.GlobalReader + "\",\"principalId\":\"" + aliceId + "\",\"directoryScopeId\":\"/\"}", post.Body!.ToJsonString());
-        var entry = host.StateEntryJson(AssignmentId(run))!;
         var assignment = Assert.Single(host.Directory.Objects(BuiltInRoles.AssignmentsPath));
-        Assert.Equal(assignment["id"]!.GetValue<string>(), entry["id"]!.GetValue<string>());
-        Assert.Equal(BuiltInRoles.GlobalReader, entry["key"]!["roleDefinitionId"]!.GetValue<string>());
-        Assert.Equal(aliceId, entry["key"]!["principalId"]!.GetValue<string>());
-        Assert.Equal("/", entry["key"]!["directoryScopeId"]!.GetValue<string>());
-        Assert.Equal(BuiltInRoles.GlobalReader, entry["extra"]!["roleDefinitionId"]!.GetValue<string>());
+        Assert.Equal(assignment["id"]!.GetValue<string>(), run.GraphIdOf(AssignmentId(run)));
+        Assert.Equal(BuiltInRoles.GlobalReader, assignment["roleDefinitionId"]!.GetValue<string>());
+        Assert.Equal(aliceId, assignment["principalId"]!.GetValue<string>());
+        Assert.Equal("/", assignment["directoryScopeId"]!.GetValue<string>());
         Assert.Contains("RoleManagement.ReadWrite.Directory", run.Plan.RequiredPermissions);
     }
 
@@ -102,7 +100,7 @@ public sealed class RoleAssignmentsProviderTests
         var post = Assert.Single(run.Writes, w => w.Method == "POST" && w.Path == BuiltInRoles.AssignmentsPath);
         Assert.Equal(BuiltInRoles.UserAdministrator, Check.Body(post)["roleDefinitionId"]!.GetValue<string>());
         Assert.Equal($"/administrativeUnits/{auId}", Check.Body(post)["directoryScopeId"]!.GetValue<string>());
-        Assert.Equal($"/administrativeUnits/{auId}", host.StateEntryJson(AssignmentId(run))!["key"]!["directoryScopeId"]!.GetValue<string>());
+        Assert.Equal($"/administrativeUnits/{auId}", Assert.Single(host.Directory.Objects(BuiltInRoles.AssignmentsPath))["directoryScopeId"]!.GetValue<string>());
 
         var canonical = await host.CreateAsync(host.Resources(Join(Alice(), Au(), Standalone(AliceRef + ", \"roleDefinitionId\": \"[roleTemplate('User Administrator')]\", \"directoryScopeId\": \"[format('/administrativeUnits/{0}', reference('Orders AU').id)]\"", name))));
         Check.Succeeded(canonical);
@@ -153,7 +151,7 @@ public sealed class RoleAssignmentsProviderTests
         var write = Assert.Single(run.Writes);
         Assert.Equal("POST", write.Method);
         Assert.Equal(BuiltInRoles.SecurityReader, Check.Body(write)["roleDefinitionId"]!.GetValue<string>());
-        Assert.NotEqual(oldId, run.Entry(standaloneId).GraphId);
+        Assert.NotEqual(oldId, run.GraphIdOf(standaloneId));
         Assert.Contains(host.Directory.Objects(BuiltInRoles.AssignmentsPath), o => o["id"]!.GetValue<string>() == oldId);
     }
 
@@ -173,7 +171,7 @@ public sealed class RoleAssignmentsProviderTests
 
         Check.Succeeded(run);
         var assignment = Assert.Single(host.Directory.Objects(BuiltInRoles.AssignmentsPath));
-        Assert.Equal(assignment["id"]!.GetValue<string>(), run.Entry(AssignmentId(run)).GraphId);
+        Assert.Equal(assignment["id"]!.GetValue<string>(), run.GraphIdOf(AssignmentId(run)));
     }
 
     [Fact]

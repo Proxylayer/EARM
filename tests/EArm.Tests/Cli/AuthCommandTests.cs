@@ -304,7 +304,7 @@ public sealed class AuthCommandTests
         {
             Environment.SetEnvironmentVariable("EARM_AUTH", "az");
 
-            var result = await CliRunner.RunAsync("deployment", "what-if", "-f", template, "--state-dir", sandbox.StateDir);
+            var result = await CliRunner.RunAsync("deployment", "what-if", "-f", template);
 
             Assert.Equal(1, result.ExitCode);
             Assert.Contains("Unknown authentication mode 'az'", result.StandardError, StringComparison.Ordinal);

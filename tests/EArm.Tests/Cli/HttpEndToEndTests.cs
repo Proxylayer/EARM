@@ -10,7 +10,7 @@ namespace EArm.Tests.Cli;
 
 /// <summary>
 /// The whole product through the CLI seam: <c>earm deployment …</c> on a shipped sample runs the real argument parsing, preflight, planner, providers,
-/// executor, state and <c>HttpGraphClient</c>; only the network (an in-memory directory behind an <see cref="System.Net.Http.HttpMessageHandler"/>) and the
+/// executor and <c>HttpGraphClient</c>; only the network (an in-memory directory behind an <see cref="System.Net.Http.HttpMessageHandler"/>) and the
 /// sign-in (a fake token provider) are replaced. The recorded HTTP requests are asserted, which is what a real tenant would have seen.
 /// </summary>
 [Collection(CliCollection.Name)]
@@ -20,7 +20,7 @@ public sealed class HttpEndToEndTests
 
     private static string[] Deploy(CliSandbox sandbox, string verb, params string[] extra)
     {
-        return ["deployment", verb, "-f", TestPaths.Sample(Sample + ".entra.json"), "-p", "@" + TestPaths.Sample(Sample + ".parameters.json"), "--state-dir", sandbox.StateDir, "-o", "json", .. extra];
+        return ["deployment", verb, "-f", TestPaths.Sample(Sample + ".entra.json"), "-p", "@" + TestPaths.Sample(Sample + ".parameters.json"), "-o", "json", .. extra];
     }
 
     [Fact]
@@ -38,7 +38,7 @@ public sealed class HttpEndToEndTests
         Assert.Equal(4, whatIf.Json["summary"]!["create"]!.GetValue<int>());
         Assert.All(whatIfRequests, static r => Assert.Equal("GET", r.Method));
         Assert.Equal("/v1.0/organization", whatIfRequests[0].Uri.AbsolutePath);
-        Assert.False(File.Exists(sandbox.StatePath(Sample + ".entra")) || File.Exists(sandbox.StatePath(Sample)), "what-if never writes a state");
+        Assert.Empty(sandbox.UnexpectedFiles());
 
         var create = await CliRunner.RunAsync(Deploy(sandbox, "create", "-y", "--secure-outputs-file", secrets));
 
@@ -75,6 +75,7 @@ public sealed class HttpEndToEndTests
         var rerun = sandbox.RecordedRequests().Skip(before).ToList();
         Assert.DoesNotContain(rerun, static r => r.Method is "POST" or "PUT" or "DELETE");
         Assert.DoesNotContain(rerun, static r => r.Method == "PATCH");
+        Assert.Empty(sandbox.UnexpectedFiles(secrets));
     }
 
     [Fact]

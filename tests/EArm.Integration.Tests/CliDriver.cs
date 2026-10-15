@@ -73,7 +73,7 @@ internal sealed record CliResult(int ExitCode, string StandardOutput, string Sta
     }
 }
 
-/// <summary>One deployment of one template: the state name, the template file and its parameters.</summary>
+/// <summary>One deployment of one template: its name (a label), the template file and its parameters.</summary>
 internal sealed record DeploymentRun(string Name, string TemplateFile, IReadOnlyList<string> ParameterTokens)
 {
     public DeploymentRun WithParameter(string name, string value)
@@ -89,21 +89,15 @@ internal sealed record DeploymentRun(string Name, string TemplateFile, IReadOnly
 
 /// <summary>
 /// Drives the real command line in-process (<see cref="Program.BuildRootCommand"/> with the production parser
-/// configuration) against the tenant. Every call carries <c>--state-dir</c> (the run's private state directory); sign-in comes from
+/// configuration) against the tenant. Nothing is kept between calls: every run resolves identity from the tenant. Sign-in comes from
 /// the environment (<c>AZURE_*</c>, <c>EARM_AUTH</c>) or <c>earm auth login</c>. Calls must not overlap: the global <c>-o</c> option is
 /// static, so every test class shares one xUnit collection.
 /// </summary>
 internal sealed class CliDriver
 {
-    private readonly string _stateDirectory;
-    public CliDriver(string stateDirectory)
-    {
-        _stateDirectory = stateDirectory;
-    }
-
     public async Task<CliResult> RunAsync(IReadOnlyList<string> args, CancellationToken cancellationToken)
     {
-        var argv = new List<string>(args) { "--state-dir", _stateDirectory };
+        var argv = new List<string>(args);
         using var stdout = new StringWriter();
         using var stderr = new StringWriter();
         var configuration = new InvocationConfiguration { Output = stdout, Error = stderr };

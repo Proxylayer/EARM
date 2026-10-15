@@ -33,7 +33,6 @@ public sealed class Review1D_FilterEscapingTests
         string template = Templates.Resource("Microsoft.Entra/conditionalAccess/policies", "CA-O'Brien MFA", """{ "conditions": { "users": { "includeGroups": ["aaaaaaaa-1111-2222-3333-444444444444"] }, "applications": { "includeApplications": ["All"] } }, "grantControls": { "builtInControls": ["mfa"] } }""");
 
         Check.Succeeded(await host.CreateAsync(host.Resources(template)));
-        host.TrackState = false;
         var rerun = await host.CreateAsync(host.Resources(template));
 
         AssertFilter(host, "/identity/conditionalAccess/policies", "displayName eq 'CA-O''Brien MFA'");
@@ -47,7 +46,6 @@ public sealed class Review1D_FilterEscapingTests
         string template = Templates.Resource("Microsoft.Entra/conditionalAccess/namedLocations", "O'Brien offices", """{ "@odata.type": "#microsoft.graph.ipNamedLocation", "ipRanges": [ { "cidrAddress": "10.0.0.0/8" } ] }""");
 
         Check.Succeeded(await host.CreateAsync(host.Resources(template)));
-        host.TrackState = false;
         var rerun = await host.CreateAsync(host.Resources(template));
 
         AssertFilter(host, "/identity/conditionalAccess/namedLocations", "displayName eq 'O''Brien offices'");
@@ -61,7 +59,6 @@ public sealed class Review1D_FilterEscapingTests
         string template = Templates.Resource("Microsoft.Entra/roleDefinitions", "O'Brien Support", """{ "description": "x", "rolePermissions": [ { "allowedResourceActions": ["microsoft.directory/users/standard/read"] } ] }""");
 
         Check.Succeeded(await host.CreateAsync(host.Resources(template)));
-        host.TrackState = false;
         var rerun = await host.CreateAsync(host.Resources(template));
 
         AssertFilter(host, "/roleManagement/directory/roleDefinitions", "displayName eq 'O''Brien Support'");
@@ -75,7 +72,6 @@ public sealed class Review1D_FilterEscapingTests
         string template = Templates.Resource("Microsoft.Entra/administrativeUnits", "O'Brien AU", """{ "description": "x" }""");
 
         Check.Succeeded(await host.CreateAsync(host.Resources(template)));
-        host.TrackState = false;
         var rerun = await host.CreateAsync(host.Resources(template));
 
         AssertFilter(host, "/directory/administrativeUnits", "displayName eq 'O''Brien AU'");

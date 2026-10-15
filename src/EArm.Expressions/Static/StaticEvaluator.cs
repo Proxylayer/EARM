@@ -261,7 +261,7 @@ public sealed class StaticEvaluator
             {
                 if (strict)
                 {
-                    Error(DiagnosticCodes.SecureValueInResourceKey, "A secure value flows into the resource name; names are written to state and logs and cannot be secret.", namePath);
+                    Error(DiagnosticCodes.SecureValueInResourceKey, "A secure value flows into the resource name; names are written to output and logs and cannot be secret.", namePath);
                 }
 
                 return result with { NameValue = value };

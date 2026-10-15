@@ -110,10 +110,6 @@ public sealed class WhatIfGoldenTests
             Assert.True(System.IO.File.Exists(scenario.PathOf(scenario.Seed)), scenario.Seed);
             Assert.True(System.IO.File.Exists(scenario.PathOf(scenario.ExpectedText)), scenario.ExpectedText);
             Assert.True(System.IO.File.Exists(scenario.PathOf(scenario.ExpectedJson)), scenario.ExpectedJson);
-            if (scenario.State is not null)
-            {
-                Assert.True(System.IO.File.Exists(scenario.PathOf(scenario.State)), scenario.State);
-            }
         }
 
         Assert.Equal(ResultFormat.ResourceIdOnly, all.Single(s => s.Name == "modify-resource-id-only").ResultFormat);

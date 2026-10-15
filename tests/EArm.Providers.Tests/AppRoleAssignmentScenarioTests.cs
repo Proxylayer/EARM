@@ -71,11 +71,6 @@ public sealed class AppRoleAssignmentScenarioTests
         return "{ \"resourceId\": \"" + resourceId + "\", \"appRoleId\": \"" + appRoleId + "\" }";
     }
 
-    private static JsonArray? Records(ProviderHost host, string resourceId)
-    {
-        return host.StateEntryJson(resourceId)?["relationships"]?["appRoleAssignments"] as JsonArray;
-    }
-
     private static string AssignedTo(string resourceId)
     {
         return "/servicePrincipals/" + resourceId + "/appRoleAssignedTo";
@@ -275,7 +270,7 @@ public sealed class AppRoleAssignmentScenarioTests
     // ---- edge kind unit-level ----
 
     [Fact]
-    public async Task EdgeKind_ReadsAndRecords_ThroughItsContractMethods()
+    public async Task EdgeKind_BuildsRequests_ThroughItsContractMethods()
     {
         var t = NewTenant();
         Check.Succeeded(await t.Host.CreateAsync(t.Host.Resources(Alice(Assignments(Item(ResourceAppId, "Orders.UserOnly"))))));
@@ -308,43 +303,6 @@ public sealed class AppRoleAssignmentScenarioTests
         Assert.Throws<InvalidOperationException>(() => handler.RemoveRequest(edge, null, GraphApi.V1));
         var withExtraId = edge with { Extra = new JsonObject { ["id"] = "from-extra" } };
         Assert.EndsWith("/from-extra", handler.RemoveRequest(withExtraId, null, GraphApi.V1).Path, StringComparison.Ordinal);
-
-        // Records carry the id from the applied object, else from the edge extras, else none.
-        var record = Assert.IsType<JsonObject>(handler.RecordEntry(edge, new JsonObject { ["id"] = "applied-1" }));
-        Assert.Equal("applied-1", record["id"]!.GetValue<string>());
-        Assert.Equal("from-extra", handler.RecordEntry(withExtraId, null)["id"]!.GetValue<string>());
-        Assert.False(((JsonObject)handler.RecordEntry(edge, null)).ContainsKey("id"));
-    }
-
-    [Fact]
-    public async Task EdgeKind_FromRecord_RebuildsRecordedEdges_AndDropsStaleOnes()
-    {
-        var t = NewTenant();
-        Check.Succeeded(await t.Host.CreateAsync(t.Host.Resources(Alice(Assignments(Item(ResourceAppId, "Orders.UserOnly"))))));
-        string aliceId = t.Host.IdOf("/users", "userPrincipalName", "alice@contoso.com");
-        string assignmentId = t.Host.Directory.Objects(AssignedTo(t.ResourceId)).Single()["id"]!.GetValue<string>();
-        var handler = new AppRoleAssignmentEdgeKind();
-        var context = Context(t.Host);
-        var ct = ProviderHost.Ct;
-
-        var withId = await handler.FromRecordAsync(new JsonObject { ["resourceId"] = t.ResourceId, ["appRoleId"] = UserRoleId, ["id"] = assignmentId }, aliceId, GraphApi.V1, context, ct);
-        Assert.NotNull(withId);
-        Assert.Equal(assignmentId, withId.Extra!["id"]!.GetValue<string>());
-
-        // No id recorded: it is looked up from the principal's live assignments.
-        var withoutId = await handler.FromRecordAsync(new JsonObject { ["resourceId"] = t.ResourceId, ["appRoleId"] = UserRoleId }, aliceId, GraphApi.V1, context, ct);
-        Assert.NotNull(withoutId);
-        Assert.Equal(assignmentId, withoutId.Extra!["id"]!.GetValue<string>());
-
-        // No id recorded and the assignment is gone: nothing to remove.
-        var gone = await handler.FromRecordAsync(new JsonObject { ["resourceId"] = t.ResourceId, ["appRoleId"] = BothRoleId }, aliceId, GraphApi.V1, context, ct);
-        Assert.Null(gone);
-
-        // Malformed records.
-        Assert.Null(await handler.FromRecordAsync(null, aliceId, GraphApi.V1, context, ct));
-        Assert.Null(await handler.FromRecordAsync(JsonValue.Create("x"), aliceId, GraphApi.V1, context, ct));
-        Assert.Null(await handler.FromRecordAsync(new JsonObject { ["resourceId"] = "not-a-guid", ["appRoleId"] = UserRoleId }, aliceId, GraphApi.V1, context, ct));
-        Assert.Null(await handler.FromRecordAsync(new JsonObject { ["resourceId"] = t.ResourceId }, aliceId, GraphApi.V1, context, ct));
     }
 
     [Fact]
@@ -401,7 +359,7 @@ public sealed class AppRoleAssignmentScenarioTests
     // ---- standalone provider ----
 
     [Fact]
-    public async Task Standalone_ByResourceAppIdAndAppRole_ResolvesTheSugar_AndRecordsTheComposite()
+    public async Task Standalone_ByResourceAppIdAndAppRole_ResolvesTheSugar_AndWritesTheComposite()
     {
         var t = NewTenant();
         string principalId = t.Host.Directory.AddUser("bob@contoso.com", "Bob")["id"]!.GetValue<string>();
@@ -413,10 +371,11 @@ public sealed class AppRoleAssignmentScenarioTests
         var run = await t.Host.CreateAsync(t.Host.Resources(template));
 
         Check.Succeeded(run);
-        var entry = run.State!.Resources.Values.Single(e => e.Type == AssignmentType);
-        Assert.Equal(principalId, entry.Extra!["principalId"]!.GetValue<string>());
-        Assert.Equal(t.ResourceId, entry.Extra!["resourceId"]!.GetValue<string>());
-        Assert.Equal(UserRoleId, entry.Extra!["appRoleId"]!.GetValue<string>());
+        var assignment = Assert.Single(t.Host.Directory.Objects(AssignedTo(t.ResourceId)));
+        Assert.Equal(assignment["id"]!.GetValue<string>(), run.OpOfType(AssignmentType).GraphId);
+        Assert.Equal(principalId, assignment["principalId"]!.GetValue<string>());
+        Assert.Equal(t.ResourceId, assignment["resourceId"]!.GetValue<string>());
+        Assert.Equal(UserRoleId, assignment["appRoleId"]!.GetValue<string>());
     }
 
     [Theory]
@@ -524,7 +483,7 @@ public sealed class AppRoleAssignmentScenarioTests
 
         Check.Succeeded(run);
         Assert.Single(t.Host.Directory.Objects(AssignedTo(t.ResourceId)));
-        Assert.Equal(t.Host.Directory.Objects(AssignedTo(t.ResourceId)).Single()["id"]!.GetValue<string>(), run.State!.Resources.Values.Single(e => e.Type == AssignmentType).GraphId);
+        Assert.Equal(t.Host.Directory.Objects(AssignedTo(t.ResourceId)).Single()["id"]!.GetValue<string>(), run.OpOfType(AssignmentType).GraphId);
     }
 
     [Fact]

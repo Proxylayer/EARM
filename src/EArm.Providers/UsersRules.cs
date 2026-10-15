@@ -77,7 +77,7 @@ internal static class UsersRules
     /// <summary>
     /// Replaces every plain leaf at the overlay's <c>secure</c> paths (<c>passwordProfile.password</c>) by a tainted
     /// <see cref="SecretValue"/>, in place, so a literal password in a template renders as <c>***</c> in what-if, logs,
-    /// diagnostics and the state hash exactly like one bound from a <c>securestring</c> parameter. Leaves that are
+    /// and diagnostics exactly like one bound from a <c>securestring</c> parameter. Leaves that are
     /// already secret, deploy-time-unknown or <c>null</c> are left alone.
     /// </summary>
     public static void TaintSecrets(JsonObject properties, IReadOnlyList<JsonPath> securePaths)

@@ -11,7 +11,7 @@ namespace EArm.Expressions.Functions;
 /// (MurmurHash64A, seed 0, over the UTF-8 text; 13 base-32 characters, alphabet <c>a-z2-7</c>, 5 bits per character
 /// from the low end of the 64-bit hash). <see cref="GuidV5"/> is an RFC 4122 version-5 UUID (SHA-1) in a fixed
 /// EARM namespace. Neither is guaranteed to reproduce the value Azure Resource Manager would compute for the
-/// same input; they are stable across EARM runs, which is what state keys and <c>guid()</c>-named resources need.
+/// same input; they are stable across EARM runs, which is what <c>guid()</c>-named resources need.
 /// </para>
 /// </summary>
 public static class Hashing

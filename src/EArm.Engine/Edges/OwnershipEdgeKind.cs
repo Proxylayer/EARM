@@ -15,8 +15,7 @@ namespace EArm.Engine.Edges;
 /// collection comes from the template resource when the target is declared in it, else from
 /// <c>GET /directoryObjects/{id}?$select=id</c> (<c>@odata.type</c>). Live reads: <c>GET /{collection}/{t}/owners</c>
 /// for the target, <c>GET /{users|servicePrincipals}/{p}/ownedObjects</c> for the principal. Writes:
-/// <c>POST /{collection}/{t}/owners/$ref</c>, <c>DELETE /{collection}/{t}/owners/{p}/$ref</c>. The state records
-/// <c>{ id, collection }</c> per principal-side edge so removal needs no type lookup.
+/// <c>POST /{collection}/{t}/owners/$ref</c>, <c>DELETE /{collection}/{t}/owners/{p}/$ref</c>.
 /// </summary>
 public sealed class OwnershipEdgeKind : IEdgeKindHandler
 {
@@ -147,38 +146,6 @@ public sealed class OwnershipEdgeKind : IEdgeKindHandler
         ArgumentNullException.ThrowIfNull(edge);
         string collection = RequireCollection(edge, liveExtra);
         return new BatchRequest("DELETE", "/" + collection + "/" + GraphPath.Segment(edge.TargetId) + "/owners/" + GraphPath.Segment(edge.PrincipalId) + "/$ref");
-    }
-
-    public JsonNode RecordEntry(Edge edge, JsonObject? applied)
-    {
-        ArgumentNullException.ThrowIfNull(edge);
-        return new JsonObject { ["id"] = edge.TargetId, ["collection"] = edge.TargetCollection };
-    }
-
-    public async Task<Edge?> FromRecordAsync(JsonNode? record, string principalId, GraphApi api, EdgeGraphContext context, CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(principalId);
-        ArgumentNullException.ThrowIfNull(context);
-
-        string? id;
-        string? collection = null;
-        if (record is JsonObject obj)
-        {
-            id = JsonObjects.GetId(obj);
-            collection = JsonObjects.GetString(obj, "collection");
-        }
-        else
-        {
-            id = JsonValues.TryGetString(record, out var text) ? text : null;
-        }
-
-        if (string.IsNullOrWhiteSpace(id))
-        {
-            return null;
-        }
-
-        collection ??= await context.ResolveCollectionAsync(id, api, cancellationToken).ConfigureAwait(false);
-        return collection is null ? null : new Edge(Kind, id, principalId, collection);
     }
 
     public string Describe(Edge edge)

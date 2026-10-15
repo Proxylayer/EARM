@@ -9,21 +9,15 @@ using System.Threading;
 using System.Threading.Tasks;
 using EArm.Cli.Hosting;
 using EArm.Cli.Output;
-using EArm.Core;
-using EArm.Core.Diagnostics;
-using EArm.Core.Loading;
-using EArm.Core.Types;
 using EArm.Engine.Execution;
-using EArm.Engine.KeyVault;
 using EArm.Engine.Planning;
-using EArm.Engine.Providers;
 using EArm.Graph;
 
 namespace EArm.Cli.Commands;
 
 /// <summary>
 /// <c>earm deployment delete -f &lt;template&gt; [-p ...] [-n name] [-y] [--continue-on-error]</c>: deletes the objects the template declares, found by
-/// their live keys exactly like <c>what-if</c> finds them (no state is involved), in reverse dependency order, after listing them and asking for
+/// their live keys exactly like <c>what-if</c> finds them (nothing is recorded locally), in reverse dependency order, after listing them and asking for
 /// confirmation (<c>-y</c> skips it; a non-interactive console without <c>-y</c> deletes nothing). The signed-in principal and service principals owned by
 /// another organization are never deleted (they are listed as kept). Exit 0 when every listed object was deleted (or kept); 1 when a delete failed (the
 /// rest stops unless <c>--continue-on-error</c>), when it was not confirmed, or for a template that cannot be loaded; 2 on validation errors; 3 when no
@@ -65,100 +59,17 @@ internal static class DeleteCommand
         ArgumentNullException.ThrowIfNull(invocation);
         using var scrubScope = SecretScrubber.Begin();
 
-        ParameterSet parameters;
-        try
-        {
-            parameters = ValidateCommand.BuildParameterSet(invocation.ParameterTokens, out _);
-        }
-        catch (TemplateLoadException ex)
-        {
-            return FailValidation(invocation, [ex.ToDiagnostic()], stdout, stderr, ExitCodes.Failure);
-        }
-        catch (ArgumentException ex)
-        {
-            return FailValidation(invocation, [Diagnostic.Error(ValidateCommand.InvalidArgumentCode, ex.Message)], stdout, stderr, ExitCodes.Failure);
-        }
-
-        string name = invocation.EffectiveName;
-        var catalog = ResourceTypeCatalog.Default;
-        TemplateDocument document;
-        try
-        {
-            document = await new TemplateLoader(catalog).LoadAsync(invocation.TemplateFile, parameters, cancellationToken).ConfigureAwait(false);
-        }
-        catch (TemplateLoadException ex)
-        {
-            return FailValidation(invocation, [ex.ToDiagnostic()], stdout, stderr, ExitCodes.Failure);
-        }
-
-        SecretRegistration.RegisterDocument(document);
-        using var loggerFactory = GlobalOptions.CreateLoggerFactory(invocation.LogLevel);
-        if (!EngineServices.TryCreate(invocation.Connection, loggerFactory, stdout, stderr, invocation.Output, out var created, out int createExit))
-        {
-            return createExit;
-        }
-
-        using var services = created!;
-        try
-        {
-            services.CreatePlanner(new PlannerOptions { DeploymentName = name, Catalog = catalog }).Validate(document, PlanMode.WhatIf);
-        }
-        catch (ValidationFailedException ex)
-        {
-            return FailValidation(invocation, ex.Diagnostics, stdout, stderr, ExitCodes.ValidationFailed);
-        }
-
-        GraphPreflightResult preflight;
-        try
-        {
-            preflight = await services.Preflight.RunAsync(cancellationToken).ConfigureAwait(false);
-        }
-        catch (Exception ex) when (ex is GraphTransportException or GraphException)
-        {
-            return VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.AuthOrPreflight, "PreflightFailed", "Preflight failed: " + SecretScrubber.Scrub(ex.Message));
-        }
-
-        if (KeyVaultSecretResolver.HasPendingReferences(document))
-        {
-            try
-            {
-                document = await services.CreateKeyVaultResolver().ResolveAsync(document, cancellationToken).ConfigureAwait(false);
-                SecretRegistration.RegisterDocument(document);
-            }
-            catch (KeyVaultResolutionException ex)
-            {
-                var definition = document.Parameters.TryGetValue(ex.ParameterName, out var found) ? found : null;
-                return FailValidation(invocation, [Diagnostic.Error(ex.Code, ex.Message, definition?.Path, document.LocationOf(definition?.Path), document.SourcePath)], stdout, stderr, ExitCodes.AuthOrPreflight);
-            }
-        }
-
         // The declared objects are found exactly as what-if finds them: by key, read-only.
-        var planner = services.CreatePlanner(new PlannerOptions
+        var (opened, setupExit) = await PlannedDeployment.OpenAsync(invocation, DeploymentMode.Incremental, PlanMode.WhatIf, stdout, stderr, cancellationToken).ConfigureAwait(false);
+        if (opened is null)
         {
-            DeploymentName = name,
-            TenantId = preflight.TenantId,
-            Tenant = DeploymentEnvironment.TenantFromOrganization(preflight.Organization, preflight.TenantId),
-            Environment = DeploymentEnvironment.Environment(preflight.Cloud),
-            SignedInPrincipalId = preflight.PrincipalObjectId,
-            AppOnlyToken = string.Equals(preflight.PrincipalType, "application", StringComparison.OrdinalIgnoreCase),
-            Parallelism = invocation.Parallelism,
-            Catalog = catalog,
-        });
-
-        DeploymentPlan plan;
-        try
-        {
-            plan = await planner.PlanAsync(document, null, DeploymentMode.Incremental, PlanMode.WhatIf, cancellationToken).ConfigureAwait(false);
-        }
-        catch (ValidationFailedException ex)
-        {
-            return FailValidation(invocation, ex.Diagnostics, stdout, stderr, ExitCodes.ValidationFailed);
-        }
-        catch (UnknownProviderException ex)
-        {
-            return VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.Failure, "UnknownProvider", ex.Message);
+            return setupExit;
         }
 
+        using var deployment = opened;
+        var plan = deployment.Plan;
+        var preflight = deployment.Preflight;
+        string name = invocation.EffectiveName;
         var targets = TemplateDeleter.FindDeclaredObjects(plan);
         if (targets.Count == 0)
         {
@@ -174,7 +85,7 @@ internal static class DeleteCommand
             return VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.Failure, "NotConfirmed", "Nothing deleted.");
         }
 
-        var result = await services.CreateTemplateDeleter().DeleteAsync(plan, targets, invocation.ContinueOnError, cancellationToken).ConfigureAwait(false);
+        var result = await deployment.Services.CreateTemplateDeleter().DeleteAsync(plan, targets, invocation.ContinueOnError, cancellationToken).ConfigureAwait(false);
         return Report(invocation, name, result, stdout, stderr);
     }
 
@@ -266,13 +177,5 @@ internal static class DeleteCommand
 
         (exit == ExitCodes.Ok ? stdout : stderr).WriteLine(summary);
         return exit;
-    }
-
-    private static int FailValidation(DeploymentInvocation invocation, IReadOnlyList<Diagnostic> diagnostics, TextWriter stdout, TextWriter stderr, int exitCode)
-    {
-        var report = new ValidationReport { TemplateFile = invocation.TemplateFile };
-        ValidationWriter.Fill(report, diagnostics);
-        ValidationWriter.Write(report, diagnostics, invocation.TemplateFile, invocation.Output, stdout, stderr);
-        return exitCode;
     }
 }

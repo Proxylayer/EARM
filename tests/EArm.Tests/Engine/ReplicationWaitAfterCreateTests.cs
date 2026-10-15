@@ -10,7 +10,6 @@ using EArm.Core;
 using EArm.Engine;
 using EArm.Engine.Execution;
 using EArm.Engine.Providers;
-using EArm.Engine.State;
 using EArm.Graph;
 using EArm.TestSupport;
 using Xunit;
@@ -46,12 +45,10 @@ public sealed class ReplicationWaitAfterCreateTests
     }
 
     [Fact]
-    public async Task AnAmbiguousCreate_WhoseKeyReadIsEmptyUntilReplicated_IsRecordedAsCreated_WithoutASecondCreate()
+    public async Task AnAmbiguousCreate_WhoseKeyReadIsEmptyUntilReplicated_IsReportedAsCreated_WithoutASecondCreate()
     {
         var host = new EngineHost(graph => new LaggingCreateClient(graph, Collection, hiddenReads: 3, LaggingCreateClient.Outcome.CommitThenTimeOut));
-        var state = NewState();
-
-        var (_, result, _) = await ExecuteAsync(host, state, Units("au1"), planner: WithoutRetryPolicy(host));
+        var (_, result) = await ExecuteAsync(host, Units("au1"), planner: WithoutRetryPolicy(host));
 
         Assert.True(result.Succeeded, string.Join("\n", result.Operations.Select(o => o.Error)));
         Assert.Equal(1, host.Directory.Count(Collection));
@@ -60,8 +57,7 @@ public sealed class ReplicationWaitAfterCreateTests
         Assert.Equal(OperationStatus.Succeeded, op.Status);
         Assert.Equal(ChangeType.Create, op.ChangeType);
         Assert.Contains(result.Diagnostics, d => d.Code == EngineDiagnosticCodes.CreateOutcomeUncertain);
-        Assert.Equal(StateProvenance.Created, state.Find(UnitId("au1"))!.Provenance);
-        Assert.Equal(IdOf(host.Directory.Objects(Collection).Single()), state.GraphIdOf(UnitId("au1")));
+        Assert.Equal(IdOf(host.Directory.Objects(Collection).Single()), op.GraphId);
         Assert.Equal([TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5)], host.ReplicationDelays.Delays);
     }
 
@@ -69,9 +65,7 @@ public sealed class ReplicationWaitAfterCreateTests
     public async Task WithARetryPolicy_TheReplicationWindowIsWaitedOnce_ByTheExecutor()
     {
         var host = new EngineHost(graph => new LaggingCreateClient(graph, Collection, hiddenReads: 2, LaggingCreateClient.Outcome.CommitThenTimeOut));
-        var state = NewState();
-
-        var (_, result, _) = await ExecuteAsync(host, state, Units("au1"));
+        var (_, result) = await ExecuteAsync(host, Units("au1"));
 
         Assert.True(result.Succeeded, string.Join("\n", result.Operations.Select(o => o.Error)));
         Assert.Single(host.Fake.Writes, w => w.Method == "POST" && w.Path == Collection);
@@ -83,9 +77,7 @@ public sealed class ReplicationWaitAfterCreateTests
     public async Task AnAlreadyExistsCreate_WhoseKeyReadIsEmptyUntilReplicated_AdoptsTheObject()
     {
         var host = new EngineHost(graph => new LaggingCreateClient(graph, Collection, hiddenReads: 2, LaggingCreateClient.Outcome.ConcurrentCreatorThenAlreadyExists));
-        var state = NewState();
-
-        var (_, result, _) = await ExecuteAsync(host, state, Units("au1"), planner: WithoutRetryPolicy(host));
+        var (_, result) = await ExecuteAsync(host, Units("au1"), planner: WithoutRetryPolicy(host));
 
         Assert.True(result.Succeeded, string.Join("\n", result.Operations.Select(o => o.Error)));
         Assert.Equal(1, host.Directory.Count(Collection));
@@ -98,7 +90,7 @@ public sealed class ReplicationWaitAfterCreateTests
         var host = new EngineHost();
         host.Fake.Failures.Add("POST", Collection, _ => new GraphTransportException(GraphTransportFailure.Timeout, "POST: the request timed out.", ambiguous: true), times: 10);
 
-        var (_, result, _) = await ExecuteAsync(host, NewState(), Units("au1"), planner: WithoutRetryPolicy(host));
+        var (_, result) = await ExecuteAsync(host, Units("au1"), planner: WithoutRetryPolicy(host));
 
         Assert.False(result.Succeeded);
         Assert.Contains("timed out", Assert.Single(result.Operations).Error, StringComparison.Ordinal);

@@ -4,7 +4,6 @@ using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using EArm.Engine;
 using EArm.Engine.Execution;
-using EArm.Engine.State;
 using EArm.Providers.Tests.Infrastructure;
 using Xunit;
 using static EArm.Providers.Tests.Infrastructure.DirectoryTemplates;
@@ -14,7 +13,7 @@ namespace EArm.Providers.Tests;
 /// <summary>
 /// Failures that only exist while a deployment is being applied (values computed from live objects, conditions that depend on
 /// a created resource, outputs that cannot be evaluated): each fails its own resource with a stable code, skips its dependents,
-/// leaves the rest of the deployment alone and never records a half-applied state entry.
+/// leaves the rest of the deployment alone and never reports a half-applied resource as applied.
 /// </summary>
 public sealed class ApplyTimeFailureTests
 {
@@ -44,8 +43,8 @@ public sealed class ApplyTimeFailureTests
         Assert.Equal(OperationStatus.Skipped, run.Op("after").Status);
         Assert.Equal(OperationStatus.Succeeded, run.Op("fine").Status);
         Assert.Null(host.Directory.Find("/groups", "uniqueName", "divides"));
-        Assert.DoesNotContain(run.State!.Resources.Keys, k => k.EndsWith("/divides", StringComparison.Ordinal));
-        Assert.Contains(run.State.Resources.Keys, k => k.EndsWith("/base", StringComparison.Ordinal));
+        Assert.Equal(OperationStatus.Succeeded, run.Op("base").Status);
+        Assert.NotNull(host.Directory.Find("/groups", "uniqueName", "base"));
     }
 
     [Fact]
@@ -109,7 +108,7 @@ public sealed class ApplyTimeFailureTests
         Assert.Contains(run.Executed.Diagnostics, d => d.Message.Contains("the condition does not evaluate to a boolean", StringComparison.Ordinal));
         Assert.Equal("Base", run.Output("included")!.GetValue<string>());
         Assert.Null(run.Executed.Outputs["skipped"]);
-        Assert.Contains(run.State!.Resources.Keys, k => k.EndsWith("/base", StringComparison.Ordinal));
+        Assert.Equal(OperationStatus.Succeeded, run.Op("base").Status);
     }
 
     [Fact]
@@ -124,16 +123,17 @@ public sealed class ApplyTimeFailureTests
         Assert.False(failed.Succeeded);
         Assert.Equal(OperationStatus.Failed, failed.Op("base").Status);
         Assert.Equal(OperationStatus.Skipped, failed.Op("later").Status);
-        Assert.Empty(failed.State!.Resources);
+        Assert.Null(host.Directory.Find("/groups", "uniqueName", "base"));
 
         var resumed = await host.CreateAsync(host.Resources(template));
 
         Check.Succeeded(resumed);
-        Assert.Equal(2, resumed.State!.Resources.Count);
+        Assert.All(resumed.Executed.Operations, o => Assert.Equal(OperationStatus.Succeeded, o.Status));
+        Assert.Equal(2, resumed.Executed.Operations.Count);
     }
 
     [Fact]
-    public async Task APartiallyAppliedDeployment_RecordsExactlyTheResourcesThatWereApplied()
+    public async Task APartiallyAppliedDeployment_ReportsExactlyTheResourcesThatWereApplied()
     {
         var host = new ProviderHost();
         string failing = Dependent("blocked", "\"displayName\": \"Blocked\"");
@@ -142,9 +142,9 @@ public sealed class ApplyTimeFailureTests
         var run = await host.CreateAsync(host.Resources(Join(Base, failing, Dependent("free", "\"displayName\": \"Free\""))), continueOnError: true);
 
         Assert.False(run.Succeeded);
-        var recorded = (await host.LoadStateAsync())!.Resources.Keys.Select(k => k[(k.LastIndexOf('/') + 1)..]).Order(StringComparer.Ordinal).ToList();
-        Assert.Equal(["base", "free"], recorded);
-        Assert.Equal(StateFile.StatusFailed, (await host.LoadStateAsync())!.LastStatus);
-        Assert.Contains((await host.LoadStateAsync())!.Operations, o => o.Status == OperationStatus.Failed && o.ResourceId.EndsWith("/blocked", StringComparison.Ordinal));
+        var applied = run.Executed.Operations.Where(o => o.Status == OperationStatus.Succeeded).Select(o => o.Id.Id[(o.Id.Id.LastIndexOf('/') + 1)..]).Order(StringComparer.Ordinal).ToList();
+        Assert.Equal(["base", "free"], applied);
+        Assert.Equal(DeploymentStatus.Failed, run.Executed.Status);
+        Assert.Contains(run.Executed.Operations, o => o.Status == OperationStatus.Failed && o.Id.Id.EndsWith("/blocked", StringComparison.Ordinal));
     }
 }

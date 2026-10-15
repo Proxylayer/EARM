@@ -227,7 +227,7 @@ public sealed class Review1C_InputRobustnessTests
         string expression = "[" + string.Concat(Enumerable.Repeat("createArray(", 64)) + "'leaf'" + new string(')', 64) + "]";
         string template = sandbox.WriteTemplate("deep.entra.json", "\"resources\": [], \"outputs\": { \"o\": { \"type\": \"array\", \"value\": \"" + expression + "\" } }");
 
-        var result = await CliRunner.RunAsync([.. sandbox.StateArgs, "deployment", "create", "-f", template, "-o", "json"]);
+        var result = await CliRunner.RunAsync(["deployment", "create", "-f", template, "-o", "json"]);
 
         Assert.Equal(0, result.ExitCode);
         Assert.Equal(string.Empty, result.StandardError);
@@ -243,7 +243,7 @@ public sealed class Review1C_InputRobustnessTests
         string expression = "[" + string.Concat(Enumerable.Repeat("createArray(", 65)) + "'leaf'" + new string(')', 65) + "]";
         string template = sandbox.WriteTemplate("deeper.entra.json", "\"resources\": [], \"outputs\": { \"o\": { \"type\": \"array\", \"value\": \"" + expression + "\" } }");
 
-        var result = await CliRunner.RunAsync([.. sandbox.StateArgs, "deployment", "create", "-f", template, "-o", "json"]);
+        var result = await CliRunner.RunAsync(["deployment", "create", "-f", template, "-o", "json"]);
 
         Assert.NotEqual(0, result.ExitCode);
         Assert.Contains("ValueTooDeep", result.StandardOutput + result.StandardError, StringComparison.Ordinal);

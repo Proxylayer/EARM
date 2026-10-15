@@ -10,7 +10,6 @@ using EArm.Core.Secrets;
 using EArm.Engine;
 using EArm.Engine.Execution;
 using EArm.Engine.Providers;
-using EArm.Engine.State;
 using EArm.Graph;
 using EArm.Providers.Tests.Infrastructure;
 using Xunit;
@@ -58,25 +57,15 @@ public sealed partial class Review4K_ExecutorTests
         return "/providers/" + AssignmentType + "/" + name;
     }
 
-    private static async Task TamperAsync(ProviderHost host, string resourceId, Func<StateEntry, StateEntry> change)
-    {
-        var state = (await host.LoadStateAsync())!;
-        state.Upsert(change(state.Find(resourceId)!));
-        await host.Store.SaveAsync(state, Ct);
-    }
-
-    // ---- DE18 / DE20 / DE21: identity is the live tuple; a changed tuple is a new object and the old one is retained, whatever the state recorded ----
+    // ---- DE18 / DE20 / DE21: identity is the live tuple; a changed tuple is a new object and the old one is retained ----
 
     [Fact]
-    public async Task AnEntryWhoseRecordedKey_TheLiveObjectDoesNotCarry_NeverSupersedesIt_TheObjectIsLeftAlone()
+    public async Task AChangedTuple_IsANewAssignment_AndTheOldOneIsLeftAlone()
     {
         var t = NewTenant();
         string name = Guid.NewGuid().ToString("D");
         Check.Succeeded(await t.Host.CreateAsync(t.Host.Resources(Assignment(t, name, UserRoleId))));
         string oldId = t.Host.Directory.Objects(AssignedTo(t.ResourceId)).Single()["id"]!.GetValue<string>();
-
-        // The entry now says the recorded app role was another one: whatever the pinned id points at is not what this deployment recorded.
-        await TamperAsync(t.Host, AssignmentResourceId(name), e => e with { Key = new Dictionary<string, string>(e.Key, StringComparer.OrdinalIgnoreCase) { ["appRoleId"] = OtherRoleId } });
 
         var run = await t.Host.CreateAsync(t.Host.Resources(Assignment(t, name, BothRoleId)));
 
@@ -206,7 +195,7 @@ public sealed partial class Review4K_ExecutorTests
         Assert.True(outcome.Result.Succeeded, string.Join("\n", outcome.Result.Operations.Select(o => o.Error)));
         Assert.Contains(outcome.Result.Diagnostics, d => d.Code == EngineDiagnosticCodes.CreateOutcomeUncertain);
         Assert.Equal(1, host.Directory.Count(LocPath));
-        Assert.Equal(host.IdOf(LocPath, "displayName", "Contoso offices"), outcome.State.Find("/providers/" + LocType + "/Contoso offices")!.GraphId);
+        Assert.Equal(host.IdOf(LocPath, "displayName", "Contoso offices"), outcome.Result.Operations.Single().GraphId);
     }
 
     [Fact]

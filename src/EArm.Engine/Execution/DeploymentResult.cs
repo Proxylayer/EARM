@@ -13,7 +13,7 @@ public enum DeploymentStatus
     Succeeded,
     Failed,
 
-    /// <summary>Recorded in the state when the run was cancelled; <see cref="DeploymentExecutor.ExecuteAsync"/> then ends with an <see cref="OperationCanceledException"/> instead of a result.</summary>
+    /// <summary>The run was cancelled; <see cref="DeploymentExecutor.ExecuteAsync"/> then ends with an <see cref="OperationCanceledException"/> instead of a result.</summary>
     Cancelled,
 }
 
@@ -27,9 +27,6 @@ public enum OperationStatus
 
     /// <summary><c>condition</c> evaluated to false.</summary>
     Ignored,
-
-    /// <summary>Only in older state files (an entry dropped from the state by the former mode pass); the executor never reports it. Goes away with the state subsystem.</summary>
-    Detached,
 }
 
 /// <summary>What happened to one resource instance during execution.</summary>
@@ -51,7 +48,6 @@ public sealed record ResourceOperation(
         OperationStatus.Failed => '!',
         OperationStatus.Skipped => '?',
         OperationStatus.Ignored => '*',
-        OperationStatus.Detached => '*',
         _ => ChangeType switch
         {
             Providers.ChangeType.Create => '+',

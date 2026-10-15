@@ -37,12 +37,6 @@ internal static class GlobalOptions
         Description = "App registration (client id) used by the interactive sign-in 'earm auth login'. Default: EARM_CLIENT_ID, then the Azure.Identity developer client.",
         Recursive = true,
     };
-    /// <summary><c>--state-dir</c>: where deployment state files live (else <c>EARM_STATE_DIR</c>, then <c>.earm/state</c> next to the template).</summary>
-    public static Option<string?> StateDir { get; } = new("--state-dir")
-    {
-        Description = "Directory of the deployment state files. Default: EARM_STATE_DIR, then .earm/state next to the template (or under the current directory).",
-        Recursive = true,
-    };
 
     public static Option<bool> Verbose { get; } = new("--verbose")
     {

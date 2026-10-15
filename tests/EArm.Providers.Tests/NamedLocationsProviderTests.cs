@@ -9,7 +9,6 @@ using EArm.Core;
 using EArm.Engine.Execution;
 using EArm.Engine.Planning;
 using EArm.Engine.Providers;
-using EArm.Engine.State;
 using EArm.Providers.Tests.Infrastructure;
 using EArm.TestSupport;
 using Xunit;
@@ -123,13 +122,13 @@ public sealed class NamedLocationsProviderTests
     }
 
     [Fact]
-    public async Task KindChange_IsARecreate_DeleteThenPost_WithTheStateRePinned()
+    public async Task KindChange_IsARecreate_DeleteThenPost()
     {
         var host = new ProviderHost();
         var first = await host.CreateAsync(host.Resources(IpLocation()));
         Check.Succeeded(first);
         string oldId = host.IdOf(LocPath, "displayName", LocName);
-        Assert.Equal(oldId, first.State!.Resources.Values.Single().GraphId);
+        Assert.Equal(oldId, first.Executed.Operations.Single().GraphId);
 
         var whatIf = await host.WhatIfAsync(host.Resources(CountryLocation()));
         var row = Assert.Single(whatIf.Plan.Changes);
@@ -150,8 +149,7 @@ public sealed class NamedLocationsProviderTests
         string newId = live["id"]!.GetValue<string>();
         Assert.Equal("#microsoft.graph.countryNamedLocation", live["@odata.type"]!.GetValue<string>());
         Assert.NotEqual(oldId, newId);
-        Assert.Equal(newId, second.State!.Resources.Values.Single().GraphId);
-        Assert.Equal(newId, host.StateEntryJson(LocResourceId)!["id"]!.GetValue<string>());
+        Assert.Equal(newId, second.GraphIdOf(LocResourceId));
     }
 
     [Fact]
@@ -243,7 +241,7 @@ public sealed class NamedLocationsProviderTests
         Check.Succeeded(drift);
         Assert.Equal(ChangeType.NoChange, drift.Executed.Operations.Single().ChangeType);
         Assert.Equal("GET " + LocPath + "?$filter=displayName eq 'Contoso offices'", drift.Requests[0].ToString());
-        Assert.Equal(newId, drift.State!.Resources.Values.Single().GraphId);
+        Assert.Equal(newId, drift.Executed.Operations.Single().GraphId);
     }
 
     [Fact]
@@ -254,16 +252,16 @@ public sealed class NamedLocationsProviderTests
         string id = location["id"]!.GetValue<string>();
         host.Fake.Failures.Add("DELETE", LocPath + "/" + id, r => new GraphException(HttpStatusCode.BadRequest, "Request_BadRequest", "Cannot delete the named location because it is referenced by one or more Conditional Access policies.", r.Hint));
         var provider = host.Provider(LocType);
-        var entry = new StateEntry { Id = ResourceIdentifier.Create(LocType, LocName), Type = LocType, ApiVersion = ProviderHost.ApiVersion, Key = new Dictionary<string, string> { ["displayName"] = LocName }, GraphId = id };
+        var entry = new DeleteTarget { Id = ResourceIdentifier.Create(LocType, LocName), Type = LocType, ApiVersion = ProviderHost.ApiVersion, Key = new Dictionary<string, string> { ["displayName"] = LocName }, GraphId = id };
 
-        var ex = await Assert.ThrowsAsync<ProviderException>(() => provider.DeleteAsync(DeleteTarget.KeyOf(entry), DeleteTarget.LiveOf(entry), host.Fake, ProviderHost.Ct));
+        var ex = await Assert.ThrowsAsync<ProviderException>(() => provider.DeleteAsync(entry.ResourceKey, entry.Live, host.Fake, ProviderHost.Ct));
 
         Assert.Equal(NamedLocationsProvider.ReferencedByPolicy, ex.Code);
         Assert.Contains("referenced by one or more", ex.Message, StringComparison.Ordinal);
         Assert.Contains("conditions.locations", ex.Message, StringComparison.Ordinal);
 
         host.ClearRequests();
-        await provider.DeleteAsync(DeleteTarget.KeyOf(entry with { GraphId = "missing" }), DeleteTarget.LiveOf(entry with { GraphId = "missing" }), host.Fake, ProviderHost.Ct);
+        await provider.DeleteAsync((entry with { GraphId = "missing" }).ResourceKey, (entry with { GraphId = "missing" }).Live, host.Fake, ProviderHost.Ct);
         var write = Assert.Single(host.Fake.Writes);
         Assert.Equal("DELETE", write.Method);
     }

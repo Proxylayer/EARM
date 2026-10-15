@@ -1,10 +1,10 @@
 using System;
 using System.IO;
 
-namespace EArm.Engine.State;
+namespace EArm.Engine.Execution;
 
 /// <summary>
-/// Link detection for the places EARM writes secrets and state to (the state directory, the secure outputs file's folder). A symbolic link or
+/// Link detection for the places EARM writes secrets to (the secure outputs file's folder). A symbolic link or
 /// junction anywhere on the path - not only at its end - redirects every write elsewhere (review round 2, finding S2-18), so every existing
 /// ancestor is checked, not just the leaf.
 /// </summary>

@@ -16,7 +16,6 @@ using EArm.Core.Secrets;
 using EArm.Engine.Edges;
 using EArm.Engine.Planning;
 using EArm.Engine.Providers;
-using EArm.Engine.State;
 using EArm.Expressions;
 using EArm.Expressions.Evaluation;
 using EArm.Expressions.Values;
@@ -29,9 +28,9 @@ namespace EArm.Engine.Execution;
 /// inputs are now live; inside a batch applies instances in parallel (evaluate → key → read → plan → create/update),
 /// publishing every live object to the resolver as it lands; fails fast at the batch boundary (in-flight work
 /// finishes, everything later is skipped) unless <see cref="ExecuteOptions.ContinueOnError"/>, in which case only
-/// the transitive dependents of a failure are skipped (recorded through the sink before their batch starts, never
-/// attempted, their symbolic names never resolved); then evaluates the outputs. State persistence goes through
-/// <see cref="IStateSink"/>. The end phase (edges, outputs, secure outputs file, orphan report, completion) never observes the
+/// the transitive dependents of a failure are skipped (recorded before their batch starts, never
+/// attempted, their symbolic names never resolved); then evaluates the outputs. Nothing is persisted locally except the
+/// secure outputs file. The end phase (edges, outputs, secure outputs file, orphan report, completion) never observes the
 /// caller's cancellation: it records what already happened and only then reports the cancellation. Nothing the template does not
 /// declare is ever deleted: the orphan report only lists it (<see cref="DeploymentResult.Orphans"/>).
 /// </summary>
@@ -90,7 +89,7 @@ public sealed class DeploymentExecutor
             _owner = owner;
             _plan = plan;
             _options = options;
-            _planOptions = plan.Options with { PlanMode = PlanMode.Create, State = options.State };
+            _planOptions = plan.Options with { PlanMode = PlanMode.Create };
         }
 
         private ILogger Logger => _owner._logger;
@@ -117,7 +116,7 @@ public sealed class DeploymentExecutor
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
                 // An unexpected failure of the engine itself (not of one resource: those are caught per resource): the end phase below must still run, so
-                // what was applied stays recorded, the secrets reach the file and the state does not stay "Running" (review round 2, S2-09).
+                // what was applied is reported and the secrets reach the file (review round 2, S2-09).
                 aborted = true;
                 stop = true;
                 string message = SecretRegistration.Scrub($"The run was aborted by an unexpected error ({ex.GetType().Name}): {ex.Message}");
@@ -125,77 +124,62 @@ public sealed class DeploymentExecutor
                 AddDiagnostic(Diagnostic.Error(EngineDiagnosticCodes.ResourceApplyFailed, message));
             }
 
-            // The end phase records work that already happened (objects written to the tenant, one-time secrets, the state of the run): recording
+            // The end phase records work that already happened (objects written to the tenant, one-time secrets, the outcome of the run): recording
             // never observes the caller's cancellation and is guarded so an I/O failure cannot skip the steps after it (E-03). The steps that WRITE
             // to the tenant again (edges) do observe it, between operations: Ctrl-C stops new writes (review round 2, S2-10).
             var none = CancellationToken.None;
             var outputs = new JsonObject();
             var secureOutputs = new JsonObject();
             string? secureFile = null;
-            bool completed = false;
             List<ResourceOperation> operations = [];
             List<ResourceChange> changes = [];
             DeploymentStatus status = DeploymentStatus.Failed;
-            try
+            if (cancelled || aborted)
             {
-                if (cancelled || aborted)
+                string why = cancelled ? "the run was cancelled" : "the run was aborted by an unexpected error";
+                foreach (var batch in _plan.Batches)
                 {
-                    string why = cancelled ? "the run was cancelled" : "the run was aborted by an unexpected error";
-                    foreach (var batch in _plan.Batches)
+                    foreach (var instance in batch.Instances.Where(i => !_operations.ContainsKey(i)))
                     {
-                        foreach (var instance in batch.Instances.Where(i => !_operations.ContainsKey(i)))
-                        {
-                            await GuardedAsync(() => RecordSkippedAsync(instance, batch.Index, why, none)).ConfigureAwait(false);
-                        }
+                        RecordSkipped(instance, batch.Index, why);
                     }
-                }
-
-                // Edge pass: after all objects exist, before the outputs. Part A kinds now;
-                // part B kinds plug into the same pass through the plan's EdgeKinds registry (the providers add the part B kinds).
-                await GuardedAsync(() => RunEdgePassAsync(stop, cancellationToken)).ConfigureAwait(false);
-
-                (outputs, secureOutputs) = EvaluateOutputs(none);
-                secureFile = WriteSecureOutputs(secureOutputs);
-
-                // Orphan report (read-only): what the template does not declare is listed, never deleted.
-                // A cancelled or aborted run does not know whether the instance set was applied in full, so it judges nothing.
-                if (!cancelled && !aborted)
-                {
-                    if (cancellationToken.IsCancellationRequested)
-                    {
-                        _cancelledInEndPhase = true;
-                    }
-                    else
-                    {
-                        await GuardedAsync(() => RunOrphanReportAsync(stop, cancellationToken)).ConfigureAwait(false);
-                    }
-                }
-
-                cancelled |= _cancelledInEndPhase;
-
-                FlushInstanceDiagnostics(_plan.Batches.SelectMany(b => b.Instances));
-                operations = _plan.Batches.SelectMany(b => b.Instances).Where(_operations.ContainsKey).Select(i => _operations[i]).ToList();
-                changes = _plan.Batches.SelectMany(b => b.Instances).Where(_changes.ContainsKey).Select(i => _changes[i]).ToList();
-                bool anyFailure = aborted || operations.Any(o => o.Status is OperationStatus.Failed or OperationStatus.Skipped) || DiagnosticsSnapshot().Any(d => d.IsError);
-                status = cancelled ? DeploymentStatus.Cancelled : anyFailure ? DeploymentStatus.Failed : DeploymentStatus.Succeeded;
-
-                await GuardedAsync(() => _options.StateSink.CompletedAsync(status, none)).ConfigureAwait(false);
-                completed = true;
-            }
-            finally
-            {
-                if (!completed)
-                {
-                    // An unexpected failure above: the state must still not stay "Running".
-                    await GuardedAsync(() => _options.StateSink.CompletedAsync(cancelled ? DeploymentStatus.Cancelled : DeploymentStatus.Failed, none)).ConfigureAwait(false);
                 }
             }
+
+            // Edge pass: after all objects exist, before the outputs. Part A kinds now;
+            // part B kinds plug into the same pass through the plan's EdgeKinds registry (the providers add the part B kinds).
+            await GuardedAsync(() => RunEdgePassAsync(stop, cancellationToken)).ConfigureAwait(false);
+
+            (outputs, secureOutputs) = EvaluateOutputs(none);
+            secureFile = WriteSecureOutputs(secureOutputs);
+
+            // Orphan report (read-only): what the template does not declare is listed, never deleted.
+            // A cancelled or aborted run does not know whether the instance set was applied in full, so it judges nothing.
+            if (!cancelled && !aborted)
+            {
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    _cancelledInEndPhase = true;
+                }
+                else
+                {
+                    await GuardedAsync(() => RunOrphanReportAsync(stop, cancellationToken)).ConfigureAwait(false);
+                }
+            }
+
+            cancelled |= _cancelledInEndPhase;
+
+            FlushInstanceDiagnostics(_plan.Batches.SelectMany(b => b.Instances));
+            operations = _plan.Batches.SelectMany(b => b.Instances).Where(_operations.ContainsKey).Select(i => _operations[i]).ToList();
+            changes = _plan.Batches.SelectMany(b => b.Instances).Where(_changes.ContainsKey).Select(i => _changes[i]).ToList();
+            bool anyFailure = aborted || operations.Any(o => o.Status is OperationStatus.Failed or OperationStatus.Skipped) || DiagnosticsSnapshot().Any(d => d.IsError);
+            status = cancelled ? DeploymentStatus.Cancelled : anyFailure ? DeploymentStatus.Failed : DeploymentStatus.Succeeded;
 
             stopwatch.Stop();
             if (cancelled)
             {
                 EngineLog.Completed(Logger, _plan.DeploymentName, "Cancelled", operations.Count(o => o.Status == OperationStatus.Succeeded), operations.Count(o => o.Status == OperationStatus.Failed), operations.Count(o => o.Status == OperationStatus.Skipped), operations.Count(o => o.Status == OperationStatus.Ignored), stopwatch.ElapsedMilliseconds);
-                throw new OperationCanceledException("The deployment was cancelled; the state and the secure outputs file record what had already been applied.", cancellationToken);
+                throw new OperationCanceledException("The deployment was cancelled; the result and the secure outputs file record what had already been applied.", cancellationToken);
             }
 
             var result = new DeploymentResult(_plan.DeploymentName, status, operations, changes, outputs, secureOutputs, DiagnosticsSnapshot(), secureFile, stopwatch.Elapsed, _orphans);
@@ -217,7 +201,7 @@ public sealed class DeploymentExecutor
                 {
                     foreach (var instance in batch.Instances)
                     {
-                        await RecordSkippedAsync(instance, batch.Index, "an earlier batch failed", cancellationToken).ConfigureAwait(false);
+                        RecordSkipped(instance, batch.Index, "an earlier batch failed");
                     }
 
                     continue;
@@ -230,7 +214,7 @@ public sealed class DeploymentExecutor
                 {
                     if (_skipped.TryGetValue(instance, out var skipReason))
                     {
-                        await RecordSkippedAsync(instance, batch.Index, skipReason, cancellationToken).ConfigureAwait(false);
+                        RecordSkipped(instance, batch.Index, skipReason);
                     }
                 }
 
@@ -275,18 +259,12 @@ public sealed class DeploymentExecutor
             return stop;
         }
 
-        /// <summary>Runs one end-phase step; a failed state write is reported as an error diagnostic instead of ending the run (E-03c).</summary>
+        /// <summary>Runs one end-phase step; an unexpected failure is reported as an error diagnostic instead of ending the run (E-03c).</summary>
         private async Task GuardedAsync(Func<Task> step)
         {
             try
             {
                 await step().ConfigureAwait(false);
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                string message = SecretRegistration.Scrub($"The state could not be saved: {ex.Message}");
-                EngineLog.StateSaveFailed(Logger, message);
-                AddDiagnostic(Diagnostic.Error(EngineDiagnosticCodes.StateSaveFailed, message));
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
@@ -413,7 +391,7 @@ public sealed class DeploymentExecutor
             {
                 foreach (var instance in declaring)
                 {
-                    await FailEdgesAsync(instance, EngineDiagnosticCodes.EdgeApplyFailed, $"the edge pass failed: {ex.Message}", cancellationToken).ConfigureAwait(false);
+                    FailEdges(instance, EngineDiagnosticCodes.EdgeApplyFailed, $"the edge pass failed: {ex.Message}");
                 }
 
                 return;
@@ -431,12 +409,12 @@ public sealed class DeploymentExecutor
                 if (errors.Count > 0)
                 {
                     string code = row.HasErrors ? EngineDiagnosticCodes.EdgeValidationFailed : EngineDiagnosticCodes.EdgeApplyFailed;
-                    await FailEdgesAsync(instance, code, string.Join(" ", errors), cancellationToken).ConfigureAwait(false);
+                    FailEdges(instance, code, string.Join(" ", errors));
                 }
             }
         }
 
-        private async Task FailEdgesAsync(ResourceInstance instance, string code, string message, CancellationToken cancellationToken)
+        private void FailEdges(ResourceInstance instance, string code, string message)
         {
             message = SecretRegistration.Scrub(message);
             EngineLog.EdgeValidationFailed(Logger, instance.Id.Id, message);
@@ -444,8 +422,6 @@ public sealed class DeploymentExecutor
             {
                 _operations[instance] = operation with { Status = OperationStatus.Failed, Error = message, ErrorCode = code };
             }
-
-            await _options.StateSink.ResourceEdgesFailedAsync(instance, message, CancellationToken.None).ConfigureAwait(false);
         }
 
         // ---- orphan report ----
@@ -489,7 +465,6 @@ public sealed class DeploymentExecutor
             var stopwatch = Stopwatch.StartNew();
             try
             {
-                await _options.StateSink.ResourceStartingAsync(instance, cancellationToken).ConfigureAwait(false);
                 await ApplyCoreAsync(instance, batchIndex, stopwatch, cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -498,30 +473,25 @@ public sealed class DeploymentExecutor
             }
             catch (ProviderException ex)
             {
-                await FailAsync(instance, batchIndex, ex.Code, ex.Message, stopwatch.Elapsed, cancellationToken).ConfigureAwait(false);
+                RecordFailure(instance, batchIndex, ex.Code, ex.Message, stopwatch.Elapsed);
             }
             catch (ExpressionException ex)
             {
-                await FailAsync(instance, batchIndex, ex.Code, $"{instance.Describe()}: {ex.MessageWithOffset}", stopwatch.Elapsed, cancellationToken).ConfigureAwait(false);
+                RecordFailure(instance, batchIndex, ex.Code, $"{instance.Describe()}: {ex.MessageWithOffset}", stopwatch.Elapsed);
             }
             catch (Exception ex) when (ex is GraphException or GraphTransportException)
             {
-                await FailAsync(instance, batchIndex, EngineDiagnosticCodes.ResourceApplyFailed, ex.Message, stopwatch.Elapsed, cancellationToken).ConfigureAwait(false);
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                // The state could not be written (after the sink's retries): the resource may exist in the tenant without an entry.
-                await FailAsync(instance, batchIndex, EngineDiagnosticCodes.StateSaveFailed, $"{instance.Describe()}: the state could not be saved ({ex.Message}); the object may exist in the tenant but is not recorded in the state.", stopwatch.Elapsed, cancellationToken).ConfigureAwait(false);
+                RecordFailure(instance, batchIndex, EngineDiagnosticCodes.ResourceApplyFailed, ex.Message, stopwatch.Elapsed);
             }
             catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or JsonException or NotSupportedException)
             {
-                await FailAsync(instance, batchIndex, EngineDiagnosticCodes.ResourceApplyFailed, $"{ex.GetType().Name}: {ex.Message}", stopwatch.Elapsed, cancellationToken).ConfigureAwait(false);
+                RecordFailure(instance, batchIndex, EngineDiagnosticCodes.ResourceApplyFailed, $"{ex.GetType().Name}: {ex.Message}", stopwatch.Elapsed);
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
                 // Anything else (a null reference, a format error, a cancellation that is not the caller's such as an HTTP timeout) fails THIS resource only: it must
                 // never escape into the parallel loop, where it would cancel the siblings and skip the end phase (review round 2, S2-09).
-                await FailAsync(instance, batchIndex, EngineDiagnosticCodes.ResourceApplyFailed, $"{instance.Describe()}: unexpected error ({ex.GetType().Name}): {ex.Message}", stopwatch.Elapsed, cancellationToken).ConfigureAwait(false);
+                RecordFailure(instance, batchIndex, EngineDiagnosticCodes.ResourceApplyFailed, $"{instance.Describe()}: unexpected error ({ex.GetType().Name}): {ex.Message}", stopwatch.Elapsed);
             }
         }
 
@@ -532,7 +502,7 @@ public sealed class DeploymentExecutor
                 instance.Condition = InstanceEvaluator.EvaluateCondition(_plan.Evaluator, instance.Declaration, instance.Context, out var conditionError);
                 if (conditionError is not null || instance.Condition is null)
                 {
-                    await FailAsync(instance, batchIndex, EngineDiagnosticCodes.ConditionUnresolved, $"{instance.Describe()}: {conditionError ?? "the condition depends on a value that is not available at this point of the deployment"}", stopwatch.Elapsed, cancellationToken).ConfigureAwait(false);
+                    RecordFailure(instance, batchIndex, EngineDiagnosticCodes.ConditionUnresolved, $"{instance.Describe()}: {conditionError ?? "the condition depends on a value that is not available at this point of the deployment"}", stopwatch.Elapsed);
                     return;
                 }
             }
@@ -541,7 +511,6 @@ public sealed class DeploymentExecutor
             {
                 _changes[instance] = ResourceChange.Ignore(instance.Id, instance.Type, "condition evaluated to false");
                 _operations[instance] = new ResourceOperation(instance.Id, instance.Type, batchIndex, OperationStatus.Ignored, ChangeType.Ignore, ChangeMode.None, null, null, null, stopwatch.Elapsed);
-                await _options.StateSink.ResourceIgnoredAsync(instance, "condition evaluated to false", cancellationToken).ConfigureAwait(false);
                 return;
             }
 
@@ -552,7 +521,7 @@ public sealed class DeploymentExecutor
             {
                 var leaves = InstanceEvaluator.UnknownLeaves(instance);
                 string detail = string.Join("; ", leaves.Select(l => $"{l.Path} = {l.Symbol}"));
-                await FailAsync(instance, batchIndex, EngineDiagnosticCodes.UnresolvedDeployTimeValue, $"{instance.Describe()}: some properties depend on values that are not available (a referenced resource was not deployed, or a function is not implemented yet): {detail}", stopwatch.Elapsed, cancellationToken).ConfigureAwait(false);
+                RecordFailure(instance, batchIndex, EngineDiagnosticCodes.UnresolvedDeployTimeValue, $"{instance.Describe()}: some properties depend on values that are not available (a referenced resource was not deployed, or a function is not implemented yet): {detail}", stopwatch.Elapsed);
                 return;
             }
 
@@ -565,7 +534,7 @@ public sealed class DeploymentExecutor
             var key = provider.ResolveKey(instance);
             if (!key.IsResolved)
             {
-                await FailAsync(instance, batchIndex, EngineDiagnosticCodes.ResourceKeyUnresolved, $"{instance.Describe()}: the Graph key cannot be resolved ({key.Describe()}).", stopwatch.Elapsed, cancellationToken).ConfigureAwait(false);
+                RecordFailure(instance, batchIndex, EngineDiagnosticCodes.ResourceKeyUnresolved, $"{instance.Describe()}: the Graph key cannot be resolved ({key.Describe()}).", stopwatch.Elapsed);
                 return;
             }
 
@@ -576,7 +545,7 @@ public sealed class DeploymentExecutor
             if (existing is not null && !TryClaim(instance, existing.GraphId, out var other))
             {
                 EngineLog.DuplicateGraphObject(Logger, instance.Id.Id, other!.Id.Id, existing.GraphId);
-                await FailAsync(instance, batchIndex, EngineDiagnosticCodes.DuplicateGraphObject, $"{instance.Describe()} and {other.Describe()} resolve to the same Graph object ({existing.GraphId}); two declarations must not manage one object. Remove one of them, or give them different keys.", stopwatch.Elapsed, cancellationToken).ConfigureAwait(false);
+                RecordFailure(instance, batchIndex, EngineDiagnosticCodes.DuplicateGraphObject, $"{instance.Describe()} and {other.Describe()} resolve to the same Graph object ({existing.GraphId}); two declarations must not manage one object. Remove one of them, or give them different keys.", stopwatch.Elapsed);
                 return;
             }
 
@@ -589,7 +558,7 @@ public sealed class DeploymentExecutor
 
             if (change.HasError)
             {
-                await FailAsync(instance, batchIndex, EngineDiagnosticCodes.ImmutablePropertyChanged, change.UnsupportedReason!, stopwatch.Elapsed, cancellationToken).ConfigureAwait(false);
+                RecordFailure(instance, batchIndex, EngineDiagnosticCodes.ImmutablePropertyChanged, change.UnsupportedReason!, stopwatch.Elapsed);
                 return;
             }
 
@@ -601,13 +570,11 @@ public sealed class DeploymentExecutor
             {
                 case ChangeType.Ignore:
                     _operations[instance] = new ResourceOperation(instance.Id, instance.Type, batchIndex, OperationStatus.Ignored, ChangeType.Ignore, ChangeMode.None, null, null, null, stopwatch.Elapsed);
-                    await _options.StateSink.ResourceIgnoredAsync(instance, change.Reasons.Count > 0 ? string.Join("; ", change.Reasons) : "ignored by the provider", cancellationToken).ConfigureAwait(false);
                     return;
 
                 case ChangeType.NoChange:
-                    // Nothing was written: the live object is republished as is and the entry keeps the extra data
-                    // the provider recorded when it last wrote (keyId / endDateTime of a secret, derived ids...).
-                    applied = new AppliedResource(instance.Id, existing!.GraphId, existing.Raw, key, _options.State?.Find(instance.Id.Id)?.Extra);
+                    // Nothing was written: the live object is republished as is.
+                    applied = new AppliedResource(instance.Id, existing!.GraphId, existing.Raw, key);
                     break;
 
                 case ChangeType.Create:
@@ -630,7 +597,7 @@ public sealed class DeploymentExecutor
                     if (recreated.Applied is null)
                     {
                         // Nothing was replaced (the old object is protected, or the replacement was not confirmed): the resource fails.
-                        await FailAsync(instance, batchIndex, recreated.FailureCode ?? EngineDiagnosticCodes.ResourceApplyFailed, recreated.Failure ?? $"{instance.Describe()}: the object could not be replaced.", stopwatch.Elapsed, cancellationToken).ConfigureAwait(false);
+                        RecordFailure(instance, batchIndex, recreated.FailureCode ?? EngineDiagnosticCodes.ResourceApplyFailed, recreated.Failure ?? $"{instance.Describe()}: the object could not be replaced.", stopwatch.Elapsed);
                         return;
                     }
 
@@ -679,12 +646,10 @@ public sealed class DeploymentExecutor
                 _createdThisRun[instance.Id] = 1;
             }
 
-            // Recording a completed write is not cancellable: a cancellation that arrives right after the Graph call must not lose the entry.
-            await _options.StateSink.ResourceAppliedAsync(instance, change, applied, CancellationToken.None).ConfigureAwait(false);
             stopwatch.Stop();
             if (afterApplyFailure is not null)
             {
-                await FailAsync(instance, batchIndex, EngineDiagnosticCodes.ResourceApplyFailed, afterApplyFailure, stopwatch.Elapsed, cancellationToken).ConfigureAwait(false);
+                RecordFailure(instance, batchIndex, EngineDiagnosticCodes.ResourceApplyFailed, afterApplyFailure, stopwatch.Elapsed, applied.GraphId);
                 return;
             }
 
@@ -720,7 +685,7 @@ public sealed class DeploymentExecutor
         /// failure (timeout, transport error, 5xx) after which the object turns out to exist (E-05): the create is not repeated, and not by the outer retry
         /// either unless the create is an upsert (<see cref="IResourceProvider.CreateIsRepeatable"/>; review round 2 S2-07). A failure AFTER the object was written (a license, an owner, a restore step of the provider) is
         /// found again: the provider hands the partial result over (<see cref="ProviderException.Partial"/>), or the object is looked up by key; either way
-        /// it is recorded in the state and the resource is reported failed, so a rerun converges instead of conflicting with an unrecorded object.
+        /// it is published and the resource is reported failed; a rerun finds it again by key and converges.
         /// </summary>
         private async Task<CreateOutcome> CreateAsync(IResourceProvider provider, ResourceInstance instance, ResourceKey key, CancellationToken cancellationToken)
         {
@@ -767,8 +732,8 @@ public sealed class DeploymentExecutor
                 }
 
                 var partial = new AppliedResource(instance.Id, found.GraphId, found.Raw, key);
-                string failure = $"{instance.Describe()}: the object was created (Graph id {found.GraphId}) and is recorded in the state, but the create did not complete: {SecretRegistration.Scrub(ex.Message)}. Run the deployment again to finish it.";
-                AddInstanceDiagnostic(instance, Diagnostic.Warning(EngineDiagnosticCodes.ResourceApplyFailed, $"'{instance.Id.Id}': the object exists in the tenant (Graph id {found.GraphId}) although the create failed; it was recorded in the state."));
+                string failure = $"{instance.Describe()}: the object was created (Graph id {found.GraphId}) but the create did not complete: {SecretRegistration.Scrub(ex.Message)}. Run the deployment again to finish it.";
+                AddInstanceDiagnostic(instance, Diagnostic.Warning(EngineDiagnosticCodes.ResourceApplyFailed, $"'{instance.Id.Id}': the object exists in the tenant (Graph id {found.GraphId}) although the create failed; a rerun finds it by key."));
                 return new CreateOutcome(partial, failure, null);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -783,7 +748,7 @@ public sealed class DeploymentExecutor
                 }
 
                 var partial = new AppliedResource(instance.Id, found.GraphId, found.Raw, key);
-                string failure = $"{instance.Describe()}: the deployment was cancelled while the object was being created; it exists (Graph id {found.GraphId}) and is recorded in the state, but the create may not have completed. Run the deployment again to finish it.";
+                string failure = $"{instance.Describe()}: the deployment was cancelled while the object was being created; it exists (Graph id {found.GraphId}), but the create may not have completed. Run the deployment again to finish it.";
                 return new CreateOutcome(partial, failure, null);
             }
         }
@@ -871,7 +836,7 @@ public sealed class DeploymentExecutor
 
         private static string PartialFailure(ResourceInstance instance, AppliedResource partial, ProviderException ex, string verb)
         {
-            return $"{instance.Describe()}: the object was {verb} (Graph id {partial.GraphId}) and is recorded in the state, but a later step failed: {SecretRegistration.Scrub(ex.Message)}. Run the deployment again to finish it.";
+            return $"{instance.Describe()}: the object was {verb} (Graph id {partial.GraphId}), but a later step failed: {SecretRegistration.Scrub(ex.Message)}. Run the deployment again to finish it.";
         }
 
         /// <summary>After "already exists" was answered for a create: applies the declared properties to the adopted object now (one more PATCH where the provider supports it), instead of leaving it to the next run.</summary>
@@ -962,7 +927,7 @@ public sealed class DeploymentExecutor
         /// <summary>
         /// When a secure outputs file is configured, writes the one-time secrets of the object that was just applied (a password
         /// credential's <c>secretText</c>, a generated user password) to it at once, under <c>oneTimeSecrets</c> keyed by the
-        /// resource id. Graph returns them exactly once: a crash, a Ctrl-C or a failed state save later in the run must not lose them (E-03d).
+        /// resource id. Graph returns them exactly once: a crash, a Ctrl-C or a failure later in the run must not lose them (E-03d).
         /// </summary>
         private async Task PersistOneTimeSecretsAsync(ResourceInstance instance, AppliedResource applied)
         {
@@ -1024,42 +989,22 @@ public sealed class DeploymentExecutor
 
         // ---- bookkeeping ----
 
-        private async Task FailAsync(ResourceInstance instance, int batchIndex, string code, string message, TimeSpan elapsed, CancellationToken cancellationToken)
-        {
-            message = SecretRegistration.Scrub(message);
-            RecordFailure(instance, batchIndex, code, message, elapsed);
-            try
-            {
-                await _options.StateSink.ResourceFailedAsync(instance, message, CancellationToken.None).ConfigureAwait(false);
-            }
-            catch (Exception ex) when (ex is not OutOfMemoryException and not OperationCanceledException)
-            {
-                // The failure itself is already in the result; only its state record is lost (and nothing here may escape into the parallel loop).
-                EngineLog.StateSaveFailed(Logger, SecretRegistration.Scrub(ex.Message));
-            }
-        }
-
-        private void RecordFailure(ResourceInstance instance, int batchIndex, string code, string message, TimeSpan elapsed)
+        /// <summary>
+        /// Records a failed resource. <paramref name="graphId"/> is the object that exists in the tenant although the resource failed (a step after the
+        /// primary write failed): with no local record, the operation is where the user finds it.
+        /// </summary>
+        private void RecordFailure(ResourceInstance instance, int batchIndex, string code, string message, TimeSpan elapsed, string? graphId = null)
         {
             message = SecretRegistration.Scrub(message);
             EngineLog.ApplyFailed(Logger, instance.Id.Id, message);
             _changes.TryGetValue(instance, out var change);
-            _operations[instance] = new ResourceOperation(instance.Id, instance.Type, batchIndex, OperationStatus.Failed, change?.Type, change?.Mode, change?.GraphId, message, code, elapsed);
+            _operations[instance] = new ResourceOperation(instance.Id, instance.Type, batchIndex, OperationStatus.Failed, change?.Type, change?.Mode, graphId ?? change?.GraphId, message, code, elapsed);
         }
 
-        private async Task RecordSkippedAsync(ResourceInstance instance, int batchIndex, string reason, CancellationToken cancellationToken)
+        private void RecordSkipped(ResourceInstance instance, int batchIndex, string reason)
         {
             EngineLog.Skipped(Logger, instance.Id.Id, reason);
             _operations[instance] = new ResourceOperation(instance.Id, instance.Type, batchIndex, OperationStatus.Skipped, null, null, null, reason, EngineDiagnosticCodes.ResourceSkipped, TimeSpan.Zero);
-            try
-            {
-                await _options.StateSink.ResourceSkippedAsync(instance, reason, cancellationToken).ConfigureAwait(false);
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                // The skip is already in the result; only its record in the state is lost.
-                EngineLog.StateSaveFailed(Logger, SecretRegistration.Scrub(ex.Message));
-            }
         }
 
         // ---- outputs ----

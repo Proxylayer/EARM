@@ -27,7 +27,7 @@ namespace EArm.Providers;
 /// <c>/applications(uniqueName='…')</c>. Requests per operation:
 /// <list type="bullet">
 /// <item><b>Read</b>: <c>GET {parent}/federatedIdentityCredentials(name='…')</c> → <c>GET {parent}/federatedIdentityCredentials</c> (the siblings, for the uniqueness and limit checks of <see cref="Plan"/>); a 404 is "does not exist".</item>
-/// <item><b>Create</b> and <b>Update</b>: the upsert <c>PATCH {parent}/federatedIdentityCredentials(name='…')</c> + <c>Prefer: create-if-missing</c> (201 = created, body is the object; 204 = merged into the existing one, re-read); when the parent's Graph id was not known, <c>GET /applications(uniqueName='…')?$select=id</c> so the state entry records <c>parentId</c>.</item>
+/// <item><b>Create</b> and <b>Update</b>: the upsert <c>PATCH {parent}/federatedIdentityCredentials(name='…')</c> + <c>Prefer: create-if-missing</c> (201 = created, body is the object; 204 = merged into the existing one, re-read); when the parent's Graph id was not known, <c>GET /applications(uniqueName='…')?$select=id</c> so the applied key carries <c>parentId</c>.</item>
 /// <item><b>Delete</b>: <c>DELETE {parent}/federatedIdentityCredentials(name='…')</c>; a 404 is "already gone".</item>
 /// </list>
 /// </para>
@@ -408,8 +408,8 @@ public sealed class FederatedIdentityCredentialsProvider : ProviderBase, IOrphan
 
     /// <summary>
     /// The key to record: the resolved key plus the parent's Graph id, looked up by <c>uniqueName</c> when the
-    /// engine did not know it (a parent that is not declared in the template), so the state entry carries
-    /// <c>parentId</c> and later deletes address the parent by id.
+    /// engine did not know it (a parent that is not declared in the template), so the applied key carries
+    /// <c>parentId</c>.
     /// </summary>
     private async Task<ResourceKey> KeyWithParentAsync(ResourceInstance desired, IGraphClient graph, CancellationToken cancellationToken)
     {

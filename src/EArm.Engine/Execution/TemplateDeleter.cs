@@ -62,7 +62,7 @@ public sealed record TemplateDeleteResult(IReadOnlyList<DeclaredObjectDeletion> 
 }
 
 /// <summary>
-/// <c>deployment delete</c>: deletes the objects a template declares, found by their live keys (no state is involved), in reverse dependency order: the
+/// <c>deployment delete</c>: deletes the objects a template declares, found by their live keys (nothing is recorded locally), in reverse dependency order: the
 /// reverse of the plan's batches, ties broken by <see cref="ApplyPhases.DeleteOrderOf"/> and resource id. <see cref="FindDeclaredObjects"/> lists them from a
 /// what-if plan (so the caller can show them and ask for confirmation); <see cref="DeleteAsync"/> re-reads each one by key right before deleting it and
 /// only deletes the object that was listed. The signed-in principal and service principals of other organizations are never deleted (<see cref="DeleteGuards"/>).

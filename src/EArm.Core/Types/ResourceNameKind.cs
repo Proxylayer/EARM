@@ -15,7 +15,7 @@ public enum ResourceNameKind
     /// <summary>A child's own name under its parent (federatedIdentityCredentials <c>name</c>, passwordCredentials <c>displayName</c>).</summary>
     ChildName,
 
-    /// <summary>Looked up by <c>displayName</c>; the Graph id is pinned in state.</summary>
+    /// <summary>Looked up by <c>displayName</c> (more than one match is <c>AmbiguousMatch</c>).</summary>
     DisplayName,
 
     /// <summary>A deterministic GUID chosen by the author (<c>guid(...)</c>); the object is found by composite properties.</summary>

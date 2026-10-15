@@ -34,7 +34,7 @@ namespace EArm.Providers;
 /// </para>
 /// <para>
 /// <see cref="Plan"/> normalises the evaluated properties in place (see <see cref="ApplicationsRules.NormalizeDesired"/>)
-/// so that what-if rows, request bodies and the state hash all describe the same object, and it keeps the last
+/// so that what-if rows and request bodies describe the same object, and it keeps the last
 /// <see cref="PlanOptions"/> it saw: the executor plans each instance right before applying it, and <c>CreateAsync</c>
 /// has no other way to learn <see cref="PlanOptions.OnSoftDeletedConflict"/>.
 /// </para>
@@ -487,7 +487,7 @@ public sealed class ApplicationsProvider : ProviderBase
     }
 
     /// <summary>
-    /// Sets the <c>uniqueName</c> of an application that has none (adoption by <c>appId</c>, <c>state adopt --unique-name</c>) with
+    /// Sets the <c>uniqueName</c> of an application that has none (adoption by <c>appId</c>) with
     /// its own PATCH. Graph documents the property as immutable, so a refusal (400) is reported as <see cref="UniqueNameNotSettable"/>
     /// with an explanation instead of a bare Graph error.
     /// </summary>
@@ -504,7 +504,7 @@ public sealed class ApplicationsProvider : ProviderBase
         {
             throw new ProviderException(
                 UniqueNameNotSettable,
-                $"{describe}: Graph refused to set uniqueName '{uniqueName}' on the existing application {graphId} ({ex.GraphMessage}). uniqueName is documented as immutable and read-only (it can be assigned by the upsert PATCH /applications(uniqueName='…') that creates the application), so an application created without it cannot be adopted by name; recreate it through EARM, or adopt it into the state without a uniqueName.",
+                $"{describe}: Graph refused to set uniqueName '{uniqueName}' on the existing application {graphId} ({ex.GraphMessage}). uniqueName is documented as immutable and read-only (it can be assigned by the upsert PATCH /applications(uniqueName='…') that creates the application), so an application created without it cannot be adopted by name; recreate it through EARM, or remove the declared appId and let EARM create a new application.",
                 resourceId,
                 ex);
         }

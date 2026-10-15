@@ -13,7 +13,6 @@ using EArm.Core.Types;
 using EArm.Engine.Execution;
 using EArm.Engine.Planning;
 using EArm.Engine.Providers;
-using EArm.Engine.State;
 using EArm.TestSupport;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
@@ -172,84 +171,6 @@ internal sealed class InterceptingGraphClient : GraphClientDecorator
         }
 
         return await Inner.PostAsync(request, body, cancellationToken);
-    }
-}
-
-/// <summary>Records every <see cref="IStateSink"/> call in order: <c>Method:resourceId</c>.</summary>
-internal sealed class RecordingStateSink : IStateSink
-{
-    private readonly List<string> _calls = [];
-    private readonly object _gate = new();
-
-    public IReadOnlyList<string> Calls
-    {
-        get
-        {
-            lock (_gate)
-            {
-                return [.. _calls];
-            }
-        }
-    }
-
-    public int IndexOf(string call)
-    {
-        return Calls.ToList().IndexOf(call);
-    }
-
-    public Task ResourceStartingAsync(ResourceInstance instance, CancellationToken cancellationToken)
-    {
-        return Record("Starting:" + instance.Id.Id);
-    }
-
-    public Task ResourceAppliedAsync(ResourceInstance instance, ResourceChange change, AppliedResource applied, CancellationToken cancellationToken)
-    {
-        return Record("Applied:" + instance.Id.Id);
-    }
-
-    public Task ResourceFailedAsync(ResourceInstance instance, string error, CancellationToken cancellationToken)
-    {
-        return Record("Failed:" + instance.Id.Id);
-    }
-
-    public Task ResourceSkippedAsync(ResourceInstance instance, string reason, CancellationToken cancellationToken)
-    {
-        return Record("Skipped:" + instance.Id.Id);
-    }
-
-    public Task ResourceIgnoredAsync(ResourceInstance instance, string reason, CancellationToken cancellationToken)
-    {
-        return Record("Ignored:" + instance.Id.Id);
-    }
-
-    public Task ResourceDetachedAsync(StateEntry entry, CancellationToken cancellationToken)
-    {
-        return Record("Detached:" + entry.Id.Id);
-    }
-
-    public Task ResourceDeletedAsync(StateEntry entry, CancellationToken cancellationToken)
-    {
-        return Record("Deleted:" + entry.Id.Id);
-    }
-
-    public Task ResourceDeleteFailedAsync(StateEntry entry, string error, CancellationToken cancellationToken)
-    {
-        return Record("DeleteFailed:" + entry.Id.Id);
-    }
-
-    public Task CompletedAsync(DeploymentStatus status, CancellationToken cancellationToken)
-    {
-        return Record("Completed:" + status);
-    }
-
-    private Task Record(string call)
-    {
-        lock (_gate)
-        {
-            _calls.Add(call);
-        }
-
-        return Task.CompletedTask;
     }
 }
 
@@ -418,20 +339,20 @@ internal sealed class EngineHost
         return new DeploymentExecutor(Registry, Graph, NullLogger<DeploymentExecutor>.Instance, new ReplicationWait { Delay = ReplicationDelays });
     }
 
-    public Task<DeploymentPlan> WhatIfAsync(TemplateDocument document, StateFile? state = null, DeploymentMode mode = DeploymentMode.Incremental, PlannerOptions? options = null)
+    public Task<DeploymentPlan> WhatIfAsync(TemplateDocument document, DeploymentMode mode = DeploymentMode.Incremental, PlannerOptions? options = null)
     {
-        return Planner(options).PlanAsync(document, state, mode, PlanMode.WhatIf, TestContext.Current.CancellationToken);
+        return Planner(options).PlanAsync(document, mode, PlanMode.WhatIf, TestContext.Current.CancellationToken);
     }
 
     /// <summary>Expansion and ordering only (<see cref="PlanMode.Create"/>): no Graph reads.</summary>
-    public Task<DeploymentPlan> ExpandAsync(TemplateDocument document, StateFile? state = null, DeploymentMode mode = DeploymentMode.Incremental, PlannerOptions? options = null)
+    public Task<DeploymentPlan> ExpandAsync(TemplateDocument document, DeploymentMode mode = DeploymentMode.Incremental, PlannerOptions? options = null)
     {
-        return Planner(options).PlanAsync(document, state, mode, PlanMode.Create, TestContext.Current.CancellationToken);
+        return Planner(options).PlanAsync(document, mode, PlanMode.Create, TestContext.Current.CancellationToken);
     }
 
-    public async Task<(DeploymentPlan Plan, DeploymentResult Result)> CreateAsync(TemplateDocument document, ExecuteOptions? execute = null, StateFile? state = null, DeploymentMode mode = DeploymentMode.Incremental, PlannerOptions? options = null)
+    public async Task<(DeploymentPlan Plan, DeploymentResult Result)> CreateAsync(TemplateDocument document, ExecuteOptions? execute = null, DeploymentMode mode = DeploymentMode.Incremental, PlannerOptions? options = null)
     {
-        var plan = await ExpandAsync(document, state, mode, options);
+        var plan = await ExpandAsync(document, mode, options);
         var result = await Executor().ExecuteAsync(plan, execute ?? ExecuteOptions.Default, TestContext.Current.CancellationToken);
         return (plan, result);
     }

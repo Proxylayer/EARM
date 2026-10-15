@@ -250,7 +250,7 @@ public sealed class PasswordCredentialFailureTests
     {
         var host = new ProviderHost();
         var provider = host.Provider<PasswordCredentialsProvider>(SecretType);
-        var entry = new EArm.Engine.State.StateEntry
+        var entry = new DeleteTarget
         {
             Id = ResourceIdentifier.Create(SecretType, "flat-name-without-parent"),
             Type = SecretType,
@@ -258,7 +258,7 @@ public sealed class PasswordCredentialFailureTests
             GraphId = Guid.NewGuid().ToString("D"),
         };
 
-        var ex = await Assert.ThrowsAsync<ProviderException>(() => provider.DeleteAsync(DeleteTarget.KeyOf(entry), DeleteTarget.LiveOf(entry), host.Fake, ProviderHost.Ct));
+        var ex = await Assert.ThrowsAsync<ProviderException>(() => provider.DeleteAsync(entry.ResourceKey, entry.Live, host.Fake, ProviderHost.Ct));
 
         Assert.Equal(EngineDiagnosticCodes.ResourceKeyUnresolved, ex.Code);
     }

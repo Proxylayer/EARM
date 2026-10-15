@@ -10,7 +10,7 @@ namespace EArm.Engine.Execution;
 /// <summary>
 /// Feeds <see cref="SecretScrubber"/> with every secret value the engine learns (review finding S-02): secure parameter values (inline,
 /// from a file, resolved from Key Vault), tainted properties of evaluated resources and secrets a provider hands back. A Graph error
-/// that echoes a request body then reaches logs, state and the console with the value already masked.
+/// that echoes a request body then reaches logs and the console with the value already masked.
 /// <para>
 /// <see cref="SecretScrubber"/> keeps its registry in an async-local holder: the CLI (or a test) calls <see cref="SecretScrubber.Begin"/> at the
 /// top of the run so the holder is shared by the planner, the executor and their parallel work.

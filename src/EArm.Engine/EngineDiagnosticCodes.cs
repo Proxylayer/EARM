@@ -52,19 +52,7 @@ public static class EngineDiagnosticCodes
     /// </summary>
     public const string SecretNotAvailableOnRerun = "SecretNotAvailableOnRerun";
 
-    // ---- State ----
-
-    /// <summary>Another <c>earm</c> process holds the deployment's state lock (CLI exit 4).</summary>
-    public const string StateLocked = "StateLocked";
-
-    /// <summary>The state file was written for a different tenant than the one EARM is signed in to (CLI exit 3).</summary>
-    public const string TenantMismatch = "TenantMismatch";
-
-    /// <summary>The state file's <c>schemaVersion</c> is newer than this executor understands, or the file is not a state file.</summary>
-    public const string StateSchemaUnsupported = "StateSchemaUnsupported";
-
-    /// <summary>A state entry is not what it must be (its key is not the key its resource id implies, a recorded id is malformed): the state is refused at load, nothing is acted on (CLI exit 1).</summary>
-    public const string StateEntryInvalid = "StateEntryInvalid";
+    // ---- Delete ----
 
     /// <summary><c>deployment delete</c> failed to delete a declared object (the message carries the Graph error).</summary>
     public const string ResourceDeleted = "ResourceDeleted";
@@ -89,10 +77,7 @@ public static class EngineDiagnosticCodes
     /// <summary>A delete (<c>deployment delete</c>, or the old object of a recreate) removes an object that cannot be restored (a security group).</summary>
     public const string DestructiveDelete = "DestructiveDelete";
 
-    // ---- Safety review (state trust, adoption, blast radius) ----
-
-    /// <summary>The state entry does not describe the live object it points at (pinned id / key mismatch), so it was not used to modify or delete anything.</summary>
-    public const string StateEntryMismatch = "StateEntryMismatch";
+    // ---- Safety review (adoption, blast radius) ----
 
     /// <summary>A delete (a recreate, or <c>deployment delete</c>) was refused because the object is the signed-in principal or a service principal owned by another organization.</summary>
     public const string ProtectedObject = "ProtectedObject";
@@ -113,12 +98,6 @@ public static class EngineDiagnosticCodes
 
     /// <summary>A live assignment or grant of a principal the template declares is not declared (for example the old tuple of a changed assignment): it is retained and still grants access.</summary>
     public const string AssignmentRetained = "AssignmentRetained";
-
-    /// <summary>The state directory or a state file is a symbolic link / junction, or the directory is not a directory.</summary>
-    public const string StateStoreUnsafe = "StateStoreUnsafe";
-
-    /// <summary>The state could not be written (I/O or permission error) after retrying.</summary>
-    public const string StateSaveFailed = "StateSaveFailed";
 
     /// <summary>The secure outputs file could not be written; one-time secrets that did not reach it are lost.</summary>
     public const string SecureOutputsWriteFailed = "SecureOutputsWriteFailed";

@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using EArm.Engine.State;
 
 namespace EArm.Engine.Execution;
 
@@ -26,13 +25,4 @@ public sealed record ExecuteOptions
 
     /// <summary>Write the revealed secure outputs to this file (owner-only permissions).</summary>
     public string? SecureOutputsFile { get; init; }
-
-    /// <summary>Receives every applied resource (<see cref="FileStateSink"/> persists them).</summary>
-    public IStateSink StateSink { get; init; } = NullStateSink.Instance;
-
-    /// <summary>
-    /// The deployment's state before this run; only the extra data of unchanged resources is carried forward from it. Nothing is identified or deleted
-    /// through it; it goes away with the state subsystem.
-    /// </summary>
-    public StateFile? State { get; init; }
 }

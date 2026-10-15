@@ -8,23 +8,15 @@ earm
 │   ├── validate        offline schema + expression validation
 │   ├── what-if         preview the changes (read only)
 │   ├── create          apply a template
-│   ├── show            a deployment's state (and --refresh: drift)
-│   ├── list            deployments recorded in the state directory
-│   ├── delete          delete the objects a template declares (by live key)
-│   └── operation list  per-resource operations of the last run
+│   └── delete          delete the objects a template declares (by live key)
 ├── auth
 │   ├── login           sign in interactively (browser or device code)
 │   ├── logout          forget the interactive sign-in
 │   └── status          who EARM is signed in as
 ├── permissions         Graph permissions and Entra roles a template needs (offline)
-├── schema
-│   ├── print           write a JSON Schema to stdout
-│   └── install         map the schemas to *.entra.json in VS Code
-└── state
-    ├── unlock          break a stale state lock
-    ├── forget          drop one resource from a state
-    ├── set-provenance  mark one state entry created or adopted
-    └── adopt           pin an existing object's id, or set uniqueName on it
+└── schema
+    ├── print           write a JSON Schema to stdout
+    └── install         map the schemas to *.entra.json in VS Code
 ```
 
 `earm --version` prints the version; a bare `earm` prints help; every verb accepts `-?`, `-h` and `--help`.
@@ -39,12 +31,11 @@ Valid on every verb (recursive).
 | `--auth auto\|default\|interactive` | How tokens are obtained. Default: `EARM_AUTH`, then `auto` (a cached `earm auth login` sign-in when there is one, else the default credential chain). |
 | `--tenant <id\|domain>` | Tenant to sign in to. Default: `EARM_TENANT_ID`. |
 | `--client-id <guid>` | App registration (public client) used by `earm auth login`. Default: `EARM_CLIENT_ID`, then the Azure.Identity developer client. |
-| `--state-dir <dir>` | Directory of the state files. Default: `EARM_STATE_DIR`, then `.earm/state` next to the template (or under the current directory). |
 | `--verbose` | Debug logging on stderr: every Graph call (method, path, status, timing, request id; secret-looking query values masked); tokens, Authorization headers and bodies are never logged. |
 | `--debug` | Trace logging on stderr: as `--verbose` plus token acquisition and retry details (never the tokens). Also prints the full exception (with stack trace) of an unexpected error; `EARM_DEBUG=1` does the same. |
 | `--evaluation-timeout <seconds>` | Wall-clock budget of one evaluation (a variable, the properties of a resource, an output; the time between evaluations, such as network calls, never counts). Default: `EARM_EVALUATION_TIMEOUT`, then 60. `0` disables the time limit (the step limit of [format.md](format.md#evaluation-limits) still applies); the largest value, for the flag and the variable alike, is 86,400 (24 hours). A value that is not a number of seconds in that range (`abc`, `NaN`, `Infinity`, a negative or larger number) is a one-line usage error (exit 1), never an "Unexpected error"; an invalid `EARM_EVALUATION_TIMEOUT` is ignored. An exceeded budget is the diagnostic `EvaluationBudgetExceeded`. |
 
-Environment: `EARM_STATE_DIR`, `EARM_AUTH`, `EARM_TENANT_ID`, `EARM_CLIENT_ID`, `EARM_EVALUATION_TIMEOUT`, `EARM_DEBUG`, `EARM_KEYVAULT_ALLOWED` (comma-separated vault names, case-insensitive: when set, a Key Vault parameter reference to any other vault is refused before a token is requested), `EARM_CLOUD` (`public` (default), `usgov`, `usgovdod` or `china`: selects the Graph host, the Entra authority and the Key Vault suffix from a fixed table; there is no way to name another endpoint), plus the `AZURE_*` variables of Azure.Identity (see [Signing in](#signing-in)); colours (what-if) are off when
+Environment: `EARM_AUTH`, `EARM_TENANT_ID`, `EARM_CLIENT_ID`, `EARM_EVALUATION_TIMEOUT`, `EARM_DEBUG`, `EARM_KEYVAULT_ALLOWED` (comma-separated vault names, case-insensitive: when set, a Key Vault parameter reference to any other vault is refused before a token is requested), `EARM_CLOUD` (`public` (default), `usgov`, `usgovdod` or `china`: selects the Graph host, the Entra authority and the Key Vault suffix from a fixed table; there is no way to name another endpoint), plus the `AZURE_*` variables of Azure.Identity (see [Signing in](#signing-in)); colours (what-if) are off when
 `NO_COLOR` (any non-empty value) or `AZURE_CORE_NO_COLOR` (`true`, `1`, `yes`, `on`) is set or the output is redirected.
 
 ## Exit codes
@@ -54,9 +45,10 @@ Environment: `EARM_STATE_DIR`, `EARM_AUTH`, `EARM_TENANT_ID`, `EARM_CLIENT_ID`, 
 | 0 | Success (for `what-if`: no changes, or changes without `--exit-code-on-changes`). |
 | 1 | Deployment or operation failure; a template, parameter file or state file that cannot be loaded; a malformed argument or a usage error; a type without a provider; a refusal (confirmation declined, non-interactive without `--yes`, a replacement that was not confirmed: `RecreateNotConfirmed`); an **unexpected error**, printed as one line `Unexpected error (<type>): <message>` (the full exception only with `--debug` / `EARM_DEBUG=1`), a file access problem (`Access denied: ...`, `A file operation failed ...`) or running out of memory. |
 | 2 | Validation failure: the template has errors (offline validation, expansion or the dependency graph). |
-| 3 | Authentication, preflight or tenant failure: no credential signs in, a Graph token that is rejected, a state for another tenant, an unreadable Key Vault reference. |
-| 4 | The deployment's state is locked by another run (`--lock-timeout` elapsed). |
+| 3 | Authentication, preflight or tenant failure: no credential signs in, a Graph token that is rejected, an unreadable Key Vault reference. |
 | 5 | `what-if --exit-code-on-changes` found a Create, Modify or Delete (or an edge add or remove). Orphan report rows never count: they are reported, never written. |
+
+Code four is retired: it meant a locked local state, and EARM keeps no local state. It is not reused, so the other codes keep their meaning.
 
 ## Output, errors and prompts
 
@@ -125,7 +117,7 @@ PowerShell are no longer prerequisites (PowerShell remains only for the reposito
 | Option | Meaning |
 |---|---|
 | `-f`, `--template-file <path>` | The template (`*.entra.json`). Required. |
-| `-p`, `--parameters <…>` | Repeatable, **one value per `-p`** (on every command that takes it, and `--key` of `state adopt` likewise: a stray token such as `-p @f.json -n x` is a usage error naming the unknown option instead of being swallowed as another value). `@file.json` loads a parameter file ([format.md](format.md#parameters-and-parameter-files)); `name=value` sets one value. In PowerShell write the file form in single quotes, `-p '@file.json'`: a bare `@` there is the splatting operator and a parse error. Later values win. Precedence: `-p name=value` > parameter file > `defaultValue`. |
+| `-p`, `--parameters <…>` | Repeatable, **one value per `-p`** (on every command that takes it: a stray token such as `-p @f.json -n x` is a usage error naming the unknown option instead of being swallowed as another value). `@file.json` loads a parameter file ([format.md](format.md#parameters-and-parameter-files)); `name=value` sets one value. In PowerShell write the file form in single quotes, `-p '@file.json'`: a bare `@` there is the splatting operator and a parse error. Later values win. Precedence: `-p name=value` > parameter file > `defaultValue`. |
 | `-o`, `--output table\|json\|none` | Output format (a global option, valid on every verb). Default `table`. `none` prints nothing. |
 
 ### `deployment validate`
@@ -141,7 +133,7 @@ dependency order, recording every resource in the state after each operation.
 
 | Option | Verb | Meaning |
 |---|---|---|
-| `-n`, `--name <name>` | both | Deployment name (the state file name). Default: the template file name without `.entra.json`. Letters, digits, `.`, `_`, `-`; up to 128 characters. `validate` is offline, has no deployment name and does not accept `-n`. |
+| `-n`, `--name <name>` | both | Deployment name, a label shown in the output (nothing is stored under it). Default: the template file name without `.entra.json`. `validate` is offline, has no deployment name and does not accept `-n`. |
 | `--mode Incremental\|Complete` | both | Incremental (default): create or update the declared resources; nothing else is touched. Complete: the same writes, plus a read-only **orphan report** of the live objects of the declared types that the template does not declare (bounded per type: see [whatif.md](whatif.md#orphan-report)). Complete mode **never deletes**; to remove declared objects use `deployment delete`. Both modes report the retained role / app role assignments and grants of the principals the template declares (`orphan: retained`). |
 | `--parallelism <n>` | both | Resources read or applied concurrently inside a dependency batch. Default 4. At least 1: a smaller value is a usage error (exit 1). |
 | `--allow-ca-enforce` | both | Allow Conditional Access policies with `state: enabled` (default: report-only or disabled only). |
@@ -155,8 +147,6 @@ dependency order, recording every resource in the state after each operation.
 | `--continue-on-error` | `create` | Keep deploying resources that do not depend on a failed one (default: stop at the batch boundary). |
 | `--reveal-secure-outputs` | `create` | Print `securestring` / `secureObject` outputs in clear text instead of `***`. |
 | `--secure-outputs-file <path>` | `create` | Write the secure outputs in clear text to a file with owner-only permissions. The file is checked **before** anything is deployed (a directory, a missing folder, a read-only file or a symbolic link stops the run: exit 1, "Deployment not started."). One-time secrets (a password credential's `secretText`, a generated user password) are written to it **immediately** after the apply that produced them, under the reserved top-level key `oneTimeSecrets` (by resource id), so a crash, Ctrl+C or failed state save cannot lose them. A rerun **merges** into an existing file (keys that are not superseded stay) and never replaces it with a smaller one; a run with no secure values does not touch the file at all. |
-| `--force-unlock` | `create` | Break the deployment's state lock first. |
-| `--lock-timeout <seconds>` | `create` | Wait for another run's lock this long (default 10; zero or more, a negative value is a usage error), then exit 4. |
 
 Before anything is planned, the CLI runs offline validation (exit 2) and, for `create`, checks `--secure-outputs-file` (exit 1), then takes the state
 lock (exit 4), **then** loads the state (exit 1 when unreadable: a symbolic link or junction as state directory, as **any folder above it** or as state file, a state file that is not valid or over 16 MiB, a
@@ -194,18 +184,6 @@ read is a failure of that object.
 With `-o json`: `{ "status", "deployment", "message", "deleted", "alreadyGone", "kept", "failed", "skipped", "outcomes": [ { "resourceId", "type", "graphId", "status", "error", "errorCode" } ] }`
 (`status` of an outcome: `Deleted`, `AlreadyGone`, `Refused`, `Failed`, `Skipped`); nothing to delete is `{ "status": "Succeeded", "message": "Nothing to delete: ...", "deployment", "deleted": 0 }`.
 The deployment's state file is not read or changed.
-
-### `deployment show`, `list`, `operation list`
-
-| Verb | Syntax | Notes |
-|---|---|---|
-| `show` | `-n <name> [-f <template>] [--refresh]` | The state summary: last run, tenant, resources with their Graph ids and their provenance (`created` or `adopted`; JSON: `resources.<id>.provenance`). `--refresh` re-reads every object through its provider and reports drift (`InSync`, `Missing`, `Replaced`) without changing the state; needs a session (exit 3 on a tenant mismatch). |
-| `list` | `[-n <name>] [-f <template>]` | Every deployment with a state file in the state directory. `-n` keeps only the deployment of that name (case-insensitive exact match); an unknown name lists nothing (an empty `deployments` array with `-o json`), prints `No deployment named '<name>' ...` on stderr and still exits 0. A state file that cannot be read shows its error on its own row. |
-| `operation list` | `-n <name> [-f <template>]` | The per-resource operations of the last run, from the state. |
-
-With `-o json` every one of these verbs (and the `state` verbs below) writes **exactly one JSON document**, on success and on failure: a failure (unknown deployment `DeploymentNotFound`, an unreadable state, a tenant mismatch, a failed preflight) is `{ "status": "Failed", "diagnostics": [ { "severity", "code", "message" } ] }` with the same exit code as the table output.
-
-`-f` only **locates** the state directory (`.earm/state` next to the template); `--state-dir` overrides it.
 
 ### Migrating from the old name
 
@@ -261,38 +239,3 @@ With `-o json` the text is replaced by one document: `{ "status": "Succeeded", "
    existing file is kept.
 
 Exit 0, or 1 when a file cannot be read or written, the settings are not valid JSON, or `--global` finds no VS Code user directory.
-
-## `state`
-
-| Verb | Syntax | Notes |
-|---|---|---|
-| `unlock` | `-n <name> [-f <template>]` | Breaks a stale lock (`<state-dir>/<name>.lock`) left by a run that died. A lock whose holder is a process of this host that no longer runs is taken over automatically **at once** (no waiting); any other lock older than one hour without a heartbeat is also taken over automatically. A lock is only ever released or refreshed by the run that took it: after `unlock` the old run does not delete or rewrite the lock of whoever took the lock next. |
-| `forget` | `-n <name> --resource-id <id> [-f <template>] [-y]` | Drops one resource from the state; the object stays in the tenant and is adopted again by the next deployment. Exit 4 when locked. It reads the state **leniently**, so it also removes an entry that fails the integrity rules (`StateEntryInvalid`), which every other verb refuses to load. |
-| `set-provenance` | `-n <name> --resource-id <id> --provenance created\|adopted [-f <template>] [-y]` | Marks one entry of the state as `created` or `adopted`. Nothing reads the provenance any more (Complete mode never deletes and `deployment delete` works from the template); the verb remains until the state subsystem is removed. The resource id must already be in the state (an unknown id is refused, exit 1; the verb never invents an entry). Asks for confirmation unless `-y`. Exit 4 when locked. Example: `earm state set-provenance -n orders-prod --resource-id /providers/Microsoft.Entra/groups/orders-admins --provenance created`. |
-| `adopt` | see below | Brings an existing object under a template. |
-
-### `state adopt`
-
-Two forms (exactly one per call). In this verb `-n` / `--deployment` is the deployment, and `--unique-name` is the uniqueName (the older spelling `--name` still works, is hidden from `--help` and prints a deprecation note: every other state verb uses `--name` for the deployment).
-
-**Pin an id (offline)**: `earm state adopt -n <deployment> --resource-id <id> --object-id <guid> [-f <template>] [--parent-object-id <guid>] [--key name=value …] [-y]`
-
-Records the Graph object id under a resource id in the deployment's state (creating the state file when there is none), so a type that is looked up by
-`displayName` (several matches: `AmbiguousMatch`) or found by composite properties (GUID-named types) binds to the intended object; the next
-deployment reads it by that id and falls back to the key only if the id is gone. The state key follows the type's name kind; for a child type the parent must already be
-in the state or be given with `--parent-object-id`; a GUID-named type (`appRoleAssignments`, `oauth2PermissionGrants`, `roleAssignments`) needs its
-key properties as `--key principalId=<guid> --key …` so deletes and lookups can find the object. An id that is already pinned to another object asks for
-confirmation (`-y` skips it). Exit 0; 1 on bad input or a refusal; 4 when the state is locked. Needs no sign-in.
-
-```powershell
-earm state adopt -n orders-prod --resource-id /providers/Microsoft.Entra/conditionalAccess/policies/CA-Orders-Admins-MFA --object-id 6f1b…
-```
-
-**Set a uniqueName (online)**: `earm state adopt --type Microsoft.Entra/applications|groups --id <objectId|appId> --unique-name <uniqueName> [-y]`
-
-`PATCH /applications/{id}` or `/groups/{id}` with `{ "uniqueName": … }` on a brownfield object, so a template can address it by that name
-(`Prefer: create-if-missing` upserts then update it instead of creating a duplicate). The order is: argument checks, **preflight** (exit 3 without a
-working sign-in), read the object (an application by object id, then by application id), **refuse** when a `uniqueName` is already
-set and differs (it is immutable; an identical one is "nothing to do", exit 0), confirm (`-y` skips), PATCH. Exit 0; 1 on a refusal, a missing object or a Graph error
-(a 403 names the permission); 3 on the preflight. For an application the PATCH goes through the applications provider: when Graph rejects it (uniqueName is documented as immutable and read-only) the
-error is one line starting `UniqueNameNotSettable:` that explains the alternatives, exit 1. Needs `Application.ReadWrite.All` (`.OwnedBy` for an owned application) or `Group.ReadWrite.All`, or a role that manages them.

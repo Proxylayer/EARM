@@ -15,7 +15,7 @@ using Xunit;
 namespace EArm.Providers.Tests;
 
 /// <summary>
-/// Review round 4, K2: the state fingerprint (<c>createdDateTime</c>) is selected on every read of the types that have it and never diffed or patched; every provider that
+/// Review round 4, K2: the fingerprint (<c>createdDateTime</c>) is selected on every read of the types that have it and never diffed or patched; every provider that
 /// reads "the" key value checks the key's property name; the providers that write in several steps hand over what exists when a later step fails.
 /// </summary>
 public sealed class Review4K_ProviderTests
@@ -57,11 +57,6 @@ public sealed class Review4K_ProviderTests
         live["createdDateTime"] ??= "2026-03-04T05:06:07Z";
         var expected = ProviderReads.CreatedDateTimeOf(live);
         Assert.NotNull(expected);
-
-        // Forget the fingerprint the create recorded: only a read of the live object can bring it back.
-        var state = (await host.LoadStateAsync())!;
-        state.Upsert(state.Find(resourceId)! with { CreatedDateTime = null });
-        await host.Store.SaveAsync(state, ProviderHost.Ct);
         host.ClearRequests();
 
         var whatIf = await host.WhatIfAsync(document);
@@ -85,11 +80,6 @@ public sealed class Review4K_ProviderTests
 
         Check.Succeeded(rerun);
         Check.NoWrites(rerun);
-        if (label is not ("namedLocations" or "policies"))
-        {
-            // (The fake directory does not serve createdDateTime for named locations and policies; real Graph returns it by default for them, no $select involved.)
-            Assert.Equal(expected, rerun.Entry(resourceId).CreatedDateTime);
-        }
         if (label is "users" or "groups" or "applications")
         {
             Assert.Contains(rerun.Requests, r => r.Method == "GET" && r.UrlParameters is not null && r.UrlParameters.TryGetValue("$select", out var select) && select.Contains("createdDateTime", StringComparison.Ordinal));
@@ -252,7 +242,7 @@ public sealed class Review4K_ProviderTests
         var operation = run.OpOfType(GroupType);
         Assert.Equal(OperationStatus.Failed, operation.Status);
         Assert.Contains("a later step failed", operation.Error, StringComparison.Ordinal);
-        Assert.Equal(host.IdOf("/groups", "uniqueName", "licensed"), run.Entry("/providers/Microsoft.Entra/groups/licensed").GraphId);
+        Assert.Equal(host.IdOf("/groups", "uniqueName", "licensed"), run.GraphIdOf("/providers/Microsoft.Entra/groups/licensed"));
     }
 
     [Fact]
@@ -315,7 +305,7 @@ public sealed class Review4K_ProviderTests
 
         Assert.False(run.Succeeded);
         Assert.Contains("a later step failed", run.OpOfType(ApplicationsProvider.ResourceType).Error, StringComparison.Ordinal);
-        Assert.Equal(host.IdOf("/applications", "uniqueName", "uris-app"), run.Entry("/providers/Microsoft.Entra/applications/uris-app").GraphId);
+        Assert.Equal(host.IdOf("/applications", "uniqueName", "uris-app"), run.GraphIdOf("/providers/Microsoft.Entra/applications/uris-app"));
     }
 
     [Fact]

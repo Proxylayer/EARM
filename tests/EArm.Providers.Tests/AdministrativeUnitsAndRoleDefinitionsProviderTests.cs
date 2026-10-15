@@ -39,9 +39,7 @@ public sealed class AdministrativeUnitsProviderTests
         Assert.Equal(["description", "displayName", "visibility"], body.Select(p => p.Key).Order(StringComparer.Ordinal).ToList());
         Assert.Contains(auRequests, r => r.Method == "POST" && r.Path == $"{BuiltInRoles.UnitsPath}/{auId}/members/$ref");
         Assert.Contains(aliceId, host.Directory.References($"{BuiltInRoles.UnitsPath}/{auId}/members"));
-        var entry = host.StateEntryJson(AuId)!;
-        Assert.Equal(auId, entry["id"]!.GetValue<string>());
-        Assert.Equal("Orders AU", entry["key"]!["displayName"]!.GetValue<string>());
+        Assert.Equal(auId, run.GraphIdOf(AuId));
         Assert.Contains("AdministrativeUnit.ReadWrite.All", run.Plan.RequiredPermissions);
     }
 
@@ -147,7 +145,7 @@ public sealed class AdministrativeUnitsProviderTests
         Assert.Contains(restored.Writes, w => w.Method == "POST" && w.Path == $"/directory/deletedItems/{auId}/restore");
         Assert.Contains(restored.Writes, w => w.Method == "PATCH" && w.Path == $"{BuiltInRoles.UnitsPath}/{auId}");
         Assert.Equal(1, host.Directory.Count(BuiltInRoles.UnitsPath));
-        Assert.Equal(auId, restored.Entry(AuId).GraphId);
+        Assert.Equal(auId, restored.GraphIdOf(AuId));
     }
 
     [Fact]
@@ -221,7 +219,7 @@ public sealed class RoleDefinitionsProviderTests
         Assert.Equal("""["/"]""", body["resourceScopes"]!.ToJsonString());
         Assert.Equal("""[{"allowedResourceActions":["microsoft.directory/users/password/update","microsoft.directory/users/standard/read"]}]""", body["rolePermissions"]!.ToJsonString());
         string roleId = host.IdOf(BuiltInRoles.DefinitionsPath, "displayName", "Orders Support");
-        Assert.Equal(roleId, host.StateEntryJson(RoleDefId)!["id"]!.GetValue<string>());
+        Assert.Equal(roleId, run.GraphIdOf(RoleDefId));
         Assert.Contains("RoleManagement.ReadWrite.Directory", run.Plan.RequiredPermissions);
     }
 

@@ -12,7 +12,7 @@ namespace EArm.Core;
 /// key an id maps to (uniqueName, userPrincipalName, appId, displayName filters, GUIDs, <c>c10</c> ids) is matched
 /// case-insensitively by Graph, so two ids that differ only by case address the SAME object and must never be treated as
 /// two resources (a case-only rename would otherwise delete the live object as an "orphan"). A name segment that is a
-/// GUID is normalised to lower case at construction, so the rendered id and the state key are stable.
+/// GUID is normalised to lower case at construction, so the rendered id is stable.
 /// </summary>
 /// <remarks>
 /// Type segments after the namespace are matched to name segments from the right: a type with more segments than

@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
+using EArm.Engine.Execution;
 using EArm.Graph;
 using EArm.Providers;
 using Xunit;
@@ -100,14 +101,10 @@ public sealed class DirectoryScenarioTests : IntegrationTestBase
         Assert.Equal("IE", u2.Text("usageLocation"));
         Assert.Equal("Integration test user", u1.Text("jobTitle"));
 
-        // The state records whether this run generated the password, never the password.
-        var state = await Fixture.Store.LoadAsync(run.Name, Ct);
-        Assert.NotNull(state);
-        var u1Entry = state.Find("/providers/Microsoft.Entra/users/" + Fixture.Upn("u1"));
-        var u2Entry = state.Find("/providers/Microsoft.Entra/users/" + Fixture.Upn("u2"));
-        Assert.True((bool?)u1Entry?.Extra?[UsersProvider.GeneratedPasswordExtra] == true, "The state entry of u1 does not record generatedPassword: true.");
-        Assert.True((bool?)u2Entry?.Extra?[UsersProvider.GeneratedPasswordExtra] != true, "The state entry of u2 claims a generated password although one was supplied.");
-        Assert.DoesNotContain(generated, await File.ReadAllTextAsync(Fixture.Store.PathFor(run.Name), Ct), StringComparison.Ordinal);
+        // Only u1's password was generated: only it is a one-time secret in the file.
+        var oneTimeSecrets = SecureOutputs(secretFile)[SecureOutputsFile.OneTimeSecretsKey];
+        Assert.Equal(generated, (string?)oneTimeSecrets?["/providers/Microsoft.Entra/users/" + Fixture.Upn("u1")]?["generatedPassword"]);
+        Assert.Null(oneTimeSecrets?["/providers/Microsoft.Entra/users/" + Fixture.Upn("u2")]);
 
         AssertNoChanges(await Fixture.Cli.WhatIfAsync(run, Ct, "--exit-code-on-changes"), "what-if after create");
 

@@ -190,7 +190,7 @@ public sealed class TaintSecretsTests
     }
 
     [Fact]
-    public async Task ALiteralPassword_NeverReachesWhatIfOutputOrTheStateHash()
+    public async Task ALiteralPassword_NeverReachesWhatIfOutput()
     {
         var host = new EngineHost();
         var plan = await host.WhatIfAsync(Templates.Resources(UserWithLiteralPassword));
@@ -205,12 +205,6 @@ public sealed class TaintSecretsTests
         Assert.DoesNotContain("Literal-P@ss-1", writer.ToString(), System.StringComparison.Ordinal);
         Assert.DoesNotContain("Literal-P@ss-1", json, System.StringComparison.Ordinal);
         Assert.Contains("password: \"***\"", writer.ToString());
-
-        var instance = EngineHost.Instance(plan, "/providers/Microsoft.Entra/users/u@contoso.com");
-        var other = await host.ExpandAsync(Templates.Resources(UserWithLiteralPassword.Replace("Literal-P@ss-1", "Another-P@ss-2", System.StringComparison.Ordinal)));
-        Assert.Equal(
-            EArm.Engine.State.StateHashing.ContentHash(instance.Properties),
-            EArm.Engine.State.StateHashing.ContentHash(EngineHost.Evaluated(other, "/providers/Microsoft.Entra/users/u@contoso.com").Properties));
     }
 
     [Fact]

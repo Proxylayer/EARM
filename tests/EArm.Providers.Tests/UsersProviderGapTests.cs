@@ -179,7 +179,6 @@ public sealed class UsersProviderGapTests
         var post = Assert.Single(run.Writes, w => w.Method == "POST" && w.Path == "/users");
         string generated = Check.Body(post)["passwordProfile"]!["password"]!.GetValue<string>();
         Assert.True(generated.Length >= UsersRules.GeneratedPasswordLength);
-        Assert.DoesNotContain(generated, host.StateDocument!, StringComparison.Ordinal);
         Assert.DoesNotContain(host.Logs.Lines, l => l.Contains(generated, StringComparison.Ordinal));
         Assert.DoesNotContain(generated, run.WhatIfJsonText, StringComparison.Ordinal);
         Assert.DoesNotContain(generated, run.WhatIfTextOutput, StringComparison.Ordinal);
@@ -195,7 +194,6 @@ public sealed class UsersProviderGapTests
 
         Check.Succeeded(run);
         Assert.Single(run.Writes, w => w.Body is not null && w.Body.ToJsonString().Contains(secret, StringComparison.Ordinal));
-        Assert.DoesNotContain(secret, host.StateDocument!, StringComparison.Ordinal);
         Assert.DoesNotContain(host.Logs.Lines, l => l.Contains(secret, StringComparison.Ordinal));
         Assert.DoesNotContain(secret, run.WhatIfJsonText + run.WhatIfTextOutput + run.Errors, StringComparison.Ordinal);
     }
@@ -207,15 +205,22 @@ public sealed class UsersProviderGapTests
     {
         var host = new ProviderHost();
         Check.Succeeded(await host.CreateAsync(host.Resources(User())));
-        var state = (await host.LoadStateAsync())!;
-        var entry = state.Resources.Values.Single();
+        var live = Assert.Single(host.Directory.Objects("/users"));
+        string upn = live["userPrincipalName"]!.GetValue<string>();
+        var entry = new DeleteTarget
+        {
+            Id = ResourceIdentifier.Create(Type, upn),
+            Type = Type,
+            Key = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["userPrincipalName"] = upn },
+            GraphId = live["id"]!.GetValue<string>(),
+        };
         var provider = host.Provider(Type);
         host.Fake.Failures.Add("DELETE", "/users/", request => new GraphException(HttpStatusCode.NotFound, "Request_ResourceNotFound", "gone", request.Hint), times: 1);
 
-        await provider.DeleteAsync(DeleteTarget.KeyOf(entry), DeleteTarget.LiveOf(entry), host.Fake, ProviderHost.Ct);
+        await provider.DeleteAsync(entry.ResourceKey, entry.Live, host.Fake, ProviderHost.Ct);
 
         host.Fake.Failures.Forbid("/users/", "DELETE");
-        var denied = await Assert.ThrowsAsync<GraphException>(() => provider.DeleteAsync(DeleteTarget.KeyOf(entry), DeleteTarget.LiveOf(entry), host.Fake, ProviderHost.Ct));
+        var denied = await Assert.ThrowsAsync<GraphException>(() => provider.DeleteAsync(entry.ResourceKey, entry.Live, host.Fake, ProviderHost.Ct));
         Assert.True(denied.IsForbidden);
     }
 

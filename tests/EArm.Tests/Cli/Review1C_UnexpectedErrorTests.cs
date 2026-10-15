@@ -237,7 +237,6 @@ public sealed class Review1C_UnexpectedErrorTests
             TemplateFile = sandbox.WriteEmptyTemplate(),
             ConfirmWithWhatIf = true,
             Output = OutputFormat.Json,
-            StateDir = sandbox.StateDir,
             Connection = sandbox.Connection,
         };
         using var stdout = new StringWriter();

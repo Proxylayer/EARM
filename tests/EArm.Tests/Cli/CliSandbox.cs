@@ -6,7 +6,6 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using EArm.Cli.Hosting;
-using EArm.Engine.State;
 using EArm.Graph;
 using EArm.Graph.Auth;
 using EArm.TestSupport;
@@ -24,10 +23,10 @@ internal sealed class NoDelay : IDelayProvider
 }
 
 /// <summary>
-/// One isolated environment per CLI test: a private folder under the test output directory with a state directory and templates written on
-/// demand, plus the HTTP seam of the CLI: a <see cref="ScriptedGraphHandler"/> (the fake Microsoft Graph), a <see cref="FakeJwtTokenProvider"/> (the fake
-/// sign-in) and a <see cref="ServiceOverrides"/> installed for the current async flow, so every command the test runs in-process talks to the fakes.
-/// Nothing is passed through environment variables except <c>EARM_STATE_DIR</c>, which is restored on dispose.
+/// One isolated environment per CLI test: a private folder under the test output directory with templates written on demand, plus the HTTP
+/// seam of the CLI: a <see cref="ScriptedGraphHandler"/> (the fake Microsoft Graph), a <see cref="FakeJwtTokenProvider"/> (the fake sign-in) and a
+/// <see cref="ServiceOverrides"/> installed for the current async flow, so every command the test runs in-process talks to the fakes. Nothing is
+/// passed through environment variables.
 /// </summary>
 internal sealed class CliSandbox : IDisposable
 {
@@ -36,8 +35,8 @@ internal sealed class CliSandbox : IDisposable
 
     private static readonly UTF8Encoding Utf8NoBom = new(encoderShouldEmitUTF8Identifier: false);
 
-    private readonly string? _previousStateDirVariable;
     private readonly IDisposable _ambient;
+    private readonly HashSet<string> _written = new(StringComparer.OrdinalIgnoreCase);
 
     public CliSandbox(string testName)
     {
@@ -45,13 +44,9 @@ internal sealed class CliSandbox : IDisposable
         string safe = new string(testName.Select(c => invalid.Contains(c) ? '_' : c).ToArray());
         Root = Path.Combine(AppContext.BaseDirectory, "cli-runs", (safe.Length > 40 ? safe[..40] : safe) + "-" + Guid.NewGuid().ToString("N")[..8]);
         Directory.CreateDirectory(Root);
-        StateDir = Path.Combine(Root, "state");
         TemplatesDir = Path.Combine(Root, "templates");
         RecordPath = Path.Combine(Root, "auth", "record.json");
         Directory.CreateDirectory(TemplatesDir);
-
-        _previousStateDirVariable = Environment.GetEnvironmentVariable(StateDirectory.EnvironmentVariable);
-        Environment.SetEnvironmentVariable(StateDirectory.EnvironmentVariable, null);
 
         Handler = new ScriptedGraphHandler();
         Tokens = new FakeJwtTokenProvider();
@@ -66,8 +61,6 @@ internal sealed class CliSandbox : IDisposable
     }
 
     public string Root { get; }
-
-    public string StateDir { get; }
 
     public string TemplatesDir { get; }
 
@@ -84,11 +77,6 @@ internal sealed class CliSandbox : IDisposable
 
     /// <summary>Connection settings for tests that build an invocation record directly instead of going through the command line.</summary>
     public ConnectionSettings Connection => new() { Overrides = Overrides };
-
-    /// <summary>The global option every online invocation needs: the sandbox state directory.</summary>
-    public string[] StateArgs => ["--state-dir", StateDir];
-
-    public FileStateStore Store => new(StateDir);
 
     /// <summary>Every request the fake Graph received, across scripts, as <c>METHOD /path?query</c> (percent-decoded).</summary>
     public IReadOnlyList<string> RecordedCommands()
@@ -127,15 +115,27 @@ internal sealed class CliSandbox : IDisposable
         UseScript("{ \"responses\": [] }");
     }
 
-    public void SetStateDirVariable(string? value)
+    /// <summary>
+    /// Every file under the sandbox that the test did not write itself (templates) and that is not the sign-in record: what the commands left on
+    /// disk, as paths relative to <see cref="Root"/>. EARM keeps no local state, so this is empty unless a command was asked to write a file
+    /// (<c>--secure-outputs-file</c>), which <paramref name="expected"/> names.
+    /// </summary>
+    public IReadOnlyList<string> UnexpectedFiles(params string[] expected)
     {
-        Environment.SetEnvironmentVariable(StateDirectory.EnvironmentVariable, value);
+        var allowed = new HashSet<string>(expected.Select(Path.GetFullPath), StringComparer.OrdinalIgnoreCase) { Path.GetFullPath(RecordPath) };
+        allowed.UnionWith(_written);
+        return Directory.EnumerateFiles(Root, "*", SearchOption.AllDirectories)
+            .Where(f => !allowed.Contains(Path.GetFullPath(f)))
+            .Select(f => Path.GetRelativePath(Root, f))
+            .Order(StringComparer.Ordinal)
+            .ToList();
     }
 
     /// <summary>Writes a template file into the sandbox and returns its path.</summary>
     public string WriteTemplate(string fileName, string body)
     {
         string path = Path.Combine(TemplatesDir, fileName);
+        _written.Add(Path.GetFullPath(path));
         File.WriteAllText(path, "{ \"$schema\": \"https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#\", \"contentVersion\": \"1.0.0.0\", " + body + " }", Utf8NoBom);
         return path;
     }
@@ -146,38 +146,9 @@ internal sealed class CliSandbox : IDisposable
         return WriteTemplate(fileName, "\"resources\": [], \"outputs\": { " + outputs + " }");
     }
 
-    public async Task<StateFile> WriteStateAsync(StateFile state)
-    {
-        await Store.SaveAsync(state, TestContext.Current.CancellationToken);
-        return state;
-    }
-
-    public void WriteRawState(string deploymentName, string json)
-    {
-        Directory.CreateDirectory(StateDir);
-        File.WriteAllText(Path.Combine(StateDir, deploymentName + ".json"), json, Utf8NoBom);
-    }
-
-    public void WriteLock(string deploymentName, DateTimeOffset acquiredOn, int processId = 424242)
-    {
-        Directory.CreateDirectory(StateDir);
-        File.WriteAllText(Path.Combine(StateDir, deploymentName + ".lock"), "{ \"pid\": " + processId + ", \"host\": \"other-host\", \"user\": \"someone\", \"acquiredOn\": \"" + acquiredOn.ToString("O", System.Globalization.CultureInfo.InvariantCulture) + "\" }", Utf8NoBom);
-    }
-
-    public string StatePath(string deploymentName)
-    {
-        return Path.Combine(StateDir, deploymentName + ".json");
-    }
-
-    public string LockPath(string deploymentName)
-    {
-        return Path.Combine(StateDir, deploymentName + ".lock");
-    }
-
     public void Dispose()
     {
         _ambient.Dispose();
-        Environment.SetEnvironmentVariable(StateDirectory.EnvironmentVariable, _previousStateDirVariable);
 
         try
         {

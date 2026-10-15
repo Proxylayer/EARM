@@ -75,7 +75,7 @@ internal static class Check
 
 /// <summary>
 /// The secret-leak sweep: a secret string may appear in the bodies the test names as intended (and nowhere else in a
-/// request), never in a path / query / header, the state document, the what-if JSON or text, any change row, any
+/// request), never in a path / query / header, the what-if JSON or text, any change row, any
 /// diagnostic, the public outputs, or any log line.
 /// </summary>
 internal static class SecretSweep
@@ -109,7 +109,6 @@ internal static class SecretSweep
             Assert.Equal(expectedIntendedBodies, intended);
         }
 
-        Assert.DoesNotContain(secret, host.StateDocument ?? string.Empty, StringComparison.Ordinal);
         if (whatIf is not null)
         {
             Assert.DoesNotContain(secret, whatIf.WhatIfJsonText, StringComparison.Ordinal);

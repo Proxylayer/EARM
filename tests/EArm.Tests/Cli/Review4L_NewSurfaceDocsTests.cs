@@ -47,11 +47,11 @@ public sealed class Review4L_NewSurfaceDocsTests
     /// <summary>(command path, flag): an empty path is the root command (the global options).</summary>
     private static readonly (string Path, string Flag)[] SurfaceRows =
     [
-        ("state set-provenance", "--resource-id"),
-        ("state set-provenance", "--provenance"),
-        ("state adopt", "--unique-name"),
-        ("state adopt", "--type"),
-        ("state adopt", "--id"),
+        ("deployment create", "--yes"),
+        ("deployment create", "--secure-outputs-file"),
+        ("deployment what-if", "--exit-code-on-changes"),
+        ("deployment delete", "--parameters"),
+        ("deployment delete", "--name"),
         ("deployment delete", "--template-file"),
         ("deployment delete", "--yes"),
         ("deployment delete", "--continue-on-error"),
@@ -99,37 +99,12 @@ public sealed class Review4L_NewSurfaceDocsTests
         Assert.True(inCodeSpan, $"docs/cli.md does not name {flag} in a code span");
     }
 
-    [Fact]
-    public void StateSetProvenance_IsATreeCommand_AndAStateRowOfTheDocument()
-    {
-        var state = Resolve("state");
-
-        Assert.NotNull(state);
-        Assert.Contains(state.Subcommands, c => c.Name == "set-provenance");
-        Assert.Contains("| `set-provenance` |", Doc("cli.md"), StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void TheDeprecatedAdoptName_IsStillAccepted_ButHidden_AndTheUniqueNameIsNot()
-    {
-        var adopt = Resolve("state adopt")!;
-
-        var legacy = adopt.Options.Single(o => o.Name == "--name");
-        var replacement = adopt.Options.Single(o => o.Name == "--unique-name");
-
-        Assert.True(legacy.Hidden, "--name on `state adopt` is the deprecated spelling and must stay out of --help");
-        Assert.False(replacement.Hidden);
-        Assert.Contains("Deprecated", legacy.Description, StringComparison.Ordinal);
-        Assert.Contains("`--name` still works", Doc("cli.md"), StringComparison.Ordinal);
-    }
-
     // ---- diagnostic codes of the review rounds ----
 
     public static TheoryData<string> ReviewCodes()
     {
         return new TheoryData<string>
         {
-            nameof(EngineDiagnosticCodes.StateEntryInvalid),
             nameof(EngineDiagnosticCodes.RecreateNotConfirmed),
             nameof(EngineDiagnosticCodes.OrphanReportIncomplete),
             nameof(EngineDiagnosticCodes.AssignmentRetained),

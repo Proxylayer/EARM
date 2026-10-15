@@ -13,7 +13,6 @@ using EArm.Engine.Edges;
 using EArm.Engine.Execution;
 using EArm.Engine.Planning;
 using EArm.Engine.Providers;
-using EArm.Engine.State;
 using EArm.Engine.WhatIf;
 using EArm.TestSupport;
 using Xunit;
@@ -23,10 +22,9 @@ namespace EArm.Providers.Tests.Infrastructure;
 /// <summary>
 /// One in-memory engine per test, wired to the real providers: <see cref="ProviderDiscovery.CreateRegistry"/> (catalog
 /// types without a provider yet are backfilled with <see cref="EchoProvider"/>; <see cref="Echo"/> replaces one on
-/// purpose), <see cref="FakeGraphClient"/> + <see cref="FakeDirectory"/>, <see cref="InMemoryStateStore"/> +
-/// <see cref="FileStateSink"/>, <see cref="PlannerOptions"/> with <c>Parallelism = 1</c> and a <see cref="RetryPolicy"/>
-/// over a no-delay provider, recording loggers, and helpers to load inline templates, run what-if / create and read
-/// the state document back.
+/// purpose), <see cref="FakeGraphClient"/> + <see cref="FakeDirectory"/>, <see cref="PlannerOptions"/> with <c>Parallelism = 1</c> and a
+/// <see cref="RetryPolicy"/> over a no-delay provider, recording loggers, and helpers to load inline templates and run what-if / create / delete.
+/// Nothing is recorded between runs: every run resolves identity from the fake directory by key, as the CLI does.
 /// </summary>
 internal sealed class ProviderHost
 {
@@ -42,7 +40,6 @@ internal sealed class ProviderHost
     {
         Fake = fake ?? new FakeGraphClient();
         Registry = CreateRegistry(Catalog);
-        Store = new InMemoryStateStore();
         Logs = new LogSink();
         Delays = new NoDelayProvider();
         ReplicationDelays = new NoDelayProvider();
@@ -60,8 +57,6 @@ internal sealed class ProviderHost
 
     public ProviderRegistry Registry { get; }
 
-    public InMemoryStateStore Store { get; }
-
     public LogSink Logs { get; }
 
     public NoDelayProvider Delays { get; }
@@ -75,9 +70,6 @@ internal sealed class ProviderHost
 
     /// <summary>Pass the no-delay retry policy to the planner (default); <c>false</c> runs without an outer policy.</summary>
     public bool UseRetry { get; set; } = true;
-
-    /// <summary>Record every run in <see cref="Store"/> through a <see cref="FileStateSink"/> (default); <c>false</c> runs stateless like the harnesses without a store.</summary>
-    public bool TrackState { get; set; } = true;
 
     public SoftDeletedConflict OnSoftDeletedConflict { get; set; } = SoftDeletedConflict.Error;
 
@@ -169,31 +161,23 @@ internal sealed class ProviderHost
         return new DeploymentExecutor(Registry, Fake, Logs.For<DeploymentExecutor>(), new ReplicationWait { Delay = ReplicationDelays });
     }
 
-    public Task<StateFile?> LoadStateAsync()
-    {
-        return Store.LoadAsync(DeploymentName, Ct);
-    }
-
     /// <summary>Expansion and ordering only (no Graph reads): the instances the providers would see.</summary>
-    public async Task<DeploymentPlan> ExpandAsync(TemplateDocument document, DeploymentMode mode = DeploymentMode.Incremental)
+    public Task<DeploymentPlan> ExpandAsync(TemplateDocument document, DeploymentMode mode = DeploymentMode.Incremental)
     {
-        var state = TrackState ? await LoadStateAsync() : null;
-        return await Planner().PlanAsync(document, state, mode, PlanMode.Create, Ct);
+        return Planner().PlanAsync(document, mode, PlanMode.Create, Ct);
     }
 
     public async Task<Run> WhatIfAsync(TemplateDocument document, DeploymentMode mode = DeploymentMode.Incremental)
     {
-        var state = TrackState ? await LoadStateAsync() : null;
         int before = Fake.Requests.Count;
-        var plan = await Planner().PlanAsync(document, state, mode, PlanMode.WhatIf, Ct);
-        return new Run(plan, null, state, RequestsSince(before));
+        var plan = await Planner().PlanAsync(document, mode, PlanMode.WhatIf, Ct);
+        return new Run(plan, null, RequestsSince(before));
     }
 
     public async Task<Run> CreateAsync(TemplateDocument document, DeploymentMode mode = DeploymentMode.Incremental, bool continueOnError = false, string? secureOutputsFile = null, bool revealSecureOutputs = false)
     {
-        var state = TrackState ? await LoadStateAsync() : null;
         int before = Fake.Requests.Count;
-        var plan = await Planner().PlanAsync(document, state, mode, PlanMode.Create, Ct);
+        var plan = await Planner().PlanAsync(document, mode, PlanMode.Create, Ct);
         var options = new ExecuteOptions
         {
             Parallelism = 1,
@@ -202,41 +186,19 @@ internal sealed class ProviderHost
             RevealSecureOutputs = revealSecureOutputs,
         };
 
-        FileStateSink? sink = null;
-        if (TrackState)
-        {
-            state ??= StateFile.CreateNew(DeploymentName, Directory.TenantId, DateTimeOffset.UtcNow);
-            sink = new FileStateSink(Store, state, plan, Logs.For<FileStateSink>());
-            await sink.BeginAsync(Ct);
-            options = options with { StateSink = sink, State = state };
-        }
-
         var result = await Executor().ExecuteAsync(plan, options, Ct);
-        if (sink is not null)
-        {
-            await sink.CompletedAsync(result.Status, Ct);
-        }
-
-        return new Run(plan, result, state, RequestsSince(before));
+        return new Run(plan, result, RequestsSince(before));
     }
 
     /// <summary><c>deployment delete</c>: the objects <paramref name="document"/> declares, found by key, deleted in reverse dependency order.</summary>
     public async Task<TemplateDeleteResult> DeleteDeclaredAsync(TemplateDocument document, bool continueOnError = false)
     {
-        var plan = await Planner().PlanAsync(document, null, DeploymentMode.Incremental, PlanMode.WhatIf, Ct);
+        var plan = await Planner().PlanAsync(document, DeploymentMode.Incremental, PlanMode.WhatIf, Ct);
         var targets = TemplateDeleter.FindDeclaredObjects(plan);
         return await new TemplateDeleter(Registry, Fake, Logs.For<TemplateDeleter>()).DeleteAsync(plan, targets, continueOnError, Ct);
     }
 
-    // ---- state and directory helpers ----
-
-    public string? StateDocument => Store.DocumentOf(DeploymentName);
-
-    /// <summary>The serialised state entry of a resource id, read back from the stored document.</summary>
-    public JsonObject? StateEntryJson(string resourceId)
-    {
-        return StateDocument is null ? null : (JsonNode.Parse(StateDocument) as JsonObject)?["resources"]?[resourceId] as JsonObject;
-    }
+    // ---- directory helpers ----
 
     public string IdOf(string collection, string property, string value)
     {
@@ -255,8 +217,8 @@ internal sealed class ProviderHost
     }
 }
 
-/// <summary>The outcome of one planner / executor run: the plan, the result (<c>null</c> for what-if), the state (when tracked) and the requests issued during the run.</summary>
-internal sealed record Run(DeploymentPlan Plan, DeploymentResult? Result, StateFile? State, IReadOnlyList<FakeGraphRequest> Requests)
+/// <summary>The outcome of one planner / executor run: the plan, the result (<c>null</c> for what-if) and the requests issued during the run.</summary>
+internal sealed record Run(DeploymentPlan Plan, DeploymentResult? Result, IReadOnlyList<FakeGraphRequest> Requests)
 {
     public IReadOnlyList<FakeGraphRequest> Writes => Requests.Where(r => r.IsWrite).ToList();
 
@@ -301,9 +263,11 @@ internal sealed record Run(DeploymentPlan Plan, DeploymentResult? Result, StateF
         return (Executed.SecureOutputs[name] as JsonObject)?["value"];
     }
 
-    public StateEntry Entry(string resourceId)
+    /// <summary>The Graph id the run applied (or found unchanged) for the exact resource id.</summary>
+    public string GraphIdOf(string resourceId)
     {
-        return (State ?? throw new InvalidOperationException("The run was not tracked.")).Resources[resourceId];
+        return Executed.Operations.Single(o => string.Equals(o.Id.Id, resourceId, StringComparison.OrdinalIgnoreCase)).GraphId
+            ?? throw new InvalidOperationException($"The run applied no Graph object for '{resourceId}'.");
     }
 
     public string WhatIfJsonText => WhatIfJson.Build(Plan).ToJsonString();

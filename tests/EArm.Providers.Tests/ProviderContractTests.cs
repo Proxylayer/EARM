@@ -7,7 +7,6 @@ using System.Threading.Tasks;
 using EArm.Core.Types;
 using EArm.Engine.Execution;
 using EArm.Engine.Providers;
-using EArm.Engine.State;
 using EArm.Providers.Tests.Infrastructure;
 using EArm.TestSupport;
 using Xunit;

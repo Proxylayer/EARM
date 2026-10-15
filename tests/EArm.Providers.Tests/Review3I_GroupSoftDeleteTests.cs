@@ -4,7 +4,6 @@ using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using EArm.Engine.Providers;
-using EArm.Engine.State;
 using EArm.Providers.Tests.Infrastructure;
 using Xunit;
 

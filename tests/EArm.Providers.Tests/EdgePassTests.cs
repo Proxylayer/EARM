@@ -339,7 +339,7 @@ public sealed class EdgePassTests
     }
 
     [Fact]
-    public async Task AlreadyExistsOnAdd_IsIdempotentSuccess_AndNotRecorded()
+    public async Task AlreadyExistsOnAdd_IsIdempotentSuccess()
     {
         var host = new ProviderHost();
         string groupId = host.Directory.AddGroup("existing", "Existing")["id"]!.GetValue<string>();
@@ -351,7 +351,6 @@ public sealed class EdgePassTests
         Check.Succeeded(run);
         Assert.Equal(OperationStatus.Succeeded, run.Op("carol").Status);
         Assert.Single(run.Writes, w => w.Path == $"/groups/{groupId}/members/$ref");
-        Assert.Null(host.StateEntryJson("/providers/Microsoft.Entra/users/carol@contoso.com")?["relationships"]);
     }
 
     [Fact]

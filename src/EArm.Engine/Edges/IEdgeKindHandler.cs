@@ -12,8 +12,7 @@ namespace EArm.Engine.Edges;
 /// <summary>
 /// The strategy for one <see cref="EdgeKind"/>: how a declared item becomes an edge, how the live state is read
 /// from the target's side (authoritative sets) and from the principal's side (existence checks for principal-side
-/// declarations), the Graph requests that add and remove an edge, and what the state records for a principal-side
-/// edge. Part A kinds ship with the engine (<see cref="EdgeKindRegistry.Default"/>); the app role assignment
+/// declarations) and the Graph requests that add and remove an edge. Part A kinds ship with the engine (<see cref="EdgeKindRegistry.Default"/>); the app role assignment
 /// and directory role kinds (part B) are registered by <c>EArm.Providers</c>.
 /// </summary>
 public interface IEdgeKindHandler
@@ -64,33 +63,6 @@ public interface IEdgeKindHandler
 
     /// <summary>The request that removes the edge; <paramref name="liveExtra"/> is what the live read returned for it (assignment ids).</summary>
     BatchRequest RemoveRequest(Edge edge, JsonObject? liveExtra, GraphApi api);
-
-    /// <summary>What the state records for a principal-side edge (<paramref name="applied"/> is the add response body, for assignment ids).</summary>
-    JsonNode RecordEntry(Edge edge, JsonObject? applied)
-    {
-        return JsonValue.Create(edge.TargetId);
-    }
-
-    /// <summary>Rebuilds an edge from a recorded state entry, for removal; <c>null</c> when the record cannot be interpreted.</summary>
-    Task<Edge?> FromRecordAsync(JsonNode? record, string principalId, GraphApi api, EdgeGraphContext context, CancellationToken cancellationToken)
-    {
-        if (record is JsonValue value && value.TryGetValue<string>(out var id) && !string.IsNullOrWhiteSpace(id))
-        {
-            return Task.FromResult<Edge?>(new Edge(Kind, id, principalId));
-        }
-
-        return Task.FromResult<Edge?>(null);
-    }
-
-    /// <summary>
-    /// Confirms against the live tenant that a recorded edge (rebuilt by <see cref="FromRecordAsync"/>) really is the edge of <paramref name="principalId"/> before it is removed on
-    /// the strength of the state alone. The state is editable: a recorded assignment id must never delete an assignment of somebody else (review round 2, S2-02). Kinds that remove by
-    /// the ends of the edge (membership, ownership, manager) have nothing to verify; the assignment kinds read the assignment by id. False: leave the edge alone.
-    /// </summary>
-    Task<bool> VerifyRecordedAsync(Edge edge, string principalId, GraphApi api, EdgeGraphContext context, CancellationToken cancellationToken)
-    {
-        return Task.FromResult(true);
-    }
 
     /// <summary>The identity used for de-duplication; part B kinds include the assignment-defining extras.</summary>
     string IdentityOf(Edge edge)

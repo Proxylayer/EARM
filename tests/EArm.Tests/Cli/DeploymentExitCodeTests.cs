@@ -16,7 +16,7 @@ public sealed class DeploymentExitCodeTests
 {
     private static string[] Offline(CliSandbox sandbox, params string[] args)
     {
-        return [.. args, "--state-dir", sandbox.StateDir];
+        return [.. args];
     }
 
     [Theory]
@@ -123,14 +123,14 @@ public sealed class DeploymentExitCodeTests
     }
 
     [Fact]
-    public async Task NoSignIn_ExitsThree_WithTheGuidance_AndNeverTouchesTheStateOrSendsARequest()
+    public async Task NoSignIn_ExitsThree_WithTheGuidance_AndNeverWritesOrSendsARequest()
     {
-        using var sandbox = new CliSandbox(nameof(NoSignIn_ExitsThree_WithTheGuidance_AndNeverTouchesTheStateOrSendsARequest));
+        using var sandbox = new CliSandbox(nameof(NoSignIn_ExitsThree_WithTheGuidance_AndNeverWritesOrSendsARequest));
         string template = sandbox.WriteEmptyTemplate();
         sandbox.UseNotLoggedIn();
 
-        var whatIf = await CliRunner.RunAsync("deployment", "what-if", "-f", template, "--state-dir", sandbox.StateDir);
-        var create = await CliRunner.RunAsync("deployment", "create", "-f", template, "-y", "--state-dir", sandbox.StateDir);
+        var whatIf = await CliRunner.RunAsync("deployment", "what-if", "-f", template);
+        var create = await CliRunner.RunAsync("deployment", "create", "-f", template, "-y");
 
         foreach (var result in new[] { whatIf, create })
         {
@@ -144,8 +144,7 @@ public sealed class DeploymentExitCodeTests
         }
 
         Assert.Empty(sandbox.RecordedCommands());
-        Assert.False(File.Exists(sandbox.StatePath("empty")));
-        Assert.False(File.Exists(sandbox.LockPath("empty")));
+        Assert.Empty(sandbox.UnexpectedFiles());
     }
 
     [Theory]
@@ -161,7 +160,7 @@ public sealed class DeploymentExitCodeTests
         {
             Environment.SetEnvironmentVariable("EARM_CLOUD", cloud);
 
-            var result = await CliRunner.RunAsync("deployment", "what-if", "-f", template, "--state-dir", sandbox.StateDir);
+            var result = await CliRunner.RunAsync("deployment", "what-if", "-f", template);
 
             Assert.Equal(1, result.ExitCode);
             Assert.Contains("public, usgov, usgovdod, china", result.StandardError, StringComparison.Ordinal);
@@ -188,15 +187,14 @@ public sealed class DeploymentExitCodeTests
         string template = KeyVaultTemplate(sandbox, "/subscriptions/0/resourceGroups/rg/providers/Microsoft.KeyVault/vaults/contoso-kv", "orders-secret", out string parameters);
         sandbox.UsePreflightOk(extraResponses: "{ \"match\": { \"method\": \"GET\", \"urlContains\": \"/secrets/orders-secret\" }, \"status\": 404, \"body\": { \"error\": { \"code\": \"SecretNotFound\", \"message\": \"A secret with (name/id) orders-secret was not found in this key vault.\" } } }");
 
-        var result = await CliRunner.RunAsync([.. sandbox.StateArgs, "deployment", "create", "-f", template, "-p", "@" + parameters, "-y", "-o", "json"]);
+        var result = await CliRunner.RunAsync(["deployment", "create", "-f", template, "-p", "@" + parameters, "-y", "-o", "json"]);
 
         Assert.Equal(3, result.ExitCode);
         var diagnostic = Assert.Single(result.Diagnostics);
         Assert.Contains("pw", diagnostic!["message"]!.GetValue<string>(), StringComparison.Ordinal);
         Assert.Contains("orders-secret", diagnostic["message"]!.GetValue<string>(), StringComparison.Ordinal);
         Assert.Contains("SecretNotFound", diagnostic["message"]!.GetValue<string>(), StringComparison.Ordinal);
-        Assert.False(File.Exists(sandbox.StatePath("kv")));
-        Assert.False(File.Exists(sandbox.LockPath("kv")));
+        Assert.Empty(sandbox.UnexpectedFiles(parameters));
         var vaultCall = Assert.Single(sandbox.RecordedRequests(), static r => r.Uri.Host.StartsWith("contoso-kv.", StringComparison.Ordinal));
         Assert.Equal("https://contoso-kv.vault.azure.net/secrets/orders-secret?api-version=7.4", vaultCall.Uri.AbsoluteUri);
         Assert.Contains("https://vault.azure.net/.default", sandbox.Tokens.RequestedScopes);
@@ -212,13 +210,13 @@ public sealed class DeploymentExitCodeTests
         string template = KeyVaultTemplate(sandbox, vaultId, secretName, out string parameters);
         sandbox.UsePreflightOk();
 
-        var result = await CliRunner.RunAsync([.. sandbox.StateArgs, "deployment", "create", "-f", template, "-p", "@" + parameters, "-y", "-o", "json"]);
+        var result = await CliRunner.RunAsync(["deployment", "create", "-f", template, "-p", "@" + parameters, "-y", "-o", "json"]);
 
         Assert.Equal(3, result.ExitCode);
         var diagnostic = Assert.Single(result.Diagnostics);
         Assert.Contains("not a valid Key Vault", diagnostic!["message"]!.GetValue<string>(), StringComparison.Ordinal);
         Assert.All(sandbox.RecordedRequests(), static r => Assert.EndsWith("graph.microsoft.com", r.Uri.Host, StringComparison.Ordinal));
-        Assert.False(File.Exists(sandbox.StatePath("kv")));
+        Assert.Empty(sandbox.UnexpectedFiles(parameters));
     }
 
     [Fact]
@@ -230,11 +228,11 @@ public sealed class DeploymentExitCodeTests
         File.WriteAllText(parameters, "{ \"parameters\": { \"pw\": { \"reference\": { \"keyVault\": { \"id\": \"contoso-kv\" }, \"secretName\": \"orders-secret\" } } } }");
         sandbox.UsePreflightOk(extraResponses: "{ \"match\": { \"method\": \"GET\", \"urlContains\": \"/secrets/orders-secret\" }, \"status\": 200, \"body\": { \"value\": \"V4ult-S3cret-Value\" } }");
 
-        var result = await CliRunner.RunAsync([.. sandbox.StateArgs, "deployment", "create", "-f", template, "-p", "@" + parameters, "-y", "-o", "json"]);
+        var result = await CliRunner.RunAsync(["deployment", "create", "-f", template, "-p", "@" + parameters, "-y", "-o", "json"]);
 
         Assert.Equal(0, result.ExitCode);
         Assert.Equal("***", result.Json["outputs"]!["echo"]!["value"]!.GetValue<string>());
         Assert.DoesNotContain("V4ult-S3cret-Value", result.StandardOutput + result.StandardError, StringComparison.Ordinal);
-        Assert.DoesNotContain("V4ult-S3cret-Value", await File.ReadAllTextAsync(sandbox.StatePath("kv"), TestContext.Current.CancellationToken), StringComparison.Ordinal);
+        Assert.Empty(sandbox.UnexpectedFiles(parameters));
     }
 }

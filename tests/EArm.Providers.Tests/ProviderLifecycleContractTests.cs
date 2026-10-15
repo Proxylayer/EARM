@@ -72,26 +72,25 @@ public sealed class ProviderLifecycleContractTests
         Check.Succeeded(run);
         Assert.All(run.Executed.Operations, o => Assert.Equal(OperationStatus.Ignored, o.Status));
         Check.NoWrites(run);
-        Assert.Empty(run.State!.Resources);
+        Assert.All(run.Executed.Operations, o => Assert.Null(o.GraphId));
     }
 
     [Theory]
     [MemberData(nameof(Cases))]
-    public async Task ARerun_ChangesNothing_AndKeepsTheSameState(string name)
+    public async Task ARerun_ChangesNothing_AndFindsTheSameObjects(string name)
     {
         var host = new ProviderHost();
         var document = host.Resources(ProviderFailureMatrixTests.Templates()[name]);
         var first = await host.CreateAsync(document);
         Check.Succeeded(first);
-        string stateAfterFirst = host.StateDocument!;
 
         var second = await host.CreateAsync(document);
 
         Check.Succeeded(second);
         Assert.All(second.Executed.Operations.Where(o => ResourceIdentifier.TypeEquals(o.Type, TypeOf(name))), o => Assert.Equal(ChangeType.NoChange, o.ChangeType));
         Check.NoWrites(second);
-        var before = JsonNode.Parse(stateAfterFirst)!["resources"]!.AsObject().Select(p => p.Key).Order(StringComparer.Ordinal).ToList();
-        var after = JsonNode.Parse(host.StateDocument!)!["resources"]!.AsObject().Select(p => p.Key).Order(StringComparer.Ordinal).ToList();
+        var before = first.Executed.Operations.Select(o => o.Id.Id + "=" + o.GraphId).Order(StringComparer.Ordinal).ToList();
+        var after = second.Executed.Operations.Select(o => o.Id.Id + "=" + o.GraphId).Order(StringComparer.Ordinal).ToList();
         Assert.Equal(before, after);
     }
 

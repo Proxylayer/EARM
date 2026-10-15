@@ -150,7 +150,7 @@ public static class AuthenticationStrengthsRules
 
     /// <summary>
     /// When the desired and live combination sets compare equal, the desired array takes the live spelling (order and
-    /// casing) so the shared diff, the what-if row and the state hash see no change. Returns <c>true</c> when adopted.
+    /// casing) so the shared diff and the what-if row see no change. Returns <c>true</c> when adopted.
     /// </summary>
     public static bool AdoptLiveCombinations(JsonObject desired, JsonObject? live)
     {

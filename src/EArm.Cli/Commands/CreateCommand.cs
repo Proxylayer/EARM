@@ -5,9 +5,9 @@ namespace EArm.Cli.Commands;
 /// <summary>
 /// <c>earm deployment create -f &lt;file&gt; [-p ...] [-n name] [--mode Incremental|Complete] [--what-if] [-c] [-y]
 /// [--parallelism N] [--continue-on-error] [--reveal-secure-outputs] [--secure-outputs-file path] [--allow-ca-enforce]
-/// [--on-soft-deleted-conflict error|restore] [--force-unlock] [--lock-timeout s] [--result-format ...]
+/// [--on-soft-deleted-conflict error|restore] [--result-format ...]
 /// [--exit-code-on-changes] [--no-pretty-print]</c>: applies a template through Microsoft Graph with the signed-in identity (mirrors
-/// <c>az deployment group create</c>), recording every resource in the deployment's state. <c>--what-if</c> is an
+/// <c>az deployment group create</c>); identity is resolved from the live tenant by key, nothing is recorded locally. <c>--what-if</c> is an
 /// alias of <c>deployment what-if</c>; <c>-c</c> shows the what-if, asks for confirmation and executes the same plan.
 /// </summary>
 internal static class CreateCommand

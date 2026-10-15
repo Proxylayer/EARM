@@ -8,7 +8,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using EArm.Core;
 using EArm.Engine.Execution;
-using EArm.Engine.State;
 using EArm.Graph;
 using EArm.TestSupport;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -19,9 +18,9 @@ namespace EArm.Tests.Engine;
 
 /// <summary>
 /// Ctrl+C while a write is on the wire. <see cref="HttpGraphClient"/> used to link the caller's token into the HTTP send, so the POST was aborted
-/// although Graph may already have committed it: the executor rethrew the cancellation, recorded the resource as skipped, and the object (and the
-/// one-time secret only its response carries) was orphaned. A write that was sent now runs to completion (bounded by the request timeout), its outcome
-/// is recorded (the secret goes to the secure outputs file), and only then does the cancellation stop the run: later resources are skipped.
+/// although Graph may already have committed it: the executor rethrew the cancellation and the one-time secret only its response carries was lost.
+/// A write that was sent now runs to completion (bounded by the request timeout), its secret goes to the secure outputs file, and only then does the
+/// cancellation stop the run: later resources are not attempted. A rerun finds the committed object by its key.
 /// The whole deployment runs through the real <see cref="HttpGraphClient"/> over a handler that serves the fake directory and behaves like
 /// <see cref="SocketsHttpHandler"/>: a request whose token is cancelled mid-flight is aborted.
 /// </summary>
@@ -38,9 +37,9 @@ public sealed class InFlightWriteCancellationTests
     }
 
     [Fact]
-    public async Task ACancellationWhileThePostIsInFlight_LetsItComplete_RecordsTheObjectAndItsSecret_AndSkipsTheRest()
+    public async Task ACancellationWhileThePostIsInFlight_LetsItComplete_SavesItsSecret_AndSkipsTheRest()
     {
-        using var directory = new TestDirectory(nameof(ACancellationWhileThePostIsInFlight_LetsItComplete_RecordsTheObjectAndItsSecret_AndSkipsTheRest));
+        using var directory = new TestDirectory(nameof(ACancellationWhileThePostIsInFlight_LetsItComplete_SavesItsSecret_AndSkipsTheRest));
         string path = directory.File("secure.json");
         using var cts = new CancellationTokenSource();
         CancelMidFlightHandler? handler = null;
@@ -49,13 +48,9 @@ public sealed class InFlightWriteCancellationTests
             handler = new CancelMidFlightHandler(((FakeGraphClient)fake).Directory, "/addPassword", cts);
             return HttpClientOver(handler);
         });
-        var state = NewState();
-        var store = new InMemoryStateStore();
-        var plan = await host.ExpandAsync(AppSecretAndDependent(), state, options: host.Options() with { RetryPolicy = null, Parallelism = 1 });
-        var sink = new FileStateSink(store, state, plan);
-        await sink.BeginAsync(Ct);
+        var plan = await host.ExpandAsync(AppSecretAndDependent(), options: host.Options() with { RetryPolicy = null, Parallelism = 1 });
 
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => host.Executor().ExecuteAsync(plan, new ExecuteOptions { StateSink = sink, State = state, SecureOutputsFile = path }, cts.Token));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => host.Executor().ExecuteAsync(plan, new ExecuteOptions { SecureOutputsFile = path }, cts.Token));
 
         // The POST was not aborted: Graph committed it and the answer was read.
         Assert.True(handler!.Fired);
@@ -63,46 +58,41 @@ public sealed class InFlightWriteCancellationTests
         var app = Assert.Single(host.Directory.Objects("/applications"));
         var credential = Assert.Single(app["passwordCredentials"]!.AsArray())!.AsObject();
 
-        // Its outcome is recorded: the state entry and the one-time secret.
+        // Its one-time secret is saved: Graph returns it only in this response.
         string credentialId = "/providers/Microsoft.Entra/applications/app1/passwordCredentials/ci-secret";
-        var saved = (await store.LoadAsync(EngineHost.DeploymentName, Ct))!;
-        Assert.Equal(StateFile.StatusCancelled, saved.LastStatus);
-        Assert.Equal(credential["keyId"]!.GetValue<string>(), saved.GraphIdOf(credentialId));
-        Assert.Contains(saved.Operations, o => o.Status == OperationStatus.Succeeded && o.ResourceId.EndsWith("/passwordCredentials/ci-secret", StringComparison.Ordinal));
         var written = JsonNode.Parse(await File.ReadAllTextAsync(path, Ct))!.AsObject();
-        Assert.StartsWith("fake-secret-", written[SecureOutputsFile.OneTimeSecretsKey]![credentialId]!["secretText"]!.GetValue<string>(), StringComparison.Ordinal);
+        var saved = written[SecureOutputsFile.OneTimeSecretsKey]![credentialId]!;
+        Assert.StartsWith("fake-secret-", saved["secretText"]!.GetValue<string>(), StringComparison.Ordinal);
+        Assert.Equal(credential["keyId"]!.GetValue<string>(), saved["keyId"]!.GetValue<string>());
 
         // Only then is the cancellation honoured: nothing after the credential was attempted.
-        Assert.Contains(saved.Operations, o => o.Status == OperationStatus.Skipped && o.ResourceId.EndsWith("/groups/after", StringComparison.Ordinal));
         Assert.Equal(0, host.Directory.Count("/groups"));
         Assert.DoesNotContain(handler.Commands, c => c.Contains("/groups", StringComparison.Ordinal) && !c.StartsWith("GET", StringComparison.Ordinal));
     }
 
     /// <summary>
     /// The cancellation arrives after the provider's write committed but before its next request (here the re-read of an upsert that answered without
-    /// a body): that request is cancelled, and the executor looks the object up by key once more, uncancellably, and records it instead of reporting the
-    /// resource skipped and orphaning the object.
+    /// a body): that request is cancelled, and the executor looks the object up by key once more, uncancellably, instead of writing anything else.
+    /// A rerun finds the committed object by its key and does not create it again.
     /// </summary>
     [Fact]
-    public async Task ACancellationBetweenTheProvidersRequests_AfterTheWriteCommitted_StillRecordsTheObject()
+    public async Task ACancellationBetweenTheProvidersRequests_AfterTheWriteCommitted_StopsTheRun_AndARerunFindsTheObjectByKey()
     {
         using var cts = new CancellationTokenSource();
         var host = new EngineHost(graph => new CommitThenCancelClient(graph, "/groups(", cts));
-        var state = NewState();
-        var store = new InMemoryStateStore();
-        var plan = await host.ExpandAsync(Groups("g1", "g2"), state, options: host.Options() with { RetryPolicy = null, Parallelism = 1 });
-        var sink = new FileStateSink(store, state, plan);
-        await sink.BeginAsync(Ct);
+        var plan = await host.ExpandAsync(Groups("g1", "g2"), options: host.Options() with { RetryPolicy = null, Parallelism = 1 });
 
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => host.Executor().ExecuteAsync(plan, new ExecuteOptions { Parallelism = 1, StateSink = sink, State = state }, cts.Token));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => host.Executor().ExecuteAsync(plan, new ExecuteOptions { Parallelism = 1 }, cts.Token));
 
-        var saved = (await store.LoadAsync(EngineHost.DeploymentName, Ct))!;
         var created = Assert.Single(host.Directory.Objects("/groups"));
-        var recorded = Assert.Single(saved.Resources);
-        Assert.Equal(IdOf(created), recorded.Value.GraphId);
-        Assert.Contains(saved.Operations, o => o.ResourceId == recorded.Key && o.Status == OperationStatus.Failed && o.Error!.Contains("cancelled", StringComparison.Ordinal));
-        Assert.Contains(saved.Operations, o => o.ResourceId != recorded.Key && o.Status == OperationStatus.Skipped);
-        Assert.Equal(StateFile.StatusCancelled, saved.LastStatus);
+        Assert.Single(host.Fake.Writes);
+
+        var (_, rerun) = await ExecuteAsync(host, Groups("g1", "g2"), execute: new ExecuteOptions { Parallelism = 1 });
+
+        Assert.True(rerun.Succeeded, string.Join("\n", rerun.Operations.Select(o => o.Error)));
+        Assert.Equal(2, host.Directory.Count("/groups"));
+        var first = rerun.Operations.Single(o => o.GraphId == IdOf(created));
+        Assert.Equal(EArm.Engine.Providers.ChangeType.NoChange, first.ChangeType);
     }
 
     [Fact]

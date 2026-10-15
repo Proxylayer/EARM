@@ -31,10 +31,8 @@ namespace EArm.Providers.Edges;
 /// <para>
 /// De-duplication with the standalone <c>Microsoft.Entra/appRoleAssignments</c> resource: the object pass applies
 /// the standalone resource before the edge pass runs, so the principal-side item finds its assignment in place and
-/// the edge pass neither writes nor records it; the standalone resource owns the assignment (Complete mode deletes
-/// it when the resource is removed, Incremental mode detaches it), and removing only the principal-side item changes
-/// nothing. The state records <c>{ principalId, resourceId, appRoleId, id }</c> under
-/// <c>relationships.appRoleAssignments</c> for edges the pass created itself.
+/// the edge pass does not write it again; removing either declaration never removes the assignment (principal-side
+/// edges are ensure-only; a retained assignment of a declared principal is reported, never deleted).
 /// </para>
 /// </summary>
 [EntraEdgeKind(EdgeKind.AppRoleAssignment)]
@@ -277,97 +275,6 @@ public sealed class AppRoleAssignmentEdgeKind : IEdgeKindHandler
             ?? JsonObjects.GetId(edge.Extra)
             ?? throw new InvalidOperationException($"The app role assignment edge {Describe(edge)} has no assignment id; it must be read before it can be removed.");
         return new BatchRequest("DELETE", AppRoleAssignmentsLookup.AssignedToPath(resourceId) + "/" + GraphPath.Segment(id));
-    }
-
-    // ---- state ----
-
-    public JsonNode RecordEntry(Edge edge, JsonObject? applied)
-    {
-        ArgumentNullException.ThrowIfNull(edge);
-        var (resourceId, appRoleId) = Composite(edge);
-        var record = new JsonObject
-        {
-            ["principalId"] = edge.PrincipalId,
-            ["resourceId"] = resourceId,
-            ["appRoleId"] = appRoleId,
-        };
-
-        string? id = JsonObjects.GetId(applied) ?? JsonObjects.GetId(edge.Extra);
-        if (id is not null)
-        {
-            record["id"] = id;
-        }
-
-        return record;
-    }
-
-    public async Task<Edge?> FromRecordAsync(JsonNode? record, string principalId, GraphApi api, EdgeGraphContext context, CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(principalId);
-        ArgumentNullException.ThrowIfNull(context);
-
-        if (record is not JsonObject obj || JsonObjects.GetString(obj, "resourceId") is not { } resourceId || JsonObjects.GetString(obj, "appRoleId") is not { } appRoleId
-            || !AppRoleAssignmentsRules.IsGuid(resourceId) || !AppRoleAssignmentsRules.IsGuid(appRoleId))
-        {
-            return null;
-        }
-
-        string? id = JsonObjects.GetId(obj);
-        if (id is null)
-        {
-            // Recorded without the assignment id (a rerun that found the edge in place): look it up from the principal.
-            string? collection = await context.ResolveCollectionAsync(principalId, api, cancellationToken).ConfigureAwait(false);
-            if (collection is "users" or "groups" or "servicePrincipals")
-            {
-                var live = await ReadPrincipalAssignmentsAsync(collection, principalId, api, context, cancellationToken).ConfigureAwait(false);
-                if (live.TryGetValue(Edge.NormalizeId(AppRoleAssignmentsRules.TargetKey(resourceId, appRoleId)), out var extra))
-                {
-                    id = JsonObjects.GetId(extra);
-                }
-            }
-
-            if (id is null)
-            {
-                // Not in place any more: nothing to remove, and nothing to interpret.
-                return null;
-            }
-        }
-
-        var recorded = new JsonObject
-        {
-            ["resourceId"] = AppRoleAssignmentsRules.NormalizeId(resourceId),
-            ["appRoleId"] = AppRoleAssignmentsRules.NormalizeId(appRoleId),
-            ["id"] = id,
-        };
-        return new Edge(Kind, AppRoleAssignmentsRules.TargetKey(resourceId, appRoleId), principalId, Collection, recorded);
-    }
-
-    /// <summary>GET the recorded assignment by id: it must be the assignment of this principal to the recorded resource and app role (a tampered state could name anybody's assignment).</summary>
-    public async Task<bool> VerifyRecordedAsync(Edge edge, string principalId, GraphApi api, EdgeGraphContext context, CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(edge);
-        ArgumentNullException.ThrowIfNull(context);
-        string? id = JsonObjects.GetId(edge.Extra);
-        if (id is null)
-        {
-            return false;
-        }
-
-        var (resourceId, appRoleId) = Composite(edge);
-        JsonNode? live;
-        try
-        {
-            live = await context.GetAsync(new GraphRequest(AppRoleAssignmentsLookup.AssignedToPath(resourceId) + "/" + GraphPath.Segment(id), api), cancellationToken).ConfigureAwait(false);
-        }
-        catch (GraphException ex) when (ex.IsNotFound)
-        {
-            return false;
-        }
-
-        return live is JsonObject assignment
-            && Edge.IdEquals(JsonObjects.GetString(assignment, "principalId"), principalId)
-            && Edge.IdEquals(JsonObjects.GetString(assignment, "appRoleId"), appRoleId)
-            && (JsonObjects.GetString(assignment, "resourceId") is not { } liveResource || Edge.IdEquals(liveResource, resourceId));
     }
 
     // ---- identity ----

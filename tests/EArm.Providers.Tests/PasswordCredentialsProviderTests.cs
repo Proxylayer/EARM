@@ -13,7 +13,6 @@ using EArm.Engine;
 using EArm.Engine.Execution;
 using EArm.Engine.Planning;
 using EArm.Engine.Providers;
-using EArm.Engine.State;
 using EArm.Providers.Tests.Infrastructure;
 using EArm.TestSupport;
 using Xunit;
@@ -115,15 +114,7 @@ public sealed class PasswordCredentialsProviderTests
         string keyId = run.Output("ciKeyId")!.GetValue<string>();
         Assert.Equal(run.Op(SecretName).GraphId, keyId);
         Assert.Empty(run.Executed.Diagnostics);
-
-        var entry = run.Entry(SecretId);
-        Assert.Equal(keyId, entry.GraphId);
-        Assert.Equal(appId, entry.ParentGraphId);
-        Assert.Equal(SecretName, entry.Key["displayName"]);
-        Assert.Null(entry.Extra);
-        Assert.DoesNotContain(revealed, host.StateDocument, StringComparison.Ordinal);
-        Assert.DoesNotContain("secretText", host.StateDocument, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains(AppId, entry.DependsOn);
+        Assert.Equal(keyId, run.GraphIdOf(SecretId));
     }
 
     [Fact]
@@ -240,7 +231,7 @@ public sealed class PasswordCredentialsProviderTests
         Assert.All(writes, w => Assert.Equal(RetryHint.Default, w.Hint));
         string newKeyId = rotated.Op(SecretName).GraphId!;
         Assert.NotEqual(oldKeyId, newKeyId);
-        Assert.Equal(newKeyId, rotated.Entry(SecretId).GraphId);
+        Assert.Equal(newKeyId, rotated.GraphIdOf(SecretId));
         Assert.Equal("ci-secret#2026Q4", Check.Body(writes[0])["passwordCredential"]!["displayName"]!.GetValue<string>());
         Assert.StartsWith("fake-secret-", rotated.SecureOutput("ciSecret")!.GetValue<string>(), StringComparison.Ordinal);
         Assert.Empty(rotated.Executed.Diagnostics);
@@ -257,9 +248,8 @@ public sealed class PasswordCredentialsProviderTests
     [Fact]
     public async Task SameTag_IsNoChange_WithoutAnyLocalState()
     {
-        var host = new ProviderHost { TrackState = false };
+        var host = new ProviderHost();
         Check.Succeeded(await host.CreateAsync(host.Resources(Template("\"rotationTag\": \"2026Q3\""), Outputs)));
-        Assert.Null(host.StateDocument);
 
         var whatIf = await host.WhatIfAsync(host.Resources(Template("\"rotationTag\": \"2026Q3\""), Outputs));
         var row = whatIf.ChangeOfType(SecretType);
@@ -276,7 +266,7 @@ public sealed class PasswordCredentialsProviderTests
     [Fact]
     public async Task ChangedTag_Rotates_WithoutAnyLocalState()
     {
-        var host = new ProviderHost { TrackState = false };
+        var host = new ProviderHost();
         var first = await host.CreateAsync(host.Resources(Template("\"rotationTag\": \"2026Q3\""), Outputs));
         string oldKeyId = first.Op(SecretName).GraphId!;
 
@@ -296,7 +286,6 @@ public sealed class PasswordCredentialsProviderTests
     public async Task LegacyUntaggedCredential_WithADeclaredTag_IsNotRotated_AndWarns()
     {
         var host = SeededHost(DateTimeOffset.UtcNow.AddDays(100), out _, out string seededKeyId);
-        host.TrackState = false;
 
         var whatIf = await host.WhatIfAsync(host.Resources(Template("\"rotationTag\": \"2026Q4\""), Outputs));
         var row = whatIf.ChangeOfType(SecretType);
@@ -315,7 +304,7 @@ public sealed class PasswordCredentialsProviderTests
     [Fact]
     public async Task SeveralSameBaseCredentials_TheOneWithTheDeclaredTagIsChosen()
     {
-        var host = new ProviderHost { TrackState = false };
+        var host = new ProviderHost();
         var end = DateTimeOffset.UtcNow.AddDays(300);
         string matching = Guid.NewGuid().ToString("D");
         string newerOther = Guid.NewGuid().ToString("D");
@@ -486,35 +475,35 @@ public sealed class PasswordCredentialsProviderTests
         var provider = host.Provider(SecretType);
         var app = host.Directory.AddApplication(AppName, "Seeded");
         string appId = app["id"]!.GetValue<string>();
-        var entry = new StateEntry { Id = ResourceIdentifier.Create(SecretType, AppName + "/" + SecretName), Type = SecretType, ApiVersion = ProviderHost.ApiVersion, Key = new Dictionary<string, string> { ["displayName"] = SecretName }, GraphId = "00000000-0000-0000-0000-00000000dead", ParentGraphId = appId };
+        var entry = new DeleteTarget { Id = ResourceIdentifier.Create(SecretType, AppName + "/" + SecretName), Type = SecretType, ApiVersion = ProviderHost.ApiVersion, Key = new Dictionary<string, string> { ["displayName"] = SecretName }, GraphId = "00000000-0000-0000-0000-00000000dead", ParentGraphId = appId };
 
-        await provider.DeleteAsync(DeleteTarget.KeyOf(entry), DeleteTarget.LiveOf(entry), host.Fake, ProviderHost.Ct);
+        await provider.DeleteAsync(entry.ResourceKey, entry.Live, host.Fake, ProviderHost.Ct);
         Assert.Equal("/applications/" + appId + "/removePassword", Assert.Single(host.Fake.Writes).Path);
 
         host.ClearRequests();
         host.Fake.Failures.Add("POST", "/removePassword", r => new GraphException(HttpStatusCode.NotFound, "Request_ResourceNotFound", "Resource not found.", r.Hint));
-        await provider.DeleteAsync(DeleteTarget.KeyOf(entry), DeleteTarget.LiveOf(entry), host.Fake, ProviderHost.Ct);
+        await provider.DeleteAsync(entry.ResourceKey, entry.Live, host.Fake, ProviderHost.Ct);
         Assert.Single(host.Fake.Writes);
 
         host.ClearRequests();
         host.Fake.Failures.Add("POST", "/removePassword", r => new GraphException(HttpStatusCode.BadRequest, "Request_BadRequest", "No password credential found with keyId 00000000-0000-0000-0000-00000000dead.", r.Hint));
-        await provider.DeleteAsync(DeleteTarget.KeyOf(entry), DeleteTarget.LiveOf(entry), host.Fake, ProviderHost.Ct);
+        await provider.DeleteAsync(entry.ResourceKey, entry.Live, host.Fake, ProviderHost.Ct);
         Assert.Single(host.Fake.Writes);
 
         host.ClearRequests();
         host.Fake.Failures.Add("POST", "/removePassword", r => new GraphException(HttpStatusCode.BadRequest, "Request_BadRequest", "Tenant policy forbids this.", r.Hint));
-        await Assert.ThrowsAsync<GraphException>(() => provider.DeleteAsync(DeleteTarget.KeyOf(entry), DeleteTarget.LiveOf(entry), host.Fake, ProviderHost.Ct));
+        await Assert.ThrowsAsync<GraphException>(() => provider.DeleteAsync(entry.ResourceKey, entry.Live, host.Fake, ProviderHost.Ct));
 
         host.ClearRequests();
-        var orphan = new StateEntry { Id = entry.Id, Type = SecretType, ApiVersion = ProviderHost.ApiVersion, Key = entry.Key, GraphId = "whatever" };
-        await provider.DeleteAsync(DeleteTarget.KeyOf(orphan), DeleteTarget.LiveOf(orphan), host.Fake, ProviderHost.Ct);
+        var orphan = new DeleteTarget { Id = entry.Id, Type = SecretType, ApiVersion = ProviderHost.ApiVersion, Key = entry.Key, GraphId = "whatever" };
+        await provider.DeleteAsync(orphan.ResourceKey, orphan.Live, host.Fake, ProviderHost.Ct);
         Assert.Equal(2, host.Fake.Requests.Count);
         Assert.Equal("/applications(uniqueName='test-api')", host.Fake.Requests[0].Path);
         Assert.Equal("/applications/" + appId + "/removePassword", Assert.Single(host.Fake.Writes).Path);
 
         host.Directory.SoftDelete(appId);
         host.ClearRequests();
-        await provider.DeleteAsync(DeleteTarget.KeyOf(entry), DeleteTarget.LiveOf(entry), host.Fake, ProviderHost.Ct);
+        await provider.DeleteAsync(entry.ResourceKey, entry.Live, host.Fake, ProviderHost.Ct);
         Assert.Empty(host.Fake.Writes);
     }
 
@@ -538,7 +527,7 @@ public sealed class PasswordCredentialsProviderTests
         Assert.Equal("/applications/" + appId + "/addPassword", requests[2].Path);
         Assert.Equal(RetryHint.Default, requests[2].Hint);
         Assert.Single(run.Writes);
-        Assert.Equal(appId, run.Entry(SecretId).ParentGraphId);
+        Assert.Equal("/applications/" + appId + "/addPassword", Assert.Single(run.Writes).Path);
         Assert.NotNull(run.SecureOutput("ciSecret"));
 
         var rerun = await host.CreateAsync(host.Resources(Secret(), Outputs));
@@ -607,7 +596,6 @@ public sealed class PasswordCredentialsProviderTests
 
         Check.Succeeded(run);
         string secret = run.SecureOutput("ciSecret")!.GetValue<string>();
-        Assert.DoesNotContain(secret, host.StateDocument, StringComparison.Ordinal);
         Assert.Contains("***", run.Executed.Outputs.ToJsonString(), StringComparison.Ordinal);
         Assert.DoesNotContain(secret, run.Executed.Outputs.ToJsonString(), StringComparison.Ordinal);
         Assert.All(run.Executed.Changes, c =>

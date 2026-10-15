@@ -9,7 +9,6 @@ using EArm.Core.Loading;
 using EArm.Core.Types;
 using EArm.Engine.Planning;
 using EArm.Engine.Providers;
-using EArm.Engine.State;
 using EArm.Engine.WhatIf;
 using EArm.Providers;
 using EArm.TestSupport;
@@ -27,7 +26,6 @@ internal sealed record WhatIfScenario(
     string TenantId,
     string Template,
     string Seed,
-    string? State,
     IReadOnlyDictionary<string, string> Parameters,
     string ExpectedText,
     string ExpectedJson)
@@ -57,7 +55,6 @@ internal sealed record WhatIfScenario(
             Text("tenantId"),
             Text("template"),
             Text("seed"),
-            json["state"]?.GetValue<string>(),
             parameters,
             Text("expectedText"),
             Text("expectedJson"));
@@ -114,7 +111,6 @@ internal sealed record WhatIfScenario(
 
         client.ClearRequests();
 
-        StateFile? state = State is null ? null : StateSerializer.Deserialize(File.ReadAllText(PathOf(State)), DeploymentName);
         var options = new PlannerOptions
         {
             DeploymentName = DeploymentName,
@@ -125,7 +121,7 @@ internal sealed record WhatIfScenario(
         var parameters = Parameters.Aggregate(ParameterSet.Empty, (set, p) => set.WithInline(p.Key, p.Value));
         var document = await new TemplateLoader(catalog).LoadAsync(PathOf(Template), parameters, ct);
         var planner = new DeploymentPlanner(registry, client, options, NullLogger<DeploymentPlanner>.Instance);
-        var plan = await planner.PlanAsync(document, state, Mode, PlanMode.WhatIf, ct);
+        var plan = await planner.PlanAsync(document, Mode, PlanMode.WhatIf, ct);
         return new WhatIfRun(this, client, plan, WhatIfReport.From(plan));
     }
 }

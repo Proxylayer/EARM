@@ -50,25 +50,13 @@ internal static partial class EngineLog
     [LoggerMessage(EventId = 2031, Level = LogLevel.Information, Message = "Secure outputs written to {Path}")]
     public static partial void SecureOutputsWritten(ILogger logger, string path);
 
-    // ---- state ----
+    // ---- delete ----
 
     [LoggerMessage(EventId = 2042, Level = LogLevel.Information, Message = "Deleting {ResourceId} (Graph id {GraphId}) (deployment delete)")]
     public static partial void Deleting(ILogger logger, string resourceId, string graphId);
 
     [LoggerMessage(EventId = 2044, Level = LogLevel.Error, Message = "Deleting {ResourceId} failed: {Error}")]
     public static partial void DeleteFailed(ILogger logger, string resourceId, string error);
-
-    [LoggerMessage(EventId = 2046, Level = LogLevel.Debug, Message = "State saved to {Path} ({ResourceCount} resource(s))")]
-    public static partial void StateSaved(ILogger logger, string path, int resourceCount);
-
-    [LoggerMessage(EventId = 2047, Level = LogLevel.Warning, Message = "Taking over the stale state lock {Path} held by {Holder} (older than {StaleAfter})")]
-    public static partial void StaleLockTakenOver(ILogger logger, string path, string holder, string staleAfter);
-
-    [LoggerMessage(EventId = 2048, Level = LogLevel.Information, Message = "Waiting for the state lock {Path} held by {Holder}")]
-    public static partial void WaitingForLock(ILogger logger, string path, string holder);
-
-    [LoggerMessage(EventId = 2049, Level = LogLevel.Warning, Message = "The state lock {Path} could not be deleted on release ({Error}); it stays until it is removed with 'state unlock' or taken over as stale (older than {StaleAfter})")]
-    public static partial void StateLockReleaseFailed(ILogger logger, string path, string error, string staleAfter);
 
     [LoggerMessage(EventId = 2050, Level = LogLevel.Information, Message = "Parameter '{Parameter}' resolved from {Reference}")]
     public static partial void KeyVaultResolved(ILogger logger, string parameter, string reference);
@@ -90,9 +78,6 @@ internal static partial class EngineLog
     [LoggerMessage(EventId = 2064, Level = LogLevel.Error, Message = "Relationships of {ResourceId} not applied: {Error}")]
     public static partial void EdgeValidationFailed(ILogger logger, string resourceId, string error);
 
-    [LoggerMessage(EventId = 2065, Level = LogLevel.Debug, Message = "Recorded edge of {ResourceId} skipped: {Reason}")]
-    public static partial void RecordedEdgeSkipped(ILogger logger, string resourceId, string reason);
-
     [LoggerMessage(EventId = 2067, Level = LogLevel.Warning, Message = "Deleting {ResourceId}: {Warning}")]
     public static partial void DeleteWarning(ILogger logger, string resourceId, string warning);
 
@@ -101,23 +86,11 @@ internal static partial class EngineLog
     [LoggerMessage(EventId = 2070, Level = LogLevel.Warning, Message = "{ResourceId} was not deleted: {Reason}")]
     public static partial void DeleteRefused(ILogger logger, string resourceId, string reason);
 
-    [LoggerMessage(EventId = 2071, Level = LogLevel.Warning, Message = "State entry mismatch for {ResourceId}: {Reason}")]
-    public static partial void StateEntryMismatch(ILogger logger, string resourceId, string reason);
-
     [LoggerMessage(EventId = 2073, Level = LogLevel.Warning, Message = "The create of {ResourceId} ended with an unknown outcome ({Error}); the object exists (Graph id {GraphId}), so the create is counted as done")]
     public static partial void CreateOutcomeUncertain(ILogger logger, string resourceId, string error, string graphId);
 
-    [LoggerMessage(EventId = 2074, Level = LogLevel.Error, Message = "Saving the state failed: {Error}")]
-    public static partial void StateSaveFailed(ILogger logger, string error);
-
-    [LoggerMessage(EventId = 2075, Level = LogLevel.Warning, Message = "Saving the state failed ({Error}); retry {Attempt}")]
-    public static partial void StateSaveRetry(ILogger logger, string error, int attempt);
-
     [LoggerMessage(EventId = 2076, Level = LogLevel.Warning, Message = "{ResourceId} and {OtherResourceId} resolve to the same Graph object {GraphId}")]
     public static partial void DuplicateGraphObject(ILogger logger, string resourceId, string otherResourceId, string graphId);
-
-    [LoggerMessage(EventId = 2077, Level = LogLevel.Warning, Message = "The state was read without holding the deployment lock (what-if): {Detail}")]
-    public static partial void UnlockedSnapshot(ILogger logger, string detail);
 
     [LoggerMessage(EventId = 2078, Level = LogLevel.Information, Message = "The one-time secret of {ResourceId} was saved to the secure outputs file immediately")]
     public static partial void OneTimeSecretSaved(ILogger logger, string resourceId);

@@ -8,14 +8,13 @@ using EArm.Core;
 using EArm.Core.Loading;
 using EArm.Engine.Execution;
 using EArm.Engine.Planning;
-using EArm.Engine.State;
 using EArm.Graph;
 using EArm.TestSupport;
 using Xunit;
 
 namespace EArm.Tests.Engine;
 
-/// <summary>Shared helpers of the review-1A regression tests (state trust, adoption, case-only renames, one-time secrets).</summary>
+/// <summary>Shared helpers of the review-1A regression tests (adoption, case-only renames, one-time secrets).</summary>
 internal static class Review1A
 {
     public const string ApiVersion = "2026-10-01-preview";
@@ -32,27 +31,6 @@ internal static class Review1A
     public static string GroupId(string name)
     {
         return "/providers/Microsoft.Entra/groups/" + name;
-    }
-
-    public static StateFile NewState()
-    {
-        return StateFile.CreateNew(EngineHost.DeploymentName, EngineHost.Tenant, Start);
-    }
-
-    /// <summary>A state entry as a previous run (or a committed, edited file) would have recorded it.</summary>
-    public static StateEntry Entry(string resourceId, string type, string graphId, string keyName, string keyValue, StateProvenance provenance = StateProvenance.Created, string? parentGraphId = null)
-    {
-        return new StateEntry
-        {
-            Id = StateSerializer.ParseResourceId(resourceId, type)!,
-            Type = type,
-            ApiVersion = ApiVersion,
-            Key = new Dictionary<string, string> { [keyName] = keyValue },
-            GraphId = graphId,
-            ParentGraphId = parentGraphId,
-            Provenance = provenance,
-            LastWriteOn = Start,
-        };
     }
 
     public static string Gid(int n)
@@ -75,23 +53,17 @@ internal static class Review1A
         return Templates.Resources(string.Empty);
     }
 
-    /// <summary>Plans (Create mode) and executes with a <see cref="FileStateSink"/> over an in-memory store: what <c>deployment create</c> does.</summary>
-    public static async Task<(DeploymentPlan Plan, DeploymentResult Result, InMemoryStateStore Store)> ExecuteAsync(
+    /// <summary>Plans (Create mode) and executes: what <c>deployment create -y</c> does.</summary>
+    public static async Task<(DeploymentPlan Plan, DeploymentResult Result)> ExecuteAsync(
         EngineHost host,
-        StateFile state,
         TemplateDocument document,
         DeploymentMode mode = DeploymentMode.Incremental,
         PlannerOptions? planner = null,
-        ExecuteOptions? execute = null,
-        IStateStore? store = null)
+        ExecuteOptions? execute = null)
     {
-        var memory = store as InMemoryStateStore ?? new InMemoryStateStore();
-        var plan = await host.ExpandAsync(document, state, mode, planner);
-        var sink = new FileStateSink(store ?? memory, state, plan) { SaveRetryBaseDelay = TimeSpan.FromMilliseconds(1) };
-        await sink.BeginAsync(Ct);
-        var options = (execute ?? new ExecuteOptions()) with { StateSink = sink, State = state };
-        var result = await host.Executor().ExecuteAsync(plan, options, Ct);
-        return (plan, result, memory);
+        var plan = await host.ExpandAsync(document, mode, planner);
+        var result = await host.Executor().ExecuteAsync(plan, execute ?? new ExecuteOptions(), Ct);
+        return (plan, result);
     }
 
     public static string IdOf(JsonObject obj)

@@ -6,8 +6,8 @@ using EArm.Cli.Output;
 namespace EArm.Cli.Commands;
 
 /// <summary>
-/// The result of the state-backed verbs (<c>state unlock / forget / adopt / set-provenance</c>, <c>deployment delete / show / list / operation list</c>, the preflight and
-/// state failures of <c>what-if</c> / <c>create</c>) in the output format asked for. With <c>-o json</c> stdout carries exactly ONE JSON document on success and on failure
+/// The result of the verbs that report one outcome (<c>deployment delete</c>, the preflight and setup failures of <c>what-if</c> / <c>create</c>) in the output
+/// format asked for. With <c>-o json</c> stdout carries exactly ONE JSON document on success and on failure
 /// (<c>{ "status": "Failed", "diagnostics": [ { "severity", "code", "message" } ] }</c>), never prose; the table format keeps the human text (failures on stderr). Line breaks of
 /// a message are normalised to <c>\n</c> so a multi-line message (a sign-in failure with its hints) reads as lines in the JSON string instead of a literal <c>\r\n</c> (review round 2, S2-20).
 /// </summary>
