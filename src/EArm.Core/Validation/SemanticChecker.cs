@@ -18,6 +18,7 @@ internal sealed partial class SemanticChecker
     private const string GroupsType = "Microsoft.Entra/groups";
     private const string UsersType = "Microsoft.Entra/users";
     private const string AdministrativeUnitsType = "Microsoft.Entra/administrativeUnits";
+    private const string PasswordCredentialsType = "Microsoft.Entra/applications/passwordCredentials";
 
     private static readonly string[] KnownTopLevelKeys = ["$schema", "contentVersion", "metadata", "parameters", "variables", "functions", "resources", "outputs"];
 
@@ -323,6 +324,7 @@ internal sealed partial class SemanticChecker
             }
 
             string? leafName = CheckName(resource, definition);
+            CheckPasswordCredentialName(resource, definition, leafName);
 
             if (resource.StaticId is { } id)
             {
@@ -492,6 +494,45 @@ internal sealed partial class SemanticChecker
             {
                 Error(DiagnosticCodes.AssignedLicensesRequireUsageLocation, "'assignedLicenses' requires 'usageLocation' on the user; Microsoft Graph refuses license assignment without it.", propertiesPath.Append("assignedLicenses"));
             }
+        }
+    }
+
+    /// <summary>
+    /// A password credential's live <c>displayName</c> is <c>&lt;name&gt;#&lt;rotationTag&gt;</c> (see <see cref="PasswordCredentialName"/>): a literal
+    /// name or tag containing <c>#</c>, or a live name over the cap, is rejected here, offline. Names and tags computed by expressions are
+    /// checked by the provider once they are evaluated.
+    /// </summary>
+    private void CheckPasswordCredentialName(ResourceDeclaration resource, ResourceTypeDefinition definition, string? leafName)
+    {
+        if (!ResourceIdentifier.TypeEquals(definition.Type, PasswordCredentialsType))
+        {
+            return;
+        }
+
+        string? tag = null;
+        if (resource.Properties is JsonObject properties)
+        {
+            foreach (var (key, value) in properties)
+            {
+                if (string.Equals(key, "rotationTag", StringComparison.OrdinalIgnoreCase))
+                {
+                    tag = TemplateJson.LiteralString(value);
+                    break;
+                }
+            }
+        }
+
+        if (leafName is null && tag is null)
+        {
+            return;
+        }
+
+        if (PasswordCredentialName.Problem(leafName ?? string.Empty, tag) is { } problem)
+        {
+            bool tagAtFault = tag is not null && tag.Contains(PasswordCredentialName.TagSeparator, StringComparison.Ordinal)
+                && (leafName is null || !leafName.Contains(PasswordCredentialName.TagSeparator, StringComparison.Ordinal));
+            var path = tagAtFault ? resource.Path.Append("properties").Append("rotationTag") : resource.Path.Append("name");
+            Error(DiagnosticCodes.InvalidResourceName, $"'{definition.Type}': {problem}", path);
         }
     }
 

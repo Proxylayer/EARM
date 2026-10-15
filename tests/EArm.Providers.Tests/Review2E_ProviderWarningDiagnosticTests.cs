@@ -90,6 +90,7 @@ public sealed class Review2E_ProviderWarningDiagnosticTests
     [InlineData(nameof(ProviderWarnings.SoftDeleteProbeSkipped))]
     [InlineData(nameof(ProviderWarnings.GroupHasNoOwnerAtCreate))]
     [InlineData(nameof(ProviderWarnings.SecretExpiresSoon))]
+    [InlineData(nameof(ProviderWarnings.RotationTagNotStamped))]
     [InlineData(nameof(ProviderWarnings.PasswordCredentialOrphaned))]
     public void TheProviderWarningCodes_AreTheDocumentedEngineCodes(string name)
     {

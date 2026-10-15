@@ -144,6 +144,9 @@ public static class EngineDiagnosticCodes
     /// <summary>A password credential has expired or is about to, and rotating it would not extend its life.</summary>
     public const string SecretExpiresSoon = "SecretExpiresSoon";
 
+    /// <summary>A live password credential carries no rotation tag in its displayName (created by an older EARM) while the template declares one: treated as matching, stamped by the next rotation.</summary>
+    public const string RotationTagNotStamped = "RotationTagNotStamped";
+
     /// <summary>A failed <c>addPassword</c> left a credential of the same name that EARM did not record; it is reported, never removed.</summary>
     public const string PasswordCredentialOrphaned = "PasswordCredentialOrphaned";
 

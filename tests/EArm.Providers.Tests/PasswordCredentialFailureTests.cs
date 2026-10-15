@@ -104,8 +104,7 @@ public sealed class PasswordCredentialFailureTests
         var applied = await provider.CreateAsync(instance, graph, ProviderHost.Ct);
 
         Assert.Equal(keyId, applied.GraphId);
-        Assert.NotNull(applied.Extra);
-        Assert.DoesNotContain(LeakCanary, applied.Extra!.ToJsonString(), StringComparison.Ordinal);
+        Assert.Null(applied.Extra);
         Assert.False(applied.Live.ContainsKey("secretText") && applied.Live["secretText"] is JsonValue plain && plain.TryGetValue<string>(out _), "the live view carries the secret only as a secret leaf");
         Assert.True(SecretJson.IsSecret(applied.Live["secretText"]));
         Assert.Equal(SecretName, applied.Live["displayName"]!.GetValue<string>());
@@ -204,9 +203,10 @@ public sealed class PasswordCredentialFailureTests
         string older = Guid.NewGuid().ToString("D");
         string newer = Guid.NewGuid().ToString("D");
         string other = Guid.NewGuid().ToString("D");
+        // An untagged leftover (older EARM) and the newest one, tagged 'old': the declared tag differs from the live one, so the secret rotates.
         string appId = host.Directory.AddApplication(AppName, "Test API", configure: a => a["passwordCredentials"] = new JsonArray(
             Seeded(older, SecretName, end.AddDays(-20)),
-            Seeded(newer, SecretName, end),
+            Seeded(newer, SecretName + "#old", end),
             Seeded(other, "unrelated", end)))["id"]!.GetValue<string>();
 
         var run = await host.CreateAsync(host.Resources(Template("\"rotationTag\": \"rotate-now\"")));
@@ -217,7 +217,7 @@ public sealed class PasswordCredentialFailureTests
         Assert.Contains(newer, removed);
         Assert.DoesNotContain(other, removed);
         var remaining = host.Directory.FindById(appId)!["passwordCredentials"]!.AsArray().Select(c => c!["displayName"]!.GetValue<string>()).Order(StringComparer.Ordinal).ToList();
-        Assert.Equal(["ci-secret", "unrelated"], remaining);
+        Assert.Equal(["ci-secret#rotate-now", "unrelated"], remaining);
     }
 
     [Fact]

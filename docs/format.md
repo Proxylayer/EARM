@@ -168,12 +168,18 @@ enumerations. In short:
 
 Graph never edits a client secret, and returns its text once. `applications/passwordCredentials` therefore:
 
-- matches the credential among the application's secrets by `displayName` (the child name);
-- is `NoChange` unless `rotationTag` differs from the one recorded in state, a declared `endDateTime` / `startDateTime` differs, the
+- names the credential `<name>#<rotationTag>` in Graph (`displayName`) when `rotationTag` is declared, else `<name>`; the name and the
+  tag may not contain `#`, and the whole `displayName` is capped at 256 characters (rejected offline);
+- matches the credential among the application's secrets by that base name (with or without a tag), preferring the one whose tag
+  equals the declared one;
+- is `NoChange` unless `rotationTag` differs from the tag in the live `displayName` (no local state is involved), a declared `endDateTime` / `startDateTime` differs, the
   secret expired, or fewer than `rotateBeforeDays` (default 30) remain; then it **adds the new secret first, then removes the old one**;
 - publishes `secretText` on the creating or rotating run only (`reference('…/passwordCredentials/ci-secret').secretText` flowing into a
   `securestring` output); a rerun reports that output as `null` with the `SecretNotAvailableOnRerun` warning and does not fail.
   Change `rotationTag` to rotate and obtain a new secret.
+- treats a credential created by an older EARM (named `<name>`, no tag) as matching a declared tag, with the `RotationTagNotStamped`
+  warning, so upgrading never rotates by surprise; its next rotation writes the tag into the name. Until then a changed `rotationTag`
+  is not detected: declare a different `endDateTime` to rotate it.
 
 ## Expressions
 

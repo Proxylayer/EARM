@@ -220,8 +220,8 @@ resources are reported per operation (exit 1); the state codes map to their own 
 
 ## Provider codes
 
-Raised by the resource providers (`EArm.Providers`) against one resource; the constants are in `EngineDiagnosticCodes`. The first four are warnings that never fail a
-run: a provider reports them in `AppliedResource.Warnings`, or (`SecretExpiresSoon`) as a plan row reason `SecretExpiresSoon: ...` that what-if and create both turn into a
+Raised by the resource providers (`EArm.Providers`) against one resource; the constants are in `EngineDiagnosticCodes`. The ones of severity Warning never fail a
+run: a provider reports them in `AppliedResource.Warnings`, or (`SecretExpiresSoon`, `RotationTagNotStamped`) as a plan row reason `Code: ...` that what-if and create both turn into a
 warning diagnostic. The others are the `Code` of a provider failure and appear as the error of the resource's operation.
 
 | Code | Severity | Meaning |
@@ -229,6 +229,7 @@ warning diagnostic. The others are the `Code` of a provider failure and appear a
 | `SoftDeleteProbeSkipped` | Warning | The `GET /directory/deletedItems/microsoft.graph.<type>` probe made before a create was refused (403) or rejected (400), usually because the identity has `Application.ReadWrite.OwnedBy` but not `Application.Read.All`; the create goes on without knowing whether a soft-deleted object holds the key. |
 | `GroupHasNoOwnerAtCreate` | Warning | A Microsoft 365 group was created without `properties.owners`: with an application token Graph creates it ownerless ("anonymous") and nobody but an administrator can manage it. Declare `owners`. |
 | `SecretExpiresSoon` | Warning | A password credential has expired or expires within the rotation window and a replacement would not live longer (a declared fixed `endDateTime`, or a default that is not later); nothing is rotated. Declare a later `endDateTime` or remove it. |
+| `RotationTagNotStamped` | Warning | A password credential's live `displayName` carries no `#<rotationTag>` suffix (it was created by an EARM version that kept the tag in its local state) while the template declares a `rotationTag`. The credential is treated as matching, so upgrading never rotates a secret by surprise; the next rotation writes the tag into the name. Until then a changed `rotationTag` is not detected: declare a different `endDateTime` to rotate it now. |
 | `PasswordCredentialOrphaned` | Error (resource) | An `addPassword` call failed without a usable answer and the application now holds credentials with the same name that EARM did not record, so their secrets are lost. The message lists their key ids; remove them with `POST /applications/{id}/removePassword` (EARM never does), then deploy again. |
 | `UniqueNameNotSettable` | Error (resource) | Graph refused to set the `uniqueName` of an existing application (the property is immutable; it can only be assigned when the application is created by the upsert). Raised by an adoption by `appId` and by `state adopt --type applications --unique-name ...` (exit 1, one line). Recreate the application through EARM, or adopt it into the state without a `uniqueName`. |
 | `AmbiguousMatch` | Error (resource) | A lookup by `displayName` (or another non-unique key) matched more than one object; pin the intended one with `state adopt --resource-id ... --object-id ...`. |

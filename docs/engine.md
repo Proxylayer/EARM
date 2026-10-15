@@ -575,10 +575,10 @@ public interface IResourceProvider
   `secretText`), the `Key`, and `Extra` data for the state file (never a secret or a placeholder; the sink refuses
   both). `Warnings` are non-fatal observations of the apply (`ProviderWarning(Code, Message)`); the executor reports each as a warning diagnostic against the resource
   (see [providers.md](providers.md#review-1d-behaviours)). On a `NoChange` the executor republishes `ExistingResource.Raw` and carries the entry's recorded `extra`
-  forward unchanged, so provider data written at create time (`keyId`, `endDateTime`, derived ids) survives reruns.
+  forward unchanged, so provider data written at create time (derived ids) survives reruns.
 - `PlanOptions`: deployment-wide knobs for `Plan` (`Mode`, `PlanMode`, `AllowCaEnforce`, `OnSoftDeletedConflict`)
   plus `State`, the deployment's state before the run, for providers whose live object cannot carry everything the
-  diff needs (password credentials read the recorded `rotationTag` and `endDateTime` from the entry's `extra`).
+  diff needs (no provider reads it any more: password credentials carry their `rotationTag` in the live `displayName`).
   Read-only for providers.
 - `LiveSecrets`: the marker contract for one-time secrets (`secretText` / `secretTextAvailable`) between a provider's
   published live object and the output evaluation (pipeline step 8).

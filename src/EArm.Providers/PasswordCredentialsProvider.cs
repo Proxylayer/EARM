@@ -20,17 +20,19 @@ namespace EArm.Providers;
 
 /// <summary>
 /// <c>Microsoft.Entra/applications/passwordCredentials</c>. The
-/// resource name is <c>&lt;application uniqueName&gt;/&lt;credential displayName&gt;</c>; the credential is matched
-/// among the application's <c>passwordCredentials</c> by <c>displayName</c> (the newest when several
-/// share it). Graph never edits a credential: every change is a replacement, and the
+/// resource name is <c>&lt;application uniqueName&gt;/&lt;credential name&gt;</c>. The live <c>displayName</c> is
+/// <c>&lt;name&gt;#&lt;rotationTag&gt;</c> when the template declares a <c>rotationTag</c>, else the plain name
+/// (<see cref="PasswordCredentialName"/>): the tag lives in Graph, so rotation needs no local state. The credential is matched
+/// among the application's <c>passwordCredentials</c> by base name (with or without a tag suffix); among several, the newest whose
+/// tag equals the declared one, else the newest. Graph never edits a credential: every change is a replacement, and the
 /// <c>secretText</c> is returned exactly once, by <c>addPassword</c>.
 /// <para>
-/// Action URLs always address the application by its object id (from the state, the parent applied in this run, or
+/// Action URLs always address the application by its object id (the parent applied or read in this run, or
 /// an id lookup); only reads use the alternate key <c>/applications(uniqueName='…')</c>. Requests per operation:
 /// <list type="bullet">
 /// <item><b>Read</b>: <c>GET /applications/{parentId}?$select=id,passwordCredentials</c> (or <c>GET /applications(uniqueName='…')</c>); a 404 is "does not exist" (parent and credential alike).</item>
-/// <item><b>Create</b>: <c>[GET /applications(uniqueName='…')?$select=id]</c> when the parent's id is not known → <c>POST /applications/{id}/addPassword { "passwordCredential": { "displayName", "endDateTime"[, "startDateTime"] } }</c>; the response's <c>secretText</c> goes into the published live object as a secret leaf (so <c>reference(...).secretText</c> works in this run) and nowhere else.</item>
-/// <item><b>Rotate</b> (a <c>Modify</c> row): the same <c>addPassword</c> first, then <c>POST /applications/{id}/removePassword { "keyId" }</c> for every live same-name credential except the new one, so a consumer never sees a moment without a valid secret.</item>
+/// <item><b>Create</b>: <c>[GET /applications(uniqueName='…')?$select=id]</c> when the parent's id is not known → <c>POST /applications/{id}/addPassword { "passwordCredential": { "displayName": "&lt;name&gt;[#&lt;rotationTag&gt;]", "endDateTime"[, "startDateTime"] } }</c>; the response's <c>secretText</c> goes into the published live object as a secret leaf (so <c>reference(...).secretText</c> works in this run) and nowhere else.</item>
+/// <item><b>Rotate</b> (a <c>Modify</c> row): the same <c>addPassword</c> first (named with the new tag), then <c>POST /applications/{id}/removePassword { "keyId" }</c> for every live same-base-name credential except the new one, so a consumer never sees a moment without a valid secret.</item>
 /// <item><b>Delete</b>: <c>GET /applications/{parentId}?$select=id,passwordCredentials</c> (a 404 means the application and its credentials are gone) → <c>removePassword</c> for the live credential's <c>keyId</c> and every same-name leftover; an unknown <c>keyId</c> counts as removed.</item>
 /// </list>
 /// </para>
@@ -38,11 +40,12 @@ namespace EArm.Providers;
 /// <see cref="Plan"/>: <c>Create</c> when no same-name credential exists; <c>NoChange</c> when one exists and nothing
 /// below applies; otherwise <c>Modify</c> (mode <see cref="ChangeMode.Patch"/>, applied by <see cref="UpdateAsync"/>
 /// as add-then-remove rather than the executor's delete-then-create <see cref="ChangeMode.Recreate"/>) when the
-/// <c>rotationTag</c> differs from the one recorded in the state entry's <c>extra</c> (Graph does not store it), a
+/// <c>rotationTag</c> differs from the tag in the live <c>displayName</c> (a live credential without a tag, created by an
+/// older EARM, matches any declared tag and is reported with <see cref="ProviderWarnings.RotationTagNotStamped"/>), a
 /// declared <c>endDateTime</c> / <c>startDateTime</c> differs from the live value, the credential expired, or it
 /// expires within <c>rotateBeforeDays</c> (default 30). A credential created without <c>endDateTime</c> gets
-/// "now + 180 days" once; reruns compare against the live expiry, never against a fresh default. The state entry
-/// records <c>extra: { keyId, endDateTime, hint, rotationTag }</c> and never the secret; on reruns the published
+/// "now + 180 days" once; reruns compare against the live expiry, never against a fresh default. The secret is
+/// never kept outside the run (only the secure outputs file receives it); on reruns the published
 /// live object carries <c>secretText: null</c> plus the <see cref="LiveSecrets.AvailabilityMarker"/> so an output
 /// reading it is reported as <c>null</c> with <see cref="EngineDiagnosticCodes.SecretNotAvailableOnRerun"/>.
 /// </para>
@@ -57,6 +60,12 @@ public sealed class PasswordCredentialsProvider : ProviderBase
     public const string RemovePasswordAction = "removePassword";
 
     private const string ParentKeyProperty = "uniqueName";
+
+    /// <summary>
+    /// The key hint (<see cref="ResourceKey.Hints"/>) that carries the declared <c>rotationTag</c> (when it is known), so <see cref="ReadAsync"/>
+    /// can prefer the credential whose live tag matches. It only steers the choice among same-name credentials; it never excludes one.
+    /// </summary>
+    public const string RotationTagHint = PasswordCredentialsRules.RotationTagProperty;
 
     /// <summary>The live same-name credentials seen by the last read, per (parent, name): what a rotation removes besides the credential it replaces.</summary>
     private readonly ConcurrentDictionary<string, IReadOnlyList<PasswordCredentialSummary>> _sameName = new(StringComparer.Ordinal);
@@ -88,6 +97,24 @@ public sealed class PasswordCredentialsProvider : ProviderBase
         return desired?.Parent is not null ? [ApplicationsProvider.OwnedByPermission] : [ApplicationsProvider.ReadWriteAllPermission];
     }
 
+    // ---- key ----
+
+    /// <summary>The base key (application, credential name), with the declared <c>rotationTag</c> as a read hint when it is a known scalar.</summary>
+    public override ResourceKey ResolveKey(ResourceInstance desired)
+    {
+        var key = base.ResolveKey(desired);
+        if (desired.Properties is not { } properties
+            || !JsonObjects.TryGetIgnoreCase(properties, PasswordCredentialsRules.RotationTagProperty, out var tag)
+            || JsonObjects.IsAbsent(tag)
+            || PasswordCredentialsRules.DescribeDesired(properties, out var parsed) is not null
+            || parsed?.RotationTag is not { } rotationTag)
+        {
+            return key;
+        }
+
+        return key with { Hints = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [RotationTagHint] = rotationTag } };
+    }
+
     // ---- read ----
 
     public override async Task<ExistingResource?> ReadAsync(ResourceKey key, IGraphClient graph, CancellationToken cancellationToken)
@@ -114,7 +141,8 @@ public sealed class PasswordCredentialsProvider : ProviderBase
         var sameName = PasswordCredentialsRules.SameName(PasswordCredentialsRules.Summarize(parent[PasswordCredentialsRules.PasswordCredentialsProperty]), name);
         _sameName[snapshotKey] = sameName;
 
-        var match = PasswordCredentialsRules.Select(sameName);
+        string? preferredTag = key.Hints.TryGetValue(RotationTagHint, out var tag) ? tag : null;
+        var match = PasswordCredentialsRules.Select(sameName, preferredTag);
         return match is null ? null : Existing(match);
     }
 
@@ -169,6 +197,11 @@ public sealed class PasswordCredentialsProvider : ProviderBase
             return Unsupported(desired, existing, $"{desired.Describe()}: {problem ?? "the properties could not be interpreted."}");
         }
 
+        if (PasswordCredentialsRules.NameProblem(name, parsed.RotationTag) is { } nameProblem)
+        {
+            return Unsupported(desired, existing, $"{desired.Describe()}: {nameProblem} ({DiagnosticCodes.InvalidResourceName})");
+        }
+
         if (existing is null)
         {
             // The shared Create row (deltas, required-on-create check), with the name shown like the other views.
@@ -177,12 +210,11 @@ public sealed class PasswordCredentialsProvider : ProviderBase
 
         var live = PasswordCredentialsRules.SummaryOf(existing.Raw)
             ?? throw new ProviderException(EngineDiagnosticCodes.ReadFailed, $"{desired.Describe()}: the live credential carries no keyId.", desired.Id);
-        var recorded = PasswordCredentialsRules.Recorded(options.State?.Find(desired.Id.Id)?.Extra);
-        var assessment = PasswordCredentialsRules.AssessRotation(parsed, live, recorded, Clock.GetUtcNow());
+        var assessment = PasswordCredentialsRules.AssessRotation(parsed, live, Clock.GetUtcNow());
         var triggers = assessment.Triggers;
-        var warningReasons = assessment.Warnings.Select(w => ProviderWarnings.Format(ProviderWarnings.SecretExpiresSoon, $"{desired.Describe()}: {w}")).ToList();
+        var warningReasons = assessment.Warnings.Select(w => ProviderWarnings.Format(w.Code, $"{desired.Describe()}: {w.Message}")).ToList();
 
-        var before = PasswordCredentialsRules.DiffView(live, recorded.RotationTag);
+        var before = PasswordCredentialsRules.DiffView(live);
         var after = AfterView(properties, name, parsed);
         if (triggers.Count == 0)
         {
@@ -236,13 +268,13 @@ public sealed class PasswordCredentialsProvider : ProviderBase
         ArgumentNullException.ThrowIfNull(graph);
         var parsed = ParseDesired(desired);
         string parentId = await ResolveParentIdAsync(desired, graph, cancellationToken).ConfigureAwait(false);
-        var (created, live, extra) = await AddAsync(desired, parsed, parentId, graph, cancellationToken).ConfigureAwait(false);
-        return new AppliedResource(desired.Id, created.KeyId, live, KeyWithParent(desired, parentId), extra);
+        var (created, live) = await AddAsync(desired, parsed, parentId, graph, cancellationToken).ConfigureAwait(false);
+        return new AppliedResource(desired.Id, created.KeyId, live, KeyWithParent(desired, parentId));
     }
 
     // ---- update (rotation) ----
 
-    /// <summary>Adds the replacement first, then removes every live same-name credential the read saw (and the one being replaced).</summary>
+    /// <summary>Adds the replacement (named with the declared tag) first, then removes every live same-base-name credential the read saw (and the one being replaced).</summary>
     public override async Task<AppliedResource> UpdateAsync(ResourceInstance desired, ExistingResource existing, ResourceChange change, IGraphClient graph, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(desired);
@@ -252,7 +284,7 @@ public sealed class PasswordCredentialsProvider : ProviderBase
         var parsed = ParseDesired(desired);
         string name = desired.Id.NameLeaf;
         string parentId = await ResolveParentIdAsync(desired, graph, cancellationToken).ConfigureAwait(false);
-        var (created, live, extra) = await AddAsync(desired, parsed, parentId, graph, cancellationToken).ConfigureAwait(false);
+        var (created, live) = await AddAsync(desired, parsed, parentId, graph, cancellationToken).ConfigureAwait(false);
 
         var stale = new List<string> { existing.GraphId };
         if (_sameName.TryGetValue(SnapshotKey(desired.ParentGraphId, desired.Id.Parent?.NameLeaf, name), out var snapshot))
@@ -275,7 +307,7 @@ public sealed class PasswordCredentialsProvider : ProviderBase
             }
         }
 
-        return new AppliedResource(desired.Id, created.KeyId, live, KeyWithParent(desired, parentId), extra);
+        return new AppliedResource(desired.Id, created.KeyId, live, KeyWithParent(desired, parentId));
     }
 
     // ---- delete ----
@@ -286,8 +318,8 @@ public sealed class PasswordCredentialsProvider : ProviderBase
         ArgumentNullException.ThrowIfNull(live);
         ArgumentNullException.ThrowIfNull(graph);
         string name = key.TryGet(PasswordCredentialsRules.DisplayNameProperty, out var keyed) ? keyed
-            : JsonObjects.GetString(live.Raw, PasswordCredentialsRules.DisplayNameProperty)
-            ?? throw new ProviderException(EngineDiagnosticCodes.ResourceKeyUnresolved, $"{TypeName}: neither the key {key.Describe()} nor the live credential {live.GraphId} carries a displayName.");
+            : JsonObjects.GetString(live.Raw, PasswordCredentialsRules.DisplayNameProperty) is { } liveName ? PasswordCredentialName.Parse(liveName).Base
+            : throw new ProviderException(EngineDiagnosticCodes.ResourceKeyUnresolved, $"{TypeName}: neither the key {key.Describe()} nor the live credential {live.GraphId} carries a displayName.");
         string? parentUniqueName = key.ParentKey is { } parentKey && parentKey.TryGet(ParentKeyProperty, out var unique) ? unique : null;
         string lookupPath = ParentPath(key.ParentGraphId, parentUniqueName, null);
 
@@ -318,12 +350,13 @@ public sealed class PasswordCredentialsProvider : ProviderBase
 
     // ---- Graph helpers ----
 
-    /// <summary><c>POST {parent}/addPassword</c>; the created credential, its live view (secret leaf inside) and the state extra (no secret).</summary>
-    private async Task<(PasswordCredentialSummary Created, JsonObject Live, JsonObject Extra)> AddAsync(ResourceInstance desired, DesiredPasswordCredential parsed, string parentId, IGraphClient graph, CancellationToken cancellationToken)
+    /// <summary><c>POST {parent}/addPassword</c> named <c>&lt;name&gt;[#&lt;rotationTag&gt;]</c>; the created credential and its live view (secret leaf inside).</summary>
+    private async Task<(PasswordCredentialSummary Created, JsonObject Live)> AddAsync(ResourceInstance desired, DesiredPasswordCredential parsed, string parentId, IGraphClient graph, CancellationToken cancellationToken)
     {
         string name = desired.Id.NameLeaf;
+        string liveName = PasswordCredentialsRules.LiveDisplayName(name, parsed.RotationTag);
         var endDateTime = parsed.EndDateTime ?? PasswordCredentialsRules.DefaultEndDateTime(Clock.GetUtcNow());
-        var body = PasswordCredentialsRules.AddPasswordBody(name, endDateTime, parsed.StartDateTime);
+        var body = PasswordCredentialsRules.AddPasswordBody(liveName, endDateTime, parsed.StartDateTime);
         var request = new GraphRequest(ParentPathById(parentId) + "/" + AddPasswordAction, desired.Api, hint: desired.RetryHint);
 
         GraphResponse response;
@@ -355,14 +388,13 @@ public sealed class PasswordCredentialsProvider : ProviderBase
             created = created with { EndDateTime = endDateTime };
         }
 
-        if (!string.Equals(created.DisplayName, name, StringComparison.Ordinal))
+        if (!string.Equals(created.DisplayName, liveName, StringComparison.Ordinal))
         {
-            created = created with { DisplayName = name };
+            created = created with { DisplayName = liveName };
         }
 
         var live = PasswordCredentialsRules.LiveView(created, new SecretValue(secretText));
-        var extra = PasswordCredentialsRules.ExtraFor(created, parsed.RotationTag);
-        return (created, live, extra);
+        return (created, live);
     }
 
     private static bool IsAmbiguousWrite(Exception exception)
@@ -506,14 +538,23 @@ public sealed class PasswordCredentialsProvider : ProviderBase
             throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{desired.Describe()}: {problem ?? "the properties could not be interpreted."}", desired.Id);
         }
 
+        if (PasswordCredentialsRules.NameProblem(desired.Id.NameLeaf, parsed.RotationTag) is { } nameProblem)
+        {
+            throw new ProviderException(DiagnosticCodes.InvalidResourceName, $"{desired.Describe()}: {nameProblem}", desired.Id);
+        }
+
         return parsed;
     }
 
-    /// <summary>The desired side of the what-if row: the declared properties with the name injected and the dates in canonical form.</summary>
+    /// <summary>
+    /// The desired side of the what-if row: the declared properties with the live <c>displayName</c> (<c>name#rotationTag</c>) injected and
+    /// the dates in canonical form, so it lines up with the live side (<see cref="PasswordCredentialsRules.DiffView"/>) tag for tag.
+    /// </summary>
     private static JsonObject AfterView(JsonObject properties, string name, DesiredPasswordCredential parsed)
     {
         var after = (JsonObject)JsonValues.Clone(properties)!;
-        after[JsonObjects.FindKey(after, PasswordCredentialsRules.DisplayNameProperty) ?? PasswordCredentialsRules.DisplayNameProperty] = name;
+        string liveName = PasswordCredentialsRules.NameProblem(name, parsed.RotationTag) is null ? PasswordCredentialsRules.LiveDisplayName(name, parsed.RotationTag) : name;
+        after[JsonObjects.FindKey(after, PasswordCredentialsRules.DisplayNameProperty) ?? PasswordCredentialsRules.DisplayNameProperty] = liveName;
         if (parsed.EndDateTime is { } end)
         {
             after[JsonObjects.FindKey(after, PasswordCredentialsRules.EndDateTimeProperty) ?? PasswordCredentialsRules.EndDateTimeProperty] = PasswordCredentialsRules.Format(end);

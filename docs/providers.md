@@ -144,42 +144,54 @@ Type-specific rules (all in `ApplicationsRules`, pure):
 
 ### Worked example: `PasswordCredentialsProvider` (one-time secrets)
 
-`Microsoft.Entra/applications/passwordCredentials`: the name is `<application uniqueName>/<credential displayName>`;
-the credential is matched among the application's `passwordCredentials` by `displayName` (the `keyId` pinned in
-the state first, else the newest). Graph never edits a credential and returns `secretText` exactly once, from
+`Microsoft.Entra/applications/passwordCredentials`: the name is `<application uniqueName>/<credential name>`. The live
+`displayName` is `<name>#<rotationTag>` when the template declares a `rotationTag`, else the plain `<name>`
+(`PasswordCredentialName`; the tag is the text after the **last** `#`). The credential is matched among the application's
+`passwordCredentials` by base name (exactly `<name>`, or `<name>#<any tag>`); among several, the newest whose live tag equals
+the declared one, else the newest. The declared tag reaches the read as a `ResourceKey.Hints` entry (it steers the choice, it is
+not identity and never persisted). Graph never edits a credential and returns `secretText` exactly once, from
 `addPassword`, so every change is a replacement and the secret is handled as below. Action URLs always address
-the application by object id (state `parentId`, the parent applied in this run, or an id lookup); only reads use
+the application by object id (the parent applied or read in this run, or an id lookup); only reads use
 `/applications(uniqueName='…')`.
 
 | Operation | Requests |
 |---|---|
 | Read | `GET /applications/{parentId}?$select=id,passwordCredentials` (or `GET /applications(uniqueName='…')?$select=…`); a 404 is "does not exist" |
-| Create | `[GET /applications(uniqueName='…')?$select=id]` when the parent's id is not known → `POST /applications/{id}/addPassword { "passwordCredential": { "displayName", "endDateTime"[, "startDateTime"] } }` |
-| Rotate (`Modify`, mode `Patch`) | the same `addPassword` **first**, then `POST /applications/{id}/removePassword { "keyId" }` for every live same-name credential except the new one (a consumer never sees a moment without a valid secret; the executor's `Recreate` path would delete first, so the row is `Patch` and `UpdateAsync` does the replacement) |
-| Delete | `GET /applications/{parentId}?$select=id,passwordCredentials` (404 = the application and its credentials are gone) → `removePassword` for the recorded `keyId` and every same-name leftover; an unknown `keyId` (404, or Graph's 400 "No password credential found with keyId …") counts as removed |
+| Create | `[GET /applications(uniqueName='…')?$select=id]` when the parent's id is not known → `POST /applications/{id}/addPassword { "passwordCredential": { "displayName": "<name>[#<rotationTag>]", "endDateTime"[, "startDateTime"] } }` |
+| Rotate (`Modify`, mode `Patch`) | the same `addPassword` **first** (named with the new tag), then `POST /applications/{id}/removePassword { "keyId" }` for every live same-base-name credential except the new one (a consumer never sees a moment without a valid secret; the executor's `Recreate` path would delete first, so the row is `Patch` and `UpdateAsync` does the replacement) |
+| Delete | `GET /applications/{parentId}?$select=id,passwordCredentials` (404 = the application and its credentials are gone) → `removePassword` for the live credential's `keyId` and every same-base-name leftover; an unknown `keyId` (404, or Graph's 400 "No password credential found with keyId …") counts as removed |
 
 Type-specific rules (all in `PasswordCredentialsRules`, pure):
 
-- `Plan`: `Create` when no same-name credential exists; otherwise `NoChange` unless the `rotationTag` differs from
-  the one recorded in the state entry's `extra` (absent ≡ absent; Graph does not store it, so the provider reads it
-  through `PlanOptions.State`), a declared `endDateTime` / `startDateTime` differs from the live value (instants
+- `Plan`: `Create` when no same-name credential exists; otherwise `NoChange` unless the declared `rotationTag` differs
+  from the tag in the live `displayName` (absent ≡ absent; no local state is consulted), a declared `endDateTime` / `startDateTime` differs from the live value (instants
   within one second are equal, so an offset in the template does not drift), the credential expired, or it expires
   within `rotateBeforeDays` (template property, default 30). The what-if row carries `properties.rotationTag` /
-  `properties.endDateTime` / `properties.startDateTime` deltas and a reason that names the trigger.
-- `endDateTime` defaults to "now + 180 days" **once**, at create; it is recorded in `extra` and compared against the
-  live expiry on reruns, never against a fresh default.
+  `properties.endDateTime` / `properties.startDateTime` deltas and a reason that names the trigger; both sides of the
+  row show the live `displayName` (`<name>#<tag>`) and `rotationTag` (the live side's parsed from the name), so a tag
+  change reads `rotationTag: '2026Q3' → '2026Q4'`.
+- **Upgrade from a state-kept tag**: a live credential named plain `<name>` (created by an EARM version that kept the
+  tag in its local state) carries no tag. When the template declares one, it is treated as **matching** (an upgrade
+  never rotates a secret by surprise) and the row carries the `RotationTagNotStamped` warning; the next rotation (expiry,
+  a changed `endDateTime` / `startDateTime`) names the replacement `<name>#<tag>`. Until then a changed `rotationTag` is
+  not detected; declare a different `endDateTime` to force the rotation. A template that drops its `rotationTag` while
+  the live name carries one rotates to the plain name.
+- `endDateTime` defaults to "now + 180 days" **once**, at create; reruns compare against the live expiry, never against
+  a fresh default.
 - The published live object is `{ id, keyId, displayName, startDateTime, endDateTime, hint, secretText,
   secretTextAvailable }`: in the creating / rotating run `secretText` is a `SecretJson` leaf (so
   `reference('…').secretText` is a secure-tainted value that flows to a `securestring` output and nowhere else);
   on reruns it is `null` with `secretTextAvailable: false`, and the executor reports an output that reads it as
   `null` with the `SecretNotAvailableOnRerun` warning instead of failing the run (`LiveSecrets`, engine.md step 8).
-- The state entry records `extra: { keyId, endDateTime, hint, rotationTag }` and never the secret; `id` is the
-  `keyId`, `parentId` the application's object id.
+- The secret is never persisted: only the secure outputs file receives it. The Graph id is the `keyId`; the
+  provider records no `extra`.
 - Permissions follow the applications provider: `Application.ReadWrite.OwnedBy` when the parent application is
   declared in the template, otherwise `Application.ReadWrite.All`.
 - A declared `properties.displayName` that differs from the name, a date that does not parse, a non-scalar
   `rotationTag` or a negative `rotateBeforeDays` make the row unsupported; a name without the parent segment is
-  an offline validation error.
+  an offline validation error. A `#` in the name or in the `rotationTag`, or a live `displayName` longer than 256
+  characters (a conservative cap: Graph documents none), is `InvalidResourceName`: offline for literals (the semantic
+  checker), an unsupported row for values computed by expressions. An empty `rotationTag` counts as none.
 
 ### Worked example: GUID-named types (`AppRoleAssignmentsProvider`, `OAuth2PermissionGrantsProvider`)
 
@@ -437,9 +449,9 @@ What the engine's edge pass expects from a part B handler (worked example: `Edge
 ## Review 1D behaviours
 
 - **Warnings.** A provider reports a non-fatal observation of an apply (`SoftDeleteProbeSkipped`, `GroupHasNoOwnerAtCreate`) in `AppliedResource.Warnings`
-  (`ProviderWarning(Code, Message)`, never persisted); a what-if observation of a plan (`SecretExpiresSoon`) is a row reason of the form `Code: message`
+  (`ProviderWarning(Code, Message)`, never persisted); a what-if observation of a plan (`SecretExpiresSoon`, `RotationTagNotStamped`) is a row reason of the form `Code: message`
   (`ProviderWarnings.Format`). The executor reports every `AppliedResource.Warnings` entry as a warning diagnostic against the resource, and the planner and
-  executor turn a plan row reason that starts with `SecretExpiresSoon:` into a warning diagnostic too (`ProviderWarningReasons`), so what-if and create both list them.
+  executor turn a plan row reason that starts with `SecretExpiresSoon:` or `RotationTagNotStamped:` into a warning diagnostic too (`ProviderWarningReasons`), so what-if and create both list them.
   The codes are `EngineDiagnosticCodes` constants documented in [diagnostics.md](diagnostics.md#provider-codes).
 - **`x-earm.ignoreLiveOnly`** (overlay): dotted paths (`web`, `api`, `sessionControls.signInFrequency`). Under each path, sub-properties that exist only on the live
   object are neither drift nor nulled in the PATCH (Graph fills server-defaulted children such as `signInFrequency.authenticationType` /

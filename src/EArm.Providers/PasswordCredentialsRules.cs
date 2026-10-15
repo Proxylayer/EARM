@@ -6,6 +6,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using EArm.Graph;
 using EArm.Core.Secrets;
+using EArm.Core.Types;
 using EArm.Engine.Providers;
 using EArm.Expressions.Values;
 
@@ -17,14 +18,8 @@ public sealed record PasswordCredentialSummary(string KeyId, string? DisplayName
 /// <summary>What the template asks of a credential, parsed from the evaluated properties.</summary>
 public sealed record DesiredPasswordCredential(DateTimeOffset? EndDateTime, DateTimeOffset? StartDateTime, string? RotationTag, int RotateBeforeDays);
 
-/// <summary>What the state remembers about the credential the deployment last wrote (<c>extra</c>).</summary>
-public sealed record RecordedPasswordCredential(string? KeyId, DateTimeOffset? EndDateTime, string? RotationTag)
-{
-    public static RecordedPasswordCredential Empty { get; } = new(null, null, null);
-}
-
-/// <summary>The outcome of <see cref="PasswordCredentialsRules.AssessRotation"/>: why the credential is replaced, and what the user should know when it is not.</summary>
-public sealed record RotationAssessment(IReadOnlyList<RotationTrigger> Triggers, IReadOnlyList<string> Warnings);
+/// <summary>The outcome of <see cref="PasswordCredentialsRules.AssessRotation"/>: why the credential is replaced, and what the user should know (warning code + text).</summary>
+public sealed record RotationAssessment(IReadOnlyList<RotationTrigger> Triggers, IReadOnlyList<ProviderWarning> Warnings);
 
 /// <summary>One reason a credential is rotated: the property that differs, both sides (rendering values) and the text for the what-if row.</summary>
 public sealed record RotationTrigger(string Property, JsonNode? Before, JsonNode? After, string Reason);
@@ -34,9 +29,10 @@ public sealed record RotationTrigger(string Property, JsonNode? Before, JsonNode
 /// Graph I/O so they can be tested on their own: how a credential is matched among the application's
 /// <c>passwordCredentials</c>, what the template may declare, when the secret is rotated (<c>rotationTag</c> or
 /// <c>endDateTime</c>/<c>startDateTime</c> changed, expiry within <c>rotateBeforeDays</c>, expired), the
-/// <c>addPassword</c> / <c>removePassword</c> bodies, and the shapes of the live view, the diff view and the state
-/// <c>extra</c>. <c>rotationTag</c> and <c>rotateBeforeDays</c> are EARM-only properties (Graph never sees them):
-/// the tag is remembered in the state entry's <c>extra</c> and diffed against it.
+/// <c>addPassword</c> / <c>removePassword</c> bodies, and the shapes of the live view and the diff view.
+/// <c>rotationTag</c> and <c>rotateBeforeDays</c> are EARM-only properties: Graph has no field for them, so the tag
+/// travels in the credential's <c>displayName</c> (<c>&lt;name&gt;#&lt;rotationTag&gt;</c>, see <see cref="PasswordCredentialName"/>)
+/// and a rerun compares the declared tag with the live one: no local state is involved.
 /// </summary>
 public static class PasswordCredentialsRules
 {
@@ -149,15 +145,18 @@ public static class PasswordCredentialsRules
             JsonObjects.GetString(credential, HintProperty));
     }
 
-    /// <summary>The credentials whose <c>displayName</c> is exactly <paramref name="displayName"/> (the ARM name is the key; it is compared case-sensitively).</summary>
-    public static IReadOnlyList<PasswordCredentialSummary> SameName(IEnumerable<PasswordCredentialSummary> credentials, string displayName)
+    /// <summary>
+    /// The credentials whose live <c>displayName</c> has the base name <paramref name="baseName"/>: exactly <c>baseName</c>, or
+    /// <c>baseName#&lt;tag&gt;</c> (the tag being the text after the last <c>#</c>). The ARM name is the key; it is compared case-sensitively.
+    /// </summary>
+    public static IReadOnlyList<PasswordCredentialSummary> SameName(IEnumerable<PasswordCredentialSummary> credentials, string baseName)
     {
         ArgumentNullException.ThrowIfNull(credentials);
-        ArgumentNullException.ThrowIfNull(displayName);
+        ArgumentNullException.ThrowIfNull(baseName);
         var matches = new List<PasswordCredentialSummary>();
         foreach (var credential in credentials)
         {
-            if (string.Equals(credential.DisplayName, displayName, StringComparison.Ordinal))
+            if (credential.DisplayName is { } displayName && string.Equals(PasswordCredentialName.Parse(displayName).Base, baseName, StringComparison.Ordinal))
             {
                 matches.Add(credential);
             }
@@ -166,22 +165,37 @@ public static class PasswordCredentialsRules
         return matches;
     }
 
+    /// <summary>The rotation tag carried by a live credential's <c>displayName</c> (after its last <c>#</c>); <c>null</c> without one.</summary>
+    public static string? LiveTag(PasswordCredentialSummary credential)
+    {
+        ArgumentNullException.ThrowIfNull(credential);
+        return credential.DisplayName is { } displayName ? PasswordCredentialName.Parse(displayName).Tag : null;
+    }
+
     /// <summary>
-    /// The credential the resource stands for: the same-name credential with the latest expiry (the newest one).
+    /// The credential the resource stands for among the same-name ones: the newest (latest expiry) whose live tag equals
+    /// <paramref name="preferredTag"/>, else the newest of all.
     /// </summary>
-    public static PasswordCredentialSummary? Select(IEnumerable<PasswordCredentialSummary> sameName)
+    public static PasswordCredentialSummary? Select(IEnumerable<PasswordCredentialSummary> sameName, string? preferredTag = null)
     {
         ArgumentNullException.ThrowIfNull(sameName);
         PasswordCredentialSummary? newest = null;
+        PasswordCredentialSummary? newestTagged = null;
         foreach (var credential in sameName)
         {
             if (newest is null || Later(credential.EndDateTime, newest.EndDateTime))
             {
                 newest = credential;
             }
+
+            if (preferredTag is not null && string.Equals(LiveTag(credential), preferredTag, StringComparison.Ordinal)
+                && (newestTagged is null || Later(credential.EndDateTime, newestTagged.EndDateTime)))
+            {
+                newestTagged = credential;
+            }
         }
 
-        return newest;
+        return newestTagged ?? newest;
     }
 
     /// <summary>Key ids are GUIDs: compared case-insensitively.</summary>
@@ -237,6 +251,9 @@ public static class PasswordCredentialsRules
             {
                 return $"properties.{RotationTagProperty} must be a string (or number / boolean), got {JsonValues.Describe(tag)}.";
             }
+
+            // An empty tag is no tag: the live name would end in a bare '#', which parses back as untagged.
+            rotationTag = rotationTag.Length == 0 ? null : rotationTag;
         }
 
         int rotateBeforeDays = DefaultRotateBeforeDays;
@@ -254,34 +271,40 @@ public static class PasswordCredentialsRules
         return null;
     }
 
-    /// <summary>The state entry's <c>extra</c> (<c>keyId</c>, <c>endDateTime</c>, <c>rotationTag</c>) as recorded; empty without an entry.</summary>
-    public static RecordedPasswordCredential Recorded(JsonObject? extra)
+    /// <summary>
+    /// The live <c>displayName</c> a credential is written with: <c>&lt;name&gt;#&lt;rotationTag&gt;</c>, or the plain name without a tag.
+    /// Throws when the pair cannot be written (see <see cref="NameProblem"/>, checked while planning).
+    /// </summary>
+    public static string LiveDisplayName(string baseName, string? rotationTag)
     {
-        if (extra is null)
+        ArgumentNullException.ThrowIfNull(baseName);
+        if (PasswordCredentialName.Problem(baseName, rotationTag) is { } problem)
         {
-            return RecordedPasswordCredential.Empty;
+            throw new ArgumentException(problem, nameof(baseName));
         }
 
-        JsonObjects.TryGetIgnoreCase(extra, EndDateTimeProperty, out var end);
-        JsonObjects.TryGetIgnoreCase(extra, RotationTagProperty, out var tag);
-        return new RecordedPasswordCredential(
-            JsonObjects.GetString(extra, KeyIdProperty),
-            TryParseDateTime(end, out var endValue) ? endValue : null,
-            JsonObjects.IsAbsent(tag) ? null : ScalarText(tag));
+        return PasswordCredentialName.Declared(baseName, rotationTag).DisplayName;
+    }
+
+    /// <summary>Why the name / tag pair cannot be written as a live <c>displayName</c> (<c>#</c> in either, or too long), or <c>null</c>.</summary>
+    public static string? NameProblem(string baseName, string? rotationTag)
+    {
+        return PasswordCredentialName.Problem(baseName, rotationTag);
     }
 
     // ---- rotation ----
 
     /// <summary>
     /// Why the live credential is replaced, or empty for <c>NoChange</c>: the <c>rotationTag</c> differs from the
-    /// recorded one (absent ≡ absent), a declared <c>endDateTime</c> / <c>startDateTime</c> differs from the live
+    /// tag in the live <c>displayName</c> (absent ≡ absent; a live credential without a tag matches any declared tag, see
+    /// <see cref="AssessRotation"/>), a declared <c>endDateTime</c> / <c>startDateTime</c> differs from the live
     /// value, the credential expired, or it expires within <c>rotateBeforeDays</c> and a replacement would live longer.
     /// A credential created without <c>endDateTime</c> keeps the expiry it was given (reruns do not drift towards "now + 180 days").
     /// See <see cref="AssessRotation"/> for the warnings.
     /// </summary>
-    public static IReadOnlyList<RotationTrigger> RotationTriggers(DesiredPasswordCredential desired, PasswordCredentialSummary live, RecordedPasswordCredential recorded, DateTimeOffset now)
+    public static IReadOnlyList<RotationTrigger> RotationTriggers(DesiredPasswordCredential desired, PasswordCredentialSummary live, DateTimeOffset now)
     {
-        return AssessRotation(desired, live, recorded, now).Triggers;
+        return AssessRotation(desired, live, now).Triggers;
     }
 
     /// <summary>
@@ -290,22 +313,35 @@ public static class PasswordCredentialsRules
     /// window, or a <c>rotateBeforeDays</c> longer than the default lifetime, used to rotate the secret on every run because the
     /// replacement ends no later than the credential it replaces. The credential is rotated only when
     /// <c>liveEnd &lt; now + rotateBeforeDays</c> AND the replacement's end (the declared one, else now + 180 days) is later than the live end.
+    /// <para>
+    /// Upgrade path: a live credential named with the plain base name (written by an EARM version that kept the tag in its local state)
+    /// carries no tag. When the template declares one, the credential is treated as matching (no surprise rotation on upgrade) and
+    /// <see cref="ProviderWarnings.RotationTagNotStamped"/> says the tag is written into the name by the next rotation; until then a
+    /// changed <c>rotationTag</c> cannot be detected, so declaring a different <c>endDateTime</c> is the way to force that rotation.
+    /// </para>
     /// </summary>
-    public static RotationAssessment AssessRotation(DesiredPasswordCredential desired, PasswordCredentialSummary live, RecordedPasswordCredential recorded, DateTimeOffset now)
+    public static RotationAssessment AssessRotation(DesiredPasswordCredential desired, PasswordCredentialSummary live, DateTimeOffset now)
     {
         ArgumentNullException.ThrowIfNull(desired);
         ArgumentNullException.ThrowIfNull(live);
-        ArgumentNullException.ThrowIfNull(recorded);
         var triggers = new List<RotationTrigger>();
-        var warnings = new List<string>();
+        var warnings = new List<ProviderWarning>();
 
-        if (!string.Equals(desired.RotationTag, recorded.RotationTag, StringComparison.Ordinal))
+        string? liveTag = LiveTag(live);
+        if (liveTag is null && desired.RotationTag is not null)
+        {
+            string stamped = PasswordCredentialName.Declared(live.DisplayName ?? string.Empty, desired.RotationTag).DisplayName;
+            warnings.Add(new ProviderWarning(
+                ProviderWarnings.RotationTagNotStamped,
+                $"the live credential '{live.DisplayName}' (keyId {live.KeyId}) carries no {RotationTagProperty} in its displayName (it was created before EARM kept the tag there); it is treated as matching {RotationTagProperty} {Describe(desired.RotationTag)} and NOT rotated. The next rotation names it '{stamped}'; until then a changed {RotationTagProperty} is not detected, so declare a different {EndDateTimeProperty} to rotate it now."));
+        }
+        else if (!string.Equals(desired.RotationTag, liveTag, StringComparison.Ordinal))
         {
             triggers.Add(new RotationTrigger(
                 RotationTagProperty,
-                Leaf(recorded.RotationTag),
+                Leaf(liveTag),
                 Leaf(desired.RotationTag),
-                $"{RotationTagProperty} changed ({Describe(recorded.RotationTag)} → {Describe(desired.RotationTag)})"));
+                $"{RotationTagProperty} changed ({Describe(liveTag)} → {Describe(desired.RotationTag)})"));
         }
 
         if (desired.EndDateTime is { } wantedEnd && !SameInstant(wantedEnd, live.EndDateTime))
@@ -346,7 +382,7 @@ public static class PasswordCredentialsRules
                 }
                 else if (!alreadyReplacedByEndChange)
                 {
-                    warnings.Add($"{when}, but a replacement would not live longer (its end date would be {Format(replacement)}); the secret is NOT rotated. Declare a later {EndDateTimeProperty}, lower {RotateBeforeDaysProperty}, or change {RotationTagProperty} to rotate it anyway.");
+                    warnings.Add(new ProviderWarning(ProviderWarnings.SecretExpiresSoon, $"{when}, but a replacement would not live longer (its end date would be {Format(replacement)}); the secret is NOT rotated. Declare a later {EndDateTimeProperty}, lower {RotateBeforeDaysProperty}, or change {RotationTagProperty} to rotate it anyway."));
                 }
             }
         }
@@ -426,8 +462,11 @@ public static class PasswordCredentialsRules
         };
     }
 
-    /// <summary>The diff / what-if view of a live credential: <c>displayName</c>, the dates, and the recorded <c>rotationTag</c> when there is one.</summary>
-    public static JsonObject DiffView(PasswordCredentialSummary credential, string? recordedRotationTag = null)
+    /// <summary>
+    /// The diff / what-if view of a live credential: the live <c>displayName</c> (<c>name#tag</c>), the dates, and the <c>rotationTag</c>
+    /// parsed from that name when it carries one.
+    /// </summary>
+    public static JsonObject DiffView(PasswordCredentialSummary credential)
     {
         ArgumentNullException.ThrowIfNull(credential);
         var view = new JsonObject
@@ -437,31 +476,12 @@ public static class PasswordCredentialsRules
             [EndDateTimeProperty] = Leaf(credential.EndDateTime),
         };
 
-        if (recordedRotationTag is not null)
+        if (LiveTag(credential) is { } tag)
         {
-            view[RotationTagProperty] = recordedRotationTag;
+            view[RotationTagProperty] = tag;
         }
 
         return view;
-    }
-
-    /// <summary>The state entry's <c>extra</c>: <c>keyId</c>, <c>endDateTime</c>, <c>hint</c> and the <c>rotationTag</c> the credential was written for. No secret.</summary>
-    public static JsonObject ExtraFor(PasswordCredentialSummary credential, string? rotationTag)
-    {
-        ArgumentNullException.ThrowIfNull(credential);
-        var extra = new JsonObject
-        {
-            [KeyIdProperty] = credential.KeyId,
-            [EndDateTimeProperty] = Leaf(credential.EndDateTime),
-            [HintProperty] = credential.Hint,
-        };
-
-        if (rotationTag is not null)
-        {
-            extra[RotationTagProperty] = rotationTag;
-        }
-
-        return extra;
     }
 
     // ---- helpers ----

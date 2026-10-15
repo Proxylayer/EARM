@@ -37,13 +37,14 @@ public sealed class Review1D_PasswordCredentialTests
     {
         var end = new DateTimeOffset(2026, 10, 30, 0, 0, 0, TimeSpan.Zero);
 
-        var assessment = PasswordCredentialsRules.AssessRotation(Desired(end), Live(end), RecordedPasswordCredential.Empty, Now);
+        var assessment = PasswordCredentialsRules.AssessRotation(Desired(end), Live(end), Now);
 
         Assert.Empty(assessment.Triggers);
         var warning = Assert.Single(assessment.Warnings);
-        Assert.Contains("2026-10-30T00:00:00Z", warning, StringComparison.Ordinal);
-        Assert.Contains("NOT rotated", warning, StringComparison.Ordinal);
-        Assert.Empty(PasswordCredentialsRules.RotationTriggers(Desired(end), Live(end), RecordedPasswordCredential.Empty, Now));
+        Assert.Equal(ProviderWarnings.SecretExpiresSoon, warning.Code);
+        Assert.Contains("2026-10-30T00:00:00Z", warning.Message, StringComparison.Ordinal);
+        Assert.Contains("NOT rotated", warning.Message, StringComparison.Ordinal);
+        Assert.Empty(PasswordCredentialsRules.RotationTriggers(Desired(end), Live(end), Now));
     }
 
     [Fact]
@@ -52,7 +53,7 @@ public sealed class Review1D_PasswordCredentialTests
         // rotateBeforeDays 365 > the 180-day default lifetime: the credential is "in the window" for its whole life, and a replacement ends at now + 180 days.
         var live = Live(Now.AddDays(200));
 
-        var assessment = PasswordCredentialsRules.AssessRotation(Desired(rotateBeforeDays: 365), live, RecordedPasswordCredential.Empty, Now);
+        var assessment = PasswordCredentialsRules.AssessRotation(Desired(rotateBeforeDays: 365), live, Now);
 
         Assert.Empty(assessment.Triggers);
         Assert.Single(assessment.Warnings);
@@ -63,11 +64,11 @@ public sealed class Review1D_PasswordCredentialTests
     {
         var live = Live(Now.AddDays(10));
 
-        var trigger = Assert.Single(PasswordCredentialsRules.RotationTriggers(Desired(), live, RecordedPasswordCredential.Empty, Now));
+        var trigger = Assert.Single(PasswordCredentialsRules.RotationTriggers(Desired(), live, Now));
 
         Assert.Equal(PasswordCredentialsRules.EndDateTimeProperty, trigger.Property);
         Assert.Contains("expires on", trigger.Reason, StringComparison.Ordinal);
-        Assert.Empty(PasswordCredentialsRules.AssessRotation(Desired(), live, RecordedPasswordCredential.Empty, Now).Warnings);
+        Assert.Empty(PasswordCredentialsRules.AssessRotation(Desired(), live, Now).Warnings);
     }
 
     [Fact]
@@ -76,7 +77,7 @@ public sealed class Review1D_PasswordCredentialTests
         var live = Live(new DateTimeOffset(2026, 10, 30, 0, 0, 0, TimeSpan.Zero));
         var wanted = new DateTimeOffset(2027, 6, 1, 0, 0, 0, TimeSpan.Zero);
 
-        var assessment = PasswordCredentialsRules.AssessRotation(Desired(wanted), live, RecordedPasswordCredential.Empty, Now);
+        var assessment = PasswordCredentialsRules.AssessRotation(Desired(wanted), live, Now);
 
         Assert.Equal([PasswordCredentialsRules.EndDateTimeProperty], assessment.Triggers.Select(t => t.Property).ToArray());
         Assert.Empty(assessment.Warnings);
@@ -87,10 +88,10 @@ public sealed class Review1D_PasswordCredentialTests
     {
         var past = Now.AddDays(-3);
 
-        var assessment = PasswordCredentialsRules.AssessRotation(Desired(past), Live(past), RecordedPasswordCredential.Empty, Now);
+        var assessment = PasswordCredentialsRules.AssessRotation(Desired(past), Live(past), Now);
 
         Assert.Empty(assessment.Triggers);
-        Assert.Contains("expired on", Assert.Single(assessment.Warnings), StringComparison.Ordinal);
+        Assert.Contains("expired on", Assert.Single(assessment.Warnings).Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -98,7 +99,7 @@ public sealed class Review1D_PasswordCredentialTests
     {
         var end = new DateTimeOffset(2026, 10, 30, 0, 0, 0, TimeSpan.Zero);
 
-        var assessment = PasswordCredentialsRules.AssessRotation(Desired(end, tag: "q4"), Live(end), RecordedPasswordCredential.Empty, Now);
+        var assessment = PasswordCredentialsRules.AssessRotation(Desired(end, tag: "q4"), Live(end) with { DisplayName = "ci#q3" }, Now);
 
         Assert.Equal([PasswordCredentialsRules.RotationTagProperty], assessment.Triggers.Select(t => t.Property).ToArray());
     }

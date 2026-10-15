@@ -294,12 +294,12 @@ $specs['applications.federatedIdentityCredentials'] = [ordered]@{
 
 # --- applications/passwordCredentials -----------------------------------------------------------------------------
 $specs['applications.passwordCredentials'] = [ordered]@{
-    Description = 'A client secret of an application. The child name is the credential displayName. Secrets are created with addPassword and removed with removePassword (never edited); the secret text is returned once as a securestring output.'
+    Description = 'A client secret of an application. The child name is the credential name (must not contain ''#''); the live displayName is ''<name>#<rotationTag>'' when rotationTag is declared, else the name. Secrets are created with addPassword and removed with removePassword (never edited); the secret text is returned once as a securestring output.'
     Props       = [ordered]@{
         displayName      = Str 'Set from the resource name; declaring it is only allowed when it equals the name.'
         startDateTime    = Str 'Start of validity (ISO 8601, UTC); defaults to now.'
         endDateTime      = Str 'Expiry (ISO 8601, UTC); defaults to 180 days after creation, evaluated once at create.'
-        rotationTag      = Str 'EARM-only: changing this value rotates the secret (the new one is added before the old one is removed). Never sent to Graph.'
+        rotationTag      = Str 'EARM-only: changing this value rotates the secret (the new one is added before the old one is removed). Stored in the credential''s displayName as ''<name>#<rotationTag>'' (no local state); must not contain ''#'', and the whole displayName is capped at 256 characters. An existing credential named without a tag is treated as matching (warning RotationTagNotStamped) until its next rotation.'
         rotateBeforeDays = Int 'EARM-only: rotate when fewer than this many days remain (default 30). Never sent to Graph.' -Min 0
     }
 }

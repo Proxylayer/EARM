@@ -120,25 +120,19 @@ public sealed class PasswordCredentialsProviderTests
         Assert.Equal(keyId, entry.GraphId);
         Assert.Equal(appId, entry.ParentGraphId);
         Assert.Equal(SecretName, entry.Key["displayName"]);
-        var extra = entry.Extra!;
-        Assert.Equal(keyId, extra["keyId"]!.GetValue<string>());
-        Assert.NotNull(extra["endDateTime"]);
-        Assert.Equal("fak", extra["hint"]!.GetValue<string>());
-        Assert.False(extra.ContainsKey("rotationTag"));
-        Assert.False(extra.ContainsKey("secretText"));
+        Assert.Null(entry.Extra);
         Assert.DoesNotContain(revealed, host.StateDocument, StringComparison.Ordinal);
         Assert.DoesNotContain("secretText", host.StateDocument, StringComparison.OrdinalIgnoreCase);
         Assert.Contains(AppId, entry.DependsOn);
     }
 
     [Fact]
-    public async Task Rerun_IsNoChange_TheSecretOutputIsNull_WithExactlyOneWarning_AndExtraIsPreserved()
+    public async Task Rerun_IsNoChange_TheSecretOutputIsNull_WithExactlyOneWarning()
     {
         using var directory = new TestDirectory();
         var host = new ProviderHost();
         var first = await host.CreateAsync(host.Resources(Template(), Outputs));
         Check.Succeeded(first);
-        string firstExtra = first.Entry(SecretId).Extra!.ToJsonString();
         string secureFile = directory.File("secure-outputs-rerun.json");
 
         var rerun = await host.CreateAsync(host.Resources(Template(), Outputs), secureOutputsFile: secureFile);
@@ -155,8 +149,6 @@ public sealed class PasswordCredentialsProviderTests
         Assert.Equal(DiagnosticSeverity.Warning, warning.Severity);
         Assert.Contains(SecretId, warning.Message, StringComparison.Ordinal);
         Assert.Equal(first.Op(SecretName).GraphId, rerun.Output("ciKeyId")!.GetValue<string>());
-        Assert.Equal(firstExtra, rerun.Entry(SecretId).Extra!.ToJsonString());
-        Assert.Equal(first.Entry(AppId).Extra?.ToJsonString(), rerun.Entry(AppId).Extra?.ToJsonString());
         string appId = host.IdOf("/applications", "uniqueName", AppName);
         Assert.Contains(rerun.Requests, r => r.Method == "GET" && r.Path == "/applications/" + appId && r.UrlParameters!["$select"] == "id,passwordCredentials");
     }
@@ -217,7 +209,7 @@ public sealed class PasswordCredentialsProviderTests
         var first = await host.CreateAsync(host.Resources(Template("\"rotationTag\": \"2026Q3\""), Outputs));
         Check.Succeeded(first);
         string oldKeyId = first.Op(SecretName).GraphId!;
-        Assert.Equal("2026Q3", first.Entry(SecretId).Extra!["rotationTag"]!.GetValue<string>());
+        Assert.Equal("ci-secret#2026Q3", Check.Body(first.Writes[1])["passwordCredential"]!["displayName"]!.GetValue<string>());
         string appId = host.IdOf("/applications", "uniqueName", AppName);
 
         var same = await host.CreateAsync(host.Resources(Template("\"rotationTag\": \"2026Q3\""), Outputs));
@@ -249,16 +241,127 @@ public sealed class PasswordCredentialsProviderTests
         string newKeyId = rotated.Op(SecretName).GraphId!;
         Assert.NotEqual(oldKeyId, newKeyId);
         Assert.Equal(newKeyId, rotated.Entry(SecretId).GraphId);
-        Assert.Equal("2026Q4", rotated.Entry(SecretId).Extra!["rotationTag"]!.GetValue<string>());
+        Assert.Equal("ci-secret#2026Q4", Check.Body(writes[0])["passwordCredential"]!["displayName"]!.GetValue<string>());
         Assert.StartsWith("fake-secret-", rotated.SecureOutput("ciSecret")!.GetValue<string>(), StringComparison.Ordinal);
         Assert.Empty(rotated.Executed.Diagnostics);
         var live = host.Directory.Find("/applications", "uniqueName", AppName)!["passwordCredentials"]!.AsArray();
         Assert.Equal(newKeyId, Assert.Single(live)!["keyId"]!.GetValue<string>());
+        Assert.Equal("ci-secret#2026Q4", live[0]!["displayName"]!.GetValue<string>());
 
         var untagged = await host.WhatIfAsync(host.Resources(Template(), Outputs));
         var untaggedRow = untagged.ChangeOfType(SecretType);
         Assert.Equal(ChangeType.Modify, untaggedRow.Type);
         Assert.Contains(untaggedRow.Deltas, d => d.Path.ToString() == "properties.rotationTag" && d.Kind == PropertyChangeType.Delete);
+    }
+
+    [Fact]
+    public async Task SameTag_IsNoChange_WithoutAnyLocalState()
+    {
+        var host = new ProviderHost { TrackState = false };
+        Check.Succeeded(await host.CreateAsync(host.Resources(Template("\"rotationTag\": \"2026Q3\""), Outputs)));
+        Assert.Null(host.StateDocument);
+
+        var whatIf = await host.WhatIfAsync(host.Resources(Template("\"rotationTag\": \"2026Q3\""), Outputs));
+        var row = whatIf.ChangeOfType(SecretType);
+        Assert.Equal(ChangeType.NoChange, row.Type);
+        Assert.Equal("2026Q3", row.Before!["rotationTag"]!.GetValue<string>());
+        Assert.Equal("ci-secret#2026Q3", row.Before!["displayName"]!.GetValue<string>());
+        Assert.Equal("ci-secret#2026Q3", row.After!["displayName"]!.GetValue<string>());
+
+        var rerun = await host.CreateAsync(host.Resources(Template("\"rotationTag\": \"2026Q3\""), Outputs));
+        Assert.Equal(ChangeType.NoChange, rerun.Op(SecretName).ChangeType);
+        Check.NoWrites(rerun);
+    }
+
+    [Fact]
+    public async Task ChangedTag_Rotates_WithoutAnyLocalState()
+    {
+        var host = new ProviderHost { TrackState = false };
+        var first = await host.CreateAsync(host.Resources(Template("\"rotationTag\": \"2026Q3\""), Outputs));
+        string oldKeyId = first.Op(SecretName).GraphId!;
+
+        var whatIf = await host.WhatIfAsync(host.Resources(Template("\"rotationTag\": \"2026Q4\""), Outputs));
+        var row = whatIf.ChangeOfType(SecretType);
+        Assert.Equal(ChangeType.Modify, row.Type);
+        Assert.Contains(row.Reasons, r => r.Contains("rotationTag changed ('2026Q3' → '2026Q4')", StringComparison.Ordinal));
+
+        var rotated = await host.CreateAsync(host.Resources(Template("\"rotationTag\": \"2026Q4\""), Outputs));
+        Assert.Equal(ChangeType.Modify, rotated.Op(SecretName).ChangeType);
+        Assert.Equal("ci-secret#2026Q4", Check.Body(rotated.Writes[0])["passwordCredential"]!["displayName"]!.GetValue<string>());
+        Assert.Equal(oldKeyId, Check.Body(rotated.Writes[1])["keyId"]!.GetValue<string>());
+        Assert.NotNull(rotated.SecureOutput("ciSecret"));
+    }
+
+    [Fact]
+    public async Task LegacyUntaggedCredential_WithADeclaredTag_IsNotRotated_AndWarns()
+    {
+        var host = SeededHost(DateTimeOffset.UtcNow.AddDays(100), out _, out string seededKeyId);
+        host.TrackState = false;
+
+        var whatIf = await host.WhatIfAsync(host.Resources(Template("\"rotationTag\": \"2026Q4\""), Outputs));
+        var row = whatIf.ChangeOfType(SecretType);
+        Assert.Equal(ChangeType.NoChange, row.Type);
+        var planned = Assert.Single(whatIf.Plan.Diagnostics, d => d.Code == EngineDiagnosticCodes.RotationTagNotStamped);
+        Assert.Equal(DiagnosticSeverity.Warning, planned.Severity);
+        Assert.Contains("'ci-secret#2026Q4'", planned.Message, StringComparison.Ordinal);
+
+        var run = await host.CreateAsync(host.Resources(Template("\"rotationTag\": \"2026Q4\""), Outputs));
+        Assert.Equal(ChangeType.NoChange, run.Op(SecretName).ChangeType);
+        Assert.Equal(seededKeyId, run.Op(SecretName).GraphId);
+        Check.NoWrites(run);
+        Check.Diagnostic(run, EngineDiagnosticCodes.RotationTagNotStamped);
+    }
+
+    [Fact]
+    public async Task SeveralSameBaseCredentials_TheOneWithTheDeclaredTagIsChosen()
+    {
+        var host = new ProviderHost { TrackState = false };
+        var end = DateTimeOffset.UtcNow.AddDays(300);
+        string matching = Guid.NewGuid().ToString("D");
+        string newerOther = Guid.NewGuid().ToString("D");
+        host.Directory.AddApplication(AppName, "Test API", configure: a => a["passwordCredentials"] = new JsonArray(
+            Credential(matching, SecretName + "#q4", end.AddDays(-50)),
+            Credential(newerOther, SecretName + "#q3", end)));
+
+        var run = await host.CreateAsync(host.Resources(Template("\"rotationTag\": \"q4\""), Outputs));
+
+        Assert.Equal(ChangeType.NoChange, run.Op(SecretName).ChangeType);
+        Assert.Equal(matching, run.Op(SecretName).GraphId);
+        Check.NoWrites(run);
+
+        static JsonObject Credential(string keyId, string displayName, DateTimeOffset end) => new()
+        {
+            ["keyId"] = keyId,
+            ["displayName"] = displayName,
+            ["startDateTime"] = end.AddDays(-170).ToString("O", CultureInfo.InvariantCulture),
+            ["endDateTime"] = end.ToString("O", CultureInfo.InvariantCulture),
+            ["hint"] = "see",
+        };
+    }
+
+    [Fact]
+    public async Task TheTagSeparator_IsRejected_InALiteralNameOffline_AndInAComputedNameOrTag()
+    {
+        var host = new ProviderHost();
+
+        var literal = await Assert.ThrowsAsync<ValidationFailedException>(() => host.WhatIfAsync(host.Resources(App() + ", " + Secret(name: "ci#secret"))));
+        var diagnostic = Assert.Single(literal.Diagnostics, d => d.Code == "InvalidResourceName");
+        Assert.Contains("contains '#'", diagnostic.Message, StringComparison.Ordinal);
+
+        var literalTag = await Assert.ThrowsAsync<ValidationFailedException>(() => host.WhatIfAsync(host.Resources(Template("\"rotationTag\": \"a#b\""))));
+        Assert.Contains(literalTag.Diagnostics, d => d.Code == "InvalidResourceName" && d.Message.Contains("rotationTag", StringComparison.Ordinal));
+
+        var tooLong = await Assert.ThrowsAsync<ValidationFailedException>(() => host.WhatIfAsync(host.Resources(Template("\"rotationTag\": \"" + new string('t', 250) + "\""))));
+        Assert.Contains(tooLong.Diagnostics, d => d.Code == "InvalidResourceName" && d.Message.Contains("256", StringComparison.Ordinal));
+
+        var computedTag = await host.WhatIfAsync(host.Resources(Template("\"rotationTag\": \"[concat('a', '#b')]\"")));
+        var row = computedTag.ChangeOfType(SecretType);
+        Assert.True(row.HasError);
+        Assert.Contains("contains '#'", row.UnsupportedReason, StringComparison.Ordinal);
+
+        var computedName = await host.CreateAsync(host.Resources(App() + ", { \"type\": \"" + SecretType + "\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"[concat('test-api/ci', '#secret')]\", \"properties\": { } }"));
+        Assert.Equal(DeploymentStatus.Failed, computedName.Executed.Status);
+        Assert.DoesNotContain(computedName.Writes, w => w.Path.EndsWith("/addPassword", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -330,14 +433,16 @@ public sealed class PasswordCredentialsProviderTests
 
         var stableHost = new ProviderHost();
         var created = await stableHost.CreateAsync(stableHost.Resources(Template(), Outputs));
-        string recorded = created.Entry(SecretId).Extra!["endDateTime"]!.GetValue<string>();
+        string defaulted = Check.Body(created.Writes[1])["passwordCredential"]!["endDateTime"]!.GetValue<string>();
         for (int i = 0; i < 3; i++)
         {
             var again = await stableHost.CreateAsync(stableHost.Resources(Template(), Outputs));
             Assert.Equal(ChangeType.NoChange, again.Op(SecretName).ChangeType);
             Check.NoWrites(again);
-            Assert.Equal(recorded, again.Entry(SecretId).Extra!["endDateTime"]!.GetValue<string>());
         }
+
+        var live = stableHost.Directory.Find("/applications", "uniqueName", AppName)!["passwordCredentials"]!.AsArray();
+        Assert.Equal(defaulted, PasswordCredentialsRules.Format(DateTimeOffset.Parse(Assert.Single(live)!["endDateTime"]!.GetValue<string>(), CultureInfo.InvariantCulture)));
     }
 
     [Fact]

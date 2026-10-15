@@ -31,7 +31,7 @@ public sealed class Review2F_RotationBoundaryTests
 
     private static RotationAssessment Assess(DesiredPasswordCredential desired, DateTimeOffset liveEnd)
     {
-        return PasswordCredentialsRules.AssessRotation(desired, Live(liveEnd), RecordedPasswordCredential.Empty, Now);
+        return PasswordCredentialsRules.AssessRotation(desired, Live(liveEnd), Now);
     }
 
     // ---- the window: liveEnd - now < rotateBeforeDays ----
@@ -109,7 +109,7 @@ public sealed class Review2F_RotationBoundaryTests
 
         Assert.Empty(assessment.Triggers);
         var warning = Assert.Single(assessment.Warnings);
-        Assert.Contains("NOT rotated", warning, StringComparison.Ordinal);
+        Assert.Contains("NOT rotated", warning.Message, StringComparison.Ordinal);
     }
 
     [Fact]

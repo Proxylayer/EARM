@@ -9,7 +9,7 @@ using Xunit;
 
 namespace EArm.Providers.Tests;
 
-/// <summary>Pure rules of the password credentials provider: desired parsing, selection, rotation triggers with a fixed clock, Graph answers, views and state extra.</summary>
+/// <summary>Pure rules of the password credentials provider: desired parsing, base-name matching and tag-aware selection, rotation triggers (live tag vs declared tag) with a fixed clock, Graph answers and views.</summary>
 public sealed class PasswordCredentialsRulesTests
 {
     private static readonly DateTimeOffset Now = new(2026, 10, 14, 12, 0, 0, TimeSpan.Zero);
@@ -77,6 +77,60 @@ public sealed class PasswordCredentialsRulesTests
     }
 
     [Fact]
+    public void Select_PrefersTheCredentialWhoseLiveTagMatches_ElseTheNewest()
+    {
+        var matching = Credential("aaaaaaaa-0000-0000-0000-000000000001", Now.AddDays(10), "ci-secret#q4");
+        var newerOtherTag = Credential("aaaaaaaa-0000-0000-0000-000000000002", Now.AddDays(100), "ci-secret#q3");
+        var newestUntagged = Credential("aaaaaaaa-0000-0000-0000-000000000003", Now.AddDays(200), "ci-secret");
+        var olderMatching = Credential("aaaaaaaa-0000-0000-0000-000000000004", Now.AddDays(5), "ci-secret#q4");
+
+        Assert.Same(matching, PasswordCredentialsRules.Select([newerOtherTag, matching, newestUntagged, olderMatching], "q4"));
+        Assert.Same(newestUntagged, PasswordCredentialsRules.Select([newerOtherTag, matching, newestUntagged], "q5"));
+        Assert.Same(newestUntagged, PasswordCredentialsRules.Select([newerOtherTag, matching, newestUntagged]));
+    }
+
+    [Fact]
+    public void SameName_MatchesTheBaseName_WithOrWithoutATagSuffix()
+    {
+        var credentials = new[]
+        {
+            Credential("k1", Now, "ci-secret"),
+            Credential("k2", Now, "ci-secret#2026Q4"),
+            Credential("k3", Now, "ci-secret#"),
+            Credential("k4", Now, "ci-secret-2"),
+            Credential("k5", Now, "ci-secret-2#q1"),
+            Credential("k6", Now, "ci"),
+            Credential("k7", Now, null),
+        };
+
+        Assert.Equal(["k1", "k2", "k3"], [.. PasswordCredentialsRules.SameName(credentials, "ci-secret").Select(c => c.KeyId)]);
+        Assert.Equal("2026Q4", PasswordCredentialsRules.LiveTag(credentials[1]));
+        Assert.Null(PasswordCredentialsRules.LiveTag(credentials[0]));
+        Assert.Null(PasswordCredentialsRules.LiveTag(credentials[2]));
+    }
+
+    [Fact]
+    public void LiveDisplayName_AppendsTheTag_AndRejectsTheSeparatorAndOverlongNames()
+    {
+        Assert.Equal("ci-secret#q4", PasswordCredentialsRules.LiveDisplayName("ci-secret", "q4"));
+        Assert.Equal("ci-secret", PasswordCredentialsRules.LiveDisplayName("ci-secret", null));
+        Assert.Equal("ci-secret", PasswordCredentialsRules.LiveDisplayName("ci-secret", string.Empty));
+
+        Assert.Contains("contains '#'", PasswordCredentialsRules.NameProblem("ci#secret", null), StringComparison.Ordinal);
+        Assert.Contains("rotationTag", PasswordCredentialsRules.NameProblem("ci-secret", "a#b"), StringComparison.Ordinal);
+        Assert.Contains("256", PasswordCredentialsRules.NameProblem(new string('n', 250), "tag-1234"), StringComparison.Ordinal);
+        Assert.Null(PasswordCredentialsRules.NameProblem(new string('n', 250), "tag-1"));
+        Assert.Throws<ArgumentException>(() => PasswordCredentialsRules.LiveDisplayName("ci#secret", "q4"));
+    }
+
+    [Fact]
+    public void DescribeDesired_TreatsAnEmptyTagAsNoTag()
+    {
+        Assert.Null(PasswordCredentialsRules.DescribeDesired(new JsonObject { ["rotationTag"] = string.Empty }, out var desired));
+        Assert.Null(desired!.RotationTag);
+    }
+
+    [Fact]
     public void Summarize_AndSameName_MatchDisplayNamesCaseSensitively_AndSkipEntriesWithoutKeyId()
     {
         var credentials = PasswordCredentialsRules.Summarize((JsonArray)JsonNode.Parse("""
@@ -100,25 +154,39 @@ public sealed class PasswordCredentialsRulesTests
         var desired = new DesiredPasswordCredential(null, null, null, 30);
         var live = Credential("k", Now.AddDays(100));
 
-        Assert.Empty(PasswordCredentialsRules.RotationTriggers(desired, live, RecordedPasswordCredential.Empty, Now));
-        Assert.Empty(PasswordCredentialsRules.RotationTriggers(desired with { RotationTag = "q3" }, live, new RecordedPasswordCredential("k", live.EndDateTime, "q3"), Now));
-        Assert.Empty(PasswordCredentialsRules.RotationTriggers(desired with { EndDateTime = live.EndDateTime!.Value.AddMilliseconds(500) }, live, RecordedPasswordCredential.Empty, Now));
+        Assert.Empty(PasswordCredentialsRules.RotationTriggers(desired, live, Now));
+        Assert.Empty(PasswordCredentialsRules.RotationTriggers(desired with { RotationTag = "q3" }, Credential("k", Now.AddDays(100), "ci-secret#q3"), Now));
+        Assert.Empty(PasswordCredentialsRules.RotationTriggers(desired with { EndDateTime = live.EndDateTime!.Value.AddMilliseconds(500) }, live, Now));
     }
 
     [Fact]
     public void RotationTriggers_NameTheTagChange_WithBothSides()
     {
-        var live = Credential("k", Now.AddDays(100));
+        var live = Credential("k", Now.AddDays(100), "ci-secret#2026Q3");
 
-        var trigger = Assert.Single(PasswordCredentialsRules.RotationTriggers(new DesiredPasswordCredential(null, null, "2026Q4", 30), live, new RecordedPasswordCredential("k", null, "2026Q3"), Now));
+        var trigger = Assert.Single(PasswordCredentialsRules.RotationTriggers(new DesiredPasswordCredential(null, null, "2026Q4", 30), live, Now));
         Assert.Equal("rotationTag", trigger.Property);
         Assert.Equal("2026Q3", trigger.Before!.GetValue<string>());
         Assert.Equal("2026Q4", trigger.After!.GetValue<string>());
         Assert.Contains("'2026Q3' → '2026Q4'", trigger.Reason, StringComparison.Ordinal);
 
-        var removed = Assert.Single(PasswordCredentialsRules.RotationTriggers(new DesiredPasswordCredential(null, null, null, 30), live, new RecordedPasswordCredential("k", null, "2026Q3"), Now));
+        var removed = Assert.Single(PasswordCredentialsRules.RotationTriggers(new DesiredPasswordCredential(null, null, null, 30), live, Now));
         Assert.Null(removed.After);
         Assert.Contains("→ none", removed.Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AssessRotation_LegacyUntaggedLiveCredential_MatchesADeclaredTag_WithAWarning()
+    {
+        var live = Credential("k", Now.AddDays(100), "ci-secret");
+
+        var assessment = PasswordCredentialsRules.AssessRotation(new DesiredPasswordCredential(null, null, "2026Q4", 30), live, Now);
+
+        Assert.Empty(assessment.Triggers);
+        var warning = Assert.Single(assessment.Warnings);
+        Assert.Equal(ProviderWarnings.RotationTagNotStamped, warning.Code);
+        Assert.Contains("'ci-secret#2026Q4'", warning.Message, StringComparison.Ordinal);
+        Assert.Contains("NOT rotated", warning.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -128,7 +196,7 @@ public sealed class PasswordCredentialsRulesTests
         var wantedEnd = Now.AddDays(200);
         var wantedStart = Now.AddDays(-1);
 
-        var triggers = PasswordCredentialsRules.RotationTriggers(new DesiredPasswordCredential(wantedEnd, wantedStart, null, 30), live, RecordedPasswordCredential.Empty, Now);
+        var triggers = PasswordCredentialsRules.RotationTriggers(new DesiredPasswordCredential(wantedEnd, wantedStart, null, 30), live, Now);
 
         Assert.Equal(2, triggers.Count);
         Assert.Equal("endDateTime", triggers[0].Property);
@@ -142,20 +210,20 @@ public sealed class PasswordCredentialsRulesTests
     {
         var desired = new DesiredPasswordCredential(null, null, null, 30);
 
-        var soon = Assert.Single(PasswordCredentialsRules.RotationTriggers(desired, Credential("k", Now.AddDays(10)), RecordedPasswordCredential.Empty, Now));
+        var soon = Assert.Single(PasswordCredentialsRules.RotationTriggers(desired, Credential("k", Now.AddDays(10)), Now));
         Assert.Equal("endDateTime", soon.Property);
         Assert.Contains("expires on", soon.Reason, StringComparison.Ordinal);
         Assert.Contains("in 10 days", soon.Reason, StringComparison.Ordinal);
         Assert.Contains("fewer than rotateBeforeDays (30)", soon.Reason, StringComparison.Ordinal);
         Assert.Equal(PasswordCredentialsRules.Format(PasswordCredentialsRules.DefaultEndDateTime(Now)), soon.After!.GetValue<string>());
 
-        var expired = Assert.Single(PasswordCredentialsRules.RotationTriggers(desired, Credential("k", Now.AddDays(-1)), RecordedPasswordCredential.Empty, Now));
+        var expired = Assert.Single(PasswordCredentialsRules.RotationTriggers(desired, Credential("k", Now.AddDays(-1)), Now));
         Assert.Contains("expired on", expired.Reason, StringComparison.Ordinal);
 
-        Assert.Empty(PasswordCredentialsRules.RotationTriggers(desired with { RotateBeforeDays = 5 }, Credential("k", Now.AddDays(10)), RecordedPasswordCredential.Empty, Now));
-        Assert.Empty(PasswordCredentialsRules.RotationTriggers(desired, Credential("k", Now.AddDays(30).AddMinutes(1)), RecordedPasswordCredential.Empty, Now));
-        Assert.Single(PasswordCredentialsRules.RotationTriggers(desired, Credential("k", Now.AddDays(30).AddMinutes(-1)), RecordedPasswordCredential.Empty, Now));
-        Assert.Empty(PasswordCredentialsRules.RotationTriggers(desired, Credential("k", null), RecordedPasswordCredential.Empty, Now));
+        Assert.Empty(PasswordCredentialsRules.RotationTriggers(desired with { RotateBeforeDays = 5 }, Credential("k", Now.AddDays(10)), Now));
+        Assert.Empty(PasswordCredentialsRules.RotationTriggers(desired, Credential("k", Now.AddDays(30).AddMinutes(1)), Now));
+        Assert.Single(PasswordCredentialsRules.RotationTriggers(desired, Credential("k", Now.AddDays(30).AddMinutes(-1)), Now));
+        Assert.Empty(PasswordCredentialsRules.RotationTriggers(desired, Credential("k", null), Now));
     }
 
     [Fact]
@@ -190,26 +258,16 @@ public sealed class PasswordCredentialsRulesTests
     }
 
     [Fact]
-    public void ExtraFor_AndDiffView_HaveNoSecret()
+    public void DiffView_ShowsTheLiveTagFromTheName_AndHasNoSecret()
     {
-        var credential = Credential("k", Now.AddDays(100));
+        var tagged = Credential("k", Now.AddDays(100), "ci-secret#q3");
 
-        var extra = PasswordCredentialsRules.ExtraFor(credential, "q3");
-        Assert.Equal("{\"keyId\":\"k\",\"endDateTime\":\"" + PasswordCredentialsRules.Format(credential.EndDateTime!.Value) + "\",\"hint\":\"fak\",\"rotationTag\":\"q3\"}", extra.ToJsonString());
-        Assert.False(PasswordCredentialsRules.ExtraFor(credential, null).ContainsKey("rotationTag"));
-        Assert.False(SecretJson.ContainsSecret(extra));
-        Assert.DoesNotContain("secretText", extra.ToJsonString(), StringComparison.Ordinal);
-
-        var view = PasswordCredentialsRules.DiffView(credential, "q3");
+        var view = PasswordCredentialsRules.DiffView(tagged);
+        Assert.Equal("ci-secret#q3", view["displayName"]!.GetValue<string>());
         Assert.Equal("q3", view["rotationTag"]!.GetValue<string>());
-        Assert.False(PasswordCredentialsRules.DiffView(credential).ContainsKey("rotationTag"));
+        Assert.False(PasswordCredentialsRules.DiffView(Credential("k", Now.AddDays(100))).ContainsKey("rotationTag"));
         Assert.False(view.ContainsKey("secretText"));
-
-        var recorded = PasswordCredentialsRules.Recorded(extra);
-        Assert.Equal("k", recorded.KeyId);
-        Assert.Equal("q3", recorded.RotationTag);
-        Assert.True(PasswordCredentialsRules.SameInstant(credential.EndDateTime, recorded.EndDateTime));
-        Assert.Same(RecordedPasswordCredential.Empty, PasswordCredentialsRules.Recorded(null));
+        Assert.False(SecretJson.ContainsSecret(view));
     }
 
     [Fact]

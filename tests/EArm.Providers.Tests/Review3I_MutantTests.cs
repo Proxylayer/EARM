@@ -328,14 +328,14 @@ public sealed class Review3I_MutantTests
     [InlineData("blue", "blue", false)]
     [InlineData("Blue", "Blue", false)]
     [InlineData(null, "blue", true)]
-    [InlineData("blue", null, true)]
+    [InlineData("blue", null, false)] // a live credential without a tag (older EARM) matches any declared tag: no surprise rotation on upgrade
     [InlineData(null, null, false)]
-    public void TheRotationTagIsComparedCaseSensitively(string? desiredTag, string? recordedTag, bool rotates)
+    public void TheRotationTagIsComparedCaseSensitively(string? desiredTag, string? liveTag, bool rotates)
     {
         var desired = new DesiredPasswordCredential(null, null, desiredTag, 30);
-        var recorded = new RecordedPasswordCredential("k", null, recordedTag);
+        var live = Live(Now.AddDays(100)) with { DisplayName = liveTag is null ? "ci" : "ci#" + liveTag };
 
-        var triggers = PasswordCredentialsRules.RotationTriggers(desired, Live(Now.AddDays(100)), recorded, Now);
+        var triggers = PasswordCredentialsRules.RotationTriggers(desired, live, Now);
 
         Assert.Equal(rotates, triggers.Any(t => t.Property == PasswordCredentialsRules.RotationTagProperty));
     }

@@ -30,6 +30,12 @@ public sealed record ResourceKey
     /// <summary>The parent's Graph object id when it is already known (applied in this run, or read earlier).</summary>
     public string? ParentGraphId { get; init; }
 
+    /// <summary>
+    /// Values that steer which of several matching objects a read picks (password credentials: the declared <c>rotationTag</c>) but are not
+    /// part of the identity: never compared by <see cref="ProviderReads.KeyMatches"/>, never persisted, not shown by <see cref="Describe"/>.
+    /// </summary>
+    public IReadOnlyDictionary<string, string> Hints { get; init; } = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>Key properties whose values are not available yet.</summary>
     public IReadOnlyList<string> UnresolvedProperties { get; init; } = [];
 
