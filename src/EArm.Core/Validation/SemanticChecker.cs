@@ -102,11 +102,12 @@ internal sealed partial class SemanticChecker
                 continue;
             }
 
-            if (definition.AllowedValues is { } allowed)
+            // For an array parameter the allowed values are the values its elements may take (ARM/Bicep), so they are not arrays themselves.
+            if (definition.AllowedValues is { } allowed && type != TemplateParameterType.Array)
             {
                 for (int i = 0; i < allowed.Count; i++)
                 {
-                    if (!TemplateParameterTypes.Matches(allowed[i], type))
+                    if (!TemplateParameterTypes.MatchesTemplateText(allowed[i], type))
                     {
                         Error(DiagnosticCodes.AllowedValueTypeMismatch, $"Parameter '{definition.Name}': allowed value at index {i} does not match the declared type '{definition.Type}'.", definition.Path.Append("allowedValues").Append(i));
                     }
@@ -127,7 +128,7 @@ internal sealed partial class SemanticChecker
                 Warning(DiagnosticCodes.SecureParameterHasDefault, $"Parameter '{definition.Name}' is secure but has a default value; secrets should not be stored in the template.", defaultPath);
             }
 
-            if (!TemplateParameterTypes.Matches(definition.DefaultValue, type))
+            if (!TemplateParameterTypes.MatchesTemplateText(definition.DefaultValue, type))
             {
                 Error(DiagnosticCodes.DefaultValueTypeMismatch, $"Parameter '{definition.Name}': the default value does not match the declared type '{definition.Type}'.", defaultPath);
             }
@@ -175,8 +176,15 @@ internal sealed partial class SemanticChecker
 
     private long? LiteralInt(ParameterDefinition definition, string key, JsonNode? node)
     {
-        if (node is null || TemplateJson.IsExpression(node))
+        if (node is null)
         {
+            return null;
+        }
+
+        if (TemplateJson.IsExpression(node))
+        {
+            // ARM: "Expressions aren't allowed with other parameter properties" (only defaultValue may be an expression).
+            Error(DiagnosticCodes.InvalidParameterConstraint, $"Parameter '{definition.Name}': '{key}' must be a literal integer; expressions are only allowed in 'defaultValue'.", definition.Path.Append(key));
             return null;
         }
 

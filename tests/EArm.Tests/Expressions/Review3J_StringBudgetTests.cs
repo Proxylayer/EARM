@@ -165,7 +165,9 @@ public sealed class Review3J_StringBudgetTests
 
         Assert.Equal(first, (int)Expr.Eval("[indexOf(variables('t'), variables('n'))]", context)!.GetValue<long>());
         Assert.Equal(last, (int)Expr.Eval("[lastIndexOf(variables('t'), variables('n'))]", context)!.GetValue<long>());
-        Assert.Equal(first >= 0, Expr.Eval("[contains(variables('t'), variables('n'))]", context)!.GetValue<bool>());
+
+        // contains() on a string is case-sensitive in ARM ("The string comparison is case-sensitive"), unlike indexOf/lastIndexOf.
+        Assert.Equal(text.Contains(needle, StringComparison.Ordinal), Expr.Eval("[contains(variables('t'), variables('n'))]", context)!.GetValue<bool>());
     }
 
     [Fact]
@@ -182,7 +184,22 @@ public sealed class Review3J_StringBudgetTests
 
             Assert.Equal(text.IndexOf(needle, StringComparison.OrdinalIgnoreCase), (int)Expr.Eval("[indexOf(variables('t'), variables('n'))]", context)!.GetValue<long>());
             Assert.Equal(text.LastIndexOf(needle, StringComparison.OrdinalIgnoreCase), (int)Expr.Eval("[lastIndexOf(variables('t'), variables('n'))]", context)!.GetValue<long>());
+            Assert.Equal(text.Contains(needle, StringComparison.Ordinal), Expr.Eval("[contains(variables('t'), variables('n'))]", context)!.GetValue<bool>());
         }
+    }
+
+    [Fact]
+    [Trait("Category", "Timing")]
+    public void Contains_AdversarialRepeats_AreLinear()
+    {
+        string text = new('a', 1_000_000);
+        string needle = new string('a', 250_000) + "b" + new string('a', 250_000);
+        var variables = new Dictionary<string, JsonNode?> { ["t"] = JsonValue.Create(text), ["n"] = JsonValue.Create(needle) };
+        var context = Context(variables: variables);
+        var stopwatch = Stopwatch.StartNew();
+
+        Assert.False(Expr.Eval("[contains(variables('t'), variables('n'))]", context)!.GetValue<bool>());
+        Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(10), $"took {stopwatch.Elapsed}");
     }
 
     [Fact]

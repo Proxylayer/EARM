@@ -8,7 +8,8 @@ namespace EArm.Core.Validation;
 /// <summary>
 /// The constraints of a template parameter (<c>allowedValues</c>, <c>minValue</c>/<c>maxValue</c>, <c>minLength</c>/<c>maxLength</c>) checked against a
 /// value. Secure parameters are checked too, on the revealed value; the messages never contain the value (nor an allowed value), only the name of the
-/// parameter and the constraint. A constraint that is an expression is not checked here (it is not known offline). Used for supplied values, for
+/// parameter and the constraint. A constraint that is an expression is ignored here (the semantic checker rejects it: ARM allows
+/// expressions only in <c>defaultValue</c>). For an array parameter, <c>allowedValues</c> lists the values its elements may take. Used for supplied values, for
 /// literal defaults, and for values resolved from Key Vault at deployment time.
 /// </summary>
 public static class ParameterConstraints
@@ -16,7 +17,7 @@ public static class ParameterConstraints
     /// <summary>
     /// A description of the first constraint <paramref name="value"/> violates, or <c>null</c> when it satisfies them all. <paramref name="value"/> may hold
     /// secure (tainted) leaves; they are compared as plain values. A supplied value is data, never an expression; a default that is an expression
-    /// (<paramref name="isDefault"/>) is not known offline and is not checked.
+    /// (<paramref name="isDefault"/>), or holds one at any depth, is not known offline and is not checked here: it is checked once evaluated.
     /// </summary>
     public static string? Violation(ParameterDefinition definition, JsonNode? value, bool isDefault = false)
     {
@@ -27,12 +28,12 @@ public static class ParameterConstraints
         }
 
         var plain = SecretJson.ContainsSecret(value) ? SecretJson.Reveal(value) : value;
-        if (isDefault && TemplateJson.IsExpression(plain))
+        if (isDefault && TemplateJson.ContainsExpression(plain))
         {
             return null;
         }
 
-        if (definition.AllowedValues is { } allowed && !IsAllowed(plain, allowed))
+        if (definition.AllowedValues is { } allowed && !(type == TemplateParameterType.Array && plain is JsonArray elements ? AreAllAllowed(elements, allowed) : IsAllowed(plain, allowed)))
         {
             return $"the value does not match allowedValues of parameter '{definition.Name}'";
         }
@@ -92,6 +93,20 @@ public static class ParameterConstraints
     private static long? Literal(JsonNode? node)
     {
         return node is null || TemplateJson.IsExpression(node) ? null : TemplateJson.AsInt64(node);
+    }
+
+    /// <summary>ARM/Bicep rule for an array parameter: every element must be one of the allowed values (the value is a subset of them).</summary>
+    private static bool AreAllAllowed(JsonArray elements, JsonArray allowed)
+    {
+        foreach (var element in elements)
+        {
+            if (!IsAllowed(element, allowed))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static bool IsAllowed(JsonNode? value, JsonArray allowed)

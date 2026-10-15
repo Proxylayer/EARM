@@ -362,6 +362,37 @@ public static class TemplateJson
         return ExpressionSyntax.IsExpression(AsString(node));
     }
 
+    /// <summary>True when the node is, or (at any depth inside an object or array) contains, a string holding an expression.</summary>
+    public static bool ContainsExpression(JsonNode? node)
+    {
+        var stack = new Stack<JsonNode?>();
+        stack.Push(node);
+        while (stack.Count > 0)
+        {
+            switch (stack.Pop())
+            {
+                case JsonObject obj:
+                    foreach (var property in obj)
+                    {
+                        stack.Push(property.Value);
+                    }
+
+                    break;
+                case JsonArray array:
+                    foreach (var item in array)
+                    {
+                        stack.Push(item);
+                    }
+
+                    break;
+                case var leaf when IsExpression(leaf):
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
     /// <summary>
     /// The literal string of a node: <c>null</c> for non-strings and for expressions; escaped literals are unescaped.
     /// </summary>

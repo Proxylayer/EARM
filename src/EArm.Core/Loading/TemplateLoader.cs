@@ -193,6 +193,14 @@ public sealed class TemplateLoader : ITemplateLoader
         var basePath = JsonPath.Of("variables");
         foreach (var entry in source)
         {
+            // ARM reserves 'copy' in variables for variable iteration (an array of { name, count, input } read with copyIndex('name')). EARM does
+            // not implement it; treating the block as a variable named 'copy' would silently produce something else.
+            if (entry.Key.Equals("copy", StringComparison.OrdinalIgnoreCase))
+            {
+                context.Error(DiagnosticCodes.InvalidCopy, "Variable iteration ('copy' in variables) is not supported. Build the array with an expression instead, for example map(range(0, count), lambda('i', ...)).", basePath.Append(entry.Key));
+                continue;
+            }
+
             if (!variables.TryAdd(entry.Key, entry.Value))
             {
                 context.Error(DiagnosticCodes.DuplicateDefinition, $"Variable '{entry.Key}' is defined more than once (variable names are case-insensitive).", basePath.Append(entry.Key));

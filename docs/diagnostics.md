@@ -77,7 +77,7 @@ diagnostic codes, so they have no table row here; see "Graph batch item codes" i
 | `DynamicMembershipConflict` | Error | `members` declared on a dynamic group (`groupTypes` contains `DynamicMembership`) or a dynamic administrative unit (`membershipType: Dynamic`). |
 | `DirectoryRolesRequireRoleAssignableGroup` | Error | `directoryRoles` on a group without a literal `isAssignableToRole: true`. |
 | `AssignedLicensesRequireUsageLocation` | Error | `assignedLicenses` on a user that declares no `usageLocation`. |
-| `InvalidCopy` | Error | `copy` is missing `name`/`count`, `name` is not a literal string, `count` is negative or not an integer, `mode` is not `serial`/`parallel`, or `batchSize` is not positive. |
+| `InvalidCopy` | Error | `copy` is missing `name`/`count`, `name` is not a literal string, `count` is negative or not an integer, `mode` is not `serial`/`parallel`, or `batchSize` is not positive. Also a `copy` block in `variables` (variable iteration is not supported). |
 
 ## Parameters
 
@@ -85,9 +85,9 @@ diagnostic codes, so they have no table row here; see "Graph batch item codes" i
 |---|---|---|
 | `InvalidParameterType` | Error | A parameter (or user-function parameter) has no `type` or an unknown one; allowed: `string`, `securestring`, `int`, `bool`, `object`, `secureObject`, `array`. |
 | `AllowedValueTypeMismatch` | Error | An `allowedValues` entry does not match the parameter type. |
-| `InvalidParameterConstraint` | Error | `minValue`/`maxValue` on a non-`int` parameter, `minLength`/`maxLength` on a type other than `string`/`securestring`/`array`, a negative length, a non-integer bound, or min greater than max. |
-| `DefaultValueTypeMismatch` | Error | The literal `defaultValue` does not match the parameter type. |
-| `DefaultValueNotAllowed` | Error | The literal `defaultValue` violates a constraint of the parameter: it is not in `allowedValues`, is outside `minValue`/`maxValue`, or is shorter or longer than `minLength`/`maxLength`. Secure parameters are checked too; the message names the constraint, never the value. |
+| `InvalidParameterConstraint` | Error | `minValue`/`maxValue` on a non-`int` parameter, `minLength`/`maxLength` on a type other than `string`/`securestring`/`array`, a negative length, a non-integer bound, an expression bound (ARM allows expressions only in `defaultValue`), or min greater than max. |
+| `DefaultValueTypeMismatch` | Error | The literal `defaultValue` does not match the parameter type. At deployment (and wherever the default is evaluated), also an expression `defaultValue` whose result does not match the type. |
+| `DefaultValueNotAllowed` | Error | The literal `defaultValue` (or, once evaluated, an expression `defaultValue`) violates a constraint of the parameter: it is not in `allowedValues`, is outside `minValue`/`maxValue`, or is shorter or longer than `minLength`/`maxLength`. Secure parameters are checked too; the message names the constraint, never the value. |
 | `SecureParameterHasDefault` | Warning | A `securestring`/`secureObject` parameter has a default value. |
 | `MissingParameterValue` | Warning | No value was supplied and the parameter has no default. A warning offline; deployment treats it as an error. |
 | `ParameterValueTypeMismatch` | Error | A supplied value (file or `-p`) does not match, or cannot be converted to, the declared type. |
@@ -110,7 +110,7 @@ Emitted by `EArm.Expressions` (`ExpressionValidator`), after the checks above. M
 | `ExpressionTooLong` | Error | The expression string exceeds 24,576 characters (ARM limit). |
 | `ExpressionTooDeep` | Error | The expression nests more than 100 levels deep: calls, indexers, `lambda()` bodies and chained `.property` / `[index]` accesses are counted together. The message carries the offset where the limit was hit. Also reported when a hand-built expression tree is too deep for the stack to be walked, so a hostile template yields this diagnostic (exit code 2) instead of crashing the process. |
 | `UnknownFunction` | Error | The function is not an ARM function EARM supports, or `ns.fn` names a namespace/member the template's `functions` section does not declare. |
-| `UnsupportedArmFunction` | Error | An ARM function with no Entra meaning: `resourceGroup subscription managementGroup extensionResourceId subscriptionResourceId tenantResourceId listKeys listSecrets providers pickZones`. The message names the alternative. |
+| `UnsupportedArmFunction` | Error | An ARM function with no Entra meaning: `resourceGroup subscription managementGroup managementGroupResourceId extensionResourceId subscriptionResourceId tenantResourceId listKeys listSecrets providers pickZones`. The message names the alternative. |
 | `NotImplementedYet` | Warning | A function registered as `FunctionKind.NotImplementedYet` evaluates to a deploy-time placeholder. **Not emitted by the default registry any more**: lambdas (`lambda map filter reduce sort toObject groupBy lambdaVariables`), the Entra functions (`wellKnownApp appRole permissionScope roleTemplate tenant environment`) and user-defined functions are implemented. Kept for registries that stage a function before implementing it. |
 | `NonDeterministicFunctionNotAllowed` | Error | `utcNow()` or `newGuid()` outside a parameter `defaultValue` (ARM rule). |
 | `FunctionNotAllowedHere` | Error | A function in a place the phase rules forbid: `variables()` inside a parameter default value or a user-defined function; `appRole()`, `permissionScope()`, `roleTemplate()` or `tenant()` inside a parameter default, a variable or a user-defined function (they need the tenant, which is only consulted while resources are applied; `wellKnownApp()` is pure and allowed anywhere); `lambdaVariables()` outside the body of a lambda; a user-defined function called from inside another user-defined function (ARM rule). |

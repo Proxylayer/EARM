@@ -99,11 +99,18 @@ deterministic, the key of the state file and what the what-if output prints. `re
 
 | ARM | EARM |
 |---|---|
-| `location`, `sku`, `kind`, top-level `tags`, `identity`, `scope`, resource group and subscription | Not present: Entra objects have none of them (Graph `tags` live inside `properties`). `resourceGroup()`, `subscription()`, `managementGroup()`, `extensionResourceId()`, `subscriptionResourceId()`, `tenantResourceId()`, `listKeys()`, `listSecrets()`, `providers()` and `pickZones()` are errors (`UnsupportedArmFunction`) with a pointer to the alternative. |
+| `location`, `sku`, `kind`, top-level `tags`, `identity`, `scope`, resource group and subscription | Not present: Entra objects have none of them (Graph `tags` live inside `properties`). `resourceGroup()`, `subscription()`, `managementGroup()`, `managementGroupResourceId()`, `extensionResourceId()`, `subscriptionResourceId()`, `tenantResourceId()`, `listKeys()`, `listSecrets()`, `providers()` and `pickZones()` are errors (`UnsupportedArmFunction`) with a pointer to the alternative. |
 | PUT replaces the resource | Graph is merge-PATCH: only the **declared** properties are applied; omitted ones are untouched. Arrays and nested objects are replaced whole when declared. |
 | Implicit parent dependency of a child must be explicit | Inferred for nested children (a superset of the ARM rule). |
 | `existing` resources | `reference(resourceId('Microsoft.Entra/…', 'name'), '2026-10-01-preview')` looks up an object that is not in the template (no dependency; an error when not found). |
 | Relationships live in separate resources | Arrays inside `properties`, declarable from either side; see [edges.md](edges.md). |
+| Nested and linked deployments (`Microsoft.Resources/deployments`, `templateLink`) | Not supported: a template is deployed on its own. Split the work into several templates and pass values between them through parameter files. |
+| `copy` in `variables` (variable iteration) and property-level `copy` | Not supported. A `copy` block in `variables` is an `InvalidCopy` error (it is never read as a variable named `copy`); build arrays with `map(range(0, n), lambda('i', ...))` instead. |
+| `uniqueString()` and `guid()` | Deterministic and stable in EARM, but **not** the same values ARM computes for the same inputs (different hash). Do not rely on them to reproduce names or ids created by an ARM or Bicep deployment. |
+| `reference(resourceIdOrName, apiVersion, 'Full')` | `reference()` takes at most two arguments; there is no `'Full'` form (the result is always the Graph object itself). |
+| Other ARM functions | Not available (an unknown-function error): `references`, `deployer`, `dataUri`, `dataUriToString`, `parseCidr`, `cidrSubnet`, `cidrHost`, `listAccountSas` and the other `list*` functions. |
+| Bicep-only operators | Expressions are ARM JSON syntax: the Bicep safe-dereference `.?` and non-null assertion `!` operators do not exist. Use `tryGet(obj, 'key')`, `tryIndexFromEnd(array, n)` or `coalesce()`. |
+| Parameter constraints | As in ARM, only `defaultValue` may be an expression; an expression in `minValue`, `maxValue`, `minLength` or `maxLength` is an `InvalidParameterConstraint` error. An expression default is checked against the type and the constraints once it is evaluated. For an `array` parameter, `allowedValues` lists the values its **elements** may take (every element must be one of them). |
 
 ## Resource type catalog
 
@@ -180,9 +187,14 @@ conditions, dependsOn entries, outputs).
 | String | `concat format toLower toUpper substring replace split join trim startsWith endsWith contains length empty indexOf lastIndexOf padLeft string base64 base64ToString uri uriComponent uriComponentToString guid uniqueString newGuid utcNow dateTimeAdd dateTimeFromEpoch dateTimeToEpoch` |
 | Logic | `if and or not equals less lessOrEquals greater greaterOrEquals coalesce bool true false` |
 | Numeric | `add sub mul div mod min max int float` |
-| Array and object | `array createArray createObject first last take skip union intersection range items json null objectKeys flatten` and the lambda functions `map filter reduce sort toObject groupBy lambda lambdaVariables` |
+| Array and object | `array createArray createObject first last take skip union intersection range items json null objectKeys flatten distinct shallowMerge tryGet indexFromEnd tryIndexFromEnd` and the lambda functions `map mapValues filter reduce sort toObject groupBy lambda lambdaVariables` |
 | Resource and deployment | `resourceId reference copyIndex deployment tenant environment parameters variables` and user functions `namespace.fn(...)` |
 | **Entra** | `wellKnownApp(name)`, `appRole(app, value)`, `permissionScope(app, value)`, `roleTemplate(name)` |
+
+ARM comparison rules apply: `contains()` on a string is case-sensitive (on an object it matches keys case-insensitively), while
+`startsWith`, `endsWith`, `indexOf` and `lastIndexOf` on strings ignore case. `union()` of objects merges nested objects recursively
+(arrays are replaced, the last one wins); `shallowMerge()` replaces nested objects whole. `tryGet()` and `tryIndexFromEnd()` return
+`null` for a missing key or an out-of-range index; `indexFromEnd(array, 1)` is the last element.
 
 The Entra functions:
 

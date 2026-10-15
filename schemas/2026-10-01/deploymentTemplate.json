@@ -69,10 +69,10 @@
         "type": { "$ref": "#/$defs/parameterType" },
         "defaultValue": { "description": "Value used when none is supplied. Secure parameters should not have one." },
         "allowedValues": { "type": "array", "description": "The only values the parameter accepts." },
-        "minValue": { "$ref": "#/$defs/intOrExpression", "description": "Minimum for int parameters." },
-        "maxValue": { "$ref": "#/$defs/intOrExpression", "description": "Maximum for int parameters." },
-        "minLength": { "$ref": "#/$defs/intOrExpression", "description": "Minimum length for string, securestring and array parameters." },
-        "maxLength": { "$ref": "#/$defs/intOrExpression", "description": "Maximum length for string, securestring and array parameters." },
+        "minValue": { "type": "integer", "description": "Minimum for int parameters. A literal integer: ARM allows expressions only in defaultValue." },
+        "maxValue": { "type": "integer", "description": "Maximum for int parameters. A literal integer: ARM allows expressions only in defaultValue." },
+        "minLength": { "type": "integer", "description": "Minimum length for string, securestring and array parameters. A literal integer: ARM allows expressions only in defaultValue." },
+        "maxLength": { "type": "integer", "description": "Maximum length for string, securestring and array parameters. A literal integer: ARM allows expressions only in defaultValue." },
         "metadata": { "type": "object", "properties": { "description": { "type": "string" } } }
       },
       "additionalProperties": false

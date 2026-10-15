@@ -153,7 +153,7 @@ public sealed class SemanticCheckerShapeTests
     {
         Assert.True(TemplateParameterTypes.TryParse(type, out var parsed));
 
-        Assert.Equal(matches, TemplateParameterTypes.Matches(System.Text.Json.Nodes.JsonNode.Parse(literal), parsed));
+        Assert.Equal(matches, TemplateParameterTypes.MatchesTemplateText(System.Text.Json.Nodes.JsonNode.Parse(literal), parsed));
         Assert.Equal(type, TemplateParameterTypes.CanonicalName(parsed));
     }
 

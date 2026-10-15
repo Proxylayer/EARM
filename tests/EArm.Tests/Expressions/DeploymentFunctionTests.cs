@@ -650,7 +650,7 @@ public sealed class DeploymentFunctionTests
         Assert.True(registry.Contains("CONCAT"));
         Assert.NotNull(registry.Find("resourceId"));
         Assert.Null(registry.Find("nope"));
-        Assert.Equal(["extensionResourceId", "listKeys", "listSecrets", "managementGroup", "pickZones", "providers", "resourceGroup", "subscription", "subscriptionResourceId", "tenantResourceId"], registry.NamesOfKind(FunctionKind.Rejected));
+        Assert.Equal(["extensionResourceId", "listKeys", "listSecrets", "managementGroup", "managementGroupResourceId", "pickZones", "providers", "resourceGroup", "subscription", "subscriptionResourceId", "tenantResourceId"], registry.NamesOfKind(FunctionKind.Rejected));
         // Lambdas and the Entra functions are implemented; nothing in the default registry is a stub.
         Assert.Empty(registry.NamesOfKind(FunctionKind.NotImplementedYet));
         foreach (var name in new[] { "map", "filter", "reduce", "sort", "toObject", "groupBy", "lambdaVariables", "wellKnownApp", "appRole", "permissionScope", "roleTemplate", "tenant", "environment" })
