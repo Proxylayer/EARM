@@ -1,0 +1,37 @@
+{
+  "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "WI-19: an IP named location and a country named location."
+  },
+  "parameters": {
+    "prefix": { "type": "string" },
+    "cidr":   { "type": "string", "defaultValue": "203.0.113.0/24" }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Entra/conditionalAccess/namedLocations",
+      "apiVersion": "2026-10-01-preview",
+      "name": "[format('{0}-nl-ip', parameters('prefix'))]",
+      "properties": {
+        "@odata.type": "#microsoft.graph.ipNamedLocation",
+        "isTrusted": true,
+        "ipRanges": [
+          { "cidrAddress": "[parameters('cidr')]" },
+          { "cidrAddress": "198.51.100.0/24" }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.Entra/conditionalAccess/namedLocations",
+      "apiVersion": "2026-10-01-preview",
+      "name": "[format('{0}-nl-country', parameters('prefix'))]",
+      "properties": {
+        "@odata.type": "#microsoft.graph.countryNamedLocation",
+        "countriesAndRegions": ["GB", "IE"],
+        "includeUnknownCountriesAndRegions": false,
+        "countryLookupMethod": "clientIpAddress"
+      }
+    }
+  ]
+}

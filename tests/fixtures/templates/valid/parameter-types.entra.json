@@ -1,8 +1,8 @@
 {
-  "$schema": "https://entraarm.dev/schemas/2026-10-01/deploymentTemplate.json#",
+  "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
   "contentVersion": "1.0.0.0",
   "metadata": {
-    "description": "One parameter per type without a default (plus one string with a default). Used by EntraArm.Tests to exercise -p name=value conversion and parameter-file binding."
+    "description": "One parameter per type without a default (plus one string with a default). Used by EArm.Tests to exercise -p name=value conversion and parameter-file binding."
   },
   "parameters": {
     "count":     { "type": "int" },

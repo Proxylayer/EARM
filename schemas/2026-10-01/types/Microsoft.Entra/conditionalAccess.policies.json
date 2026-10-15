@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://entraarm.dev/schemas/2026-10-01/types/Microsoft.Entra/conditionalAccess.policies.json",
+  "$id": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/conditionalAccess.policies.json",
   "title": "Microsoft.Entra/conditionalAccess/policies",
   "description": "A conditional access policy. The resource name is the displayName; the Graph id is pinned in state. state: enabled requires --allow-ca-enforce at deployment time. Reference users and groups by object id, applications by application (client) id, locations by named location id, roles by role template id.",
   "type": "object",
@@ -540,7 +540,7 @@
   "$defs": {
     "expression": { "type": "string", "pattern": "^\\[.*\\]$", "description": "A template expression, for example [parameters('env')]." }
   },
-  "x-entraarm": {
+  "x-earm": {
     "type": "Microsoft.Entra/conditionalAccess/policies",
     "parentType": null,
     "graphPath": "/identity/conditionalAccess/policies",

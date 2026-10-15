@@ -1,4 +1,4 @@
-# Resource providers (`EntraArm.Providers`)
+# Resource providers (`EArm.Providers`)
 
 How a `Microsoft.Entra/<type>` provider is written, registered and tested. The engine side of the contract
 (`IResourceProvider`, `ProviderBase`, `JsonDiff`, `ResourceInstance`, `FakeGraphClient`) is described in
@@ -7,9 +7,9 @@ How a `Microsoft.Entra/<type>` provider is written, registered and tested. The e
 ## Registration is by discovery
 
 `ProviderDiscovery.CreateRegistry(catalog)` (called once per command by the CLI composition root,
-`EngineServices`) scans the `EntraArm.Providers` assembly for every non-abstract class that implements
+`EngineServices`) scans the `EArm.Providers` assembly for every non-abstract class that implements
 `IResourceProvider`, reads its `[EntraProvider("Microsoft.Entra/<type>")]` attribute, looks the type up in the
-`ResourceTypeCatalog` (the `x-entraarm` overlay of `schemas/2026-10-01/types/Microsoft.Entra/<type>.json`) and
+`ResourceTypeCatalog` (the `x-earm` overlay of `schemas/2026-10-01/types/Microsoft.Entra/<type>.json`) and
 constructs the provider with the first constructor it finds among
 
 ```
@@ -294,7 +294,7 @@ Type-specific rules (`UsersRules`, `UsersLicensing`, pure):
 
 Both are named by `displayName`; the Graph id is pinned in the state after the first run. A lookup that finds no object
 is a create, one hit is the object, several hits are `ProviderException(AmbiguousMatch)` listing the ids (resolve with
-`entraarm state adopt --resource-id … --object-id …`).
+`earm state adopt --resource-id … --object-id …`).
 
 `Microsoft.Entra/conditionalAccess/namedLocations`:
 
@@ -346,7 +346,7 @@ last `PlanOptions` seen is kept so a direct `CreateAsync`/`UpdateAsync` applies 
 | Delete | `GET …/{id}` (404 = already gone) → `PATCH …/{id} { isAvailable: false }` while the context is still available (Graph refuses to delete an available one) → `DELETE …/{id}`; a 400 (still available, or referenced by a policy's `includeAuthenticationContextClassReferences`) is surfaced as `Referenced` |
 
 `Plan` requires `displayName` and defaults `isAvailable: true` into the evaluated properties, so a context switched off
-outside EntraARM shows as drift. The id is immutable by definition: another name is another resource, never a recreate.
+outside EARM shows as drift. The id is immutable by definition: another name is another resource, never a recreate.
 Policies reference a context by id (`"includeAuthenticationContextClassReferences": ["c10"]`, or
 `[reference(resourceId('Microsoft.Entra/conditionalAccess/authenticationContextClassReferences', 'c10')).id]` to get the
 ordering dependency).
@@ -373,7 +373,7 @@ and stripped on read; a declared `custom` is dropped as implied, anything else i
 ## Adding an edge kind
 
 Part B edge kinds (plan section 1.4: app role assignments, directory roles) live next to their standalone provider and
-are discovered like providers: implement `IEdgeKindHandler` (`EntraArm.Engine.Edges`) with `Phase = EdgePhase.B`,
+are discovered like providers: implement `IEdgeKindHandler` (`EArm.Engine.Edges`) with `Phase = EdgePhase.B`,
 attribute the class `[EntraEdgeKind(EdgeKind.<Kind>)]`, give it a `(ResourceTypeCatalog)` or parameterless
 constructor, and `ProviderDiscovery.CreateEdgeKinds(catalog)` returns `EdgeKindRegistry.Default` (part A) plus every
 attributed handler. `EngineServices` passes that registry to the planner through `PlannerOptions.EdgeKinds` unless
@@ -411,7 +411,7 @@ What the engine's edge pass expects from a part B handler (worked example: `Edge
 
 ## Test fixtures
 
-- Drive the provider through `FakeGraphClient` / `FakeDirectory` (`tests/EntraArm.TestSupport`). Seed objects
+- Drive the provider through `FakeGraphClient` / `FakeDirectory` (`tests/EArm.TestSupport`). Seed objects
   with `AddApplication`, `AddGroup`, `AddUser`, `AddServicePrincipal`, `Add(path, entity)`; stage soft-deleted
   objects with `AddDeleted("/applications", entity)` or `SoftDelete(id)` (they are listed by
   `GET /directory/deletedItems/microsoft.graph.<type>`, restored by `POST …/{id}/restore`, purged by `DELETE`).

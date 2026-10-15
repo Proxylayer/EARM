@@ -23,9 +23,9 @@
   <!-- Version and package metadata. -->
   <PropertyGroup>
     <VersionPrefix>0.1.0</VersionPrefix>
-    <Product>EntraARM</Product>
-    <Authors>EntraARM</Authors>
-    <Company>EntraARM</Company>
+    <Product>EARM</Product>
+    <Authors>EARM</Authors>
+    <Company>EARM</Company>
     <NeutralLanguage>en</NeutralLanguage>
   </PropertyGroup>
 

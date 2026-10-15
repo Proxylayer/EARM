@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://entraarm.dev/schemas/2026-10-01/types/Microsoft.Entra/servicePrincipals.json",
+  "$id": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/servicePrincipals.json",
   "title": "Microsoft.Entra/servicePrincipals",
   "description": "A service principal. The resource name is the application (client) id; the principal is read via GET /servicePrincipals(appId='...') and created with POST /servicePrincipals { appId }. Properties not listed here are passed through to Graph unchanged.",
   "type": "object",
@@ -179,7 +179,7 @@
   "$defs": {
     "expression": { "type": "string", "pattern": "^\\[.*\\]$", "description": "A template expression, for example [parameters('env')]." }
   },
-  "x-entraarm": {
+  "x-earm": {
     "type": "Microsoft.Entra/servicePrincipals",
     "parentType": null,
     "graphPath": "/servicePrincipals",

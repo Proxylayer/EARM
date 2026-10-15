@@ -1,13 +1,13 @@
 #Requires -Version 7
 <#
 .SYNOPSIS
-    Packs the entraarm CLI as a .NET tool package and (re)installs it as a global tool from that package.
+    Packs the earm CLI as a .NET tool package and (re)installs it as a global tool from that package.
 .DESCRIPTION
-    1. dotnet pack src/EntraArm.Cli -> artifacts/nupkg (previous entraarm.*.nupkg files are removed first).
-    2. dotnet tool uninstall -g entraarm (failure ignored: the tool may not be installed yet).
-    3. dotnet tool install -g entraarm --add-source artifacts/nupkg --version <packed version>.
+    1. dotnet pack src/EArm.Cli -> artifacts/nupkg (previous earm.*.nupkg files are removed first).
+    2. dotnet tool uninstall -g entraarm (the tool's former name) and earm (failures ignored: not installed yet).
+    3. dotnet tool install -g earm --add-source artifacts/nupkg --version <packed version>.
     -Detailed shows full dotnet output; simple mode prints only errors plus one line per step.
-    After a successful run, "entraarm --version" works from any directory.
+    After a successful run, "earm --version" works from any directory.
 .EXAMPLE
     pwsh -File deploy.ps1
 .EXAMPLE
@@ -26,12 +26,13 @@ $PSNativeCommandUseErrorActionPreference = $false
 $env:DOTNET_NOLOGO = '1'
 
 $repoRoot = $PSScriptRoot
-$cliProject = Join-Path $repoRoot 'src' 'EntraArm.Cli' 'EntraArm.Cli.csproj'
+$cliProject = Join-Path $repoRoot 'src' 'EArm.Cli' 'EArm.Cli.csproj'
 $nupkgDir = Join-Path $repoRoot 'artifacts' 'nupkg'
-$packageId = 'entraarm'
+$packageId = 'earm'
 
 New-Item -ItemType Directory -Force -Path $nupkgDir | Out-Null
 Get-ChildItem -LiteralPath $nupkgDir -Filter "$packageId.*.nupkg" -ErrorAction SilentlyContinue | Remove-Item -Force
+Get-ChildItem -LiteralPath $nupkgDir -Filter 'entraarm.*.nupkg' -ErrorAction SilentlyContinue | Remove-Item -Force  # former package name
 
 # ---- 1. Pack ------------------------------------------------------------------------------------------------
 $packArgs = @('pack', $cliProject, '--configuration', $Configuration, '--output', $nupkgDir, '--nologo')
@@ -58,15 +59,19 @@ if (-not $package) {
 }
 $version = $package.BaseName.Substring($packageId.Length + 1)
 
-# ---- 2. Uninstall the previous global install (ignored when not installed) ----------------------------------
-Write-Host "UNINSTALL  $packageId (previous global install, if any)"
-& {
-    $ErrorActionPreference = 'Continue'
-    if ($Detailed) {
-        & dotnet tool uninstall --global $packageId
-    }
-    else {
-        & dotnet tool uninstall --global $packageId *> $null
+# ---- 2. Uninstall the previous global installs (ignored when not installed) --------------------------------
+# 'entraarm' is the tool's former name (renamed to 'earm'); remove it so an upgraded dev machine keeps no stale tool.
+$legacyPackageId = 'entraarm'
+foreach ($toolId in @($legacyPackageId, $packageId)) {
+    Write-Host "UNINSTALL  $toolId (previous global install, if any)"
+    & {
+        $ErrorActionPreference = 'Continue'
+        if ($Detailed) {
+            & dotnet tool uninstall --global $toolId
+        }
+        else {
+            & dotnet tool uninstall --global $toolId *> $null
+        }
     }
 }
 
@@ -83,5 +88,5 @@ if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
-Write-Host "DEPLOY OK  $packageId $version installed globally; run 'entraarm --version' to confirm"
+Write-Host "DEPLOY OK  $packageId $version installed globally; run 'earm --version' to confirm"
 exit 0

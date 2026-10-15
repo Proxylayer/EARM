@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://entraarm.dev/schemas/2026-10-01/types/Microsoft.Entra/conditionalAccess.authenticationContextClassReferences.json",
+  "$id": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/conditionalAccess.authenticationContextClassReferences.json",
   "title": "Microsoft.Entra/conditionalAccess/authenticationContextClassReferences",
   "description": "An authentication context class reference. The resource name is the Graph id (c1..c99). Create and update are both PATCH; delete requires isAvailable: false first.",
   "type": "object",
@@ -17,7 +17,7 @@
   "$defs": {
     "expression": { "type": "string", "pattern": "^\\[.*\\]$", "description": "A template expression, for example [parameters('env')]." }
   },
-  "x-entraarm": {
+  "x-earm": {
     "type": "Microsoft.Entra/conditionalAccess/authenticationContextClassReferences",
     "parentType": null,
     "graphPath": "/identity/conditionalAccess/authenticationContextClassReferences",

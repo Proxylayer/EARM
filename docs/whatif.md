@@ -1,9 +1,9 @@
 # What-if output
 
-How `entraarm deployment what-if` (and `deployment create --what-if` / `-c`) report the changes a deployment would
+How `earm deployment what-if` (and `deployment create --what-if` / `-c`) report the changes a deployment would
 make, in the human-readable text form and in the ARM-shaped JSON form (plan section 1.8). The renderers live in
-`src/EntraArm.Engine/WhatIf/`; the CLI glue (`-o`, colours, `--no-pretty-print`, exit codes) in
-`src/EntraArm.Cli/Output/WhatIfWriter.cs` and `src/EntraArm.Cli/Commands/DeploymentRunner.cs`.
+`src/EArm.Engine/WhatIf/`; the CLI glue (`-o`, colours, `--no-pretty-print`, exit codes) in
+`src/EArm.Cli/Output/WhatIfWriter.cs` and `src/EArm.Cli/Commands/DeploymentRunner.cs`.
 
 Nothing in a what-if is written to the tenant or to the state. The what-if shown by `create -c` is the plan the
 executor then applies (expansion, dependency graph and batches are computed once); the executor still re-reads each
@@ -265,9 +265,9 @@ result format; `tests/fixtures/whatif/README.md` has the seed format.
 Regenerate them (after an intentional rendering change) with the WI-17 harness:
 
 ```powershell
-# from the harness directory (scratchpad/harness-wi17): builds against src/EntraArm.Providers and tests/EntraArm.TestSupport
+# from the harness directory (scratchpad/harness-wi17): builds against src/EArm.Providers and tests/EArm.TestSupport
 dotnet build Harness.csproj
-dotnet bin/Debug/net10.0/harness-wi17.dll C:\Users\mrjon\source\EntraARM
+dotnet bin/Debug/net10.0/harness-wi17.dll C:\Users\mrjon\source\EARM
 ```
 
 The harness rewrites every fixture under `tests/fixtures/whatif/`, prints each rendering and checks the decisive

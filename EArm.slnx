@@ -1,0 +1,31 @@
+<Solution>
+  <Folder Name="/Solution Items/">
+    <File Path=".editorconfig" />
+    <File Path=".gitattributes" />
+    <File Path=".gitignore" />
+    <File Path="Directory.Build.props" />
+    <File Path="Directory.Packages.props" />
+    <File Path="README.md" />
+    <File Path="build.ps1" />
+    <File Path="deploy.ps1" />
+    <File Path="global.json" />
+    <File Path="test.ps1" />
+  </Folder>
+  <Folder Name="/src/">
+    <File Path="src/Directory.Build.props" />
+    <Project Path="src/EArm.Az/EArm.Az.csproj" />
+    <Project Path="src/EArm.Cli/EArm.Cli.csproj" />
+    <Project Path="src/EArm.Core/EArm.Core.csproj" />
+    <Project Path="src/EArm.Engine/EArm.Engine.csproj" />
+    <Project Path="src/EArm.Expressions/EArm.Expressions.csproj" />
+    <Project Path="src/EArm.Providers/EArm.Providers.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <File Path="tests/Directory.Build.props" />
+    <Project Path="tests/EArm.Az.Tests/EArm.Az.Tests.csproj" />
+    <Project Path="tests/EArm.Integration.Tests/EArm.Integration.Tests.csproj" />
+    <Project Path="tests/EArm.Providers.Tests/EArm.Providers.Tests.csproj" />
+    <Project Path="tests/EArm.TestSupport/EArm.TestSupport.csproj" />
+    <Project Path="tests/EArm.Tests/EArm.Tests.csproj" />
+  </Folder>
+</Solution>

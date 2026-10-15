@@ -3,7 +3,7 @@
 Group membership, ownership, administrative unit membership, manager, app role assignments, directory role assignments and
 licenses are arrays and scalars **inside `properties`**, declarable from either side of the relationship. Graph applies them
 through `$ref` navigations and assignment objects, not through PATCH, so the executor applies them in a separate **edge pass**
-after every object exists. How the pass works is in [engine.md](engine.md#edge-pass-entraarmengineedges); this page is the
+after every object exists. How the pass works is in [engine.md](engine.md#edge-pass-earmengineedges); this page is the
 catalog and the rules an author needs. The permissions each kind needs are in [permissions.md](permissions.md).
 
 ## Two ways to declare an edge

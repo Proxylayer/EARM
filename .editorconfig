@@ -1,4 +1,4 @@
-# EntraARM editor and code-style settings. See https://editorconfig.org.
+# EARM editor and code-style settings. See https://editorconfig.org.
 root = true
 
 [*]

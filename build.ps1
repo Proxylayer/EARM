@@ -1,17 +1,17 @@
 #Requires -Version 7
 <#
 .SYNOPSIS
-    Builds the EntraARM solution, or a single project, with dotnet build.
+    Builds the EARM solution, or a single project, with dotnet build.
 .DESCRIPTION
     Simple mode (default) prints only errors plus a one-line BUILD OK / BUILD FAIL summary.
     -Detailed switches to normal MSBuild verbosity for diagnosing a failure.
-    -Target builds one project: a project name such as EntraArm.Core (looked up under src/ and tests/)
+    -Target builds one project: a project name such as EArm.Core (looked up under src/ and tests/)
     or a path to a .csproj.
     The dotnet build exit code is propagated.
 .EXAMPLE
     pwsh -File build.ps1
 .EXAMPLE
-    pwsh -File build.ps1 -Target EntraArm.Cli -Configuration Release
+    pwsh -File build.ps1 -Target EArm.Cli -Configuration Release
 .EXAMPLE
     pwsh -File build.ps1 -Detailed
 #>
@@ -37,7 +37,7 @@ function Resolve-ProjectPath {
         return (Resolve-Path -LiteralPath $Name).Path
     }
 
-    # Accept a bare project name (EntraArm.Core), a project directory, or a .csproj path.
+    # Accept a bare project name (EArm.Core), a project directory, or a .csproj path.
     # Only a trailing ".csproj" is stripped; dotted name segments such as ".Tests" are part of the name.
     $baseName = Split-Path -Path $Name -Leaf
     if ($baseName -like '*.csproj') {
@@ -62,7 +62,7 @@ if ($Target) {
     }
 }
 else {
-    $buildTarget = Join-Path $repoRoot 'EntraArm.slnx'
+    $buildTarget = Join-Path $repoRoot 'EArm.slnx'
 }
 $label = [System.IO.Path]::GetFileNameWithoutExtension($buildTarget)
 

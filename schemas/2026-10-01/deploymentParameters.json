@@ -1,14 +1,14 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://entraarm.dev/schemas/2026-10-01/deploymentParameters.json",
-  "title": "EntraARM deployment parameters",
-  "description": "Parameter values for an EntraARM template, in the ARM deploymentParameters shape. Each parameter supplies either a literal value or a Key Vault reference (resolved with az keyvault secret show).",
+  "$id": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentParameters.json",
+  "title": "EARM deployment parameters",
+  "description": "Parameter values for an EARM template, in the ARM deploymentParameters shape. Each parameter supplies either a literal value or a Key Vault reference (resolved with az keyvault secret show).",
   "type": "object",
   "required": ["parameters"],
   "properties": {
     "$schema": {
       "type": "string",
-      "description": "https://entraarm.dev/schemas/2026-10-01/deploymentParameters.json#"
+      "description": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentParameters.json#"
     },
     "contentVersion": { "type": "string" },
     "metadata": { "type": "object" },

@@ -11,7 +11,7 @@ coverage/
 *.suo
 
 # ---- IDEs and editors ----
-# .vscode/ is ignored here on purpose: `entraarm schema install` writes .vscode/settings.json into the
+# .vscode/ is ignored here on purpose: `earm schema install` writes .vscode/settings.json into the
 # user's own workspace, never into this repository.
 .vs/
 .vscode/
@@ -23,10 +23,10 @@ coverage/
 Thumbs.db
 desktop.ini
 
-# ---- EntraARM runtime ----
-# State files (.entraarm/state/<name>.json, ids and hashes only) are safe to commit in a user's repository,
+# ---- EARM runtime ----
+# State files (.earm/state/<name>.json, ids and hashes only) are safe to commit in a user's repository,
 # but this repository holds no real deployments: anything a local run writes here is scratch.
-.entraarm/
+.earm/
 *.entrastate.json
 secure-outputs*.json
 **/state/*.lock

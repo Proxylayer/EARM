@@ -5,13 +5,13 @@
 .DESCRIPTION
     The per-type schema files are hand-maintained in v1 (plan section 1.10) but their property vocabularies are
     long and repetitive, so this script holds them in one compact DSL and rewrites every file: the header, the
-    "properties" and the "$defs" are generated; the "x-entraarm" overlay (everything from that key to the end of the
+    "properties" and the "$defs" are generated; the "x-earm" overlay (everything from that key to the end of the
     file) is carried over verbatim, except for "namePattern", which is set from the table below.
 
     Conventions of the generated schemas (docs/format.md):
       * Every leaf (and every array item, and every nested object) is wrapped as
         anyOf: [ <typed schema>, { "$ref": "#/$defs/expression" } ], so a "[...]" template expression validates anywhere.
-      * Objects keep "additionalProperties": true (Graph passthrough: a property EntraARM does not model is still sent
+      * Objects keep "additionalProperties": true (Graph passthrough: a property EARM does not model is still sent
         to Graph unchanged) except the edge item objects (appRoleAssignments, directoryRoles, assignedLicenses), which
         the edge handlers reject on unknown properties and which therefore say additionalProperties: false.
       * Enums only where Graph defines a closed set; open-ended sets (authentication method combinations, directory
@@ -298,8 +298,8 @@ $specs['applications.passwordCredentials'] = [ordered]@{
         displayName      = Str 'Set from the resource name; declaring it is only allowed when it equals the name.'
         startDateTime    = Str 'Start of validity (ISO 8601, UTC); defaults to now.'
         endDateTime      = Str 'Expiry (ISO 8601, UTC); defaults to 180 days after creation, evaluated once at create.'
-        rotationTag      = Str 'EntraARM-only: changing this value rotates the secret (the new one is added before the old one is removed). Never sent to Graph.'
-        rotateBeforeDays = Int 'EntraARM-only: rotate when fewer than this many days remain (default 30). Never sent to Graph.' -Min 0
+        rotationTag      = Str 'EARM-only: changing this value rotates the secret (the new one is added before the old one is removed). Never sent to Graph.'
+        rotateBeforeDays = Int 'EARM-only: rotate when fewer than this many days remain (default 30). Never sent to Graph.' -Min 0
     }
 }
 
@@ -375,7 +375,7 @@ $specs['users'] = [ordered]@{
         companyName        = Str 'Company name.' -Nullable
         officeLocation     = Str 'Office location.' -Nullable
         usageLocation      = Str 'Two-letter upper-case ISO 3166-1 country code; required for assignedLicenses.' -Nullable -Pattern '^[A-Z]{2}$'
-        userType           = Str 'Member or Guest. EntraARM creates members; guests come from invitations.' -Enum 'Member', 'Guest'
+        userType           = Str 'Member or Guest. EARM creates members; guests come from invitations.' -Enum 'Member', 'Guest'
         otherMails         = StrArr 'Additional email addresses.' -Unique
         businessPhones     = StrArr 'Business phone numbers (at most one).' -Unique
         mobilePhone        = Str 'Mobile phone.' -Nullable
@@ -612,8 +612,8 @@ foreach ($name in $specs.Keys) {
     if (-not (Test-Path -LiteralPath $path)) { throw "No schema file for '$name' at $path." }
 
     $text = Get-Content -LiteralPath $path -Raw
-    $marker = $text.IndexOf('  "x-entraarm": {', [StringComparison]::Ordinal)
-    if ($marker -lt 0) { throw "$path has no x-entraarm overlay." }
+    $marker = $text.IndexOf('  "x-earm": {', [StringComparison]::Ordinal)
+    if ($marker -lt 0) { throw "$path has no x-earm overlay." }
     $overlay = $text.Substring($marker)
     $existing = $text | ConvertFrom-Json -AsHashtable
     $spec = $specs[$name]
@@ -648,7 +648,7 @@ foreach ($name in $specs.Keys) {
     $json = $out.ToString().Replace("`r`n", "`n")
     # Validate before writing: the result must parse and keep the overlay intact.
     $parsed = $json | ConvertFrom-Json -AsHashtable
-    if ($parsed['x-entraarm']['type'] -ne $existing['x-entraarm']['type']) { throw "Overlay of $name changed." }
+    if ($parsed['x-earm']['type'] -ne $existing['x-earm']['type']) { throw "Overlay of $name changed." }
 
     if ($PSCmdlet.ShouldProcess($path, 'Rewrite type schema')) {
         [System.IO.File]::WriteAllText($path, $json, [System.Text.UTF8Encoding]::new($false))

@@ -1,5 +1,5 @@
 {
-  "$schema": "https://entraarm.dev/schemas/2026-10-01/deploymentTemplate.json#",
+  "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
   "contentVersion": "1.0.0.0",
   "metadata": {
     "description": "Same deployment as orders-api.entra.json, with the two child resources declared at the top level using full types and parent/child names. Both files load to the same set of resources; the only difference is that the parent dependency is explicit here (ARM rule) and inferred in the nested form."

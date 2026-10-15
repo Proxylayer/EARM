@@ -1,10 +1,10 @@
 # Command line reference
 
-`entraarm` mirrors `az deployment group …`. Online verbs talk to Microsoft Graph through the **Azure CLI session** (`az rest`, launched
+`earm` mirrors `az deployment group …`. Online verbs talk to Microsoft Graph through the **Azure CLI session** (`az rest`, launched
 through PowerShell 7); offline verbs need neither a session nor a tenant.
 
 ```
-entraarm
+earm
 ├── deployment
 │   ├── validate        offline schema + expression validation
 │   ├── what-if         preview the changes (read only)
@@ -23,7 +23,7 @@ entraarm
     └── adopt           pin an existing object's id, or set uniqueName on it
 ```
 
-`entraarm --version` prints the version; a bare `entraarm` prints help; every verb accepts `-?`, `-h` and `--help`.
+`earm --version` prints the version; a bare `earm` prints help; every verb accepts `-?`, `-h` and `--help`.
 
 ## Global options
 
@@ -32,14 +32,14 @@ Valid on every verb (recursive).
 | Option | Meaning |
 |---|---|
 | `-o`, `--output table\|json\|none` | Output format. Default `table`. `none` prints nothing (useful with `--exit-code-on-changes`). |
-| `--pwsh-path <path>` | PowerShell 7.4+ executable. Default: `ENTRAARM_PWSH_PATH`, then `pwsh` on `PATH`. EntraARM launches `pwsh` and nothing else (never `cmd.exe`). |
-| `--az-command <path>` | Azure CLI command or script to run instead of `az` (a test double). Default: `ENTRAARM_AZ_COMMAND`, then `az` on `PATH`. |
-| `--temp-dir <dir>` | Directory for the short-lived request and body files (owner-only, zeroed and deleted after each call). Default: `ENTRAARM_TEMP_DIR`, then `%LOCALAPPDATA%\EntraArm\tmp`. |
-| `--state-dir <dir>` | Directory of the state files. Default: `ENTRAARM_STATE_DIR`, then `.entraarm/state` next to the template (or under the current directory). |
+| `--pwsh-path <path>` | PowerShell 7.4+ executable. Default: `EARM_PWSH_PATH`, then `pwsh` on `PATH`. EARM launches `pwsh` and nothing else (never `cmd.exe`). |
+| `--az-command <path>` | Azure CLI command or script to run instead of `az` (a test double). Default: `EARM_AZ_COMMAND`, then `az` on `PATH`. |
+| `--temp-dir <dir>` | Directory for the short-lived request and body files (owner-only, zeroed and deleted after each call). Default: `EARM_TEMP_DIR`, then `%LOCALAPPDATA%\EArm\tmp`. |
+| `--state-dir <dir>` | Directory of the state files. Default: `EARM_STATE_DIR`, then `.earm/state` next to the template (or under the current directory). |
 | `--verbose` | Debug logging on stderr: every `az` call with URL parameters and headers redacted; bodies are never logged. |
 | `--debug` | Trace logging on stderr: as `--verbose` plus the `az` argument vector and redacted stderr. |
 
-Environment: `ENTRAARM_STATE_DIR`, `ENTRAARM_PWSH_PATH`, `ENTRAARM_AZ_COMMAND`, `ENTRAARM_TEMP_DIR`; colours (what-if) are off when
+Environment: `EARM_STATE_DIR`, `EARM_PWSH_PATH`, `EARM_AZ_COMMAND`, `EARM_TEMP_DIR`; colours (what-if) are off when
 `NO_COLOR` (any non-empty value) or `AZURE_CORE_NO_COLOR` (`true`, `1`, `yes`, `on`) is set or the output is redirected.
 
 ## Exit codes
@@ -65,7 +65,7 @@ Environment: `ENTRAARM_STATE_DIR`, `ENTRAARM_PWSH_PATH`, `ENTRAARM_AZ_COMMAND`, 
 
 ### `deployment validate`
 
-`entraarm deployment validate -f <template> [-p …] [-o table|json]`. There is no `-n`: validate is offline and has no deployment name. Offline: JSON Schema (envelope and per-type property schemas), the type
+`earm deployment validate -f <template> [-p …] [-o table|json]`. There is no `-n`: validate is offline and has no deployment name. Offline: JSON Schema (envelope and per-type property schemas), the type
 catalog, semantic checks, expression syntax and static evaluation (names, `dependsOn`, references, outputs). No tenant access. Exit 0 with
 no errors (warnings allowed), 2 with errors, 1 when a file cannot be loaded. Every code is in [diagnostics.md](diagnostics.md).
 
@@ -107,13 +107,13 @@ references (exit 3) and, for `create`, takes the state lock (exit 4). Rendering 
 | `delete` | `-n <name> [-f <template>] [-y] [--delete-resources] [--force-unlock] [--continue-on-error]` | Removes the state file; the objects stay in the tenant. `--delete-resources` first deletes every state-managed object in reverse dependency order (needs a session; a failure keeps the entry and exits 1). Asks for confirmation unless `-y`. |
 | `operation list` | `-n <name> [-f <template>]` | The per-resource operations of the last run, from the state. |
 
-`-f` only **locates** the state directory (`.entraarm/state` next to the template); `--state-dir` overrides it.
+`-f` only **locates** the state directory (`.earm/state` next to the template); `--state-dir` overrides it.
 
-State files record each resource's `apiVersion`. The `apiVersion` relabel (`2026-10-01` became `2026-10-01-preview`, and the old `2026-10-01-preview` beta became `2026-10-01-preview.beta`) has no compatibility shim because the format is unreleased: **state files written before the rename must be deleted** before the next run (the objects stay in the tenant; `state adopt` re-pins them).
+State files record each resource's `apiVersion`. The `apiVersion` relabel (`2026-10-01` became `2026-10-01-preview`, and the old `2026-10-01-preview` beta became `2026-10-01-preview.beta`) has no compatibility shim because the format is unreleased: **state files written before the rename must be deleted** before the next run (the objects stay in the tenant; `state adopt` re-pins them). The product rename (`entraarm` to `earm`) likewise has no shim: the state directory moved from `.entraarm/` to `.earm/` (and `%LOCALAPPDATA%\EntraArm` to `%LOCALAPPDATA%\EArm`, `ENTRAARM_*` to `EARM_*`), so delete or move an old `.entraarm/` directory (the objects stay in the tenant; `state adopt` re-pins them) and remove the old `entraarm` global tool (`dotnet tool uninstall -g entraarm`).
 
 ## `permissions`
 
-`entraarm permissions -f <template> [-p …] [--mode app|delegated] [-o table|json]`. Offline. Lists the Graph permissions (and, for
+`earm permissions -f <template> [-p …] [--mode app|delegated] [-o table|json]`. Offline. Lists the Graph permissions (and, for
 `--mode delegated`, the Entra roles of which the user needs one per group) the template needs, grouped by permission with the resources that
 need it and why. Exit 0; 2 when the template has validation errors; 1 when it cannot be loaded. Details and the manifest tables:
 [permissions.md](permissions.md).
@@ -122,37 +122,37 @@ need it and why. Exit 0; 2 when the template has validation errors; 1 when it ca
 
 ### `schema print`
 
-`entraarm schema print [template|parameters|<type>]` writes an embedded JSON Schema to standard output (default `template`). `<type>` is
+`earm schema print [template|parameters|<type>]` writes an embedded JSON Schema to standard output (default `template`). `<type>` is
 `Microsoft.Entra/applications`, the short form `applications`, a child type `applications/passwordCredentials`, or the file spelling
 `conditionalAccess.policies`; case-insensitive. An unknown name lists the known types and exits 1.
 
 ```powershell
-entraarm schema print template > deploymentTemplate.json
-entraarm schema print Microsoft.Entra/conditionalAccess/policies
+earm schema print template > deploymentTemplate.json
+earm schema print Microsoft.Entra/conditionalAccess/policies
 ```
 
 ### `schema install`
 
-`entraarm schema install [--global] [--workspace <dir>] [--settings-file <path>] [--schema-dir <dir>]`
+`earm schema install [--global] [--workspace <dir>] [--settings-file <path>] [--schema-dir <dir>]`
 
-1. **Extracts the schemas** to `--schema-dir` (default `%LOCALAPPDATA%\EntraArm\schemas\2026-10-01`; `~/.local/share/EntraArm/schemas/2026-10-01` on
-   Linux and macOS). The source is the `schemas/2026-10-01` directory of the checkout when the workspace is inside the EntraARM repository
+1. **Extracts the schemas** to `--schema-dir` (default `%LOCALAPPDATA%\EArm\schemas\2026-10-01`; `~/.local/share/EArm/schemas/2026-10-01` on
+   Linux and macOS). The source is the `schemas/2026-10-01` directory of the checkout when the workspace is inside the EARM repository
    (so schema edits are picked up by running the verb again), otherwise the schemas embedded in the tool. In the extracted
    `deploymentTemplate.json` the `$ref`s to the per-type schemas are rewritten to absolute `file:///` URIs, because the
-   `https://entraarm.dev/schemas/…` ids are not published and VS Code must resolve everything locally. Files whose content is unchanged are not rewritten.
+   `https://schema.earm.proxylayer.net/schemas/…` ids are not published and VS Code must resolve everything locally. Files whose content is unchanged are not rewritten.
 2. **Merges the mapping** into a settings file: `.vscode/settings.json` of `--workspace` (default: the current directory), the VS Code user settings
    with `--global` (`%APPDATA%\Code\User\settings.json`, `~/Library/Application Support/Code/User/settings.json`,
    `~/.config/Code/User/settings.json`), or `--settings-file`:
 
    ```json
    "json.schemas": [
-     { "fileMatch": ["**/*.entra.json", "**/*.entra.jsonc"], "url": "file:///C:/Users/me/AppData/Local/EntraArm/schemas/2026-10-01/deploymentTemplate.json" }
+     { "fileMatch": ["**/*.entra.json", "**/*.entra.jsonc"], "url": "file:///C:/Users/me/AppData/Local/EArm/schemas/2026-10-01/deploymentTemplate.json" }
    ]
    ```
 
-   Other settings and other `json.schemas` entries are preserved; an existing EntraARM entry is updated in place (never duplicated); an
+   Other settings and other `json.schemas` entries are preserved; an existing EARM entry is updated in place (never duplicated); an
    up-to-date file is not rewritten, so the verb is idempotent. The file may contain comments and trailing commas (they are read, but cannot be
-   preserved when the file is rewritten: the original is then saved as `settings.json.entraarm.bak` and a warning says so). The indentation of the
+   preserved when the file is rewritten: the original is then saved as `settings.json.earm.bak` and a warning says so). The indentation of the
    existing file is kept.
 
 Exit 0, or 1 when a file cannot be read or written, the settings are not valid JSON, or `--global` finds no VS Code user directory.
@@ -169,7 +169,7 @@ Exit 0, or 1 when a file cannot be read or written, the settings are not valid J
 
 Two forms (exactly one per call). In this verb `-n` / `--deployment` is the deployment, and `--name` is the uniqueName.
 
-**Pin an id (offline)**: `entraarm state adopt -n <deployment> --resource-id <id> --object-id <guid> [-f <template>] [--parent-object-id <guid>] [--key name=value …] [-y]`
+**Pin an id (offline)**: `earm state adopt -n <deployment> --resource-id <id> --object-id <guid> [-f <template>] [--parent-object-id <guid>] [--key name=value …] [-y]`
 
 Records the Graph object id under a resource id in the deployment's state (creating the state file when there is none), so a type that is looked up by
 `displayName` (several matches: `AmbiguousMatch`) or found by composite properties (GUID-named types) binds to the intended object; the next
@@ -179,10 +179,10 @@ key properties as `--key principalId=<guid> --key …` so deletes and lookups ca
 confirmation (`-y` skips it). Exit 0; 1 on bad input or a refusal; 4 when the state is locked. Needs no Azure CLI.
 
 ```powershell
-entraarm state adopt -n orders-prod --resource-id /providers/Microsoft.Entra/conditionalAccess/policies/CA-Orders-Admins-MFA --object-id 6f1b…
+earm state adopt -n orders-prod --resource-id /providers/Microsoft.Entra/conditionalAccess/policies/CA-Orders-Admins-MFA --object-id 6f1b…
 ```
 
-**Set a uniqueName (online)**: `entraarm state adopt --type Microsoft.Entra/applications|groups --id <objectId|appId> --name <uniqueName> [-y]`
+**Set a uniqueName (online)**: `earm state adopt --type Microsoft.Entra/applications|groups --id <objectId|appId> --name <uniqueName> [-y]`
 
 `PATCH /applications/{id}` or `/groups/{id}` with `{ "uniqueName": … }` on a brownfield object, so a template can address it by that name
 (`Prefer: create-if-missing` upserts then update it instead of creating a duplicate). The order is: argument checks, **preflight** (exit 3 without a

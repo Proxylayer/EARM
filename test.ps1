@@ -1,17 +1,17 @@
 #Requires -Version 7
 <#
 .SYNOPSIS
-    Runs the EntraARM xUnit test projects headless with dotnet test, writing TRX results to artifacts/test-results.
+    Runs the EARM xUnit test projects headless with dotnet test, writing TRX results to artifacts/test-results.
 .DESCRIPTION
     dotnet test runs in Microsoft.Testing.Platform mode (opted in via global.json "test.runner"; xunit.v3 4.x no
     longer supports the VSTest path on the .NET 10 SDK). The script builds once (solution, or the single -Target
     project), then runs each selected test project with dotnet test --project ... --no-build.
     Simple mode (default) prints one PASS / FAIL / NO TESTS line per project plus the names of failing tests;
     -Detailed streams the full dotnet test output (--output Detailed) instead.
-    -Target runs one test project: a project name such as EntraArm.Tests, or a path to a .csproj.
+    -Target runs one test project: a project name such as EArm.Tests, or a path to a .csproj.
     -Filter is passed through as the VSTest-syntax filter expression supported by xunit.v3
     (for example "FullyQualifiedName~CliSmokeTests").
-    EntraArm.Integration.Tests (real tenant) is skipped unless the ENTRAARM_IT_TENANT environment variable is
+    EArm.Integration.Tests (real tenant) is skipped unless the EARM_IT_TENANT environment variable is
     set, or it is named explicitly via -Target.
     -Coverage adds Microsoft.Testing.Extensions.CodeCoverage collection and writes one Cobertura XML per project to
     artifacts/test-results/<project>.cobertura.xml (dev-time measurement; see tests/COVERAGE.md).
@@ -20,7 +20,7 @@
 .EXAMPLE
     pwsh -File test.ps1
 .EXAMPLE
-    pwsh -File test.ps1 -Target EntraArm.Tests -Filter "FullyQualifiedName~CliSmokeTests"
+    pwsh -File test.ps1 -Target EArm.Tests -Filter "FullyQualifiedName~CliSmokeTests"
 .EXAMPLE
     pwsh -File test.ps1 -Detailed
 #>
@@ -42,8 +42,8 @@ $env:DOTNET_NOLOGO = '1'
 $repoRoot = $PSScriptRoot
 $testsDir = Join-Path $repoRoot 'tests'
 $resultsDir = Join-Path $repoRoot 'artifacts' 'test-results'
-$integrationProjectName = 'EntraArm.Integration.Tests'
-$integrationGateVariable = 'ENTRAARM_IT_TENANT'
+$integrationProjectName = 'EArm.Integration.Tests'
+$integrationGateVariable = 'EARM_IT_TENANT'
 $zeroTestsExitCode = 8
 
 function Resolve-TestProjectPath {
@@ -53,7 +53,7 @@ function Resolve-TestProjectPath {
         return (Resolve-Path -LiteralPath $Name).Path
     }
 
-    # Accept a bare project name (EntraArm.Tests), a project directory, or a .csproj path.
+    # Accept a bare project name (EArm.Tests), a project directory, or a .csproj path.
     # Only a trailing ".csproj" is stripped; dotted name segments such as ".Tests" are part of the name.
     $baseName = Split-Path -Path $Name -Leaf
     if ($baseName -like '*.csproj') {
@@ -104,7 +104,7 @@ else {
             Sort-Object
     )
 
-    # A project that declares <IsTestProject>false</IsTestProject> (a support library such as EntraArm.TestSupport) is
+    # A project that declares <IsTestProject>false</IsTestProject> (a support library such as EArm.TestSupport) is
     # built as a reference, never run.
     $projects = @()
     foreach ($candidate in $candidates) {
@@ -122,7 +122,7 @@ else {
         Write-Host "SKIP       $integrationProjectName ($integrationGateVariable is not set)"
     }
 
-    $buildTarget = Join-Path $repoRoot 'EntraArm.slnx'
+    $buildTarget = Join-Path $repoRoot 'EArm.slnx'
 }
 
 if ($projects.Count -eq 0) {

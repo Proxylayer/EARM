@@ -1,0 +1,62 @@
+{
+  "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "WI-19: an application role assignment and a delegated consent grant for a test service principal against the Microsoft Graph service principal."
+  },
+  "parameters": {
+    "prefix": { "type": "string" },
+    "scope":  { "type": "string", "defaultValue": "User.Read" }
+  },
+  "variables": {
+    "appName":    "[format('{0}-asg-app', parameters('prefix'))]",
+    "graphAppId": "[wellKnownApp('MicrosoftGraph')]",
+    "graphSpId":  "[reference(resourceId('Microsoft.Entra/servicePrincipals', variables('graphAppId')), '2026-10-01-preview').id]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Entra/applications",
+      "apiVersion": "2026-10-01-preview",
+      "name": "[variables('appName')]",
+      "properties": {
+        "displayName": "[variables('appName')]",
+        "signInAudience": "AzureADMyOrg"
+      }
+    },
+    {
+      "type": "Microsoft.Entra/servicePrincipals",
+      "apiVersion": "2026-10-01-preview",
+      "name": "[reference(variables('appName')).appId]",
+      "properties": {}
+    },
+    {
+      "type": "Microsoft.Entra/appRoleAssignments",
+      "apiVersion": "2026-10-01-preview",
+      "name": "[guid(parameters('prefix'), 'graph', 'User.Read.All')]",
+      "properties": {
+        "principalId": "[reference(resourceId('Microsoft.Entra/servicePrincipals', reference(variables('appName')).appId)).id]",
+        "resourceId": "[variables('graphSpId')]",
+        "appRoleId": "[appRole(variables('graphAppId'), 'User.Read.All')]"
+      },
+      "dependsOn": ["[resourceId('Microsoft.Entra/servicePrincipals', reference(variables('appName')).appId)]"]
+    },
+    {
+      "type": "Microsoft.Entra/oauth2PermissionGrants",
+      "apiVersion": "2026-10-01-preview",
+      "name": "[guid(parameters('prefix'), 'graph', 'AllPrincipals')]",
+      "properties": {
+        "clientId": "[reference(resourceId('Microsoft.Entra/servicePrincipals', reference(variables('appName')).appId)).id]",
+        "resourceId": "[variables('graphSpId')]",
+        "consentType": "AllPrincipals",
+        "scope": "[parameters('scope')]"
+      },
+      "dependsOn": ["[resourceId('Microsoft.Entra/servicePrincipals', reference(variables('appName')).appId)]"]
+    }
+  ],
+  "outputs": {
+    "servicePrincipalId": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Entra/servicePrincipals', reference(variables('appName')).appId)).id]"
+    }
+  }
+}

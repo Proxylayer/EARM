@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>EARM template expression language: tokenizer, parser, AST, evaluator and function registry.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../EArm.Core/EArm.Core.csproj" />
+  </ItemGroup>
+
+</Project>

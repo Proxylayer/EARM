@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Provider test suite (WI-07 .. WI-14): the real EArm.Providers driven end to end through the engine against
+    FakeGraphClient / FakeDirectory, plus unit tests of every provider's pure rules. Same conventions as
+    EArm.Tests: xunit.v3 on Microsoft.Testing.Platform, explicit usings, internals visible.
+  -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="Microsoft.Testing.Extensions.CodeCoverage" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/EArm.Providers/EArm.Providers.csproj" />
+    <ProjectReference Include="../../src/EArm.Engine/EArm.Engine.csproj" />
+    <ProjectReference Include="../EArm.TestSupport/EArm.TestSupport.csproj" />
+  </ItemGroup>
+
+</Project>

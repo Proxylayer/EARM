@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>EARM resource providers: one class per Microsoft.Entra resource type plus the provider registry.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../EArm.Engine/EArm.Engine.csproj" />
+    <ProjectReference Include="../EArm.Az/EArm.Az.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,7 +1,7 @@
 # Diagnostic codes
 
-Codes emitted by `entraarm deployment validate` (offline). The constants live in
-`src/EntraArm.Core/Diagnostics/DiagnosticCodes.cs`; keep this table in sync with it.
+Codes emitted by `earm deployment validate` (offline). The constants live in
+`src/EArm.Core/Diagnostics/DiagnosticCodes.cs`; keep this table in sync with it.
 
 Exit codes: `0` no errors (warnings allowed), `2` at least one error, `1` the template or a parameter
 file could not be loaded (the "fatal" rows below) or an argument was malformed.
@@ -38,7 +38,7 @@ JSON output (`-o json`) lists the same fields under `diagnostics[]`.
 
 | Code | Severity | Meaning |
 |---|---|---|
-| `UnrecognizedSchema` | Error | `$schema` is missing or is not `https://entraarm.dev/schemas/2026-10-01/deploymentTemplate.json#`. |
+| `UnrecognizedSchema` | Error | `$schema` is missing or is not `https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#`. |
 | `InvalidContentVersion` | Error | `contentVersion` is not a literal of the form `major.minor.build.revision`. |
 | `MissingRequiredProperty` | Error | A required key is missing: root `contentVersion`/`resources`, output `type`/`value`, function `namespace`/`members`/`output`, function parameter `name`/`type`. |
 | `UnknownTopLevelProperty` | Warning | A top-level key is not part of the format (`$schema`, `contentVersion`, `metadata`, `parameters`, `variables`, `functions`, `resources`, `outputs`) and is ignored. |
@@ -83,7 +83,7 @@ JSON output (`-o json`) lists the same fields under `diagnostics[]`.
 
 ## Expressions: syntax and functions
 
-Emitted by `EntraArm.Expressions` (`ExpressionValidator`), after the checks above. Messages end with
+Emitted by `EArm.Expressions` (`ExpressionValidator`), after the checks above. Messages end with
 `(at offset N)`: the 0-based character offset inside the expression string, counting the opening `[`.
 
 | Code | Severity | Meaning |
@@ -91,7 +91,7 @@ Emitted by `EntraArm.Expressions` (`ExpressionValidator`), after the checks abov
 | `ExpressionSyntaxError` | Error | The `[...]` string does not match the expression grammar: unterminated string (`'` is escaped by doubling), bare identifier (`true`/`false`/`null` are functions: `true()`), floating-point literal, missing `)`/`]`, trailing text, bad lambda parameter list. |
 | `ExpressionTooLong` | Error | The expression string exceeds 24,576 characters (ARM limit). |
 | `ExpressionTooDeep` | Error | The expression nests more than 100 levels deep: calls, indexers, `lambda()` bodies and chained `.property` / `[index]` accesses are counted together. The message carries the offset where the limit was hit. Also reported when a hand-built expression tree is too deep for the stack to be walked, so a hostile template yields this diagnostic (exit code 2) instead of crashing the process. |
-| `UnknownFunction` | Error | The function is not an ARM function EntraARM supports, or `ns.fn` names a namespace/member the template's `functions` section does not declare. |
+| `UnknownFunction` | Error | The function is not an ARM function EARM supports, or `ns.fn` names a namespace/member the template's `functions` section does not declare. |
 | `UnsupportedArmFunction` | Error | An ARM function with no Entra meaning: `resourceGroup subscription managementGroup extensionResourceId subscriptionResourceId tenantResourceId listKeys listSecrets providers pickZones`. The message names the alternative. |
 | `NotImplementedYet` | Warning | A function registered as `FunctionKind.NotImplementedYet` evaluates to a deploy-time placeholder. **Not emitted by the default registry any more**: lambdas (`lambda map filter reduce sort toObject groupBy lambdaVariables`), the Entra functions (`wellKnownApp appRole permissionScope roleTemplate tenant environment`) and user-defined functions are implemented (WI-16). Kept for registries that stage a function before implementing it. |
 | `NonDeterministicFunctionNotAllowed` | Error | `utcNow()` or `newGuid()` outside a parameter `defaultValue` (ARM rule). |
@@ -118,7 +118,7 @@ Emitted by `EntraArm.Expressions` (`ExpressionValidator`), after the checks abov
 | `ReferenceDependsOnMissingParameter` | Info | The target of a `reference()`/`resourceId()` or a `dependsOn` entry depends only on a parameter that has no value offline (not supplied and no default, or a Key Vault reference). Not an authoring error: validating without values cannot compute the target, so it is treated as a deferred (symbolic) target and resolved once the value is supplied (`-p` or a parameter file). |
 | `ReferenceTargetNotFound` | Error | `reference(name)` / `reference(resourceId(...))` with a literal target names no resource of the template (pass an apiVersion to look up an existing resource), or an existing-resource lookup found nothing. A target whose evaluated name is only known at deployment is never reported here (see the two codes above). |
 | `AmbiguousReference` | Error | `reference(name)` with a bare name that several resources of different types share; use `resourceId()`. |
-| `InvalidResourceId` | Error | A `/providers/...` string (in `reference()` or `dependsOn`) is not a valid EntraARM resource id. |
+| `InvalidResourceId` | Error | A `/providers/...` string (in `reference()` or `dependsOn`) is not a valid EARM resource id. |
 | `DependsOnTargetNotFound` | Error | A `dependsOn` entry (resource id, `type/name`, bare name or copy loop name) does not name a resource of the template, or its value is only known at deployment (unless only a parameter value is missing offline: `ReferenceDependsOnMissingParameter`). |
 | `AmbiguousDependsOn` | Error | A bare-name `dependsOn` entry matches several resources. |
 
@@ -142,7 +142,7 @@ engine's edge pass as `EdgeValidationFailed` (WI-09).
 
 ## Engine codes (`what-if` and `create`)
 
-Raised by `EntraArm.Engine` (`EngineDiagnosticCodes`) while planning and executing; they never appear in
+Raised by `EArm.Engine` (`EngineDiagnosticCodes`) while planning and executing; they never appear in
 `deployment validate`. Errors in the planning phase exit 2 (`ValidationFailedException`); failures of individual
 resources are reported per operation (exit 1); the state codes map to their own exit codes.
 
@@ -162,7 +162,7 @@ resources are reported per operation (exit 1); the state codes map to their own 
 | `OutputEvaluationFailed` | Error | An output could not be evaluated after the resources were applied (a placeholder remained, an expression failed). |
 | `SecretNotAvailableOnRerun` | Warning | An output reads the one-time secret of a resource that was not created or rotated in this run (`reference(...).secretText` of a password credential: Graph returns it once, from `addPassword`). The output is reported as `null` and left out of the secure outputs file; the run succeeds. Change the credential's `rotationTag` to rotate it and obtain a new secret. |
 | `CopyExpansionFailed` | Error | A `copy` block could not be expanded (`count`, `mode` or `batchSize` not resolvable at deployment). |
-| `StateLocked` | Error | Another `entraarm` process holds the deployment's state lock (`<state-dir>/<name>.lock`); exit 4. Wait, `state unlock -n <name>`, or `--force-unlock`. Locks older than one hour are taken over automatically. |
+| `StateLocked` | Error | Another `earm` process holds the deployment's state lock (`<state-dir>/<name>.lock`); exit 4. Wait, `state unlock -n <name>`, or `--force-unlock`. Locks older than one hour are taken over automatically. |
 | `TenantMismatch` | Error | The state file was written for another tenant than the Azure CLI session; exit 3. |
 | `StateSchemaUnsupported` | Error | The state file has a newer `schemaVersion` than this executor understands, or is not a state file; exit 1. |
 | `ResourceDetached` | Warning | A state-managed resource is no longer declared in the template; Incremental mode drops it from the state and leaves the object (`what-if`: `*` Ignore row). Also raised when entries of a type could not be judged because a resource of that type still has a deploy-time name. |

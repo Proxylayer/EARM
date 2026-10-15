@@ -1,14 +1,14 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://entraarm.dev/schemas/2026-10-01/deploymentTemplate.json",
-  "title": "EntraARM deployment template",
+  "$id": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json",
+  "title": "EARM deployment template",
   "description": "ARM-style JSON template for Microsoft Entra ID resources under the Microsoft.Entra provider namespace (schema version 2026-10-01). Any string of the form \"[...]\" is a template expression; \"[[\" escapes a literal bracket.",
   "type": "object",
   "required": ["$schema", "contentVersion", "resources"],
   "properties": {
     "$schema": {
       "type": "string",
-      "description": "The template schema: https://entraarm.dev/schemas/2026-10-01/deploymentTemplate.json#"
+      "description": "The template schema: https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#"
     },
     "contentVersion": {
       "type": "string",
@@ -180,35 +180,35 @@
       "additionalProperties": false,
       "allOf": [
         { "if": { "properties": { "type": { "const": "Microsoft.Entra/applications" } }, "required": ["type"] },
-          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://entraarm.dev/schemas/2026-10-01/types/Microsoft.Entra/applications.json" }, { "$ref": "#/$defs/expression" } ] } } } },
+          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/applications.json" }, { "$ref": "#/$defs/expression" } ] } } } },
         { "if": { "properties": { "type": { "const": "Microsoft.Entra/applications/federatedIdentityCredentials" } }, "required": ["type"] },
-          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://entraarm.dev/schemas/2026-10-01/types/Microsoft.Entra/applications.federatedIdentityCredentials.json" }, { "$ref": "#/$defs/expression" } ] } } } },
+          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/applications.federatedIdentityCredentials.json" }, { "$ref": "#/$defs/expression" } ] } } } },
         { "if": { "properties": { "type": { "const": "Microsoft.Entra/applications/passwordCredentials" } }, "required": ["type"] },
-          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://entraarm.dev/schemas/2026-10-01/types/Microsoft.Entra/applications.passwordCredentials.json" }, { "$ref": "#/$defs/expression" } ] } } } },
+          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/applications.passwordCredentials.json" }, { "$ref": "#/$defs/expression" } ] } } } },
         { "if": { "properties": { "type": { "const": "Microsoft.Entra/servicePrincipals" } }, "required": ["type"] },
-          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://entraarm.dev/schemas/2026-10-01/types/Microsoft.Entra/servicePrincipals.json" }, { "$ref": "#/$defs/expression" } ] } } } },
+          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/servicePrincipals.json" }, { "$ref": "#/$defs/expression" } ] } } } },
         { "if": { "properties": { "type": { "const": "Microsoft.Entra/groups" } }, "required": ["type"] },
-          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://entraarm.dev/schemas/2026-10-01/types/Microsoft.Entra/groups.json" }, { "$ref": "#/$defs/expression" } ] } } } },
+          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/groups.json" }, { "$ref": "#/$defs/expression" } ] } } } },
         { "if": { "properties": { "type": { "const": "Microsoft.Entra/users" } }, "required": ["type"] },
-          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://entraarm.dev/schemas/2026-10-01/types/Microsoft.Entra/users.json" }, { "$ref": "#/$defs/expression" } ] } } } },
+          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/users.json" }, { "$ref": "#/$defs/expression" } ] } } } },
         { "if": { "properties": { "type": { "const": "Microsoft.Entra/roleDefinitions" } }, "required": ["type"] },
-          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://entraarm.dev/schemas/2026-10-01/types/Microsoft.Entra/roleDefinitions.json" }, { "$ref": "#/$defs/expression" } ] } } } },
+          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/roleDefinitions.json" }, { "$ref": "#/$defs/expression" } ] } } } },
         { "if": { "properties": { "type": { "const": "Microsoft.Entra/conditionalAccess/authenticationContextClassReferences" } }, "required": ["type"] },
-          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://entraarm.dev/schemas/2026-10-01/types/Microsoft.Entra/conditionalAccess.authenticationContextClassReferences.json" }, { "$ref": "#/$defs/expression" } ] } } } },
+          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/conditionalAccess.authenticationContextClassReferences.json" }, { "$ref": "#/$defs/expression" } ] } } } },
         { "if": { "properties": { "type": { "const": "Microsoft.Entra/conditionalAccess/authenticationStrengths" } }, "required": ["type"] },
-          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://entraarm.dev/schemas/2026-10-01/types/Microsoft.Entra/conditionalAccess.authenticationStrengths.json" }, { "$ref": "#/$defs/expression" } ] } } } },
+          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/conditionalAccess.authenticationStrengths.json" }, { "$ref": "#/$defs/expression" } ] } } } },
         { "if": { "properties": { "type": { "const": "Microsoft.Entra/appRoleAssignments" } }, "required": ["type"] },
-          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://entraarm.dev/schemas/2026-10-01/types/Microsoft.Entra/appRoleAssignments.json" }, { "$ref": "#/$defs/expression" } ] } } } },
+          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/appRoleAssignments.json" }, { "$ref": "#/$defs/expression" } ] } } } },
         { "if": { "properties": { "type": { "const": "Microsoft.Entra/oauth2PermissionGrants" } }, "required": ["type"] },
-          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://entraarm.dev/schemas/2026-10-01/types/Microsoft.Entra/oauth2PermissionGrants.json" }, { "$ref": "#/$defs/expression" } ] } } } },
+          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/oauth2PermissionGrants.json" }, { "$ref": "#/$defs/expression" } ] } } } },
         { "if": { "properties": { "type": { "const": "Microsoft.Entra/conditionalAccess/namedLocations" } }, "required": ["type"] },
-          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://entraarm.dev/schemas/2026-10-01/types/Microsoft.Entra/conditionalAccess.namedLocations.json" }, { "$ref": "#/$defs/expression" } ] } } } },
+          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/conditionalAccess.namedLocations.json" }, { "$ref": "#/$defs/expression" } ] } } } },
         { "if": { "properties": { "type": { "const": "Microsoft.Entra/conditionalAccess/policies" } }, "required": ["type"] },
-          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://entraarm.dev/schemas/2026-10-01/types/Microsoft.Entra/conditionalAccess.policies.json" }, { "$ref": "#/$defs/expression" } ] } } } },
+          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/conditionalAccess.policies.json" }, { "$ref": "#/$defs/expression" } ] } } } },
         { "if": { "properties": { "type": { "const": "Microsoft.Entra/administrativeUnits" } }, "required": ["type"] },
-          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://entraarm.dev/schemas/2026-10-01/types/Microsoft.Entra/administrativeUnits.json" }, { "$ref": "#/$defs/expression" } ] } } } },
+          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/administrativeUnits.json" }, { "$ref": "#/$defs/expression" } ] } } } },
         { "if": { "properties": { "type": { "const": "Microsoft.Entra/roleAssignments" } }, "required": ["type"] },
-          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://entraarm.dev/schemas/2026-10-01/types/Microsoft.Entra/roleAssignments.json" }, { "$ref": "#/$defs/expression" } ] } } } }
+          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/roleAssignments.json" }, { "$ref": "#/$defs/expression" } ] } } } }
       ]
     },
     "childResource": {
@@ -245,9 +245,9 @@
       "additionalProperties": false,
       "allOf": [
         { "if": { "properties": { "type": { "enum": ["federatedIdentityCredentials", "Microsoft.Entra/applications/federatedIdentityCredentials"] } }, "required": ["type"] },
-          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://entraarm.dev/schemas/2026-10-01/types/Microsoft.Entra/applications.federatedIdentityCredentials.json" }, { "$ref": "#/$defs/expression" } ] } } } },
+          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/applications.federatedIdentityCredentials.json" }, { "$ref": "#/$defs/expression" } ] } } } },
         { "if": { "properties": { "type": { "enum": ["passwordCredentials", "Microsoft.Entra/applications/passwordCredentials"] } }, "required": ["type"] },
-          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://entraarm.dev/schemas/2026-10-01/types/Microsoft.Entra/applications.passwordCredentials.json" }, { "$ref": "#/$defs/expression" } ] } } } }
+          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/applications.passwordCredentials.json" }, { "$ref": "#/$defs/expression" } ] } } } }
       ]
     }
   }

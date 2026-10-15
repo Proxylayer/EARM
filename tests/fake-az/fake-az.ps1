@@ -1,18 +1,18 @@
 #Requires -Version 7.4
 <#
 .SYNOPSIS
-    Fake Azure CLI for the EntraArm.Az contract tests. The contract is tests/fake-az/README.md.
+    Fake Azure CLI for the EArm.Az contract tests. The contract is tests/fake-az/README.md.
 .DESCRIPTION
-    Invoke-AzRest.ps1 (embedded in EntraArm.Az) runs this file in-process as "& fake-az.ps1 @azArgs", so there is
+    Invoke-AzRest.ps1 (embedded in EArm.Az) runs this file in-process as "& fake-az.ps1 @azArgs", so there is
     deliberately no param() block: every az argv element arrives, in order, in $args.
 
     Per invocation the fake
       1. reads the body file named by "--body @<path>" immediately (the runner zeroes and deletes it right after),
-      2. optionally hard-links the request/body/output files into ENTRAARM_FAKE_AZ_LINK_DIR (lets a test verify the
+      2. optionally hard-links the request/body/output files into EARM_FAKE_AZ_LINK_DIR (lets a test verify the
          runner zeroed them before deleting them),
-      3. appends one compact JSON line to ENTRAARM_FAKE_AZ_ARGV_FILE: {"argv":[...],"bodyFile":...,"body":...,"env":{...},"cwd":"..."},
-      4. replays the first unconsumed response of ENTRAARM_FAKE_AZ_FIXTURE whose "match" fits the call, remembering
-         consumed response indexes in ENTRAARM_FAKE_AZ_STATE_FILE (default "<argv file>.state") so a sequence
+      3. appends one compact JSON line to EARM_FAKE_AZ_ARGV_FILE: {"argv":[...],"bodyFile":...,"body":...,"env":{...},"cwd":"..."},
+      4. replays the first unconsumed response of EARM_FAKE_AZ_FIXTURE whose "match" fits the call, remembering
+         consumed response indexes in EARM_FAKE_AZ_STATE_FILE (default "<argv file>.state") so a sequence
          survives across process launches. Without a fixture it replies "{}" with exit 0.
 
     stdout goes through Write-Output, stderr through [Console]::Error.WriteLine, the exit code through "exit". The host
@@ -97,7 +97,7 @@ function New-FakeMutex {
     $full = [System.IO.Path]::GetFullPath($KeyPath)
     if ([OperatingSystem]::IsWindows()) { $full = $full.ToLowerInvariant() }
     $hash = [System.Security.Cryptography.SHA256]::HashData([System.Text.Encoding]::UTF8.GetBytes($full))
-    return [System.Threading.Mutex]::new($false, 'EntraArmFakeAz-' + [System.Convert]::ToHexString($hash, 0, 16))
+    return [System.Threading.Mutex]::new($false, 'EArmFakeAz-' + [System.Convert]::ToHexString($hash, 0, 16))
 }
 
 function Invoke-FakeLocked {
@@ -166,7 +166,7 @@ if ($null -ne $fakeBodyArg -and $fakeBodyArg.StartsWith('@')) {
 }
 
 # ---- 2. Optional hard links of the protocol files (req-/body-/out-<id>.json share one <id>) ----------------------------
-$fakeLinkDir = $env:ENTRAARM_FAKE_AZ_LINK_DIR
+$fakeLinkDir = $env:EARM_FAKE_AZ_LINK_DIR
 if ($fakeLinkDir -and $fakeBodyFile) {
     [void][System.IO.Directory]::CreateDirectory($fakeLinkDir)
     $fakeFilesDir = [System.IO.Path]::GetDirectoryName($fakeBodyFile)
@@ -190,10 +190,10 @@ if ($fakeLinkDir -and $fakeBodyFile) {
 }
 
 # ---- 3. Record the invocation ------------------------------------------------------------------------------------------
-$fakeArgvFile = $env:ENTRAARM_FAKE_AZ_ARGV_FILE
-$fakeStateFile = $env:ENTRAARM_FAKE_AZ_STATE_FILE
+$fakeArgvFile = $env:EARM_FAKE_AZ_ARGV_FILE
+$fakeStateFile = $env:EARM_FAKE_AZ_STATE_FILE
 if (-not $fakeStateFile) {
-    $fakeStateFile = if ($fakeArgvFile) { "$fakeArgvFile.state" } elseif ($env:ENTRAARM_FAKE_AZ_FIXTURE) { "$($env:ENTRAARM_FAKE_AZ_FIXTURE).state" } else { $null }
+    $fakeStateFile = if ($fakeArgvFile) { "$fakeArgvFile.state" } elseif ($env:EARM_FAKE_AZ_FIXTURE) { "$($env:EARM_FAKE_AZ_FIXTURE).state" } else { $null }
 }
 $fakeMutex = $null
 $fakeLockKey = if ($fakeArgvFile) { $fakeArgvFile } else { $fakeStateFile }
@@ -218,7 +218,7 @@ if ($fakeArgvFile) {
 }
 
 # ---- 4. Load the fixture -----------------------------------------------------------------------------------------------
-$fakeFixture = $env:ENTRAARM_FAKE_AZ_FIXTURE
+$fakeFixture = $env:EARM_FAKE_AZ_FIXTURE
 if (-not $fakeFixture) {
     Write-Output '{}'
     exit 0

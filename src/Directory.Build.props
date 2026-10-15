@@ -4,10 +4,10 @@
 
   <!-- Every production assembly exposes its internals to the test assemblies. -->
   <ItemGroup>
-    <InternalsVisibleTo Include="EntraArm.Tests" />
-    <InternalsVisibleTo Include="EntraArm.Az.Tests" />
-    <InternalsVisibleTo Include="EntraArm.Providers.Tests" />
-    <InternalsVisibleTo Include="EntraArm.Integration.Tests" />
+    <InternalsVisibleTo Include="EArm.Tests" />
+    <InternalsVisibleTo Include="EArm.Az.Tests" />
+    <InternalsVisibleTo Include="EArm.Providers.Tests" />
+    <InternalsVisibleTo Include="EArm.Integration.Tests" />
   </ItemGroup>
 
 </Project>

@@ -1,0 +1,46 @@
+{
+  "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "WI-19: two users, one with a generated initial password and one with a supplied password; both with usageLocation."
+  },
+  "parameters": {
+    "prefix":     { "type": "string" },
+    "domain":     { "type": "string" },
+    "u2Password": { "type": "securestring" }
+  },
+  "variables": {
+    "u1": "[format('{0}-u1@{1}', parameters('prefix'), parameters('domain'))]",
+    "u2": "[format('{0}-u2@{1}', parameters('prefix'), parameters('domain'))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Entra/users",
+      "apiVersion": "2026-10-01-preview",
+      "name": "[variables('u1')]",
+      "properties": {
+        "displayName": "[format('{0}-u1', parameters('prefix'))]",
+        "accountEnabled": true,
+        "usageLocation": "GB",
+        "jobTitle": "Integration test user"
+      }
+    },
+    {
+      "type": "Microsoft.Entra/users",
+      "apiVersion": "2026-10-01-preview",
+      "name": "[variables('u2')]",
+      "properties": {
+        "displayName": "[format('{0}-u2', parameters('prefix'))]",
+        "accountEnabled": true,
+        "usageLocation": "IE",
+        "passwordProfile": { "password": "[parameters('u2Password')]", "forceChangePasswordNextSignIn": true }
+      }
+    }
+  ],
+  "outputs": {
+    "u1InitialPassword": {
+      "type": "securestring",
+      "value": "[reference(variables('u1')).passwordProfile.password]"
+    }
+  }
+}

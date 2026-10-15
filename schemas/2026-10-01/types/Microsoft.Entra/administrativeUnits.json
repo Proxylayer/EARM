@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://entraarm.dev/schemas/2026-10-01/types/Microsoft.Entra/administrativeUnits.json",
+  "$id": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/administrativeUnits.json",
   "title": "Microsoft.Entra/administrativeUnits",
   "description": "An administrative unit. The resource name is the displayName; the Graph id is pinned in state. Dynamic administrative units reject explicit members.",
   "type": "object",
@@ -42,7 +42,7 @@
   "$defs": {
     "expression": { "type": "string", "pattern": "^\\[.*\\]$", "description": "A template expression, for example [parameters('env')]." }
   },
-  "x-entraarm": {
+  "x-earm": {
     "type": "Microsoft.Entra/administrativeUnits",
     "parentType": null,
     "graphPath": "/directory/administrativeUnits",

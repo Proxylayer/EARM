@@ -3,9 +3,9 @@
 What the identity behind `az login` needs for a template, and how to get the exact list:
 
 ```powershell
-entraarm permissions -f samples/orders-api.entra.json -p @samples/orders-api.parameters.json              # app permissions (default)
-entraarm permissions -f samples/orders-api.entra.json -p @samples/orders-api.parameters.json --mode delegated
-entraarm permissions -f samples/orders-api.entra.json -p @samples/orders-api.parameters.json -o json
+earm permissions -f samples/orders-api.entra.json -p @samples/orders-api.parameters.json              # app permissions (default)
+earm permissions -f samples/orders-api.entra.json -p @samples/orders-api.parameters.json --mode delegated
+earm permissions -f samples/orders-api.entra.json -p @samples/orders-api.parameters.json -o json
 ```
 
 The verb is **offline** (no Azure CLI session, no tenant access): it loads and validates the template, expands `copy` loops and

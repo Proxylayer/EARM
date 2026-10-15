@@ -133,5 +133,5 @@ $i = 0
 foreach ($r in ($rows | Where-Object { $_.Lines -ge $MinLines } | Sort-Object Missed -Descending | Select-Object -First $Top)) {
     $i++
     $bp = if ($null -eq $r.BranchPct) { 'n/a' } else { $r.BranchPct }
-    "| $i | $($r.Class -replace '^EntraArm\.', '') | $($r.Assembly -replace '^EntraArm\.', '') | $($r.Lines) | $($r.LinePct) | $bp | $($r.Uncovered) |"
+    "| $i | $($r.Class -replace '^EArm\.', '') | $($r.Assembly -replace '^EArm\.', '') | $($r.Lines) | $($r.LinePct) | $bp | $($r.Uncovered) |"
 }

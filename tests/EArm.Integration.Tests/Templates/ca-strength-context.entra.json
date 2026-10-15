@@ -1,0 +1,70 @@
+{
+  "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "WI-19: an authentication strength and an authentication context class reference, referenced by a report-only policy for one test group."
+  },
+  "parameters": {
+    "prefix":             { "type": "string" },
+    "contextId":          { "type": "string" },
+    "contextDescription": { "type": "string", "defaultValue": "step-up for the integration test" },
+    "combinations":       { "type": "array", "defaultValue": ["fido2", "windowsHelloForBusiness"] }
+  },
+  "variables": {
+    "group":    "[format('{0}-ctx-grp', parameters('prefix'))]",
+    "strength": "[format('{0}-strength', parameters('prefix'))]",
+    "policy":   "[format('{0}-ctx-policy', parameters('prefix'))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Entra/groups",
+      "apiVersion": "2026-10-01-preview",
+      "name": "[variables('group')]",
+      "properties": {
+        "displayName": "[variables('group')]",
+        "mailEnabled": false,
+        "mailNickname": "[variables('group')]",
+        "securityEnabled": true
+      }
+    },
+    {
+      "type": "Microsoft.Entra/conditionalAccess/authenticationStrengths",
+      "apiVersion": "2026-10-01-preview",
+      "name": "[variables('strength')]",
+      "properties": {
+        "description": "EARM integration test",
+        "allowedCombinations": "[parameters('combinations')]"
+      }
+    },
+    {
+      "type": "Microsoft.Entra/conditionalAccess/authenticationContextClassReferences",
+      "apiVersion": "2026-10-01-preview",
+      "name": "[parameters('contextId')]",
+      "properties": {
+        "displayName": "[format('{0}-ctx', parameters('prefix'))]",
+        "description": "[parameters('contextDescription')]",
+        "isAvailable": true
+      }
+    },
+    {
+      "type": "Microsoft.Entra/conditionalAccess/policies",
+      "apiVersion": "2026-10-01-preview",
+      "name": "[variables('policy')]",
+      "properties": {
+        "state": "enabledForReportingButNotEnforced",
+        "conditions": {
+          "clientAppTypes": ["all"],
+          "users": { "includeGroups": ["[reference(variables('group')).id]"] },
+          "applications": { "includeAuthenticationContextClassReferences": ["[parameters('contextId')]"] }
+        },
+        "grantControls": {
+          "operator": "OR",
+          "authenticationStrength": { "id": "[reference(variables('strength')).id]" }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Entra/conditionalAccess/authenticationContextClassReferences', parameters('contextId'))]"
+      ]
+    }
+  ]
+}

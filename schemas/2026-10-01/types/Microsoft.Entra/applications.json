@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://entraarm.dev/schemas/2026-10-01/types/Microsoft.Entra/applications.json",
+  "$id": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/applications.json",
   "title": "Microsoft.Entra/applications",
   "description": "An application registration. The resource name is the Graph uniqueName (upsert via PATCH /applications(uniqueName='...') with Prefer: create-if-missing). Properties not listed here are passed through to Graph unchanged.",
   "type": "object",
@@ -443,7 +443,7 @@
   "$defs": {
     "expression": { "type": "string", "pattern": "^\\[.*\\]$", "description": "A template expression, for example [parameters('env')]." }
   },
-  "x-entraarm": {
+  "x-earm": {
     "type": "Microsoft.Entra/applications",
     "parentType": null,
     "graphPath": "/applications",

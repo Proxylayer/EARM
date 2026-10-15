@@ -1,6 +1,6 @@
-# The deployment engine (`EntraArm.Engine`)
+# The deployment engine (`EArm.Engine`)
 
-How `entraarm deployment what-if` and `entraarm deployment create` turn a template into Graph calls, and
+How `earm deployment what-if` and `earm deployment create` turn a template into Graph calls, and
 what a resource provider has to implement. Plan references are to the project plan, sections 1.3–1.5, 2.2,
 2.4 and 3.3. How the planned changes are rendered (text and ARM-shaped JSON, symbols, exit code 5, golden
 fixtures) is in [whatif.md](whatif.md); the template format is in [format.md](format.md), the relationship catalog
@@ -70,7 +70,7 @@ load ──► validate ──► expand ──► graph ──► [per batch: r
      tainted-unknown and `null` leaves are left alone), so a provider may taint again in its own `Plan`.
 7. **Edge pass** after all batches and before the outputs: the relationship properties of plan section 1.4
    (`members`, `owners`, `memberOf`, `ownerOf`, `administrativeUnits`, `manager`) are reconciled against the
-   live edges; what-if renders the same deltas read-only. See [Edge pass](#edge-pass-entraarmengineedges) below.
+   live edges; what-if renders the same deltas read-only. See [Edge pass](#edge-pass-earmengineedges) below.
 8. **Outputs** after the edge pass: secure outputs (`securestring`/`secureObject`, or any tainted value) are `***`
    unless `--reveal-secure-outputs`; `--secure-outputs-file` writes the revealed values with owner-only
    permissions (`OwnerOnlyFile`: the text goes to a new temp file in the same folder that is created owner-only
@@ -84,7 +84,7 @@ load ──► validate ──► expand ──► graph ──► [per batch: r
    the `SecretNotAvailableOnRerun` warning and left out of the secure outputs file. The run still succeeds. Change
    `rotationTag` to rotate the credential and obtain a new secret.
 9. **Mode pass** (`ModePass`, after the outputs): state entries whose resource id is not among the expanded
-   instances are detached (Incremental) or deleted (Complete). See [State](#state-entraarmenginestate) below.
+   instances are detached (Incremental) or deleted (Complete). See [State](#state-earmenginestate) below.
 
 ### Failure handling
 
@@ -131,7 +131,7 @@ diagnostics.
 `appRole(ref, value)`, `permissionScope(ref, value)` and `roleTemplate(nameOrId)` resolve ids in three steps, in
 the expression engine (`EntraFunctions`): the live object of a template resource named by `ref` (an application's
 `appRoles` / `api.oauth2PermissionScopes`, a service principal's `appRoles` / `oauth2PermissionScopes`: no request,
-no replication lag), the embedded tables of `EntraArm.Core.WellKnownIds` (Microsoft Graph permissions, built-in
+no replication lag), the embedded tables of `EArm.Core.WellKnownIds` (Microsoft Graph permissions, built-in
 directory roles: no request), and finally the tenant through `IEntraLookup`. The engine's implementation is
 `Planning/GraphEntraLookup.cs`: `GET /servicePrincipals(appId='…')?$select=id,appId,appRoles,oauth2PermissionScopes`,
 falling back to `GET /applications(appId='…')?$select=id,appId,appRoles,api` when no principal exists yet, and
@@ -154,7 +154,7 @@ after preflight with `DeploymentEnvironment.ReadTenantAsync` (`GET /organization
 public cloud named after the session's Azure CLI cloud, since the Graph client only targets `graph.microsoft.com`).
 Planner tests that construct `PlannerOptions` directly leave both `null`, which keeps the functions unknown.
 
-## Edge pass (`EntraArm.Engine.Edges`)
+## Edge pass (`EArm.Engine.Edges`)
 
 Plan sections 1.4, 1.7, 1.8 and 2.4 step 4. Relationships and assignments are arrays inside `properties` that
 Graph applies through `$ref` navigations (or assignment objects), not through PATCH. The loader keeps them in
@@ -249,7 +249,7 @@ itself; a 404 or failure there is logged and never blocks the delete.
 
 ### Adding a kind (WI-12 app role assignments, WI-15 directory roles)
 
-Implement `IEdgeKindHandler` with `Phase = EdgePhase.B` in `EntraArm.Providers`, attribute it
+Implement `IEdgeKindHandler` with `Phase = EdgePhase.B` in `EArm.Providers`, attribute it
 `[EntraEdgeKind(EdgeKind.<Kind>)]`, and `ProviderDiscovery.CreateEdgeKinds(catalog)` (wired by `EngineServices` into
 `PlannerOptions.EdgeKinds`) registers it next to the part A kinds. Return your assignment id from the add response
 through `RecordEntry` / `FromRecordAsync` so removals can `DELETE` by id. `ResolveItemAsync` is asynchronous so name
@@ -264,7 +264,7 @@ so a principal-side item for the same assignment finds it in place and the pass 
 executor, the state recording and the what-if rendering need no change. Walk-through in
 [providers.md, "Adding an edge kind"](providers.md#adding-an-edge-kind).
 
-## State (`EntraArm.Engine.State`)
+## State (`EArm.Engine.State`)
 
 Plan section 1.7. One `StateFile` per deployment name, keyed by ARM-style resource id, records which Graph objects
 the deployment manages (`id` = Graph id, `key`, `parentId`, `contentHash`, `dependsOn`, `lastWriteOn`, provider
@@ -296,9 +296,9 @@ write an entry that carries a secret (`SecretJson`) or a deploy-time placeholder
   (no catalog needed, so unknown types still round-trip).
 - **Store** (`IStateStore` / `FileStateStore`): `<dir>/<deploymentName>.json`, written to a temp file and moved into
   place; `LoadAsync` goes through `StateMigrator` (`schemaVersion` 1; a newer version → `StateSchemaUnsupportedException`).
-  The directory is `--state-dir`, else `ENTRAARM_STATE_DIR`, else `.entraarm/state` next to the template
+  The directory is `--state-dir`, else `EARM_STATE_DIR`, else `.earm/state` next to the template
   (`StateDirectory.Resolve`). Deployment names are file names: `StateNames` allows `[A-Za-z0-9][A-Za-z0-9._-]*`.
-  `tests/EntraArm.TestSupport/InMemoryStateStore` is the in-memory counterpart (same serializer, records every save).
+  `tests/EArm.TestSupport/InMemoryStateStore` is the in-memory counterpart (same serializer, records every save).
 - **Lock**: `<deploymentName>.lock` created with `FileMode.CreateNew` holding pid/host/user/UTC time; `LockAsync`
   waits up to the given time (`--lock-timeout`, 10 s) then throws `StateLockedException` (CLI exit 4); a lock older
   than one hour is taken over with a warning; `state unlock -n <name>` / `--force-unlock` break it. `what-if` never
@@ -329,7 +329,7 @@ write an entry that carries a secret (`SecretJson`) or a deploy-time placeholder
 - **`deployment delete --delete-resources`** (`DeploymentDeleter`): deletes every entry in the same order, saving
   after each, then removes the state file; without the flag only the file goes.
 
-## Key Vault parameter references (`EntraArm.Engine.KeyVault`)
+## Key Vault parameter references (`EArm.Engine.KeyVault`)
 
 Plan section 1.6. A parameter file entry `{ "reference": { "keyVault": { "id": "…/vaults/contoso-kv" }, "secretName": "bg-initial" } }`
 is bound as a pending reference by the loader. For `create` and `what-if` the CLI resolves it after preflight with
@@ -338,9 +338,9 @@ is bound as a pending reference by the loader. For `create` and `what-if` the CL
 value **secure-tainted** whatever the declared type. A failure (`KeyVaultResolutionException`) is reported as
 `KeyVaultReferenceUnresolved` with the az message redacted (exit 3). `deployment validate` stays offline. A
 pending reference that reaches `PlanAsync` is still an error for `create` and a warning plus deploy-time placeholder
-for `what-if`. `tests/EntraArm.TestSupport/FakeAzRunner` scripts `keyvault secret show` for tests.
+for `what-if`. `tests/EArm.TestSupport/FakeAzRunner` scripts `keyvault secret show` for tests.
 
-## Provider contract (`EntraArm.Engine.Providers`)
+## Provider contract (`EArm.Engine.Providers`)
 
 ```csharp
 public interface IResourceProvider
@@ -424,7 +424,7 @@ the catalog overlay of the type:
 Put `desired.RetryHint` on write requests. Throw `ProviderException` (with an `EngineDiagnosticCodes` or
 provider code such as `AmbiguousMatch`) for non-Graph failures; let `GraphException` propagate.
 
-## Test support (`tests/EntraArm.TestSupport`)
+## Test support (`tests/EArm.TestSupport`)
 
 - `FakeGraphClient` / `FakeDirectory`: an in-memory tenant with alternate-key routing, `$filter … eq …`,
   `Prefer: create-if-missing`, pagination (`PageSize`), `$ref` navigations, actions (`addPassword`,

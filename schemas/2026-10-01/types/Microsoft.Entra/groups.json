@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://entraarm.dev/schemas/2026-10-01/types/Microsoft.Entra/groups.json",
+  "$id": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/groups.json",
   "title": "Microsoft.Entra/groups",
   "description": "A security, Microsoft 365, dynamic or role-assignable group. The resource name is the Graph uniqueName. Mail-enabled security groups cannot be created through Graph (adopt only). Properties not listed here are passed through to Graph unchanged.",
   "type": "object",
@@ -198,7 +198,7 @@
   "$defs": {
     "expression": { "type": "string", "pattern": "^\\[.*\\]$", "description": "A template expression, for example [parameters('env')]." }
   },
-  "x-entraarm": {
+  "x-earm": {
     "type": "Microsoft.Entra/groups",
     "parentType": null,
     "graphPath": "/groups",

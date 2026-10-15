@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://entraarm.dev/schemas/2026-10-01/types/Microsoft.Entra/users.json",
+  "$id": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/users.json",
   "title": "Microsoft.Entra/users",
   "description": "A member user. The resource name is the userPrincipalName. passwordProfile is create-only and never diffed; when omitted a random password is generated and returned as a securestring output. Properties not listed here are passed through to Graph unchanged.",
   "type": "object",
@@ -29,7 +29,7 @@
       "anyOf": [ { "type": [ "string", "null" ], "pattern": "^[A-Z]{2}$" }, { "$ref": "#/$defs/expression" } ]
     },
     "userType": {
-      "description": "Member or Guest. EntraARM creates members; guests come from invitations.",
+      "description": "Member or Guest. EARM creates members; guests come from invitations.",
       "anyOf": [ { "type": "string", "enum": [ "Member", "Guest" ] }, { "$ref": "#/$defs/expression" } ]
     },
     "otherMails": {
@@ -221,7 +221,7 @@
   "$defs": {
     "expression": { "type": "string", "pattern": "^\\[.*\\]$", "description": "A template expression, for example [parameters('env')]." }
   },
-  "x-entraarm": {
+  "x-earm": {
     "type": "Microsoft.Entra/users",
     "parentType": null,
     "graphPath": "/users",

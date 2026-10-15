@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://entraarm.dev/schemas/2026-10-01/types/Microsoft.Entra/roleDefinitions.json",
+  "$id": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/roleDefinitions.json",
   "title": "Microsoft.Entra/roleDefinitions",
   "description": "A custom directory role definition. The resource name is the displayName; the Graph id is pinned in state. Built-in roles cannot be managed.",
   "type": "object",
@@ -61,7 +61,7 @@
   "$defs": {
     "expression": { "type": "string", "pattern": "^\\[.*\\]$", "description": "A template expression, for example [parameters('env')]." }
   },
-  "x-entraarm": {
+  "x-earm": {
     "type": "Microsoft.Entra/roleDefinitions",
     "parentType": null,
     "graphPath": "/roleManagement/directory/roleDefinitions",

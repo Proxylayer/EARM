@@ -1,0 +1,85 @@
+{
+  "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "WI-19: application + service principal + federated credential + client secret. Every name starts with the run prefix."
+  },
+  "parameters": {
+    "prefix":      { "type": "string" },
+    "rotationTag": { "type": "string", "defaultValue": "v1" }
+  },
+  "variables": {
+    "appName": "[format('{0}-app', parameters('prefix'))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Entra/applications",
+      "apiVersion": "2026-10-01-preview",
+      "name": "[variables('appName')]",
+      "properties": {
+        "displayName": "[variables('appName')]",
+        "signInAudience": "AzureADMyOrg",
+        "identifierUris": ["api://{appId}"],
+        "web": {
+          "redirectUris": ["https://earm-it.example.test/signin-oidc"],
+          "implicitGrantSettings": { "enableAccessTokenIssuance": false, "enableIdTokenIssuance": false }
+        },
+        "appRoles": [
+          {
+            "id": "6d2f1c0e-2b7a-4c1e-9a1b-4f3f1f6a1001",
+            "value": "It.Read",
+            "displayName": "Integration read",
+            "description": "Read access for the integration test application.",
+            "allowedMemberTypes": ["User", "Application"],
+            "isEnabled": true
+          }
+        ],
+        "tags": ["earm-it"]
+      },
+      "resources": [
+        {
+          "type": "federatedIdentityCredentials",
+          "apiVersion": "2026-10-01-preview",
+          "name": "github-main",
+          "properties": {
+            "issuer": "https://token.actions.githubusercontent.com",
+            "subject": "repo:earm-it/example:ref:refs/heads/main",
+            "audiences": ["api://AzureADTokenExchange"],
+            "description": "EARM integration test"
+          }
+        },
+        {
+          "type": "passwordCredentials",
+          "apiVersion": "2026-10-01-preview",
+          "name": "ci-secret",
+          "properties": {
+            "rotationTag": "[parameters('rotationTag')]",
+            "rotateBeforeDays": 7
+          }
+        }
+      ]
+    },
+    {
+      "type": "Microsoft.Entra/servicePrincipals",
+      "apiVersion": "2026-10-01-preview",
+      "name": "[reference(variables('appName')).appId]",
+      "properties": {
+        "appRoleAssignmentRequired": true
+      }
+    }
+  ],
+  "outputs": {
+    "appId": {
+      "type": "string",
+      "value": "[reference(variables('appName')).appId]"
+    },
+    "servicePrincipalId": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Entra/servicePrincipals', reference(variables('appName')).appId)).id]"
+    },
+    "clientSecret": {
+      "type": "securestring",
+      "value": "[reference(resourceId('Microsoft.Entra/applications/passwordCredentials', variables('appName'), 'ci-secret')).secretText]"
+    }
+  }
+}

@@ -1,6 +1,6 @@
 # Template format (schema version 2026-10-01)
 
-An EntraARM template is a JSON document that looks and behaves like a classic Azure Resource Manager template, but
+An EARM template is a JSON document that looks and behaves like a classic Azure Resource Manager template, but
 its resources are Microsoft Entra objects under the `Microsoft.Entra` provider namespace. This page is the
 reference for the format; [edges.md](edges.md) covers relationship properties, [permissions.md](permissions.md) the
 Graph permissions a template needs, [cli.md](cli.md) the verbs, and [diagnostics.md](diagnostics.md) every
@@ -8,15 +8,15 @@ validation code. Worked templates are in [`samples/`](../samples/README.md).
 
 - File convention: `*.entra.json` (or `*.entra.jsonc`). The parser accepts `//` and `/* */` comments, trailing commas and
   a UTF-8 byte-order mark.
-- Editor support: `entraarm schema install` maps the JSON Schemas to `**/*.entra.json` in VS Code
+- Editor support: `earm schema install` maps the JSON Schemas to `**/*.entra.json` in VS Code
   (see [JSON Schemas](#json-schemas)).
-- Validate offline at any time: `entraarm deployment validate -f template.entra.json -p @params.json`.
+- Validate offline at any time: `earm deployment validate -f template.entra.json -p @params.json`.
 
 ## Envelope
 
 ```json
 {
-  "$schema": "https://entraarm.dev/schemas/2026-10-01/deploymentTemplate.json#",
+  "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
   "contentVersion": "1.0.0.0",
   "metadata": { "description": "free-form" },
   "parameters": { },
@@ -29,7 +29,7 @@ validation code. Worked templates are in [`samples/`](../samples/README.md).
 
 | Key | Required | Notes |
 |---|---|---|
-| `$schema` | yes | Exactly `https://entraarm.dev/schemas/2026-10-01/deploymentTemplate.json#` (the trailing `#` is optional); `UnrecognizedSchema` otherwise. |
+| `$schema` | yes | Exactly `https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#` (the trailing `#` is optional); `UnrecognizedSchema` otherwise. |
 | `contentVersion` | yes | A literal `major.minor.build.revision`, for example `1.0.0.0`. |
 | `metadata` | no | Free-form. |
 | `parameters` | no | Inputs: `type`, `defaultValue`, `allowedValues`, `minValue`/`maxValue`, `minLength`/`maxLength`, `metadata.description`. See [Parameters](#parameters-and-parameter-files). |
@@ -78,7 +78,7 @@ declaring that Graph property in `properties` too is an error unless the values 
 
 | Name kind | Types | Meaning |
 |---|---|---|
-| `uniqueName` | applications, groups | Graph `uniqueName` alternate key; upsert is `PATCH /x(uniqueName='…')` with `Prefer: create-if-missing`. Immutable. A brownfield object gets one with `entraarm state adopt --type … --id … --name …`. |
+| `uniqueName` | applications, groups | Graph `uniqueName` alternate key; upsert is `PATCH /x(uniqueName='…')` with `Prefer: create-if-missing`. Immutable. A brownfield object gets one with `earm state adopt --type … --id … --name …`. |
 | `userPrincipalName` | users | `local@domain`. |
 | `appId` | servicePrincipals | The application (client) id GUID, or `[reference('app').appId]`. |
 | child name | federatedIdentityCredentials, passwordCredentials | `parent/child`; the child is the credential's own name. Nested children get the parent's name prepended by the loader. |
@@ -91,7 +91,7 @@ deterministic, the key of the state file and what the what-if output prints. `re
 
 ### Differences from ARM
 
-| ARM | EntraARM |
+| ARM | EARM |
 |---|---|
 | `location`, `sku`, `kind`, top-level `tags`, `identity`, `scope`, resource group and subscription | Not present: Entra objects have none of them (Graph `tags` live inside `properties`). `resourceGroup()`, `subscription()`, `managementGroup()`, `extensionResourceId()`, `subscriptionResourceId()`, `tenantResourceId()`, `listKeys()`, `listSecrets()`, `providers()` and `pickZones()` are errors (`UnsupportedArmFunction`) with a pointer to the alternative. |
 | PUT replaces the resource | Graph is merge-PATCH: only the **declared** properties are applied; omitted ones are untouched. Arrays and nested objects are replaced whole when declared. |
@@ -101,8 +101,8 @@ deterministic, the key of the state file and what the what-if output prints. `re
 
 ## Resource type catalog
 
-`Microsoft.Entra/…` types of schema version 2026-10-01. The source of truth is the `x-entraarm` overlay at the end of each
-schema file (`entraarm schema print <type>`); the executor loads the same file at runtime, so this table cannot drift from
+`Microsoft.Entra/…` types of schema version 2026-10-01. The source of truth is the `x-earm` overlay at the end of each
+schema file (`earm schema print <type>`); the executor loads the same file at runtime, so this table cannot drift from
 behaviour.
 
 | Type | `name` is | Graph path | Immutable (error, or recreate for cheap types) | Edge properties | Required on create |
@@ -130,8 +130,8 @@ fails with a hint unless `--on-soft-deleted-conflict restore`.
 
 ### Property vocabulary
 
-`properties` is the Graph representation of the object (camelCase, as Graph returns it) plus a few EntraARM extensions.
-`entraarm schema print <type>` shows the vocabulary of one type; the JSON Schemas are the reference for names, types and
+`properties` is the Graph representation of the object (camelCase, as Graph returns it) plus a few EARM extensions.
+`earm schema print <type>` shows the vocabulary of one type; the JSON Schemas are the reference for names, types and
 enumerations. In short:
 
 - **Nested objects** (`web`, `api`, `spa`, `publicClient`, `conditions`, `grantControls`, `sessionControls`, `passwordProfile`) are
@@ -142,7 +142,7 @@ enumerations. In short:
   and written whole. An omitted app role or scope `id` is derived deterministically (UUIDv5 of `uniqueName` and `value`) and recorded in state.
 - **Passthrough**: every object keeps `additionalProperties: true`. A property the schema does not list is still sent to
   Graph unchanged; it is simply not validated or documented.
-- **EntraARM-only properties** (never sent to Graph): `rotationTag` and `rotateBeforeDays` on `passwordCredentials` (see below),
+- **EARM-only properties** (never sent to Graph): `rotationTag` and `rotateBeforeDays` on `passwordCredentials` (see below),
   and the sugar properties that are rewritten before the key is computed: `scopes` on `oauth2PermissionGrants` (→ `scope`),
   `resourceAppId` / `appRole` on `appRoleAssignments` and in `appRoleAssignments` edge entries (→ `resourceId` / `appRoleId`),
   `role` / `administrativeUnit` on `roleAssignments` and in `directoryRoles` edge entries (→ `roleDefinitionId` / `directoryScopeId`), and
@@ -229,7 +229,7 @@ and an error for `create` and `what-if`.
 
 ```json
 {
-  "$schema": "https://entraarm.dev/schemas/2026-10-01/deploymentParameters.json#",
+  "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentParameters.json#",
   "contentVersion": "1.0.0.0",
   "parameters": {
     "env": { "value": "prod" },
@@ -273,9 +273,9 @@ The schemas live in [`schemas/2026-10-01/`](../schemas/2026-10-01) and are embed
 
 | Schema | Command |
 |---|---|
-| Template envelope (`deploymentTemplate.json`, draft 2020-12): resource keys, `if`/`then` per `type` selecting the per-type schema | `entraarm schema print template` |
-| Parameter file (`deploymentParameters.json`) | `entraarm schema print parameters` |
-| One per resource type, `types/Microsoft.Entra/<type>.json` (path segments joined with `.`): property schemas plus the `x-entraarm` overlay | `entraarm schema print Microsoft.Entra/conditionalAccess/policies` |
+| Template envelope (`deploymentTemplate.json`, draft 2020-12): resource keys, `if`/`then` per `type` selecting the per-type schema | `earm schema print template` |
+| Parameter file (`deploymentParameters.json`) | `earm schema print parameters` |
+| One per resource type, `types/Microsoft.Entra/<type>.json` (path segments joined with `.`): property schemas plus the `x-earm` overlay | `earm schema print Microsoft.Entra/conditionalAccess/policies` |
 
 Conventions of the per-type schemas:
 
@@ -294,11 +294,11 @@ Conventions of the per-type schemas:
   diagnostic codes instead). Note that an `anyOf` of `required` alternatives is reported against its first alternative.
 - `additionalProperties` stays `true` (Graph passthrough) except for the edge entry objects of `appRoleAssignments`, `directoryRoles`
   and `assignedLicenses`, whose handlers reject unknown members.
-- `x-entraarm` (`type`, `graphPath`, `apiVersions`, `nameMapsTo`, `nameKind`, `namePattern`, `keyProperties`, `requiredOnCreate`,
+- `x-earm` (`type`, `graphPath`, `apiVersions`, `nameMapsTo`, `nameKind`, `namePattern`, `keyProperties`, `requiredOnCreate`,
   `defaults`, `immutable`, `createOnly`, `secure`, `relationships`, `memberKey`, `stripOnRead`, `nullable`, `permissions`) drives the executor.
   The property schemas are generated from one table by `tools/New-TypeSchemas.ps1`, which keeps the overlay text untouched.
 
-`entraarm schema install` writes copies to `%LOCALAPPDATA%\EntraArm\schemas\2026-10-01\` (with the cross-file references rewritten to
-local `file:///` URIs, because `https://entraarm.dev/schemas/…` is not published) and adds
+`earm schema install` writes copies to `%LOCALAPPDATA%\EArm\schemas\2026-10-01\` (with the cross-file references rewritten to
+local `file:///` URIs, because `https://schema.earm.proxylayer.net/schemas/…` is not published) and adds
 `{ "fileMatch": ["**/*.entra.json", "**/*.entra.jsonc"], "url": "file:///…/deploymentTemplate.json" }` to `json.schemas` in the
 workspace's `.vscode/settings.json` (or the user settings with `--global`). See [cli.md](cli.md#schema).

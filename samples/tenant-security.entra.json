@@ -1,5 +1,5 @@
 {
-  "$schema": "https://entraarm.dev/schemas/2026-10-01/deploymentTemplate.json#",
+  "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
   "contentVersion": "1.0.0.0",
   "metadata": {
     "description": "Tenant security baseline: trusted locations, a phishing-resistant authentication strength, an authentication context, two Conditional Access policies (report-only), a role-assignable admin group holding directory roles, a custom directory role and an administrative unit. Needs Entra ID P1 and Privileged Role Administrator rights; see docs/permissions.md."

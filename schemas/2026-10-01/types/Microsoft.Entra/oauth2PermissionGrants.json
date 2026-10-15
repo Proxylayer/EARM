@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://entraarm.dev/schemas/2026-10-01/types/Microsoft.Entra/oauth2PermissionGrants.json",
+  "$id": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/oauth2PermissionGrants.json",
   "title": "Microsoft.Entra/oauth2PermissionGrants",
   "description": "A delegated permission grant (admin consent). The resource name is a deterministic GUID chosen with guid(); the object is matched by (clientId, resourceId, consentType, principalId). Only scope is mutable.",
   "type": "object",
@@ -37,7 +37,7 @@
   "$defs": {
     "expression": { "type": "string", "pattern": "^\\[.*\\]$", "description": "A template expression, for example [parameters('env')]." }
   },
-  "x-entraarm": {
+  "x-earm": {
     "type": "Microsoft.Entra/oauth2PermissionGrants",
     "parentType": null,
     "graphPath": "/oauth2PermissionGrants",

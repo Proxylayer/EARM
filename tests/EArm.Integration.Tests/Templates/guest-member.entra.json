@@ -1,0 +1,28 @@
+{
+  "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "WI-19: reads an existing guest user (#EXT# in the user principal name) and adds it to a group."
+  },
+  "parameters": {
+    "prefix":   { "type": "string" },
+    "guestUpn": { "type": "string" }
+  },
+  "variables": {
+    "group": "[format('{0}-guests', parameters('prefix'))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Entra/groups",
+      "apiVersion": "2026-10-01-preview",
+      "name": "[variables('group')]",
+      "properties": {
+        "displayName": "[variables('group')]",
+        "mailEnabled": false,
+        "mailNickname": "[variables('group')]",
+        "securityEnabled": true,
+        "members": ["[reference(resourceId('Microsoft.Entra/users', parameters('guestUpn')), '2026-10-01-preview').id]"]
+      }
+    }
+  ]
+}

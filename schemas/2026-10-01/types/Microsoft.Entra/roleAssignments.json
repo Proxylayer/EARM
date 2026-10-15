@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://entraarm.dev/schemas/2026-10-01/types/Microsoft.Entra/roleAssignments.json",
+  "$id": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/roleAssignments.json",
   "title": "Microsoft.Entra/roleAssignments",
   "description": "A permanent active directory role assignment. The resource name is a deterministic GUID chosen with guid(); the object is matched by (roleDefinitionId, principalId, directoryScopeId). Equivalent to a directoryRoles entry on the principal.",
   "type": "object",
@@ -30,7 +30,7 @@
   "$defs": {
     "expression": { "type": "string", "pattern": "^\\[.*\\]$", "description": "A template expression, for example [parameters('env')]." }
   },
-  "x-entraarm": {
+  "x-earm": {
     "type": "Microsoft.Entra/roleAssignments",
     "parentType": null,
     "graphPath": "/roleManagement/directory/roleAssignments",
