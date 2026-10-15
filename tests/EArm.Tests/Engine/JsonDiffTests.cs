@@ -239,23 +239,46 @@ public sealed class JsonDiffTests
     // ---- secrets and unknowns ----
 
     [Fact]
-    public void SecretLeaf_IsNeverCompared_AndRendersAsMask()
+    public void SecretLeaf_IsNeverCompared_IsNoEffectOnAnExistingObject_AndRendersAsMask()
+    {
+        // B14: Diff runs against an existing object; a secret-bearing value was sent on create and is never compared, so it neither PATCHes nor counts.
+        var desired = new JsonObject { ["passwordProfile"] = new JsonObject { ["password"] = SecretJson.CreateString("hunter2"), ["forceChangePasswordNextSignIn"] = true } };
+
+        var absent = Assert.Single(JsonDiff.Diff(desired, J("{}")));
+        Assert.Equal(PropertyChangeType.NoEffect, absent.Kind);
+        Assert.False(absent.HasEffect);
+        Assert.True(absent.IsSecret);
+        Assert.False(absent.IsUnknown);
+        Assert.Equal("\"***\"", Text(absent.After!["password"]));
+        Assert.DoesNotContain("hunter2", Text(absent.After), StringComparison.Ordinal);
+
+        var liveSecret = new JsonObject { ["passwordProfile"] = new JsonObject { ["password"] = SecretJson.CreateString("hunter2"), ["forceChangePasswordNextSignIn"] = true } };
+        var same = Assert.Single(JsonDiff.Diff(desired, liveSecret));
+        Assert.Equal(PropertyChangeType.NoEffect, same.Kind);
+        Assert.False(same.HasEffect);
+        Assert.True(same.IsSecret);
+        Assert.Equal("\"***\"", Text(same.Before!["password"]));
+        Assert.Equal("\"***\"", Text(same.After!["password"]));
+
+        var scalar = Assert.Single(JsonDiff.Diff(new JsonObject { ["state"] = SecretJson.CreateString("enabled") }, J("{\"state\":\"disabled\"}")));
+        Assert.Equal(PropertyChangeType.NoEffect, scalar.Kind);
+        Assert.True(scalar.IsSecret);
+        Assert.Equal("\"***\"", Text(scalar.Before));
+    }
+
+    [Fact]
+    public void SecretBearingObject_StillComparesItsNonSecretMembers_AndStaysMasked()
     {
         var desired = new JsonObject { ["passwordProfile"] = new JsonObject { ["password"] = SecretJson.CreateString("hunter2"), ["forceChangePasswordNextSignIn"] = true } };
 
-        var created = Assert.Single(JsonDiff.Diff(desired, J("{}")));
-        Assert.Equal(PropertyChangeType.Create, created.Kind);
-        Assert.True(created.IsSecret);
-        Assert.False(created.IsUnknown);
-        Assert.Equal("\"***\"", Text(created.After!["password"]));
-        Assert.DoesNotContain("hunter2", Text(created.After), StringComparison.Ordinal);
+        var modified = Assert.Single(JsonDiff.Diff(desired, J("{\"passwordProfile\":{\"forceChangePasswordNextSignIn\":false}}")));
 
-        var liveSecret = new JsonObject { ["passwordProfile"] = new JsonObject { ["password"] = SecretJson.CreateString("hunter2"), ["forceChangePasswordNextSignIn"] = true } };
-        var modified = Assert.Single(JsonDiff.Diff(desired, liveSecret));
         Assert.Equal(PropertyChangeType.Modify, modified.Kind);
-        Assert.True(modified.IsSecret);
-        Assert.Equal("\"***\"", Text(modified.Before!["password"]));
-        Assert.Equal("\"***\"", Text(modified.After!["password"]));
+        Assert.True(modified.HasEffect);
+        Assert.True(modified.IsSecret, "the container stays masked in the what-if");
+        Assert.Contains(modified.Children!, c => c.Path.ToString() == "properties.passwordProfile.forceChangePasswordNextSignIn" && c.Kind == PropertyChangeType.Modify);
+        Assert.Contains(modified.Children!, c => c.Path.ToString() == "properties.passwordProfile.password" && c.Kind == PropertyChangeType.NoEffect && c.IsSecret);
+        Assert.DoesNotContain("hunter2", Text(modified.After), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -321,8 +344,8 @@ public sealed class JsonDiffTests
     public void BuildPatchBody_SkipsNoEffectDeltas_AndKeepsSecretLeaves()
     {
         var options = WithNullable("web.implicitGrantSettings", false);
-        var desired = new JsonObject { ["web"] = J("{\"homePageUrl\":\"h\"}"), ["passwordProfile"] = new JsonObject { ["password"] = SecretJson.CreateString("s") } };
-        var live = J("{\"web\":{\"homePageUrl\":\"h\",\"implicitGrantSettings\":{\"x\":1}}}");
+        var desired = new JsonObject { ["web"] = J("{\"homePageUrl\":\"h\"}"), ["passwordProfile"] = new JsonObject { ["password"] = SecretJson.CreateString("s"), ["forceChangePasswordNextSignIn"] = true } };
+        var live = J("{\"web\":{\"homePageUrl\":\"h\",\"implicitGrantSettings\":{\"x\":1}},\"passwordProfile\":{\"forceChangePasswordNextSignIn\":false}}");
         var deltas = JsonDiff.Diff(desired, live, options);
 
         var body = JsonDiff.BuildPatchBody(desired, live, deltas, options);

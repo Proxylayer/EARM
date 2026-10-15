@@ -45,7 +45,8 @@ public sealed record JsonDiffOptions
 /// compare by stable member key when the overlay names one, else by canonical JSON order-insensitively; nested
 /// objects compare whole, generating an explicit <c>null</c> (<see cref="PropertyChangeType.Delete"/>) for every
 /// live-only sub-property unless the overlay marks it <c>nullable: false</c>; GUIDs compare case-insensitively;
-/// <c>null</c> and <c>[]</c> are absent; secrets are never compared (<see cref="PropertyDelta.IsSecret"/>); a
+/// <c>null</c> and <c>[]</c> are absent; secrets are never compared (<see cref="PropertyDelta.IsSecret"/>: on an existing object a secret value is
+/// <see cref="PropertyChangeType.NoEffect"/>, so it is not PATCHed again on every run; a create still sends it); a
 /// deploy-time-unknown desired value yields an <see cref="PropertyDelta.IsUnknown"/> delta. Only declared
 /// (desired) top-level properties take part: Graph PATCH is a merge and omitted properties stay untouched.
 /// </summary>
@@ -406,7 +407,22 @@ public static class JsonDiff
 
         if (SecretJson.ContainsSecret(desired))
         {
-            deltas.Add(new PropertyDelta(path, liveAbsent ? PropertyChangeType.Create : PropertyChangeType.Modify, RenderLive(live, desired), Render(desired), IsSecret: true));
+            // Secrets are never compared, and Graph does not return most of them, so a secret-bearing value always "differed": every run PATCHed it (and
+            // --exit-code-on-changes always fired). Diff only runs against an existing object: the secret was written when the object was created (a
+            // create-only path is excluded on update altogether), so on update it is NoEffect. A new secret reaches an existing object through
+            // the type's own rotation (a password credential's rotationTag) or a replacement. The non-secret members of a secret-bearing object are still
+            // compared; the container stays IsSecret so the what-if masks it whole.
+            if (desired is JsonObject desiredObject && live is JsonObject liveObject)
+            {
+                var children = new List<PropertyDelta>();
+                DiffMembers(desiredObject, liveObject, relative, dotted, nested: true, options, children);
+                deltas.Add(children.Exists(child => child.HasEffect)
+                    ? new PropertyDelta(path, PropertyChangeType.Modify, RenderLive(live, desired), Render(desired), IsSecret: true, Children: children)
+                    : new PropertyDelta(path, PropertyChangeType.NoEffect, RenderLive(live, desired), Render(desired), IsSecret: true));
+                return;
+            }
+
+            deltas.Add(new PropertyDelta(path, PropertyChangeType.NoEffect, RenderLive(live, desired), Render(desired), IsSecret: true));
             return;
         }
 

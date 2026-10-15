@@ -39,7 +39,7 @@
     },
     {
       "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01-preview", "name": "contoso-legacy",
-      "properties": { "displayName": "Legacy", "mailEnabled": false, "mailNickname": "legacy-renamed", "securityEnabled": true }
+      "properties": { "displayName": "Legacy", "mailEnabled": true, "mailNickname": "legacy-renamed", "securityEnabled": true }
     },
     {
       "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01-preview", "name": "contoso-dev-orders-ops",

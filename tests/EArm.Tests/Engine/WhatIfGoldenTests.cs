@@ -197,7 +197,9 @@ public sealed class WhatIfGoldenTests
 
         var legacy = run.Row("/providers/Microsoft.Entra/groups/contoso-legacy");
         Assert.True(legacy.IsUnsupported);
-        Assert.Contains("Immutable property properties.mailNickname", legacy.UnsupportedReason);
+        Assert.Contains("Immutable property properties.mailEnabled", legacy.UnsupportedReason);
+        Assert.DoesNotContain("mailNickname", legacy.UnsupportedReason, StringComparison.Ordinal);
+        Assert.Contains(legacy.Deltas, d => d.Path.ToString() == "properties.mailNickname" && d.HasEffect);
         Assert.DoesNotContain(legacy.UnsupportedReason!, legacy.Reasons);
 
         var user = run.Row("/providers/Microsoft.Entra/users/bg-orders@contoso.com");

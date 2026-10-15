@@ -268,6 +268,21 @@ public sealed class ValidateCommandTests
         Assert.Null(none);
     }
 
+    [Fact]
+    public void BuildParameterSet_IsOrderBased_ALaterParameterFileOverridesAnEarlierInlineValue()
+    {
+        // az deployment group create --parameters: "Parameters are evaluated in order, so when a value is assigned twice, the latter value will be used."
+        var fileLast = ValidateCommand.BuildParameterSet(["env=dev", "@" + SampleParameters], out _);
+        var inlineLast = ValidateCommand.BuildParameterSet(["@" + SampleParameters, "env=dev"], out _);
+        var inlineTwice = ValidateCommand.BuildParameterSet(["env=dev", "env=test"], out _);
+
+        Assert.False(fileLast.Values["env"].IsInline);
+        Assert.Equal("prod", fileLast.Values["env"].Value!.GetValue<string>());
+        Assert.True(inlineLast.Values["env"].IsInline);
+        Assert.Equal("dev", inlineLast.Values["env"].RawText);
+        Assert.Equal("test", inlineTwice.Values["env"].RawText);
+    }
+
     // ---- report shape ----
 
     [Fact]

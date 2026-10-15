@@ -162,9 +162,9 @@ public sealed class GroupsProviderTests
     public async Task G7_ImmutableChanges_AreErrorsWithoutWrites()
     {
         var host = new ProviderHost();
-        host.Directory.AddGroup("imm", "Imm", g => g["mailNickname"] = "imm-old");
+        host.Directory.AddGroup("imm", "Imm", g => g["isAssignableToRole"] = false);
 
-        var run = await host.CreateAsync(host.Resources(Group("imm", """{ "displayName": "Imm", "mailNickname": "imm-new" }""")));
+        var run = await host.CreateAsync(host.Resources(Group("imm", """{ "displayName": "Imm", "isAssignableToRole": true }""")));
         Assert.False(run.Succeeded);
         Assert.Equal(EngineDiagnosticCodes.ImmutablePropertyChanged, run.OpOfType(Type).ErrorCode);
         Check.NoWrites(run);
@@ -180,6 +180,46 @@ public sealed class GroupsProviderTests
         Assert.False(dropUnified.Succeeded);
         Assert.Contains("'Unified'", dropUnified.OpOfType(Type).Error, StringComparison.Ordinal);
         Check.NoWrites(dropUnified);
+    }
+
+    [Theory]
+    [InlineData("""{ "displayName": "Upd", "mailNickname": "upd-new" }""", "mailNickname", "upd-new")]
+    [InlineData("""{ "displayName": "Upd", "visibility": "Public" }""", "visibility", "Public")]
+    public async Task G7_MailNicknameAndPublicPrivateVisibility_AreUpdatedInPlace(string properties, string property, string expected)
+    {
+        // Learn group-update lists mailNickname and visibility (Private / Public) as updatable; only HiddenMembership is creation-only (B13).
+        var host = new ProviderHost();
+        var seeded = host.Directory.AddGroup("upd", "Upd", g =>
+        {
+            g["mailNickname"] = "upd-old";
+            g["visibility"] = "Private";
+        });
+
+        var run = await host.CreateAsync(host.Resources(Group("upd", properties)));
+
+        Check.Succeeded(run);
+        Assert.Equal(ChangeType.Modify, run.OpOfType(Type).ChangeType);
+        var write = Assert.Single(run.Writes);
+        Assert.Equal("PATCH", write.Method);
+        Assert.Equal(seeded["id"]!.GetValue<string>(), run.OpOfType(Type).GraphId);
+        Assert.Equal(expected, host.Directory.Find("/groups", "uniqueName", "upd")![property]!.GetValue<string>());
+    }
+
+    [Fact]
+    public async Task G7_GroupTypes_OnlyTheUnifiedPresenceIsImmutable()
+    {
+        // Adding Unified to a security group is refused as well: it would be a conversion, and mailEnabled (false for a security group) is immutable too.
+        var security = new ProviderHost();
+        security.Directory.AddGroup("sec-imm", "S");
+        var addUnified = await security.WhatIfAsync(security.Resources(Group("sec-imm", """{ "displayName": "S", "groupTypes": ["Unified"] }""")));
+        Assert.True(addUnified.ChangeOfType(Type).HasError);
+        Assert.Contains("'Unified'", addUnified.ChangeOfType(Type).UnsupportedReason, StringComparison.Ordinal);
+
+        var toggle = new ProviderHost();
+        toggle.Directory.AddGroup("sec-dyn", "D");
+        var addDynamic = await toggle.WhatIfAsync(toggle.Resources(Group("sec-dyn", """{ "displayName": "D", "groupTypes": ["DynamicMembership"], "membershipRule": "(user.department -eq \"Sales\")" }""")));
+        Assert.False(addDynamic.ChangeOfType(Type).HasError, addDynamic.ChangeOfType(Type).UnsupportedReason);
+        Assert.Equal(ChangeType.Modify, addDynamic.ChangeOfType(Type).Type);
     }
 
     [Fact]

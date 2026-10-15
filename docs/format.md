@@ -292,9 +292,10 @@ state file has its own limit (see the state documentation).
 
 Parameter types: `string`, `securestring`, `int`, `bool`, `object`, `secureObject`, `array`. An `int` accepts any JSON number whose exact
 value is a whole number in the 64-bit range, however it is spelled (`3`, `3.0`, `1.5e3`, `-0.0`); a fraction (`3.5`) or a number outside
-the range is a `ParameterValueTypeMismatch`, and `copy.count` / `copy.batchSize` follow the same rule. A value is supplied, in precedence order, by
-`-p name=value` (inline; converted to the parameter type), by a parameter file (`-p '@file.json'`, quoted in PowerShell, later files and values win), then by
-`defaultValue`. An unknown parameter name is an error (`UnknownParameter`); a value of the wrong type or outside `allowedValues` is
+the range is a `ParameterValueTypeMismatch`, and `copy.count` / `copy.batchSize` follow the same rule. A value is supplied by
+`-p name=value` (inline; converted to the parameter type) or by a parameter file (`-p '@file.json'`, quoted in PowerShell); the `-p` values are applied in
+command-line order and a later one wins, whichever form it has (as with the Azure CLI: put the file first, then override with `name=value`). A parameter
+no `-p` sets falls back to its `defaultValue`. An unknown parameter name is an error (`UnknownParameter`); a value of the wrong type or outside `allowedValues` is
 reported (`ParameterValueTypeMismatch`, `ParameterValueNotAllowed`). A parameter without a value is a warning in `deployment validate`
 and an error for `create` and `what-if`.
 

@@ -120,6 +120,12 @@ public sealed class DeploymentResult
     /// </summary>
     public IReadOnlyList<ResourceChange> Orphans { get; }
 
+    /// <summary>
+    /// True when the run wrote something: a resource created, updated, replaced or deleted, or a relationship entry added or removed by the edge pass
+    /// (<c>create --exit-code-on-changes</c>). The orphan report never counts: nothing is written for it.
+    /// </summary>
+    public bool HasChanges => Changes.Any(change => change.IsWrite && !change.IsOrphan);
+
     /// <summary>Resources created, updated (or replaced) or found unchanged.</summary>
     public int SucceededCount => Operations.Count(o => o.Status == OperationStatus.Succeeded);
 

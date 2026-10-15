@@ -11,8 +11,8 @@ using EArm.Core.Loading;
 namespace EArm.Core;
 
 /// <summary>
-/// The parameter values supplied for a deployment: an ARM <c>deploymentParameters</c> file plus inline
-/// <c>-p name=value</c> overrides (inline wins). Values are raw until the loader binds them to the template's
+/// The parameter values supplied for a deployment: ARM <c>deploymentParameters</c> files and inline
+/// <c>-p name=value</c> values, applied in command-line order (a later value wins, whichever form it has, as with the Azure CLI). Values are raw until the loader binds them to the template's
 /// definitions (type conversion of inline text, <c>securestring</c>/<c>secureObject</c> wrapping).
 /// </summary>
 public sealed class ParameterSet

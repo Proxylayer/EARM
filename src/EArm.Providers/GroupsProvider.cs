@@ -24,8 +24,9 @@ namespace EArm.Providers;
 /// (<c>["Unified"]</c> ⇒ <c>mailEnabled: true</c>), dynamic (<c>DynamicMembership</c> ⇒ <c>membershipRule</c>
 /// required, <c>membershipRuleProcessingState: On</c> injected). Mail-enabled security groups and distribution
 /// lists are adopt-only (create is an error). <c>mailNickname</c> is derived from the name when absent.
-/// Immutable: <c>uniqueName</c>, <c>mailNickname</c>, <c>mailEnabled</c>, <c>isAssignableToRole</c>, the
-/// <c>Unified</c> presence in <c>groupTypes</c>, <c>visibility: HiddenMembership</c>. A dynamic toggle or rule
+/// Immutable: <c>uniqueName</c>, <c>mailEnabled</c>, <c>isAssignableToRole</c> (the overlay), the <c>Unified</c> presence in
+/// <c>groupTypes</c> and <c>visibility: HiddenMembership</c> (checked in <see cref="Plan"/>); <c>mailNickname</c>, <c>Public</c> / <c>Private</c>
+/// visibility and <c>DynamicMembership</c> are updated in place (Learn group-update). A dynamic toggle or rule
 /// change pauses membership processing first. <c>assignedLicenses</c> (group-based licensing) is applied as an
 /// action after the object write; <c>members</c>, <c>owners</c>, <c>memberOf</c>, <c>administrativeUnits</c> are
 /// applied by the edge pass. Security (dynamic ones included) and Microsoft 365 groups are soft-deleted and keep their keys for
@@ -64,8 +65,9 @@ public sealed class GroupsProvider : ProviderBase, IDeleteWarningSource
 
     /// <summary>
     /// The overlay with the group-specific adjustments: only <c>displayName</c> is required on create (the other
-    /// required properties are defaulted per kind), and <c>groupTypes</c> / <c>visibility</c> leave the blanket
-    /// immutable list because only the <c>Unified</c> presence and <c>HiddenMembership</c> are immutable (checked in <see cref="Plan"/>).
+    /// required properties are defaulted per kind). <c>groupTypes</c> / <c>visibility</c> are not in the overlay's immutable list (only the
+    /// <c>Unified</c> presence and <c>HiddenMembership</c> are immutable, checked in <see cref="Plan"/>); they are filtered here too so an
+    /// overlay that lists them cannot block a <c>DynamicMembership</c> toggle or a Public / Private change.
     /// </summary>
     private static ResourceTypeDefinition Adjust(ResourceTypeDefinition definition)
     {

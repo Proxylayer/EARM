@@ -12,7 +12,7 @@ namespace EArm.Engine.WhatIf;
 
 /// <summary>
 /// The ARM-shaped what-if JSON: <c>status</c>, <c>deploymentName</c>, <c>tenantId</c>,
-/// <c>mode</c>, <c>changes[]</c> (<c>resourceId</c>, <c>changeType</c>, <c>before</c>, <c>after</c>, <c>delta[]</c>
+/// <c>mode</c>, <c>changes[]</c> (<c>resourceId</c>, <c>changeType</c> (<c>Unsupported</c> when the row has an <c>unsupportedReason</c>), <c>before</c>, <c>after</c>, <c>delta[]</c>
 /// with <c>path</c> / <c>propertyChangeType</c> / <c>before</c> / <c>after</c> / <c>children</c>,
 /// <c>unsupportedReason</c>) and <c>diagnostics[]</c>, plus EARM's extensions: <c>reasons[]</c> per change,
 /// <c>orphan</c> (<c>undeclared</c> / <c>retained</c>) and <c>graphId</c> on the <c>Ignore</c> rows of the orphan report,
@@ -118,7 +118,8 @@ public static class WhatIfJson
         var json = new JsonObject
         {
             ["resourceId"] = row.ResourceId,
-            ["changeType"] = row.Type.ToString(),
+            // ARM: a change that cannot be applied as planned is "Unsupported" (with its unsupportedReason); the payloads below still follow the planned type.
+            ["changeType"] = row.IsUnsupported ? "Unsupported" : row.Type.ToString(),
         };
 
         if (format == ResultFormat.FullResourcePayloads)

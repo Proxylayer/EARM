@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
+using EArm.Engine.Providers;
 using EArm.Providers.Tests.Infrastructure;
 using EArm.TestSupport;
 using Xunit;
@@ -191,7 +192,7 @@ public sealed class SecretLeakSweepTests
     }
 
     [Fact]
-    public async Task Rerun_WithTheSecretUnchanged_OnlyEverSendsItInTheWriteBody()
+    public async Task Rerun_WithTheSecretUnchanged_SendsNothing()
     {
         var host = new ProviderHost();
         var document = Factory(host).Make(Templates.Resource("Microsoft.Entra/applications", "sweep-app", "{ \"displayName\": \"Sweep\", \"notes\": \"" + Reference + "\" }"));
@@ -200,11 +201,12 @@ public sealed class SecretLeakSweepTests
 
         var rerun = await host.CreateAsync(document);
 
-        // Secret-valued properties are never compared (JsonDiff), so the rerun re-PATCHes them: documented engine behaviour,
-        // and the text still travels only in that body.
+        // Secret-valued properties are never compared (JsonDiff): on an existing object they are NoEffect, so an unchanged rerun writes nothing (B14);
+        // the secret travelled once, in the create body.
         Check.Succeeded(rerun);
-        Assert.Equal("""{"notes":"S3cr3t-Sweep-Value-9f2a"}""", Assert.Single(rerun.Writes).Body!.ToJsonString());
-        SecretSweep.AssertNoLeak(host, null, rerun, Secret, IsWrite, expectedIntendedBodies: 1);
+        Assert.Empty(rerun.Writes);
+        Assert.Equal(ChangeType.NoChange, rerun.OpOfType("Microsoft.Entra/applications").ChangeType);
+        SecretSweep.AssertNoLeak(host, null, rerun, Secret, IsWrite, expectedIntendedBodies: 0);
     }
 
     [Fact]
@@ -218,7 +220,7 @@ public sealed class SecretLeakSweepTests
         var rerun = await host.CreateAsync(document);
         var whatIf = await host.WhatIfAsync(document);
 
-        SecretSweep.AssertNoLeak(host, whatIf, rerun, Secret, IsWrite, expectedIntendedBodies: 1);
+        SecretSweep.AssertNoLeak(host, whatIf, rerun, Secret, IsWrite, expectedIntendedBodies: 0);
         Assert.Contains("\"notes\":\"***\"", whatIf.Change("sweep-app").Before!.ToJsonString(), StringComparison.Ordinal);
     }
 
@@ -234,7 +236,7 @@ public sealed class SecretLeakSweepTests
         var whatIf = await host.WhatIfAsync(document);
 
         Check.Succeeded(rerun);
-        SecretSweep.AssertNoLeak(host, whatIf, rerun, Secret, IsWrite, expectedIntendedBodies: 1);
+        SecretSweep.AssertNoLeak(host, whatIf, rerun, Secret, IsWrite, expectedIntendedBodies: 0);
         string before = whatIf.Change("sweep-app").Before!.ToJsonString();
         Assert.Contains("\"homePageUrl\":\"***\"", before, StringComparison.Ordinal);
         Assert.Contains("https://visible.example/signin", before, StringComparison.Ordinal);

@@ -15,13 +15,20 @@ namespace EArm.Cli.Output;
 /// </summary>
 internal static class DeploymentResultWriter
 {
-    public static void Write(DeploymentResult result, OutputFormat format, bool prettyPrint, TextWriter stdout, TextWriter stderr)
+    /// <param name="whatIf">The what-if document of <c>-c</c>, embedded as <c>whatIf</c> so <c>-o json</c> stays one document; <c>null</c> otherwise.</param>
+    public static void Write(DeploymentResult result, OutputFormat format, bool prettyPrint, TextWriter stdout, TextWriter stderr, JsonObject? whatIf = null)
     {
         ArgumentNullException.ThrowIfNull(result);
         switch (format)
         {
             case OutputFormat.Json:
-                stdout.WriteLine(ToJson(result).ToJsonString(JsonOutput.Options(prettyPrint)));
+                var document = ToJson(result);
+                if (whatIf is not null)
+                {
+                    document["whatIf"] = whatIf;
+                }
+
+                stdout.WriteLine(document.ToJsonString(JsonOutput.Options(prettyPrint)));
                 break;
             case OutputFormat.None:
                 break;

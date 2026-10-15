@@ -222,7 +222,7 @@ public sealed class ApplicationsProvider : ProviderBase
         }
 
         string? liveUniqueName = JsonObjects.GetString(existing.Raw, "uniqueName");
-        if (liveUniqueName is not null && !string.Equals(liveUniqueName, name, StringComparison.Ordinal))
+        if (liveUniqueName is not null && !string.Equals(liveUniqueName, name, StringComparison.OrdinalIgnoreCase))
         {
             return Unsupported(desired, existing, $"{desired.Describe()}: the live application ({existing.GraphId}) has uniqueName '{liveUniqueName}', which cannot be changed to '{name}' (uniqueName is immutable).");
         }

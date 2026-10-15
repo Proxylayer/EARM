@@ -153,7 +153,7 @@ internal static class GlobalOptions
             Description = "How to obtain tokens: auto (default: a cached 'earm auth login' sign-in when there is one, else the default chain), default (environment variables, workload identity, managed identity) or interactive. Default: EARM_AUTH.",
             Recursive = true,
         };
-        option.AcceptOnlyFromAmong("auto", "default", "interactive");
+        option.AcceptOnlyFromAmongIgnoreCase("auto", "default", "interactive");
         return option;
     }
 
@@ -165,7 +165,7 @@ internal static class GlobalOptions
             Recursive = true,
             DefaultValueFactory = _ => "table",
         };
-        option.AcceptOnlyFromAmong("table", "json", "none");
+        option.AcceptOnlyFromAmongIgnoreCase("table", "json", "none");
         return option;
     }
 }

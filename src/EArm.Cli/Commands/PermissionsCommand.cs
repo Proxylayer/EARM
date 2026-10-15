@@ -53,7 +53,7 @@ internal static class PermissionsCommand
             Description = "app: Microsoft Graph application permissions of a service principal login. delegated: delegated scopes plus the Entra roles of a user login.",
             DefaultValueFactory = _ => "app",
         };
-        mode.AcceptOnlyFromAmong("app", "delegated");
+        mode.AcceptOnlyFromAmongIgnoreCase("app", "delegated");
 
         var command = new Command("permissions", "Lists the Microsoft Graph permissions and Entra roles a template needs, offline (no tenant access).");
         command.Options.Add(templateFile);

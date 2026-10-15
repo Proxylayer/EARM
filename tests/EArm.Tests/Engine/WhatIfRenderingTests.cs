@@ -289,6 +289,7 @@ public sealed class WhatIfRenderingTests
 
         var unsupported = modify.Single(c => c["unsupportedReason"] is not null);
         Assert.Equal("/providers/Microsoft.Entra/groups/contoso-legacy", unsupported["resourceId"]!.GetValue<string>());
+        Assert.Equal("Unsupported", unsupported["changeType"]!.GetValue<string>());
         Assert.All(modify.Where(c => !ReferenceEquals(c, unsupported)), c => Assert.True(c.ContainsKey("unsupportedReason") && c["unsupportedReason"] is null));
     }
 

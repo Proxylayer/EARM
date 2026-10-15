@@ -442,7 +442,7 @@ public sealed class DeploymentExecutorTests
         host.Directory.AddGroup("contoso-dev-orders-admins", "Orders Admins", g =>
         {
             g["mailNickname"] = "legacy-nickname";
-            g["isAssignableToRole"] = true;
+            g["isAssignableToRole"] = false;
         });
 
         var (_, result) = await host.CreateAsync(await Templates.FixtureAsync(), new ExecuteOptions { ContinueOnError = true });
@@ -450,7 +450,8 @@ public sealed class DeploymentExecutorTests
         var group = Operation(result, Fixture.Group);
         Assert.Equal(OperationStatus.Failed, group.Status);
         Assert.Equal(EngineDiagnosticCodes.ImmutablePropertyChanged, group.ErrorCode);
-        Assert.Contains("properties.mailNickname", group.Error);
+        Assert.Contains("properties.isAssignableToRole", group.Error);
+        Assert.DoesNotContain("mailNickname", group.Error, StringComparison.Ordinal);
         Assert.Equal(ChangeType.Modify, group.ChangeType);
         Assert.Equal(OperationStatus.Skipped, OperationOfType(result, Fixture.AppRoleAssignmentType).Status);
         Assert.Equal("legacy-nickname", host.Directory.Find("/groups", "uniqueName", "contoso-dev-orders-admins")!["mailNickname"]!.GetValue<string>());

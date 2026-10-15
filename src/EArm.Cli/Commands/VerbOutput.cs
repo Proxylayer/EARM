@@ -13,8 +13,8 @@ namespace EArm.Cli.Commands;
 /// </summary>
 internal static class VerbOutput
 {
-    /// <summary>Reports a failure and returns <paramref name="exitCode"/>.</summary>
-    public static int Fail(OutputFormat output, TextWriter stdout, TextWriter stderr, int exitCode, string code, string message)
+    /// <summary>Reports a failure and returns <paramref name="exitCode"/>; <paramref name="fields"/> adds members to the JSON document (the what-if of a declined <c>-c</c>).</summary>
+    public static int Fail(OutputFormat output, TextWriter stdout, TextWriter stderr, int exitCode, string code, string message, Action<JsonObject>? fields = null)
     {
         ArgumentNullException.ThrowIfNull(stdout);
         ArgumentNullException.ThrowIfNull(stderr);
@@ -26,6 +26,7 @@ internal static class VerbOutput
                 ["status"] = "Failed",
                 ["diagnostics"] = new JsonArray(new JsonObject { ["severity"] = "Error", ["code"] = code, ["message"] = message }),
             };
+            fields?.Invoke(document);
             stdout.WriteLine(document.ToJsonString(JsonOutput.Options(true)));
         }
         else

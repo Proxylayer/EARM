@@ -51,8 +51,9 @@ The deployment would make the following changes:
   = /providers/Microsoft.Entra/groups/contoso-dev-orders-ops [Microsoft.Entra/groups]
 
   ~! /providers/Microsoft.Entra/groups/contoso-legacy [Microsoft.Entra/groups]
+      ~ properties.mailEnabled: false => true
       ~ properties.mailNickname: "legacy" => "legacy-renamed"
-      ! Immutable property properties.mailNickname of Microsoft.Entra/groups 'contoso-legacy' differs from the live object and cannot be changed in place; restore the original value, or delete and recreate the resource.
+      ! Immutable property properties.mailEnabled of Microsoft.Entra/groups 'contoso-legacy' differs from the live object and cannot be changed in place; restore the original value, or delete and recreate the resource.
 
   ~? /providers/Microsoft.Entra/users/bg-orders@contoso.com [Microsoft.Entra/users]
       + properties.usageLocation: "GB"

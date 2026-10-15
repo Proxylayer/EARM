@@ -22,7 +22,7 @@
       "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/expression" } ]
     },
     "mailNickname": {
-      "description": "Mail alias (up to 64 characters; none of @ ( ) \\ [ ] \" ; : . < > , or space). Derived from the name when omitted; immutable.",
+      "description": "Mail alias (up to 64 characters; none of @ ( ) \\ [ ] \" ; : . < > , or space). Derived from the name when omitted; can be changed later (Graph group update).",
       "anyOf": [ { "type": "string", "pattern": "^[^@()\\\\\\[\\]\";:.<>, ]+$", "maxLength": 64 }, { "$ref": "#/$defs/expression" } ]
     },
     "securityEnabled": {
@@ -30,7 +30,7 @@
       "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/expression" } ]
     },
     "groupTypes": {
-      "description": "[] security group, [\"Unified\"] Microsoft 365 group, plus \"DynamicMembership\" for dynamic groups. Immutable except for DynamicMembership.",
+      "description": "[] security group, [\"Unified\"] Microsoft 365 group, plus \"DynamicMembership\" for dynamic groups. The Unified presence is immutable (no conversion between a security group and a Microsoft 365 group); DynamicMembership can be added or removed.",
       "anyOf": [
         {
           "type": "array",
@@ -44,7 +44,7 @@
       "anyOf": [ { "type": [ "boolean", "null" ] }, { "$ref": "#/$defs/expression" } ]
     },
     "visibility": {
-      "description": "Public, Private or HiddenMembership (immutable once HiddenMembership).",
+      "description": "Public, Private or HiddenMembership. Public and Private can be changed later; HiddenMembership can only be set at creation and never changed.",
       "anyOf": [ { "type": [ "string", "null" ], "enum": [ "Public", "Private", "HiddenMembership", null ] }, { "$ref": "#/$defs/expression" } ]
     },
     "membershipRule": {
@@ -209,7 +209,7 @@
     "keyProperties": ["uniqueName"],
     "requiredOnCreate": ["displayName", "mailEnabled", "securityEnabled"],
     "defaults": {},
-    "immutable": ["uniqueName", "mailNickname", "mailEnabled", "isAssignableToRole", "groupTypes", "visibility"],
+    "immutable": ["uniqueName", "mailEnabled", "isAssignableToRole"],
     "createOnly": [],
     "secure": [],
     "relationships": [

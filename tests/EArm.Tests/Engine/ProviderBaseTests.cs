@@ -143,13 +143,13 @@ public sealed class ProviderBaseTests
     [Fact]
     public async Task Plan_ImmutableChangeOnGroups_IsUnsupported()
     {
-        var (_, instance, provider) = await OneAsync("{ \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"g\", \"properties\": { \"displayName\": \"G\", \"mailEnabled\": false, \"securityEnabled\": true, \"mailNickname\": \"new\" } }", "/providers/Microsoft.Entra/groups/g");
-        var existing = provider.ToExisting(J("{\"id\":\"G1\",\"uniqueName\":\"g\",\"displayName\":\"G\",\"mailEnabled\":false,\"securityEnabled\":true,\"mailNickname\":\"old\"}"));
+        var (_, instance, provider) = await OneAsync("{ \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"g\", \"properties\": { \"displayName\": \"G\", \"mailEnabled\": false, \"securityEnabled\": true, \"mailNickname\": \"g\", \"isAssignableToRole\": true } }", "/providers/Microsoft.Entra/groups/g");
+        var existing = provider.ToExisting(J("{\"id\":\"G1\",\"uniqueName\":\"g\",\"displayName\":\"G\",\"mailEnabled\":false,\"securityEnabled\":true,\"mailNickname\":\"g\",\"isAssignableToRole\":false}"));
 
         var change = provider.Plan(instance, existing, PlanOptions.Default);
 
         Assert.True(change.HasError);
-        Assert.Contains("properties.mailNickname", change.UnsupportedReason);
+        Assert.Contains("properties.isAssignableToRole", change.UnsupportedReason);
         Assert.Contains(change.Reasons, r => r.Contains("Immutable property", StringComparison.Ordinal));
     }
 

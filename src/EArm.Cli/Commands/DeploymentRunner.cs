@@ -12,13 +12,16 @@ using EArm.Graph;
 using EArm.Engine.Execution;
 using EArm.Engine.Planning;
 using EArm.Engine.Providers;
+using EArm.Engine.WhatIf;
+using Microsoft.Extensions.Logging;
 
 namespace EArm.Cli.Commands;
 
 /// <summary>
 /// The shared pipeline of <c>deployment what-if</c> and <c>deployment create</c>: <c>--secure-outputs-file</c> check (exit 1) → the setup of
-/// <see cref="PlannedDeployment"/> (load, offline validation, preflight, Key Vault references, plan; exits 1/2/3) → render the what-if (exit 5 with
-/// <c>--exit-code-on-changes</c>; orphan report rows never count) and/or execute (exit 1 on failure). Identity is resolved by live key on every run;
+/// <see cref="PlannedDeployment"/> (load, offline validation, preflight, Key Vault references, plan; exits 1/2/3) → render the what-if and/or execute (exit 1 on failure). <c>--exit-code-on-changes</c> exits 5 when the what-if plans a
+/// change, or when a successful <c>create</c> wrote one; orphan report rows never count. With <c>-o json</c> and <c>-c</c> the what-if is embedded in the
+/// run's one document (<c>whatIf</c>) instead of being a document of its own. Identity is resolved by live key on every run;
 /// nothing is recorded locally (only the secure outputs file is written, when asked for). Nothing the template does not declare is ever deleted
 /// (Complete mode only reports it). A run that replaces objects (an immutable property changed: delete, then create again) asks for confirmation
 /// unless <c>-y</c>; without <c>-y</c> on a non-interactive console it fails (exit 1, <c>RecreateNotConfirmed</c>) before anything is written. To
@@ -68,20 +71,41 @@ internal static class DeploymentRunner
         // 6. What-if output. With -c the same plan is executed below: the expansion, the
         //    dependency graph and the batches are not computed again; the executor re-reads each resource right
         //    before applying it (docs/engine.md step 6), so the confirmed what-if cannot go stale.
+        WhatIfReport? confirmedWhatIf = null;
         if (needsWhatIf)
         {
-            var report = WhatIfWriter.Write(plan, invocation, stdout);
             if (invocation.WhatIf)
             {
+                var report = WhatIfWriter.Write(plan, invocation, stdout);
                 return invocation.ExitCodeOnChanges && report.HasChanges ? ExitCodes.WhatIfChangesDetected : ExitCodes.Ok;
             }
 
-            // The what-if document is already on stdout (the one document of this run): a refusal is reported on stderr only.
-            // Confirming the what-if confirms the replacements it shows.
-            if (!invocation.Yes && !ConsolePrompt.Confirm("Are you sure you want to execute the deployment?", stdout, stderr, readLine))
+            // -c: with -o json stdout carries exactly ONE document, so the what-if is not written on its own: it is embedded in the result
+            // document ("whatIf"), or in the refusal document when the run does not start. The prompt then shows the what-if as text on stderr.
+            bool json = invocation.Output == OutputFormat.Json;
+            confirmedWhatIf = json ? WhatIfReport.From(plan) : WhatIfWriter.Write(plan, invocation, stdout);
+            if (!invocation.Yes)
             {
-                stderr.WriteLine("Deployment not started.");
-                return ExitCodes.Failure;
+                if (json)
+                {
+                    WhatIfText.Render(confirmedWhatIf, stderr, new WhatIfTextOptions(invocation.ResultFormat, Verbose: invocation.LogLevel <= LogLevel.Debug, Colors: false));
+                }
+
+                // Confirming the what-if confirms the replacements it shows.
+                if (!ConsolePrompt.Confirm("Are you sure you want to execute the deployment?", stdout, stderr, readLine))
+                {
+                    if (json)
+                    {
+                        // The human line on stderr (next to the prompt), the one document on stdout.
+                        stderr.WriteLine("Deployment not started.");
+                        var declined = WhatIfJson.Build(confirmedWhatIf, invocation.ResultFormat);
+                        return VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.Failure, "NotConfirmed", "Deployment not started.", document => document["whatIf"] = declined);
+                    }
+
+                    // The what-if text is already on stdout: a refusal is reported on stderr only.
+                    stderr.WriteLine("Deployment not started.");
+                    return ExitCodes.Failure;
+                }
             }
         }
         else if (!invocation.Yes && ConfirmReplacements(invocation, plan, stdout, stderr, readLine) is { } refusedExit)
@@ -102,8 +126,15 @@ internal static class DeploymentRunner
             ApprovedRecreates = invocation.Yes ? null : Replacements(plan).Select(change => change.Id.Id).ToHashSet(StringComparer.OrdinalIgnoreCase),
         }, cancellationToken).ConfigureAwait(false);
 
-        DeploymentResultWriter.Write(result, invocation.Output, !invocation.NoPrettyPrint, stdout, stderr);
-        return result.Succeeded ? ExitCodes.Ok : ExitCodes.Failure;
+        var embeddedWhatIf = invocation.Output == OutputFormat.Json && confirmedWhatIf is not null ? WhatIfJson.Build(confirmedWhatIf, invocation.ResultFormat) : null;
+        DeploymentResultWriter.Write(result, invocation.Output, !invocation.NoPrettyPrint, stdout, stderr, embeddedWhatIf);
+        if (!result.Succeeded)
+        {
+            return ExitCodes.Failure;
+        }
+
+        // --exit-code-on-changes on create: exit 5 when the (successful) run wrote something; the orphan report never counts.
+        return invocation.ExitCodeOnChanges && result.HasChanges ? ExitCodes.WhatIfChangesDetected : ExitCodes.Ok;
     }
 
     // ---- replacements (delete and create again) ----

@@ -111,7 +111,7 @@ internal sealed class DeploymentOptions
 
     public Option<bool> ExitCodeOnChanges { get; } = new("--exit-code-on-changes")
     {
-        Description = "Exit with code 5 when the what-if reports any Create, Modify or Delete.",
+        Description = "Exit with code 5 when the what-if reports any Create, Modify or Delete (create: when the successful deployment applied one).",
     };
 
     public Option<bool> NoPrettyPrint { get; } = new("--no-pretty-print")
@@ -237,7 +237,7 @@ internal sealed class DeploymentOptions
             Description = description,
             DefaultValueFactory = _ => defaultValue,
         };
-        option.AcceptOnlyFromAmong(choices);
+        option.AcceptOnlyFromAmongIgnoreCase(choices);
         return option;
     }
 }

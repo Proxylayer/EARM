@@ -42,11 +42,11 @@ Environment: `EARM_AUTH`, `EARM_TENANT_ID`, `EARM_CLIENT_ID`, `EARM_EVALUATION_T
 
 | Code | Meaning |
 |---|---|
-| 0 | Success (for `what-if`: no changes, or changes without `--exit-code-on-changes`). |
+| 0 | Success (with `--exit-code-on-changes`: `what-if` planned no change, `create` succeeded and wrote nothing). |
 | 1 | Deployment or operation failure; a template, parameter file or state file that cannot be loaded; a malformed argument or a usage error; a type without a provider; a refusal (confirmation declined, non-interactive without `--yes`, a replacement that was not confirmed: `RecreateNotConfirmed`); an **unexpected error**, printed as one line `Unexpected error (<type>): <message>` (the full exception only with `--debug` / `EARM_DEBUG=1`), a file access problem (`Access denied: ...`, `A file operation failed ...`) or running out of memory. |
 | 2 | Validation failure: the template has errors (offline validation, expansion or the dependency graph). |
 | 3 | Authentication, preflight or tenant failure: no credential signs in, a Graph token that is rejected, an unreadable Key Vault reference. |
-| 5 | `what-if --exit-code-on-changes` found a Create, Modify or Delete (or an edge add or remove). Orphan report rows never count: they are reported, never written. |
+| 5 | `--exit-code-on-changes`: `what-if` (and `create --what-if`) planned a Create, Modify or Delete (or an edge add or remove); `create` **succeeded** and applied at least one (a failed `create` exits 1). Orphan report rows never count: they are reported, never written. A secret-bearing property of an existing object is never compared, so it never counts either. |
 
 Code four is retired: it meant a locked local state, and EARM keeps no local state. It is not reused, so the other codes keep their meaning.
 
@@ -117,7 +117,7 @@ PowerShell are no longer prerequisites (PowerShell remains only for the reposito
 | Option | Meaning |
 |---|---|
 | `-f`, `--template-file <path>` | The template (`*.entra.json`). Required. |
-| `-p`, `--parameters <…>` | Repeatable, **one value per `-p`** (on every command that takes it: a stray token such as `-p @f.json -n x` is a usage error naming the unknown option instead of being swallowed as another value). `@file.json` loads a parameter file ([format.md](format.md#parameters-and-parameter-files)); `name=value` sets one value. In PowerShell write the file form in single quotes, `-p '@file.json'`: a bare `@` there is the splatting operator and a parse error. Later values win. Precedence: `-p name=value` > parameter file > `defaultValue`. |
+| `-p`, `--parameters <…>` | Repeatable, **one value per `-p`** (on every command that takes it: a stray token such as `-p @f.json -n x` is a usage error naming the unknown option instead of being swallowed as another value). `@file.json` loads a parameter file ([format.md](format.md#parameters-and-parameter-files)); `name=value` sets one value. In PowerShell write the file form in single quotes, `-p '@file.json'`: a bare `@` there is the splatting operator and a parse error. Values are applied **in command-line order** and a later value wins, whichever form it has (as `az deployment group create --parameters`): in `-p '@f.json' -p env=dev` the inline value overrides the file, in `-p env=dev -p '@f.json'` the file's `env` overrides it. Put the parameter file first and override selectively with `name=value`. A parameter no `-p` sets falls back to its `defaultValue`. |
 | `-o`, `--output table\|json\|none` | Output format (a global option, valid on every verb). Default `table`. `none` prints nothing. |
 
 ### `deployment validate`
@@ -139,10 +139,10 @@ dependency order, recording every resource in the state after each operation.
 | `--allow-ca-enforce` | both | Allow Conditional Access policies with `state: enabled` (default: report-only or disabled only). |
 | `--on-soft-deleted-conflict error\|restore` | both | What to do when a key to create is held by a soft-deleted object: fail with a hint (default), or restore it and continue. Nothing is ever purged. |
 | `--result-format FullResourcePayloads\|ResourceIdOnly` | both | What-if detail. |
-| `--exit-code-on-changes` | both | Exit 5 when the what-if contains a Create, Modify or Delete, or an edge change. |
+| `--exit-code-on-changes` | both | `what-if`: exit 5 when the what-if contains a Create, Modify or Delete, or an edge change. `create`: exit 5 when the deployment succeeded and applied at least one of them (a resource created, updated, replaced or deleted, or a relationship entry added or removed); with `-c` too it is the applied run that counts, not the what-if shown before it. A failure exits 1 first; orphan report rows never count. |
 | `--no-pretty-print` | both | Compact JSON for `-o json`. |
 | `--what-if` | `create` | Alias of `deployment what-if`. |
-| `-c`, `--confirm-with-what-if` | `create` | Print the what-if, ask `Are you sure you want to execute the deployment? (y/n):`, then apply the same plan. |
+| `-c`, `--confirm-with-what-if` | `create` | Print the what-if, ask `Are you sure you want to execute the deployment? (y/n):`, then apply the same plan. With `-o json` standard output stays **one** document: the what-if is not printed on its own but embedded in the deployment result as `whatIf` (the what-if document), the prompt shows the what-if as text on standard error, and a declined prompt prints `{ "status": "Failed", "diagnostics": [ { "code": "NotConfirmed", "message": "Deployment not started." } ], "whatIf": {...} }` with `Deployment not started.` on standard error (exit 1). |
 | `-y`, `--yes` | `create` | Skip the confirmations: the one `--confirm-with-what-if` asks (the deployment is applied right after the what-if), and the one a plain `create` asks before it **replaces** objects (an immutable property changed: delete, then create again). Without `-y`, standard input must be interactive for either question; a non-interactive `create` that would replace objects fails before any write (`RecreateNotConfirmed`, exit 1). A plain `create` without replacements never prompts. |
 | `--continue-on-error` | `create` | Keep deploying resources that do not depend on a failed one (default: stop at the batch boundary). |
 | `--reveal-secure-outputs` | `create` | Print `securestring` / `secureObject` outputs in clear text instead of `***`. |
@@ -166,7 +166,7 @@ The deployment result (`-o json`) carries `orphans[]`: `{ "resourceId", "type", 
 the orphan report (the table output lists them under "Not declared in the template (reported only; never deleted)"). Orphans do not affect the status or the
 exit code. The former `detached` and `deleted` counts are gone.
 
-With `-o json` the standard output of a verb that fails **before** it has anything else to report (a preflight failure, exit 3; an unreadable state; a state lock, exit 4; a replacement refusal of a plain `create`) is **one JSON document** `{ "status": "Failed", "diagnostics": [ { "severity": "Error", "code": "...", "message": "..." } ] }` instead of prose on stderr; a multi-line message uses `\n` line breaks. A decline of a confirmation prompt, and a refusal after the what-if document of `-c` was written, stay on stderr (the document already on stdout is the one document).
+With `-o json` the standard output of a verb that fails **before** it has anything else to report (a preflight failure, exit 3; an unreadable state; a state lock, exit 4; a replacement refusal of a plain `create`) is **one JSON document** `{ "status": "Failed", "diagnostics": [ { "severity": "Error", "code": "...", "message": "..." } ] }` instead of prose on stderr; a multi-line message uses `\n` line breaks. A declined `-c` prompt with `-o json` is the same kind of document with code `NotConfirmed` and the what-if under `whatIf`; with `-o table` the what-if text is already on stdout and the decline stays on stderr. The read-only planning pass of a plain `create` without `-y` is never printed: its stdout carries only the result (or the refusal) document.
 
 ### `deployment delete`
 

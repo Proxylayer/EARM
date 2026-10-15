@@ -318,7 +318,7 @@
     },
     {
       "resourceId": "/providers/Microsoft.Entra/groups/contoso-legacy",
-      "changeType": "Modify",
+      "changeType": "Unsupported",
       "before": {
         "name": "contoso-legacy",
         "type": "Microsoft.Entra/groups",
@@ -338,12 +338,18 @@
         "apiVersion": "2026-10-01-preview",
         "properties": {
           "displayName": "Legacy",
-          "mailEnabled": false,
+          "mailEnabled": true,
           "mailNickname": "legacy-renamed",
           "securityEnabled": true
         }
       },
       "delta": [
+        {
+          "path": "properties.mailEnabled",
+          "propertyChangeType": "Modify",
+          "before": false,
+          "after": true
+        },
         {
           "path": "properties.mailNickname",
           "propertyChangeType": "Modify",
@@ -351,9 +357,9 @@
           "after": "legacy-renamed"
         }
       ],
-      "unsupportedReason": "Immutable property properties.mailNickname of Microsoft.Entra/groups 'contoso-legacy' differs from the live object and cannot be changed in place; restore the original value, or delete and recreate the resource.",
+      "unsupportedReason": "Immutable property properties.mailEnabled of Microsoft.Entra/groups 'contoso-legacy' differs from the live object and cannot be changed in place; restore the original value, or delete and recreate the resource.",
       "reasons": [
-        "Immutable property properties.mailNickname of Microsoft.Entra/groups 'contoso-legacy' differs from the live object and cannot be changed in place; restore the original value, or delete and recreate the resource."
+        "Immutable property properties.mailEnabled of Microsoft.Entra/groups 'contoso-legacy' differs from the live object and cannot be changed in place; restore the original value, or delete and recreate the resource."
       ]
     },
     {

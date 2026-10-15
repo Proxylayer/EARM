@@ -292,6 +292,26 @@ public sealed class ApplicationsProviderTests
     }
 
     [Fact]
+    public async Task ALiveUniqueName_ThatDiffersOnlyInCase_IsTheSameApplication_NotAnImmutableChange()
+    {
+        // Graph alternate keys are case-insensitive: the lookup finds 'Test-API' for the name 'test-api', so the live-vs-declared check must agree (B19).
+        var host = new ProviderHost();
+        var seeded = host.Directory.AddApplication("Test-API", "Test API");
+
+        var whatIf = await host.WhatIfAsync(host.Resources(App("""{ "displayName": "Test API" }""")));
+        var change = whatIf.ChangeOfType(Type);
+        Assert.False(change.HasError, change.UnsupportedReason);
+        Assert.Equal(seeded["id"]!.GetValue<string>(), change.GraphId);
+        Assert.Equal(ChangeType.NoChange, change.Type);
+        Check.NoWrites(whatIf);
+
+        var run = await host.CreateAsync(host.Resources(App("""{ "displayName": "Renamed" }""")));
+        Check.Succeeded(run);
+        Assert.Equal(seeded["id"]!.GetValue<string>(), run.GraphIdOf(ResourceId));
+        Assert.Equal(1, host.Directory.Count("/applications"));
+    }
+
+    [Fact]
     public async Task UniqueNameExpression_ThatDiffersFromTheName_IsAnError_EqualIsTolerated()
     {
         var host = new ProviderHost();

@@ -118,7 +118,7 @@ internal static class ValidateCommand
         return ExitCodes.Failure;
     }
 
-    /// <summary>Builds the parameter set from <c>-p</c> tokens: <c>@file</c> loads a file, <c>name=value</c> overrides.</summary>
+    /// <summary>Builds the parameter set from <c>-p</c> tokens in command-line order (<c>@file</c> loads a file, <c>name=value</c> sets one value); a later value wins, as with <c>az deployment group create --parameters</c>.</summary>
     internal static ParameterSet BuildParameterSet(IReadOnlyList<string> tokens, out string? parameterFile)
     {
         parameterFile = null;
