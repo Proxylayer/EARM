@@ -34,7 +34,7 @@ public sealed record EdgeSummary(int Add, int Remove)
 }
 
 /// <summary>
-/// One what-if row (plan section 1.8), ready to render: the planned change plus the ARM-shaped <c>before</c> /
+/// One what-if row, ready to render: the planned change plus the ARM-shaped <c>before</c> /
 /// <c>after</c> payloads (<c>name</c>, <c>type</c>, <c>apiVersion</c>, <c>properties</c>), the property deltas with
 /// every secure value masked as <c>***</c> on both sides, the deploy-time-unknown flag and the edge counts.
 /// </summary>
@@ -82,7 +82,7 @@ public sealed class WhatIfRow
     /// <summary>The change's reasons minus the unsupported reason (rendered separately).</summary>
     public IReadOnlyList<string> Reasons => Change.Reasons.Where(r => !string.Equals(r, Change.UnsupportedReason, StringComparison.Ordinal)).ToList();
 
-    /// <summary>Edge entries this row adds and removes (relationship properties of plan section 1.4).</summary>
+    /// <summary>Edge entries this row adds and removes (relationship properties).</summary>
     public EdgeSummary Edges { get; }
 
     /// <summary>True for the rows of the mode pass (not declared in the template: Delete in Complete, Ignore in Incremental).</summary>
@@ -100,7 +100,7 @@ public sealed class WhatIfRow
         var deltas = WhatIfMasking.MaskDeltas(change.Deltas, secure);
         var before = Payload(change, instance, change.Before, null, secure);
         // The desired object is the template's declaration: the object properties the provider writes plus the
-        // relationship properties the edge pass applies (plan section 1.4), rendered like the deltas.
+        // relationship properties the edge pass applies, rendered like the deltas.
         var after = Payload(change, instance, change.After, instance?.EdgeProperties, secure);
         bool unknown = change.IsUnknown || deltas.Any(WhatIfMasking.ContainsUnknown);
         var edges = CountEdges(deltas, definition);
@@ -200,7 +200,7 @@ public sealed class WhatIfRow
 }
 
 /// <summary>
-/// The rendering model of a what-if (plan section 1.8), built once from a <see cref="DeploymentPlan"/> and shared
+/// The rendering model of a what-if, built once from a <see cref="DeploymentPlan"/> and shared
 /// by the text and JSON renderers: rows in batch order (ties by resource id) followed by the mode-pass rows (by
 /// resource id), the summary counts, the edge counts, the required permissions, the warnings and the unresolved
 /// existing-resource lookups.

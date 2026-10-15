@@ -7,7 +7,7 @@ using EArm.Expressions.Values;
 namespace EArm.Providers;
 
 /// <summary>
-/// The pure rules of administrative units (plan sections 1.3 and 3.2): the managed property set, the membership
+/// The pure rules of administrative units: the managed property set, the membership
 /// kinds (<c>Assigned</c> / <c>Dynamic</c>), the <c>membershipRuleProcessingState: On</c> injection for dynamic units
 /// and the canonical form of the live object. No Graph here.
 /// </summary>
@@ -71,7 +71,7 @@ public static class AdministrativeUnitsRules
         }
         else if (string.Equals(membershipType, MembershipDynamic, StringComparison.Ordinal) && hasRule)
         {
-            // Plan section 3.2: a dynamic unit is created with its rule processing switched on.
+            // A dynamic unit is created with its rule processing switched on.
             properties[JsonObjects.FindKey(properties, "membershipRuleProcessingState") ?? "membershipRuleProcessingState"] = ProcessingOn;
         }
 

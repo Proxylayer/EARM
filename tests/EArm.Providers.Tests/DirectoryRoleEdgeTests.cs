@@ -2,7 +2,7 @@ using System;
 using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Engine;
 using EArm.Engine.Execution;
 using EArm.Engine.Planning;
@@ -13,7 +13,7 @@ using static EArm.Providers.Tests.Infrastructure.DirectoryTemplates;
 
 namespace EArm.Providers.Tests;
 
-/// <summary>The <c>directoryRoles</c> edge kind (WI-15, E1–E8) and the delete order of the new types.</summary>
+/// <summary>The <c>directoryRoles</c> edge kind and the delete order of the new types.</summary>
 public sealed class DirectoryRoleEdgeTests
 {
     private const string GlobalReaderRole = "{ \"role\": \"Global Reader\" }";

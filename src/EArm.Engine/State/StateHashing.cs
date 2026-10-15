@@ -6,7 +6,7 @@ using EArm.Expressions.Values;
 namespace EArm.Engine.State;
 
 /// <summary>
-/// <c>contentHash</c> of a state entry (plan section 1.7): SHA-256 of the canonical JSON (sorted keys, no whitespace,
+/// <c>contentHash</c> of a state entry: SHA-256 of the canonical JSON (sorted keys, no whitespace,
 /// UTF-8) of the evaluated properties with every secret and deploy-time-unknown leaf removed, so the hash never
 /// depends on a secret and never changes because a placeholder was rendered differently.
 /// </summary>

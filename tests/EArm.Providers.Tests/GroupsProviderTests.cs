@@ -12,7 +12,7 @@ using Xunit;
 
 namespace EArm.Providers.Tests;
 
-/// <summary>The groups provider (WI-09, G1–G9): kind defaults, dynamic groups, licenses, immutables, destructive deletes and the soft-deleted Microsoft 365 group.</summary>
+/// <summary>The groups provider: kind defaults, dynamic groups, licenses, immutables, destructive deletes and the soft-deleted Microsoft 365 group.</summary>
 public sealed class GroupsProviderTests
 {
     private const string Type = "Microsoft.Entra/groups";
@@ -57,7 +57,8 @@ public sealed class GroupsProviderTests
         Assert.True(upsert.HasHeader("Prefer", "create-if-missing"));
         Assert.Contains("Group.ReadWrite.All", run.Plan.RequiredPermissions);
         Assert.DoesNotContain("GroupMember.ReadWrite.All", run.Plan.RequiredPermissions);
-        Assert.DoesNotContain(run.Requests, r => r.Path.StartsWith("/directory/deletedItems", StringComparison.Ordinal));
+        // Review 3I (intentional change): a security group is soft-deleted too, so its create probes the recycle bin (by uniqueName).
+        Assert.Contains(run.Requests, r => r.Method == "GET" && r.Path.StartsWith("/directory/deletedItems/microsoft.graph.group", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -142,7 +143,9 @@ public sealed class GroupsProviderTests
         var assign = Assert.Single(run.Writes, w => w.Path == $"/groups/{licensedId}/assignLicense");
         Assert.Equal(SkuId, assign.Body!["addLicenses"]![0]!["skuId"]!.GetValue<string>());
         Assert.Empty(assign.Body!["removeLicenses"]!.AsArray());
-        Assert.Contains("Organization.Read.All", run.Plan.RequiredPermissions);
+        Assert.Contains("LicenseAssignment.ReadWrite.All", run.Plan.RequiredPermissions);
+        Assert.Contains("LicenseAssignment.Read.All", run.Plan.RequiredPermissions);
+        Assert.DoesNotContain("Organization.Read.All", run.Plan.RequiredPermissions);
 
         var rerun = await host.CreateAsync(licensed);
         Check.Succeeded(rerun);
@@ -180,22 +183,24 @@ public sealed class GroupsProviderTests
     }
 
     [Fact]
-    public async Task G8_CompleteMode_DeletesTheOrphanSecurityGroup_WithADestructiveDeleteWarning()
+    public async Task G8_CompleteMode_DeletesTheOrphanSecurityGroup_IntoTheRecycleBin_WithoutADestructiveDeleteWarning()
     {
         var host = new ProviderHost();
         var first = await host.CreateAsync(host.Resources(Group("orphan", """{ "displayName": "Orphan" }""")));
         Check.Succeeded(first);
 
         var whatIf = await host.WhatIfAsync(host.Resources(Group("other", """{ "displayName": "Other" }""")), DeploymentMode.Complete);
-        Assert.Contains(whatIf.Plan.Diagnostics, d => d.Code == EngineDiagnosticCodes.DestructiveDelete);
+        // Review 3I (intentional change): security groups wait 30 days in the recycle bin (Learn group-delete), so the delete is not flagged as permanent.
+        Assert.DoesNotContain(whatIf.Plan.Diagnostics, d => d.Code == EngineDiagnosticCodes.DestructiveDelete);
         Check.NoWrites(whatIf);
 
         var run = await host.CreateAsync(host.Resources(Group("other", """{ "displayName": "Other" }""")), DeploymentMode.Complete);
 
         Check.Succeeded(run);
         Assert.Equal(1, run.Executed.DeletedCount);
-        Check.Diagnostic(run, EngineDiagnosticCodes.DestructiveDelete);
+        Assert.DoesNotContain(run.Plan.Diagnostics, d => d.Code == EngineDiagnosticCodes.DestructiveDelete);
         Assert.Null(host.Directory.Find("/groups", "uniqueName", "orphan"));
+        Assert.Contains(host.Directory.Objects("/directory/deletedItems"), o => o["uniqueName"]!.GetValue<string>() == "orphan");
     }
 
     [Fact]

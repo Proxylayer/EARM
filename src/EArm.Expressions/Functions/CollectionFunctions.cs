@@ -110,6 +110,7 @@ internal static class CollectionFunctions
         long count = call.Int(1);
         if (node is JsonArray array)
         {
+            call.Context.Budget.Charge(array.Count, call.Offset);
             var result = new JsonArray();
             int from = take ? 0 : (int)Math.Clamp(count, 0, array.Count);
             int to = take ? (int)Math.Clamp(count, 0, array.Count) : array.Count;
@@ -122,6 +123,7 @@ internal static class CollectionFunctions
         }
 
         string text = call.String(0);
+        call.Context.Budget.ChargeText(text.Length, call.Offset);
         int n = (int)Math.Clamp(count, 0, text.Length);
         return JsonValue.Create(take ? text[..n] : text[n..]);
     }
@@ -133,27 +135,34 @@ internal static class CollectionFunctions
             var result = new JsonObject();
             for (int i = 0; i < call.Count; i++)
             {
-                foreach (var property in call.Object(i))
+                var source = call.Object(i);
+                call.Context.Budget.Charge(source.Count, call.Offset);
+                foreach (var property in source)
                 {
                     result[property.Key] = JsonValues.Clone(property.Value);
                 }
+
+                call.Context.Budget.CheckCollectionCount(result.Count, call.Offset);
             }
 
             return result;
         }
 
+        // Linear in the total number of elements: a hash set decides "already seen" (the nested-loop form was quadratic).
         var merged = new JsonArray();
-        var seen = new List<JsonNode?>();
+        var seen = new HashSet<JsonNode?>(JsonValues.Comparer.Instance);
         for (int i = 0; i < call.Count; i++)
         {
-            foreach (var item in call.Array(i))
+            var array = call.Array(i);
+            call.Context.Budget.Charge(array.Count, call.Offset);
+            foreach (var item in array)
             {
-                if (seen.Any(s => JsonValues.AreEqual(s, item)))
+                if (!seen.Add(item))
                 {
                     continue;
                 }
 
-                seen.Add(item);
+                call.Context.Budget.CheckCollectionCount(merged.Count + 1L, call.Offset);
                 merged.Add(JsonValues.Clone(item));
             }
         }
@@ -166,6 +175,7 @@ internal static class CollectionFunctions
         if (call.Arg(0) is JsonObject firstObject)
         {
             var result = new JsonObject();
+            call.Context.Budget.Charge((long)firstObject.Count * Math.Max(1, call.Count - 1), call.Offset);
             foreach (var property in firstObject)
             {
                 bool common = true;
@@ -183,22 +193,27 @@ internal static class CollectionFunctions
             return result;
         }
 
-        var intersection = new JsonArray();
-        var added = new List<JsonNode?>();
-        foreach (var item in call.Array(0))
+        // Linear in the total number of elements: one hash set per further array (the nested-loop form was quadratic).
+        var first = call.Array(0);
+        call.Context.Budget.Charge(first.Count, call.Offset);
+        var others = new List<HashSet<JsonNode?>>();
+        for (int i = 1; i < call.Count; i++)
         {
-            if (added.Any(a => JsonValues.AreEqual(a, item)))
+            var array = call.Array(i);
+            call.Context.Budget.Charge(array.Count, call.Offset);
+            others.Add(new HashSet<JsonNode?>(array, JsonValues.Comparer.Instance));
+        }
+
+        var intersection = new JsonArray();
+        var added = new HashSet<JsonNode?>(JsonValues.Comparer.Instance);
+        foreach (var item in first)
+        {
+            if (added.Contains(item))
             {
                 continue;
             }
 
-            bool common = true;
-            for (int i = 1; i < call.Count && common; i++)
-            {
-                common = call.Array(i).Any(other => JsonValues.AreEqual(other, item));
-            }
-
-            if (common)
+            if (others.TrueForAll(set => set.Contains(item)))
             {
                 added.Add(item);
                 intersection.Add(JsonValues.Clone(item));
@@ -241,6 +256,7 @@ internal static class CollectionFunctions
         }
 
         var obj = call.Object(0);
+        call.Context.Budget.Charge(obj.Count, call.Offset);
         var result = new JsonArray();
         foreach (var property in obj.OrderBy(p => p.Key, StringComparer.OrdinalIgnoreCase).ThenBy(p => p.Key, StringComparer.Ordinal))
         {
@@ -257,9 +273,18 @@ internal static class CollectionFunctions
     private static JsonNode? Json(FunctionCall call)
     {
         string text = call.String(0);
+        call.Context.Budget.ChargeText(text.Length, call.Offset);
         try
         {
-            var parsed = JsonNode.Parse(LoneSurrogates.Replace(text), documentOptions: new JsonDocumentOptions { AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip });
+            string jsonText = LoneSurrogates.Replace(text);
+
+            // A repeated key would make the parsed object throw on first use; reject it here, where the text is known.
+            if (DuplicateKeys.Find(System.Text.Encoding.UTF8.GetBytes(jsonText), limit: 1) is { Count: > 0 } duplicates)
+            {
+                throw call.Failure(call.ArgumentIsTainted(0) ? "the secure value repeats a property name." : $"the text is not accepted: {duplicates[0].Describe()}");
+            }
+
+            var parsed = JsonNode.Parse(jsonText, documentOptions: new JsonDocumentOptions { AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip });
 
             // The structure of a secure string (its object keys) is part of the secret, and keys carry no taint of their
             // own: mask them (the same rule as toObject/groupBy/createObject) and taint every leaf.
@@ -322,10 +347,14 @@ internal static class CollectionFunctions
         }
 
         var result = new JsonArray();
+        var budget = call.Context.Budget;
         foreach (var item in call.Array(0))
         {
             if (item is JsonArray inner)
             {
+                // Checked per inner array, before it is copied: an array of 100,000 arrays of 100,000 elements must not get as far as copying.
+                budget.CheckCollectionCount(result.Count + (long)inner.Count, call.Offset);
+                budget.Charge(inner.Count, call.Offset);
                 foreach (var element in inner)
                 {
                     result.Add(JsonValues.Clone(element));
@@ -333,6 +362,7 @@ internal static class CollectionFunctions
             }
             else
             {
+                budget.CheckCollectionCount(result.Count + 1L, call.Offset);
                 result.Add(JsonValues.Clone(item));
             }
         }

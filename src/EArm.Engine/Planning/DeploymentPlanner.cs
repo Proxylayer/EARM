@@ -1,14 +1,16 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Core;
 using EArm.Core.Diagnostics;
 using EArm.Core.Json;
 using EArm.Core.Validation;
 using EArm.Engine.Edges;
+using EArm.Engine.Execution;
 using EArm.Engine.Providers;
 using EArm.Engine.State;
 using EArm.Expressions;
@@ -19,7 +21,7 @@ using Microsoft.Extensions.Logging;
 namespace EArm.Engine.Planning;
 
 /// <summary>
-/// Plan section 2.4, steps 2-6: validation (core + expression validators; a missing parameter value is an error
+/// Validation (core + expression validators; a missing parameter value is an error
 /// here), expansion, dependency graph, then (in <see cref="PlanMode.WhatIf"/>) per batch and in parallel:
 /// <c>ResolveKey</c> → <c>ReadAsync</c> → <c>Plan</c>. Nothing is written. Live objects that exist are published
 /// to the resolver so later batches evaluate <c>reference()</c> against them; resources that do not exist yet
@@ -48,7 +50,7 @@ public sealed class DeploymentPlanner
     /// The offline part of planning: core and expression validation with the deployment promotions (a missing
     /// parameter value is an error; a Key Vault reference is an error for create, a warning for what-if).
     /// Returns the remaining warnings. The CLI runs this before preflight so a broken template never needs
-    /// an Azure CLI session to be reported; <see cref="PlanAsync"/> runs it again (cheap, offline).
+    /// a sign-in to be reported; <see cref="PlanAsync"/> runs it again (cheap, offline).
     /// </summary>
     /// <exception cref="ValidationFailedException">The template has errors.</exception>
     public IReadOnlyList<Diagnostic> Validate(TemplateDocument document, PlanMode planMode)
@@ -76,6 +78,9 @@ public sealed class DeploymentPlanner
         ArgumentNullException.ThrowIfNull(document);
         var catalog = _options.Catalog;
         var evaluator = _options.Evaluator;
+
+        // Secure parameter values are masked from every message from here on (review finding S-02).
+        SecretRegistration.RegisterDocument(document);
 
         // 1. Validate (core + expressions), promote what deployment cannot tolerate.
         var (diagnostics, analysis) = ValidateCore(document, planMode);
@@ -132,7 +137,7 @@ public sealed class DeploymentPlanner
             }
         }
 
-        // 4. Every type needs a provider (expected to fail until the provider work items land).
+        // 4. Every type needs a provider (an unregistered type fails here).
         _registry.RequireAll(instances.Select(i => i.Type));
 
         // 5. Graph and batches.
@@ -184,13 +189,14 @@ public sealed class DeploymentPlanner
             Math.Max(1, _options.Parallelism),
             _options.RetryPolicy,
             _options.EdgeKinds,
-            _options.SignedInPrincipalId);
+            _options.SignedInPrincipalId,
+            _options.AppOnlyToken);
 
         // From here on providers may be used: existing-resource lookups go through them.
         resolver.ExistingLookup = LookupExistingAsync;
 
-        // 6. What-if: read and plan every batch; nothing is written. Then the edge pass rows (plan section 1.4,
-        //    read-only) and the mode pass rows (plan section 1.8).
+        // 6. What-if: read and plan every batch; nothing is written. Then the edge pass rows
+        //    (read-only) and the mode pass rows.
         if (planMode == PlanMode.WhatIf)
         {
             await PlanBatchesAsync(plan, state, cancellationToken).ConfigureAwait(false);
@@ -220,7 +226,7 @@ public sealed class DeploymentPlanner
         {
             var definition = document.Parameters.TryGetValue(name, out var found) ? found : null;
             var path = definition?.Path;
-            string message = $"Parameter '{name}' is supplied as a Key Vault reference that has not been resolved. The CLI resolves it with 'az keyvault secret show' before planning (KeyVaultSecretResolver); otherwise pass the value with -p {name}=<value>.";
+            string message = $"Parameter '{name}' is supplied as a Key Vault reference that has not been resolved. The CLI resolves it from the vault before planning (KeyVaultSecretResolver); otherwise pass the value with -p {name}=<value>.";
             diagnostics.Add(planMode == PlanMode.Create
                 ? Diagnostic.Error(EngineDiagnosticCodes.KeyVaultReferenceUnresolved, message, path, document.LocationOf(path), document.SourcePath)
                 : Diagnostic.Warning(EngineDiagnosticCodes.KeyVaultReferenceUnresolved, message + " In what-if its value is shown as a deploy-time placeholder.", path, document.LocationOf(path), document.SourcePath));
@@ -243,21 +249,39 @@ public sealed class DeploymentPlanner
     private async Task PlanBatchesAsync(DeploymentPlan plan, StateFile? state, CancellationToken cancellationToken)
     {
         var parallel = new ParallelOptions { MaxDegreeOfParallelism = plan.Parallelism, CancellationToken = cancellationToken };
+        var reads = new ReadContext();
         foreach (var batch in plan.Batches)
         {
             // Instances whose name is still symbolic afterwards (their input does not exist yet) are planned as creates below.
             SymbolicNames.Resolve(plan, batch, _logger);
 
-            await Parallel.ForEachAsync(batch.Instances, parallel, (instance, ct) => new ValueTask(PlanInstanceAsync(plan, instance, state, ct))).ConfigureAwait(false);
+            await Parallel.ForEachAsync(batch.Instances, parallel, (instance, ct) => new ValueTask(PlanInstanceAsync(plan, instance, state, reads, ct))).ConfigureAwait(false);
+
+            // The warnings of the reads, in the order of the batch (the tasks above finish in any order): the what-if output must not depend on timing.
+            foreach (var instance in batch.Instances)
+            {
+                if (reads.Diagnostics.TryRemove(instance, out var found))
+                {
+                    plan.AddDiagnostics(found);
+                }
+            }
         }
     }
 
-    private async Task PlanInstanceAsync(DeploymentPlan plan, ResourceInstance instance, StateFile? state, CancellationToken cancellationToken)
+    /// <summary>What the parallel reads of one what-if share: the Graph objects instances have claimed, and the warnings they raised (kept per instance so they can be reported in a stable order).</summary>
+    private sealed class ReadContext
+    {
+        public ConcurrentDictionary<string, ResourceInstance> Claims { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        public ConcurrentDictionary<ResourceInstance, List<Diagnostic>> Diagnostics { get; } = new();
+    }
+
+    private async Task PlanInstanceAsync(DeploymentPlan plan, ResourceInstance instance, StateFile? state, ReadContext reads, CancellationToken cancellationToken)
     {
         ResourceChange change;
         try
         {
-            change = await PlanInstanceCoreAsync(plan, instance, state, cancellationToken).ConfigureAwait(false);
+            change = await PlanInstanceCoreAsync(plan, instance, state, reads, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -271,17 +295,18 @@ public sealed class DeploymentPlanner
         {
             change = ResourceChange.Unsupported(instance.Id, instance.Type, ChangeType.Modify, $"{instance.Describe()}: {ex.MessageWithOffset}");
         }
-        catch (Exception ex) when (ex is GraphException or AzCliException or ToolchainException)
+        catch (Exception ex) when (ex is GraphException or GraphTransportException)
         {
-            EngineLog.ReadFailed(_logger, instance.Id.Id, ex.Message);
-            change = ResourceChange.Unsupported(instance.Id, instance.Type, ChangeType.Modify, $"{instance.Describe()} could not be read: {ex.Message}");
+            string message = SecretRegistration.Scrub(ex.Message);
+            EngineLog.ReadFailed(_logger, instance.Id.Id, message);
+            change = ResourceChange.Unsupported(instance.Id, instance.Type, ChangeType.Modify, $"{instance.Describe()} could not be read: {message}");
         }
 
         EngineLog.Planned(_logger, change.Id.Id, change.Type.ToString(), change.Mode.ToString(), change.Deltas.Count);
         plan.RecordChange(instance, change);
     }
 
-    private async Task<ResourceChange> PlanInstanceCoreAsync(DeploymentPlan plan, ResourceInstance instance, StateFile? state, CancellationToken cancellationToken)
+    private async Task<ResourceChange> PlanInstanceCoreAsync(DeploymentPlan plan, ResourceInstance instance, StateFile? state, ReadContext reads, CancellationToken cancellationToken)
     {
         if (instance.Condition is null)
         {
@@ -304,6 +329,7 @@ public sealed class DeploymentPlanner
 
         SymbolicNames.LinkParent(plan, instance);
         InstanceEvaluator.EvaluateProperties(plan.Evaluator, instance);
+        SecretRegistration.RegisterTainted(instance.Properties);
         var provider = plan.Registry.Get(instance.Type);
 
         if (instance.IsSymbolic)
@@ -325,20 +351,104 @@ public sealed class DeploymentPlanner
             };
         }
 
+        // A pinned object whose key is not the desired one is never used (S-01b); the object is looked up by key instead.
         string? stateId = state?.GraphIdOf(instance.Id.Id);
-        var existing = await WithRetryAsync(ct => provider.ReadAsync(key, stateId, _graph, ct), RetryHint.Default, cancellationToken).ConfigureAwait(false);
+        var previousEntry = stateId is null ? null : state?.Find(instance.Id.Id);
+        var read = await ProviderReads.ReadVerifiedAsync(
+            key,
+            stateId,
+            id => WithRetryAsync(ct => provider.ReadAsync(key, id, _graph, ct), RetryHint.Default, cancellationToken),
+            live => instance.Definition.ImmutableAll
+                && previousEntry is { Provenance: StateProvenance.Created }
+                && string.Equals(previousEntry.GraphId, live.GraphId, StringComparison.OrdinalIgnoreCase)
+                && ProviderReads.RecordedKeyMatches(previousEntry.Key, live.Raw),
+            previousEntry?.CreatedDateTime,
+            instance.Definition.NameMapsTo is not null).ConfigureAwait(false);
+        var existing = read.Existing;
+        var warnings = new List<Diagnostic>();
+        if (read.Renamed)
+        {
+            // The pinned object was renamed outside the template and nothing has the key: a deployment fails this resource (it would not create a duplicate), so the what-if shows an error row.
+            string renamed = $"{instance.Describe()}: {read.Mismatch}";
+            EngineLog.StateEntryMismatch(_logger, instance.Id.Id, read.Mismatch!);
+            warnings.Add(Diagnostic.Error(EngineDiagnosticCodes.StateEntryMismatch, renamed));
+            reads.Diagnostics[instance] = warnings;
+            return ResourceChange.Unsupported(instance.Id, instance.Type, ChangeType.Modify, renamed);
+        }
+
+        if (read.Mismatch is not null)
+        {
+            EngineLog.StateEntryMismatch(_logger, instance.Id.Id, read.Mismatch);
+            warnings.Add(Diagnostic.Warning(EngineDiagnosticCodes.StateEntryMismatch, $"{instance.Id.Id}: {read.Mismatch}"));
+        }
+
         if (existing is not null)
         {
+            var claimant = string.IsNullOrEmpty(existing.GraphId) ? instance : reads.Claims.GetOrAdd(existing.GraphId, instance);
+            if (!ReferenceEquals(claimant, instance))
+            {
+                string message = $"{instance.Describe()} and {claimant.Describe()} resolve to the same Graph object ({existing.GraphId}); two declarations must not manage one object.";
+                EngineLog.DuplicateGraphObject(_logger, instance.Id.Id, claimant.Id.Id, existing.GraphId);
+                warnings.Add(Diagnostic.Error(EngineDiagnosticCodes.DuplicateGraphObject, message));
+                reads.Diagnostics[instance] = warnings;
+                return ResourceChange.Unsupported(instance.Id, instance.Type, ChangeType.Modify, message);
+            }
+
+            if (!read.Superseded && (previousEntry is null || !string.Equals(previousEntry.GraphId, existing.GraphId, StringComparison.OrdinalIgnoreCase)))
+            {
+                warnings.Add(Diagnostic.Warning(EngineDiagnosticCodes.AdoptedExistingObject, $"'{instance.Id.Id}' would adopt the existing {instance.Type} object {existing.GraphId}: it was not created by this deployment, so Complete mode will not delete it (--delete-adopted overrides)."));
+            }
+
             plan.Resolver.Publish(instance.Id, existing.Raw, existing.GraphId, instance.PlannedId);
         }
 
-        return provider.Plan(instance, existing, plan.Options);
+        var plannedChange = provider.Plan(instance, existing, plan.Options);
+        if (existing is not null && plannedChange is { Type: ChangeType.Modify, Mode: ChangeMode.Recreate, HasError: false })
+        {
+            plannedChange = await GuardRecreateAsync(plan, instance, key, existing, previousEntry, plannedChange, warnings, cancellationToken).ConfigureAwait(false);
+        }
+
+        warnings.AddRange(ProviderWarningReasons.DiagnosticsOf(instance, plannedChange));
+        if (warnings.Count > 0)
+        {
+            reads.Diagnostics[instance] = warnings;
+        }
+
+        return plannedChange;
+    }
+
+    /// <summary>
+    /// A recreate deletes the existing object: the what-if applies the guards of a delete (adopted without <c>--delete-adopted</c>, the signed-in principal, a first-party service
+    /// principal, a key that does not lead to the recorded object) and says in the row that the object is deleted.
+    /// </summary>
+    private async Task<ResourceChange> GuardRecreateAsync(DeploymentPlan plan, ResourceInstance instance, ResourceKey key, ExistingResource existing, StateEntry? previousEntry, ResourceChange change, List<Diagnostic> warnings, CancellationToken cancellationToken)
+    {
+        var oldEntry = RecreateRules.OldEntryFor(instance, existing, key, previousEntry);
+        var guard = new DeleteGuard
+        {
+            Catalog = plan.Catalog,
+            SignedInPrincipalId = plan.SignedInPrincipalId,
+            TenantId = plan.TenantId,
+            DeleteAdopted = _options.DeleteAdopted,
+            State = plan.Options.State,
+        };
+        var check = await StateDeletion.CheckAsync(oldEntry, _registry, _graph, _options.RetryPolicy, guard, cancellationToken).ConfigureAwait(false);
+        if (check.Blocked is { } blocked && blocked.Status != DeleteStatus.AlreadyGone)
+        {
+            string message = RecreateRules.RefusalMessage(instance, oldEntry, blocked);
+            warnings.Add(Diagnostic.Error(blocked.ErrorCode ?? EngineDiagnosticCodes.ResourceApplyFailed, message));
+            return change with { UnsupportedReason = message, Reasons = [.. change.Reasons, message] };
+        }
+
+        string note = $"the existing object ({existing.GraphId}) is DELETED and created again";
+        warnings.Add(Diagnostic.Warning(EngineDiagnosticCodes.DestructiveDelete, $"{instance.Id.Id}: {note}; it counts as a delete (--max-deletes)."));
+        return change with { Reasons = [.. change.Reasons, note] };
     }
 
     // ---- edge pass (what-if rows) ----
 
     /// <summary>
-    /// Plan section 1.4, read-only: re-evaluates the relationship properties of the planned resources against the
+    /// Read-only: re-evaluates the relationship properties of the planned resources against the
     /// live resolver, reads the live edges and renders the adds and removes as <c>properties.&lt;property&gt;</c>
     /// array deltas under the declaring resource's row (a <c>NoChange</c> row becomes <c>Modify</c>). Validation
     /// errors mark the row unsupported. No-op for templates without relationship properties.
@@ -353,13 +463,16 @@ public sealed class DeploymentPlanner
             return;
         }
 
-        var context = new EdgeGraphContext(_graph, _options.RetryPolicy, plan.Resolver, plan.Instances, _logger, plan.SignedInPrincipalId);
+        var context = new EdgeGraphContext(_graph, _options.RetryPolicy, plan.Resolver, plan.Instances, _logger, plan.SignedInPrincipalId) { AppOnlyToken = plan.AppOnlyToken };
         EdgePlan edgePlan;
         try
         {
-            edgePlan = await new EdgePlanner(plan, context, state, PlanMode.WhatIf).PlanAsync(candidates, cancellationToken).ConfigureAwait(false);
+            // Resources whose row is an error (or that are otherwise not planned) are unknown declarers: the target-side sets they could belong to are not pruned in the what-if either.
+            var candidateSet = new HashSet<ResourceInstance>(candidates);
+            var unreliable = plan.Instances.Where(i => !i.IsSymbolic && !i.IsIgnored && !candidateSet.Contains(i)).ToList();
+            edgePlan = await new EdgePlanner(plan, context, state, PlanMode.WhatIf, null, unreliable).PlanAsync(candidates, cancellationToken).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is GraphException or AzCliException or ToolchainException or ProviderException or ExpressionException)
+        catch (Exception ex) when (ex is GraphException or GraphTransportException or ProviderException or ExpressionException)
         {
             EngineLog.ReadFailed(_logger, "edge pass", ex.Message);
             foreach (var instance in candidates.Where(i => EdgePlanner.DeclaresEdges(i, state)))
@@ -390,7 +503,7 @@ public sealed class DeploymentPlanner
     // ---- mode pass (what-if rows) ----
 
     /// <summary>
-    /// Plan section 1.8: state entries the template no longer declares become <c>Ignore</c> rows ("will be detached")
+    /// State entries the template no longer declares become <c>Ignore</c> rows ("will be detached")
     /// in Incremental mode and <c>Delete</c> rows in Complete mode (with the live object as <c>before</c>); an entry
     /// whose object is already gone is an <c>Ignore</c> row in both modes.
     /// </summary>
@@ -404,6 +517,16 @@ public sealed class DeploymentPlanner
             diagnostics.Add(Diagnostic.Warning(EngineDiagnosticCodes.ResourceDetached, $"State entries of type '{type}' were not checked against the template: the name of '{plannedId}' is only known at deployment time."));
         }
 
+        var guard = new DeleteGuard
+        {
+            Catalog = plan.Catalog,
+            SignedInPrincipalId = plan.SignedInPrincipalId,
+            TenantId = plan.TenantId,
+            DeleteAdopted = _options.DeleteAdopted,
+            OwnedGraphIds = OwnedGraphIds(plan, state),
+            State = state,
+        };
+
         foreach (var entry in orphans)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -414,7 +537,7 @@ public sealed class DeploymentPlanner
                 continue;
             }
 
-            plan.AddModeChange(await PlanDeleteAsync(plan, entry, diagnostics, cancellationToken).ConfigureAwait(false));
+            plan.AddModeChange(await PlanDeleteAsync(plan, entry, guard, diagnostics, cancellationToken).ConfigureAwait(false));
         }
 
         if (diagnostics.Count > 0)
@@ -423,18 +546,43 @@ public sealed class DeploymentPlanner
         }
     }
 
-    private async Task<ResourceChange> PlanDeleteAsync(DeploymentPlan plan, StateEntry entry, List<Diagnostic> diagnostics, CancellationToken cancellationToken)
+    /// <summary>The Graph ids of the objects the declared resources own (published by the what-if reads, or pinned in the state).</summary>
+    private static HashSet<string> OwnedGraphIds(DeploymentPlan plan, StateFile state)
     {
-        if (!_registry.TryGet(entry.Type, out var provider))
+        var owned = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var instance in plan.Instances)
+        {
+            if (instance.IsSymbolic)
+            {
+                continue;
+            }
+
+            if (plan.Resolver.TryGetGraphId(instance.Id, out var graphId))
+            {
+                owned.Add(graphId);
+            }
+
+            if (state.GraphIdOf(instance.Id.Id) is { } pinned)
+            {
+                owned.Add(pinned);
+            }
+        }
+
+        return owned;
+    }
+
+    private async Task<ResourceChange> PlanDeleteAsync(DeploymentPlan plan, StateEntry entry, DeleteGuard guard, List<Diagnostic> diagnostics, CancellationToken cancellationToken)
+    {
+        if (!_registry.TryGet(entry.Type, out _))
         {
             return ResourceChange.Unsupported(entry.Id, entry.Type, ChangeType.Delete, $"No resource provider is registered for '{entry.Type}'; the object cannot be deleted by this version.");
         }
 
-        ExistingResource? existing;
+        // The same checks as the deployment: the object is re-read by KEY and must be the pinned one; adopted objects and objects a declared resource owns stay.
+        StateDeletion.DeleteCheck check;
         try
         {
-            var key = entry.ToResourceKey(plan.Catalog);
-            existing = await WithRetryAsync(ct => provider.ReadAsync(key, entry.GraphId, _graph, ct), RetryHint.Default, cancellationToken).ConfigureAwait(false);
+            check = await StateDeletion.CheckAsync(entry, _registry, _graph, _options.RetryPolicy, guard, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -442,21 +590,42 @@ public sealed class DeploymentPlanner
         }
         catch (ProviderException ex)
         {
-            return ResourceChange.Unsupported(entry.Id, entry.Type, ChangeType.Delete, ex.Message);
+            return ResourceChange.Unsupported(entry.Id, entry.Type, ChangeType.Delete, SecretRegistration.Scrub(ex.Message));
         }
-        catch (Exception ex) when (ex is GraphException or AzCliException or ToolchainException)
+        catch (Exception ex) when (ex is GraphException or GraphTransportException)
         {
-            EngineLog.ReadFailed(_logger, entry.Id.Id, ex.Message);
-            return ResourceChange.Unsupported(entry.Id, entry.Type, ChangeType.Delete, $"'{entry.Id.Id}' could not be read: {ex.Message}");
+            string message = SecretRegistration.Scrub(ex.Message);
+            EngineLog.ReadFailed(_logger, entry.Id.Id, message);
+            return ResourceChange.Unsupported(entry.Id, entry.Type, ChangeType.Delete, $"'{entry.Id.Id}' could not be read: {message}");
         }
 
-        if (existing is null)
+        if (check.Blocked is { } blocked)
         {
-            return ResourceChange.Ignore(entry.Id, entry.Type, "not in template and no longer in the tenant; will be detached from state");
+            switch (blocked.Status)
+            {
+                case DeleteStatus.AlreadyGone:
+                    return ResourceChange.Ignore(entry.Id, entry.Type, "not in template and no longer in the tenant; will be detached from state");
+
+                case DeleteStatus.Refused:
+                    diagnostics.Add(Diagnostic.Warning(blocked.ErrorCode ?? EngineDiagnosticCodes.AdoptedObjectNotDeleted, blocked.Error ?? "not deleted"));
+                    return blocked.ErrorCode == EngineDiagnosticCodes.OrphanSharesObject
+                        ? ResourceChange.Ignore(entry.Id, entry.Type, "not in template, but its Graph id belongs to a declared resource; will be detached from state, the object is not deleted")
+                        : ResourceChange.Ignore(entry.Id, entry.Type, "not in template; adopted object, not deleted (pass --delete-adopted to delete it)");
+
+                default:
+                    diagnostics.Add(Diagnostic.Error(blocked.ErrorCode ?? EngineDiagnosticCodes.StateEntryMismatch, blocked.Error ?? "not deleted"));
+                    return ResourceChange.Unsupported(entry.Id, entry.Type, ChangeType.Delete, blocked.Error ?? "the state entry does not describe the live object");
+            }
         }
 
+        var existing = check.Live!;
         var reasons = new List<string> { "not in template; Complete mode deletes it" };
-        if (provider is IDeleteWarningSource warnings && warnings.DescribeDeleteRisk(entry, existing) is { } risk)
+        if (entry.Provenance == StateProvenance.Adopted)
+        {
+            reasons.Add("adopted object: deleted because --delete-adopted was given");
+        }
+
+        if (check.Provider is IDeleteWarningSource warnings && warnings.DescribeDeleteRisk(entry, existing) is { } risk)
         {
             reasons.Add(risk);
             diagnostics.Add(Diagnostic.Warning(EngineDiagnosticCodes.DestructiveDelete, $"'{entry.Id.Id}': {risk}"));
@@ -500,7 +669,7 @@ public sealed class DeploymentPlanner
             EngineLog.ExistingLookupUnresolved(_logger, id.Id, apiVersion, ex.Message);
             return ExistingLookupResult.Unresolvable(ex.Message);
         }
-        catch (Exception ex) when (ex is GraphException or AzCliException)
+        catch (Exception ex) when (ex is GraphException or GraphTransportException)
         {
             EngineLog.ExistingLookupUnresolved(_logger, id.Id, apiVersion, ex.Message);
             return ExistingLookupResult.Unresolvable(ex.Message);

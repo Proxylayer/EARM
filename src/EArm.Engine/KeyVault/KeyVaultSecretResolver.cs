@@ -1,20 +1,18 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text.Json;
-using System.Text.Json.Nodes;
-using EArm.Core.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using EArm.Az;
 using EArm.Core;
 using EArm.Core.Secrets;
+using EArm.Core.Validation;
+using EArm.Graph;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace EArm.Engine.KeyVault;
 
-/// <summary>A Key Vault parameter reference could not be resolved (vault/secret missing, no access, az failure).</summary>
+/// <summary>A Key Vault parameter reference could not be resolved (invalid name, vault/secret missing, no access, sign-in failure).</summary>
 public sealed class KeyVaultResolutionException : Exception
 {
     public KeyVaultResolutionException(string parameterName, KeyVaultReference reference, string detail, Exception? inner = null)
@@ -31,29 +29,27 @@ public sealed class KeyVaultResolutionException : Exception
 
     public KeyVaultReference Reference { get; }
 
-    /// <summary>The az failure, redacted.</summary>
+    /// <summary>The failure, redacted.</summary>
     public string Detail { get; }
 }
 
 /// <summary>
-/// Resolves parameter-file Key Vault references (plan section 1.6) through the Azure CLI session:
-/// <c>az keyvault secret show --vault-name &lt;vault&gt; --name &lt;secret&gt; [--version &lt;v&gt;] --query value</c>
-/// (the runner always asks for JSON output, so the value arrives as a JSON string). Every resolved value is
-/// secure-tainted (<see cref="SecretJson"/>) whatever the parameter's declared type. <c>deployment validate</c> stays
-/// offline and never calls this.
+/// Resolves parameter-file Key Vault references over HTTP with a Key Vault token of the signed-in identity
+/// (<see cref="KeyVaultClient"/>: <c>GET https://{vault}.vault.azure.net/secrets/{name}[/{version}]?api-version=7.4</c>). The vault, secret and version
+/// are validated before any URL is built. Every resolved value is secure-tainted (<see cref="SecretJson"/>) whatever the parameter's declared type.
+/// <c>deployment validate</c> stays offline and never calls this.
 /// </summary>
 public sealed class KeyVaultSecretResolver
 {
-    private readonly IAzRunner _runner;
+    private readonly KeyVaultClient _client;
     private readonly ILogger _logger;
 
-    public KeyVaultSecretResolver(IAzRunner runner, ILogger? logger = null)
+    public KeyVaultSecretResolver(KeyVaultClient client, ILogger? logger = null)
     {
-        ArgumentNullException.ThrowIfNull(runner);
-        _runner = runner;
+        ArgumentNullException.ThrowIfNull(client);
+        _client = client;
         _logger = logger ?? NullLogger.Instance;
     }
-
     /// <summary>True when any bound parameter is still a Key Vault reference.</summary>
     public static bool HasPendingReferences(TemplateDocument document)
     {
@@ -84,9 +80,19 @@ public sealed class KeyVaultSecretResolver
         {
             var reference = bound.PendingReference!;
             string secret = await GetSecretAsync(bound.Name, reference, cancellationToken).ConfigureAwait(false);
+            SecretScrubber.Register(secret, secureDeclared: true);
+            var value = SecretJson.CreateString(secret);
+
+            // allowedValues / minValue / maxValue / minLength / maxLength apply to the resolved secret as they do to a supplied value; the message names the parameter
+            // and the constraint, never the value.
+            if (ParameterConstraints.Violation(bound.Definition, value) is { } violation)
+            {
+                throw new KeyVaultResolutionException(bound.Name, reference, "the resolved value is not valid: " + violation + ".");
+            }
+
             values[bound.Name] = bound with
             {
-                Value = SecretJson.CreateString(secret),
+                Value = value,
                 PendingReference = null,
             };
             EngineLog.KeyVaultResolved(_logger, bound.Name, reference.ToString());
@@ -101,65 +107,43 @@ public sealed class KeyVaultSecretResolver
         ArgumentNullException.ThrowIfNull(parameterName);
         ArgumentNullException.ThrowIfNull(reference);
 
-        var arguments = new List<string> { "--vault-name", reference.VaultName, "--name", reference.SecretName };
-        if (reference.SecretVersion is not null)
-        {
-            arguments.Add("--version");
-            arguments.Add(reference.SecretVersion);
-        }
-
-        arguments.Add("--query");
-        arguments.Add("value");
-
-        var request = AzRequest.ForCommand("keyvault", "secret", "show").WithArguments([.. arguments]);
-        AzResult result;
         try
         {
-            result = await _runner.RunAsync(request, cancellationToken).ConfigureAwait(false);
+            return await _client.GetSecretAsync(reference.VaultName, reference.SecretName, reference.SecretVersion, cancellationToken).ConfigureAwait(false);
         }
-        catch (ToolchainException ex)
+        catch (ArgumentException ex)
+        {
+            // Names that break the Key Vault rules never reach the network.
+            throw new KeyVaultResolutionException(parameterName, reference, ex.Message, ex);
+        }
+        catch (GraphException ex)
+        {
+            throw new KeyVaultResolutionException(parameterName, reference, Describe(ex), ex);
+        }
+        catch (GraphTransportException ex)
         {
             throw new KeyVaultResolutionException(parameterName, reference, ex.Message, ex);
         }
-
-        if (!result.Succeeded)
-        {
-            var failure = AzCliException.FromResult(result, "az keyvault secret show");
-            throw new KeyVaultResolutionException(parameterName, reference, failure.Message, failure);
-        }
-
-        return ParseValue(parameterName, reference, result.StandardOutput);
     }
 
-    /// <summary>The secret from az's stdout: a JSON string (<c>-o json --query value</c>), or raw text as a fallback (<c>-o tsv</c>).</summary>
-    internal static string ParseValue(string parameterName, KeyVaultReference reference, string standardOutput)
+    private static string Describe(GraphException ex)
     {
-        string text = standardOutput.Trim();
-        if (text.Length == 0)
+        var detail = ex.Status switch
         {
-            throw new KeyVaultResolutionException(parameterName, reference, "az returned no value (the secret may be disabled or empty).");
+            System.Net.HttpStatusCode.Forbidden => "access denied. The signed-in identity needs 'Key Vault Secrets User' (or the get permission on secrets) on this vault, and the vault's firewall must allow this machine.",
+            System.Net.HttpStatusCode.NotFound => "the vault has no such secret (or no such version).",
+            System.Net.HttpStatusCode.Unauthorized => "the Key Vault token was rejected; sign in again.",
+            _ => $"Key Vault answered {(int)ex.Status}.",
+        };
+        var code = string.IsNullOrEmpty(ex.Code) ? string.Empty : $" ({ex.Code})";
+
+        // GraphMessage is already redacted; keep the first line only (Key Vault appends the caller's identity details on later lines).
+        var message = ex.GraphMessage.Split('\n', 2)[0].Trim();
+        if (message.Length > 300)
+        {
+            message = message[..300] + "...";
         }
 
-        if (text.StartsWith('"'))
-        {
-            try
-            {
-                if (JsonNode.Parse(LoneSurrogates.Replace(text)) is JsonValue value && value.TryGetValue<string>(out var parsed))
-                {
-                    return parsed;
-                }
-            }
-            catch (JsonException)
-            {
-                // Not JSON after all; treat as raw text below.
-            }
-        }
-
-        if (text.StartsWith('{') || text.StartsWith('['))
-        {
-            throw new KeyVaultResolutionException(parameterName, reference, "az returned a JSON object instead of the secret value; expected the output of --query value.");
-        }
-
-        return text;
+        return detail + code + (message.Length == 0 ? string.Empty : " " + message);
     }
 }

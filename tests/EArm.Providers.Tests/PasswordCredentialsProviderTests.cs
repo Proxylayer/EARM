@@ -6,7 +6,7 @@ using System.Linq;
 using System.Net;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Core;
 using EArm.Core.Diagnostics;
 using EArm.Engine;
@@ -19,7 +19,7 @@ using Xunit;
 
 namespace EArm.Providers.Tests;
 
-/// <summary>The password credentials provider (WI-11) end to end: one-time secrets, rotation, expiry, deletes, external parents, hygiene.</summary>
+/// <summary>The password credentials provider end to end: one-time secrets, rotation, expiry, deletes, external parents, hygiene.</summary>
 public sealed class PasswordCredentialsProviderTests
 {
     private const string AppType = ApplicationsProvider.ResourceType;
@@ -148,7 +148,7 @@ public sealed class PasswordCredentialsProviderTests
         Assert.True(rerun.Executed.Outputs.ContainsKey("ciSecret"));
         Assert.Null(rerun.Output("ciSecret"));
         Assert.False(rerun.Executed.SecureOutputs.ContainsKey("ciSecret"));
-        Assert.Equal("{}", File.ReadAllText(secureFile).Trim());
+        Assert.False(File.Exists(secureFile), "a rerun without secure values leaves the secure outputs file alone (review finding E-08), it does not write {}");
         var warning = Assert.Single(rerun.Executed.Diagnostics);
         Assert.Equal(EngineDiagnosticCodes.SecretNotAvailableOnRerun, warning.Code);
         Assert.Equal(DiagnosticSeverity.Warning, warning.Severity);

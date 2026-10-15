@@ -7,7 +7,7 @@ using EArm.Expressions.Values;
 namespace EArm.Providers;
 
 /// <summary>
-/// The pure rules of <c>Microsoft.Entra/groups</c> (plan section 3.2): which kind of group a set of properties
+/// The pure rules of <c>Microsoft.Entra/groups</c>: which kind of group a set of properties
 /// describes (security, Microsoft 365, dynamic, mail-enabled security, distribution), the kind-dependent create
 /// defaults, the <c>mailNickname</c> derivation and the create-time validation. No Graph access.
 /// </summary>
@@ -21,13 +21,13 @@ internal static class GroupsShape
     public const int MailNicknameMaxLength = 64;
 
     /// <summary>What the declared (or live) properties say about the group's kind.</summary>
-    public sealed record Analysis(bool IsUnified, bool IsDynamic, bool? MailEnabled, bool? SecurityEnabled, bool HasMembershipRule, string? Visibility)
+    public sealed record Analysis(bool IsUnified, bool IsDynamic, bool? MailEnabled, bool? SecurityEnabled, bool HasMembershipRule, string? Visibility, bool IsAssignableToRole = false)
     {
         /// <summary><c>mailEnabled</c> with the kind default (Microsoft 365 groups are mail-enabled, others not).</summary>
         public bool EffectiveMailEnabled => MailEnabled ?? IsUnified;
 
         /// <summary><c>securityEnabled</c> with the kind default (security groups are, Microsoft 365 groups are not).</summary>
-        public bool EffectiveSecurityEnabled => SecurityEnabled ?? !IsUnified;
+        public bool EffectiveSecurityEnabled => SecurityEnabled ?? (IsAssignableToRole || !IsUnified);
 
         /// <summary>Mail-enabled and security-enabled without <c>Unified</c>: Exchange-backed, not creatable through Graph.</summary>
         public bool IsMailEnabledSecurity => !IsUnified && EffectiveMailEnabled && EffectiveSecurityEnabled;
@@ -38,8 +38,16 @@ internal static class GroupsShape
         /// <summary><c>security</c>, <c>microsoft365</c>, <c>mailEnabledSecurity</c> or <c>distribution</c> (recorded in the state's <c>extra.kind</c>).</summary>
         public string Kind => IsUnified ? "microsoft365" : IsMailEnabledSecurity ? "mailEnabledSecurity" : IsDistributionList ? "distribution" : "security";
 
-        /// <summary>Only Microsoft 365 groups go to the 30-day recycle bin; every other kind is deleted permanently.</summary>
-        public bool IsPermanentlyDeleted => !IsUnified;
+        /// <summary>
+        /// Learn (group-delete): "both Microsoft 365 and security groups are moved to a temporary container and can be restored within 30 days ... This doesn't
+        /// apply to Distribution groups which are permanently deleted immediately". Security groups (<c>groupTypes: []</c>, dynamic ones included) and Microsoft 365
+        /// groups are soft-deleted; distribution lists, and mail-enabled security groups (which Learn does not list among the restorable kinds and which are
+        /// Exchange-backed), are treated as permanently deleted.
+        /// </summary>
+        public bool IsPermanentlyDeleted => IsDistributionList || IsMailEnabledSecurity;
+
+        /// <summary>True for the kinds EARM can create (security, Microsoft 365, dynamic): their deleted objects wait in the recycle bin and keep their keys.</summary>
+        public bool IsSoftDeleted => !IsPermanentlyDeleted;
     }
 
     public static Analysis Analyze(JsonObject? properties)
@@ -48,13 +56,15 @@ internal static class GroupsShape
         JsonObjects.TryGetIgnoreCase(properties, "mailEnabled", out var mailEnabled);
         JsonObjects.TryGetIgnoreCase(properties, "securityEnabled", out var securityEnabled);
         JsonObjects.TryGetIgnoreCase(properties, "membershipRule", out var membershipRule);
+        JsonObjects.TryGetIgnoreCase(properties, "isAssignableToRole", out var assignable);
         return new Analysis(
             GroupTypesContain(groupTypes, Unified),
             GroupTypesContain(groupTypes, DynamicMembership),
             JsonValues.TryGetBool(mailEnabled, out bool mail) ? mail : null,
             JsonValues.TryGetBool(securityEnabled, out bool security) ? security : null,
             JsonValues.TryGetString(membershipRule, out var rule) && !string.IsNullOrWhiteSpace(rule),
-            JsonObjects.GetString(properties, "visibility"));
+            JsonObjects.GetString(properties, "visibility"),
+            JsonValues.TryGetBool(assignable, out bool roleAssignable) && roleAssignable);
     }
 
     public static bool GroupTypesContain(JsonNode? groupTypes, string value)
@@ -77,7 +87,7 @@ internal static class GroupsShape
     }
 
     /// <summary>
-    /// Why the group cannot be created as declared (plan section 3.2): mail-enabled security groups and distribution
+    /// Why the group cannot be created as declared: mail-enabled security groups and distribution
     /// lists are Exchange-backed and adopt-only; a dynamic group needs a <c>membershipRule</c>. <c>null</c> when fine.
     /// </summary>
     public static string? CreateError(Analysis analysis, string describe)
@@ -97,6 +107,26 @@ internal static class GroupsShape
         if (analysis.IsDynamic && !analysis.HasMembershipRule)
         {
             return $"{describe} cannot be created: a dynamic group (groupTypes contains 'DynamicMembership') requires 'membershipRule'.";
+        }
+
+        // Learn (group-post-groups, example 3): a role-assignable group can't be dynamic, its securityEnabled must be true and
+        // its visibility can only be Private.
+        if (analysis.IsAssignableToRole)
+        {
+            if (analysis.IsDynamic)
+            {
+                return $"{describe} cannot be created: a role-assignable group (isAssignableToRole: true) cannot be dynamic (groupTypes must not contain 'DynamicMembership').";
+            }
+
+            if (analysis.SecurityEnabled == false)
+            {
+                return $"{describe} cannot be created: a role-assignable group (isAssignableToRole: true) must have securityEnabled: true.";
+            }
+
+            if (analysis.Visibility is { } visibility && !visibility.Equals("Private", StringComparison.OrdinalIgnoreCase))
+            {
+                return $"{describe} cannot be created: a role-assignable group (isAssignableToRole: true) can only have visibility 'Private' (declared '{visibility}').";
+            }
         }
 
         return null;
@@ -125,10 +155,15 @@ internal static class GroupsShape
         {
             JsonObjects.SetDefault(body, "membershipRuleProcessingState", JsonValue.Create(ProcessingOn));
         }
+
+        if (analysis.IsAssignableToRole && analysis.IsUnified)
+        {
+            JsonObjects.SetDefault(body, "visibility", JsonValue.Create("Private"));
+        }
     }
 
     /// <summary>
-    /// <c>mailNickname</c> from the resource name (plan section 3.2): lower-case, every character outside
+    /// <c>mailNickname</c> from the resource name: lower-case, every character outside
     /// <c>[a-z0-9-_]</c> becomes <c>-</c>, runs of <c>-</c> collapse, at most 64 characters.
     /// </summary>
     public static string DeriveMailNickname(string name)

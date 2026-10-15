@@ -10,7 +10,7 @@ using EArm.Expressions.Values;
 namespace EArm.Providers;
 
 /// <summary>
-/// The pure rules of <see cref="AuthenticationContextClassReferencesProvider"/> (plan sections 1.3, 3.2): the id
+/// The pure rules of <see cref="AuthenticationContextClassReferencesProvider"/>: the id
 /// pattern the resource name must match (<c>c1</c>..<c>c99</c>, it is the Graph id), the required
 /// <c>displayName</c>, the <c>isAvailable</c> default (<c>true</c>) applied at plan time so drift to <c>false</c>
 /// is detected, the scalar shape checks, and the server-assigned property stripped from bodies. Testable without

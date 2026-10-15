@@ -5,7 +5,7 @@ namespace EArm.Cli.Commands;
 
 /// <summary>
 /// The <c>earm deployment</c> command group (mirrors <c>az deployment group</c>): <c>validate</c> (offline),
-/// <c>what-if</c> and <c>create</c> (online, through the Azure CLI session), and the state-backed <c>show</c>,
+/// <c>what-if</c> and <c>create</c> (online, through Microsoft Graph with the signed-in identity), and the state-backed <c>show</c>,
 /// <c>list</c>, <c>delete</c> and <c>operation list</c>.
 /// </summary>
 internal static class DeploymentCommand

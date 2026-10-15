@@ -26,7 +26,10 @@ public sealed class SampleValidationCliTests
     [Fact]
     public async Task ValidFixtures_ThroughTheCommandLine_HaveNoErrors()
     {
-        foreach (string fixture in System.IO.Directory.EnumerateFiles(TestPaths.ValidFixtureDirectory, "*.entra.json"))
+        var fixtures = System.IO.Directory.EnumerateFiles(TestPaths.ValidFixtureDirectory, "*.entra.json").ToList();
+        Assert.NotEmpty(fixtures);
+
+        foreach (string fixture in fixtures)
         {
             var result = await CliRunner.ValidateJsonAsync(fixture);
 

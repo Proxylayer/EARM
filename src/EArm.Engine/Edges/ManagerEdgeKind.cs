@@ -3,13 +3,13 @@ using System.Collections.Generic;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Engine.Providers;
 
 namespace EArm.Engine.Edges;
 
 /// <summary>
-/// The single-valued <c>manager</c> edge on users (plan section 1.4): the target is the manager, the principal
+/// The single-valued <c>manager</c> edge on users: the target is the manager, the principal
 /// the user. <c>null</c> removes the manager, an absent property leaves it untouched. Live read:
 /// <c>GET /users/{u}/manager?$select=id</c> (404 = none). Writes: <c>PUT /users/{u}/manager/$ref</c>,
 /// <c>DELETE /users/{u}/manager/$ref</c>.
@@ -57,7 +57,16 @@ public sealed class ManagerEdgeKind : IEdgeKindHandler
         ArgumentNullException.ThrowIfNull(principalId);
         ArgumentNullException.ThrowIfNull(context);
 
-        var manager = await context.GetAsync(new GraphRequest("/users/" + GraphPath.Segment(principalId) + "/manager", api).WithSelect("id"), cancellationToken).ConfigureAwait(false) as JsonObject;
+        JsonObject? manager;
+        try
+        {
+            manager = await context.GetAsync(new GraphRequest("/users/" + GraphPath.Segment(principalId) + "/manager", api).WithSelect("id"), cancellationToken).ConfigureAwait(false) as JsonObject;
+        }
+        catch (GraphException ex) when (ex.IsForbidden)
+        {
+            return EdgePrincipalState.Skipped($"reading the manager of user {principalId} (GET /users/{{id}}/manager) was refused ({(int)ex.Status} {ex.Code}); the manager relationship was not applied. Grant User.Read.All (or Directory.Read.All) to read it.");
+        }
+
         var edges = new Dictionary<string, JsonObject?>(StringComparer.OrdinalIgnoreCase);
         if (JsonObjects.GetId(manager) is { } id)
         {

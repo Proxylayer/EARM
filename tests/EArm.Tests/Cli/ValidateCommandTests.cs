@@ -74,7 +74,7 @@ public sealed class ValidateCommandTests
 
     // ---- samples ----
 
-    // Arbitrated WI-02/WI-03 contract, as of WI-16 (lambdas, the Entra functions and user-defined functions are
+    // Contract (lambdas, the Entra functions and user-defined functions are
     // implemented, so the sample produces no NotImplementedYet warning): offline validation of the samples without
     // parameter values succeeds (exit 0, no errors) with exactly the two MissingParameterValue warnings and one Info
     // for the output whose reference() target depends only on the missing parameter. Nothing else.

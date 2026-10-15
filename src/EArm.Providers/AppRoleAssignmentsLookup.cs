@@ -2,9 +2,9 @@ using System;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Engine.Providers;
-using GraphApi = EArm.Az.GraphApi;
+using GraphApi = EArm.Graph.GraphApi;
 
 namespace EArm.Providers;
 

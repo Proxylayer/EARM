@@ -131,9 +131,9 @@ internal sealed partial class SemanticChecker
             {
                 Error(DiagnosticCodes.DefaultValueTypeMismatch, $"Parameter '{definition.Name}': the default value does not match the declared type '{definition.Type}'.", defaultPath);
             }
-            else if (definition.AllowedValues is { } allowedForDefault && !TemplateJson.IsExpression(definition.DefaultValue) && !IsAllowed(definition.DefaultValue, allowedForDefault))
+            else if (ParameterConstraints.Violation(definition, definition.DefaultValue, isDefault: true) is { } defaultViolation)
             {
-                Error(DiagnosticCodes.DefaultValueNotAllowed, $"Parameter '{definition.Name}': the default value is not one of the allowed values.", defaultPath);
+                Error(DiagnosticCodes.DefaultValueNotAllowed, $"Parameter '{definition.Name}': the default value is not accepted: {defaultViolation}.", defaultPath);
             }
         }
     }
@@ -197,7 +197,7 @@ internal sealed partial class SemanticChecker
             var definition = bound.Definition;
             if (bound.IsMissing)
             {
-                // A warning offline: deployment (WI-05) turns a missing value into an error.
+                // A warning offline: deployment turns a missing value into an error.
                 Warning(DiagnosticCodes.MissingParameterValue, $"Parameter '{definition.Name}' has no value and no default value; a value is required to deploy.", definition.Path);
                 continue;
             }
@@ -220,24 +220,12 @@ internal sealed partial class SemanticChecker
             {
                 _diagnostics.Add(Diagnostic.Error(DiagnosticCodes.ParameterValueTypeMismatch, $"The value supplied for parameter '{definition.Name}' does not match the declared type '{definition.Type}'.", valuePath, null, valueSource));
             }
-            else if (definition.AllowedValues is { } allowed && !definition.IsSecure && !TemplateJson.IsExpression(bound.Value) && !IsAllowed(bound.Value, allowed))
+            else if (ParameterConstraints.Violation(definition, bound.Value) is { } violation)
             {
-                _diagnostics.Add(Diagnostic.Error(DiagnosticCodes.ParameterValueNotAllowed, $"The value supplied for parameter '{definition.Name}' is not one of its allowed values.", valuePath, null, valueSource));
+                // Secure parameters are checked too, on the revealed value; the message names the constraint, never the value.
+                _diagnostics.Add(Diagnostic.Error(DiagnosticCodes.ParameterValueNotAllowed, $"The value supplied for parameter '{definition.Name}' is not accepted: {violation}.", valuePath, null, valueSource));
             }
         }
-    }
-
-    private static bool IsAllowed(JsonNode? value, JsonArray allowed)
-    {
-        foreach (var candidate in allowed)
-        {
-            if (JsonNode.DeepEquals(candidate, value))
-            {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     // ---- functions ----
@@ -332,7 +320,8 @@ internal sealed partial class SemanticChecker
             {
                 if (seen.TryGetValue(id, out var first))
                 {
-                    Error(DiagnosticCodes.DuplicateResourceId, $"Resource id '{id.Id}' is declared more than once (also at {first.Path}).", resource.Path.Append("name"));
+                    string caseNote = string.Equals(first.StaticId?.Id, id.Id, StringComparison.Ordinal) ? string.Empty : " Names are compared case-insensitively because Graph matches its keys that way: ids that differ only by case address the same object.";
+                    Error(DiagnosticCodes.DuplicateResourceId, $"Resource id '{id.Id}' is declared more than once (also at {first.Path}).{caseNote}", resource.Path.Append("name"));
                 }
                 else
                 {
@@ -437,47 +426,17 @@ internal sealed partial class SemanticChecker
 
         foreach (var segment in segments)
         {
-            if (string.IsNullOrWhiteSpace(segment))
+            if (ResourceNameRules.SegmentProblem(literal, segment) is { } segmentProblem)
             {
-                Error(DiagnosticCodes.InvalidResourceName, $"Name '{literal}' contains an empty segment.", namePath);
+                Error(DiagnosticCodes.InvalidResourceName, segmentProblem, namePath);
                 return null;
             }
         }
 
         string leaf = segments[^1];
-        switch (definition.NameKind)
+        if (ResourceNameRules.LeafProblem(definition, leaf) is { } leafProblem)
         {
-            case ResourceNameKind.Guid:
-                if (!Guid.TryParse(leaf, out _))
-                {
-                    Error(DiagnosticCodes.InvalidResourceName, $"Name '{leaf}' must be a GUID for type '{definition.Type}' (use the guid() function for a deterministic name).", namePath);
-                    return null;
-                }
-
-                break;
-
-            case ResourceNameKind.AppId:
-                if (!Guid.TryParse(leaf, out _))
-                {
-                    Error(DiagnosticCodes.InvalidResourceName, $"Name '{leaf}' must be the application (client) id GUID for type '{definition.Type}'.", namePath);
-                    return null;
-                }
-
-                break;
-
-            case ResourceNameKind.UserPrincipalName:
-                if (!leaf.Contains('@'))
-                {
-                    Error(DiagnosticCodes.InvalidResourceName, $"Name '{leaf}' must be a user principal name (user@domain) for type '{definition.Type}'.", namePath);
-                    return null;
-                }
-
-                break;
-        }
-
-        if (definition.NamePattern is { } pattern && !Regex.IsMatch(leaf, pattern, RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1)))
-        {
-            Error(DiagnosticCodes.InvalidResourceName, $"Name '{leaf}' is not valid for type '{definition.Type}'; it must match '{pattern}'.", namePath);
+            Error(DiagnosticCodes.InvalidResourceName, leafProblem, namePath);
             return null;
         }
 

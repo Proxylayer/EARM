@@ -3,17 +3,17 @@ using System.Collections.Generic;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Core;
 using EArm.Engine.Edges;
 using EArm.Engine.Providers;
 using EArm.Expressions.Values;
-using GraphApi = EArm.Az.GraphApi;
+using GraphApi = EArm.Graph.GraphApi;
 
 namespace EArm.Providers.Edges;
 
 /// <summary>
-/// Directory role assignments as an edge kind (plan section 1.4, part B): the principal-side <c>directoryRoles</c>
+/// Directory role assignments as an edge kind (part B): the principal-side <c>directoryRoles</c>
 /// property of users, role-assignable groups and service principals, <c>[{ role | roleDefinitionId, directoryScopeId
 /// | administrativeUnit }]</c>. Each item resolves to (principal = the declarer, role definition id, directory scope);
 /// the edge's <see cref="Edge.TargetId"/> is the composite <c>{roleDefinitionId}@{directoryScopeId}</c> (a principal
@@ -342,6 +342,34 @@ public sealed class DirectoryRoleEdgeKind : IEdgeKindHandler
             ["id"] = id,
         };
         return new Edge(Kind, RoleAssignmentsRules.TargetKey(roleDefinitionId, scope), principalId, Collection, recorded);
+    }
+
+    /// <summary>GET the recorded assignment by id: it must be the assignment of this principal for the recorded role and scope (a tampered state could name anybody's assignment).</summary>
+    public async Task<bool> VerifyRecordedAsync(Edge edge, string principalId, GraphApi api, EdgeGraphContext context, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(edge);
+        ArgumentNullException.ThrowIfNull(context);
+        string? id = JsonObjects.GetId(edge.Extra);
+        if (id is null)
+        {
+            return false;
+        }
+
+        var (roleDefinitionId, scope) = Composite(edge);
+        JsonNode? live;
+        try
+        {
+            live = await context.GetAsync(new GraphRequest(RoleAssignmentsLookup.AssignmentPath(id), api), cancellationToken).ConfigureAwait(false);
+        }
+        catch (GraphException ex) when (ex.IsNotFound)
+        {
+            return false;
+        }
+
+        return live is JsonObject assignment
+            && Edge.IdEquals(JsonObjects.GetString(assignment, "principalId"), principalId)
+            && Edge.IdEquals(JsonObjects.GetString(assignment, "roleDefinitionId"), roleDefinitionId)
+            && RoleAssignmentsRules.ScopeEquals(JsonObjects.GetString(assignment, "directoryScopeId"), scope);
     }
 
     // ---- identity ----

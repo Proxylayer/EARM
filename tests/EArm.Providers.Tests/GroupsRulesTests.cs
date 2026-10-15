@@ -2,7 +2,7 @@ using System;
 using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Core.Json;
 using EArm.Engine.Edges;
 using EArm.Engine.Providers;
@@ -11,7 +11,7 @@ using Xunit;
 
 namespace EArm.Providers.Tests;
 
-/// <summary>Pure rules behind the groups provider and the edge pass (WI-09): <see cref="GroupsShape"/>, <see cref="GroupsLicensing.Diff"/> and <see cref="EdgePlan.RecordingsFor"/>.</summary>
+/// <summary>Pure rules behind the groups provider and the edge pass: <see cref="GroupsShape"/>, <see cref="GroupsLicensing.Diff"/> and <see cref="EdgePlan.RecordingsFor"/>.</summary>
 public sealed class GroupsRulesTests
 {
     private const string SkuId = "11111111-2222-3333-4444-555555555555";
@@ -44,7 +44,8 @@ public sealed class GroupsRulesTests
         Assert.False(security.EffectiveMailEnabled);
         Assert.True(security.EffectiveSecurityEnabled);
         Assert.Equal("security", security.Kind);
-        Assert.True(security.IsPermanentlyDeleted);
+        // Review 3I (intentional change): Learn group-delete says security groups are soft-deleted (30 days) like Microsoft 365 groups.
+        Assert.False(security.IsPermanentlyDeleted);
 
         var unified = GroupsShape.Analyze((JsonObject)JsonNode.Parse("""{ "groupTypes": ["unified"] }""")!);
         Assert.True(unified.IsUnified);

@@ -7,7 +7,7 @@ using Xunit;
 
 namespace EArm.Providers.Tests;
 
-/// <summary>Pure rules of administrative units (WI-15).</summary>
+/// <summary>Pure rules of administrative units.</summary>
 public sealed class AdministrativeUnitsRulesTests
 {
     private static JsonObject Obj(string json)
@@ -87,7 +87,7 @@ public sealed class AdministrativeUnitsRulesTests
     }
 }
 
-/// <summary>Pure rules of custom role definitions (WI-15).</summary>
+/// <summary>Pure rules of custom role definitions.</summary>
 public sealed class RoleDefinitionsRulesTests
 {
     private static JsonObject Obj(string json)
@@ -186,7 +186,7 @@ public sealed class RoleDefinitionsRulesTests
     }
 }
 
-/// <summary>Pure rules of directory role assignments (WI-15), shared by the standalone resource and the directoryRoles edge kind.</summary>
+/// <summary>Pure rules of directory role assignments, shared by the standalone resource and the directoryRoles edge kind.</summary>
 public sealed class RoleAssignmentsRulesTests
 {
     private const string UnitId = "3b9f9a6e-0d4c-4b1e-8c9c-2f4b7a6d1e10";

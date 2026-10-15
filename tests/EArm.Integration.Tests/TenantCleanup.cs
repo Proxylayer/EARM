@@ -4,7 +4,7 @@ using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
-using EArm.Az;
+using EArm.Graph;
 
 namespace EArm.Integration.Tests;
 

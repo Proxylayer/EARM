@@ -1,10 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Core;
 using EArm.Core.Secrets;
 using EArm.Engine.Planning;
@@ -30,14 +31,23 @@ public sealed class FileStateSink : IStateSink
     private readonly DeploymentPlan _plan;
     private readonly TimeProvider _time;
     private readonly ILogger _logger;
-    /// <summary>The longest a state save may take once the work it records has happened (the caller's cancellation is not applied to it).</summary>
+    private readonly TimeSpan _persistTimeout;
+
+    /// <summary>The default longest a state save may take once the work it records has happened (the caller's cancellation is not applied to it).</summary>
     internal static readonly TimeSpan PersistTimeout = TimeSpan.FromSeconds(30);
+
+    /// <summary>How many times one state save is attempted before the I/O failure is reported.</summary>
+    public const int SaveAttempts = 5;
+
+    /// <summary>The pause before the second save attempt; it doubles for every further attempt.</summary>
+    public TimeSpan SaveRetryBaseDelay { get; init; } = TimeSpan.FromMilliseconds(50);
 
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly Dictionary<string, DateTimeOffset> _started = new(StringComparer.Ordinal);
     private bool _begun;
 
-    public FileStateSink(IStateStore store, StateFile state, DeploymentPlan plan, ILogger? logger = null, TimeProvider? timeProvider = null)
+    /// <param name="persistTimeout">The bound on one state change plus save (default <see cref="PersistTimeout"/>); a save that exceeds it is abandoned and reported as an <see cref="IOException"/>.</param>
+    public FileStateSink(IStateStore store, StateFile state, DeploymentPlan plan, ILogger? logger = null, TimeProvider? timeProvider = null, TimeSpan? persistTimeout = null)
     {
         ArgumentNullException.ThrowIfNull(store);
         ArgumentNullException.ThrowIfNull(state);
@@ -47,6 +57,8 @@ public sealed class FileStateSink : IStateSink
         _plan = plan;
         _logger = logger ?? NullLogger.Instance;
         _time = timeProvider ?? TimeProvider.System;
+        _persistTimeout = persistTimeout ?? PersistTimeout;
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(_persistTimeout, TimeSpan.Zero, nameof(persistTimeout));
     }
 
     /// <summary>The state being maintained (the same instance the executor consults for pinned ids and the mode pass).</summary>
@@ -70,7 +82,7 @@ public sealed class FileStateSink : IStateSink
             }
 
             State.BeginRun(_plan.Mode.ToString(), _plan.TemplateHash, _time.GetUtcNow());
-            await _store.SaveAsync(State, cancellationToken).ConfigureAwait(false);
+            await SaveWithRetryAsync(cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -115,6 +127,12 @@ public sealed class FileStateSink : IStateSink
             GraphId = applied.GraphId,
             ParentGraphId = applied.Key.ParentGraphId ?? instance.ParentGraphId,
             ContentHash = StateHashing.ContentHash(instance.Properties),
+            Provenance = applied.Provenance ?? previous?.Provenance ?? StateProvenance.Created,
+
+            // The immutable fingerprint of the object: what Graph reports as createdDateTime (kept from the previous entry while it is the same object and the live read does not carry it).
+            CreatedDateTime = ProviderReads.CreatedDateTimeOf(applied.Live)
+                ?? (previous is not null && string.Equals(previous.GraphId, applied.GraphId, StringComparison.OrdinalIgnoreCase) ? previous.CreatedDateTime : null),
+            ProvenanceRecorded = true,
             DependsOn = DependencyIds(instance),
             LastWriteOn = change.IsWrite ? now : previous?.LastWriteOn ?? now,
             Extra = applied.Extra?.DeepClone().AsObject(),
@@ -204,7 +222,13 @@ public sealed class FileStateSink : IStateSink
 
     public Task CompletedAsync(DeploymentStatus status, CancellationToken cancellationToken)
     {
-        return MutateAsync(() => State.CompleteRun(status == DeploymentStatus.Succeeded, _plan.Mode.ToString(), _plan.TemplateHash, _time.GetUtcNow()));
+        string text = status switch
+        {
+            DeploymentStatus.Succeeded => StateFile.StatusSucceeded,
+            DeploymentStatus.Cancelled => StateFile.StatusCancelled,
+            _ => StateFile.StatusFailed,
+        };
+        return MutateAsync(() => State.CompleteRun(text, _plan.Mode.ToString(), _plan.TemplateHash, _time.GetUtcNow()));
     }
 
     // ---- helpers ----
@@ -214,20 +238,59 @@ public sealed class FileStateSink : IStateSink
     /// already happened (an object written to or deleted from the tenant, a failure, a skip, the run's completion), and a cancellation
     /// that arrives right after a Graph write must not drop its entry: the object would exist in the tenant but not in the state, and
     /// anything Graph generates (a secret, a key id) would be orphaned. A cancelled run stops starting NEW work (the executor checks
-    /// the token between resources and batches); this persistence is bounded by <see cref="PersistTimeout"/> instead.
+    /// the token between resources and batches); this persistence is bounded by the persist timeout instead (<see cref="PersistTimeout"/> by default,
+    /// measured on the sink's <see cref="TimeProvider"/>). A save that does not finish in time is abandoned even when the store ignores
+    /// its token, and surfaces as an <see cref="IOException"/> so the executor reports a state-save failure instead of hanging.
     /// </summary>
     private async Task MutateAsync(Action mutation)
     {
-        using var timeout = new CancellationTokenSource(PersistTimeout);
-        await _gate.WaitAsync(timeout.Token).ConfigureAwait(false);
+        using var timeout = new CancellationTokenSource(_persistTimeout, _time);
         try
         {
-            mutation();
-            await _store.SaveAsync(State, timeout.Token).ConfigureAwait(false);
+            await _gate.WaitAsync(timeout.Token).ConfigureAwait(false);
+            try
+            {
+                mutation();
+                await SaveWithRetryAsync(timeout.Token).ConfigureAwait(false);
+            }
+            finally
+            {
+                _gate.Release();
+            }
         }
-        finally
+        catch (OperationCanceledException) when (timeout.IsCancellationRequested)
         {
-            _gate.Release();
+            string message = $"saving the state did not complete within {_persistTimeout.TotalSeconds:0.###} seconds and was abandoned";
+            EngineLog.StateSaveFailed(_logger, message);
+            throw new IOException(message);
+        }
+    }
+
+    /// <summary>
+    /// Saves the state, retrying an I/O or permission failure (an antivirus scan holding the file, a briefly locked folder) up to
+    /// <see cref="SaveAttempts"/> times with a growing pause. The final failure propagates as <see cref="IOException"/> /
+    /// <see cref="UnauthorizedAccessException"/>; the executor turns it into a failed resource instead of a crash (review finding E-03c).
+    /// </summary>
+    private async Task SaveWithRetryAsync(CancellationToken cancellationToken)
+    {
+        for (int attempt = 1; ; attempt++)
+        {
+            try
+            {
+                await _store.SaveAsync(State, cancellationToken).WaitAsync(cancellationToken).ConfigureAwait(false);
+                return;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                if (attempt >= SaveAttempts)
+                {
+                    EngineLog.StateSaveFailed(_logger, ex.Message);
+                    throw;
+                }
+
+                EngineLog.StateSaveRetry(_logger, ex.Message, attempt);
+                await Task.Delay(TimeSpan.FromTicks(SaveRetryBaseDelay.Ticks << (attempt - 1)), cancellationToken).ConfigureAwait(false);
+            }
         }
     }
 

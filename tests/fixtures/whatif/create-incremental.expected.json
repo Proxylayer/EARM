@@ -111,6 +111,7 @@
   "requiredPermissions": [
     "Application.ReadWrite.All",
     "Application.ReadWrite.OwnedBy",
+    "Directory.Read.All",
     "Group.ReadWrite.All",
     "GroupMember.ReadWrite.All",
     "Policy.Read.All",

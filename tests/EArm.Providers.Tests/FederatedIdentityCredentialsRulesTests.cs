@@ -5,16 +5,18 @@ using Xunit;
 
 namespace EArm.Providers.Tests;
 
-/// <summary>Pure rules of the federated identity credentials provider (WI-10).</summary>
+/// <summary>Pure rules of the federated identity credentials provider.</summary>
 public sealed class FederatedIdentityCredentialsRulesTests
 {
     [Theory]
     [InlineData("github-main", true)]
     [InlineData("abc", true)]
     [InlineData("ab", false)]
-    [InlineData("1bad", false)]
+    [InlineData("1good", true)]
+    [InlineData("under_score", true)]
+    [InlineData("_bad", false)]
+    [InlineData("-bad", false)]
     [InlineData("has space", false)]
-    [InlineData("under_score", false)]
     public void NameProblem_FollowsTheGraphPattern(string name, bool valid)
     {
         string? problem = FederatedIdentityCredentialsRules.NameProblem(name);

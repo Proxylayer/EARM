@@ -4,7 +4,7 @@ namespace EArm.Core;
 
 /// <summary>
 /// A parameter-file Key Vault reference (<c>reference.keyVault.id</c> + <c>secretName</c>). Resolution
-/// (<c>az keyvault secret show</c>) is a later work item; the loader only parses it.
+/// (an HTTP read of the vault, see <c>KeyVaultClient</c>) happens after the preflight; the loader only parses it.
 /// </summary>
 public sealed record KeyVaultReference(string KeyVaultId, string SecretName, string? SecretVersion = null)
 {

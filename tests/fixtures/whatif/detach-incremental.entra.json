@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
   "contentVersion": "1.0.0.0",
-  "metadata": { "description": "WI-17 golden fixture: the state records a group the template no longer declares (Delete in Complete, Ignore in Incremental); one unchanged group remains." },
+  "metadata": { "description": "Golden fixture: the state records a group the template no longer declares (Delete in Complete, Ignore in Incremental); one unchanged group remains." },
   "resources": [
     {
       "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01-preview", "name": "contoso-dev-orders-ops",

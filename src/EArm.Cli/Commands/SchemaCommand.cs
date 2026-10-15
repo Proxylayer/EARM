@@ -5,13 +5,14 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using EArm.Cli.Output;
 using EArm.Core;
 using EArm.Core.Types;
 
 namespace EArm.Cli.Commands;
 
 /// <summary>
-/// The <c>earm schema</c> command group (plan sections 1.9 and 1.10): <c>print [template|parameters|&lt;type&gt;]</c>
+/// The <c>earm schema</c> command group: <c>print [template|parameters|&lt;type&gt;]</c>
 /// writes an embedded JSON Schema to standard output; <c>install</c> extracts the schemas next to the user and maps them
 /// to <c>*.entra.json</c> in VS Code (<see cref="SchemaInstaller"/>).
 /// </summary>
@@ -42,7 +43,7 @@ internal static class SchemaCommand
 
         var command = new Command("print", "Writes a JSON Schema to standard output: the template envelope, the parameter file, or the schema of one resource type (with its x-earm overlay).");
         command.Arguments.Add(what);
-        command.SetAction(parseResult => RunPrint(parseResult.GetValue(what) ?? TemplateName, parseResult.InvocationConfiguration.Output, parseResult.InvocationConfiguration.Error));
+        command.SetAction(parseResult => RunPrint(parseResult.GetValue(what) ?? TemplateName, parseResult.InvocationConfiguration.Output, parseResult.InvocationConfiguration.Error, GlobalOptions.GetOutputFormat(parseResult)));
         return command;
     }
 
@@ -87,13 +88,15 @@ internal static class SchemaCommand
         return command;
     }
 
-    /// <summary>Writes the requested embedded schema; exit 1 (with the known names on stderr) for an unknown one.</summary>
-    internal static int RunPrint(string what, TextWriter stdout, TextWriter stderr)
+    /// <summary>
+    /// Writes the requested embedded schema (itself one JSON document); exit 1 for an unknown one, with the known names on standard error and, with
+    /// <c>-o json</c>, a failure document (<see cref="FailureDocument"/>) on standard output.
+    /// </summary>
+    internal static int RunPrint(string what, TextWriter stdout, TextWriter stderr, OutputFormat output = OutputFormat.Table)
     {
         if (!TryResolve(what, out string? resource, out string? error))
         {
-            stderr.WriteLine(error);
-            return ExitCodes.Failure;
+            return FailureDocument.Write(output, stdout, stderr, ValidateCommand.InvalidArgumentCode, error!, ExitCodes.Failure);
         }
 
         string text = EmbeddedSchemas.ReadText(resource!);

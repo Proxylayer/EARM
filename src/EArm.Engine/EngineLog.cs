@@ -26,9 +26,6 @@ internal static partial class EngineLog
     [LoggerMessage(EventId = 2012, Level = LogLevel.Warning, Message = "Existing-resource lookup {ResourceId} (apiVersion {ApiVersion}) could not be resolved: {Reason}")]
     public static partial void ExistingLookupUnresolved(ILogger logger, string resourceId, string apiVersion, string reason);
 
-    [LoggerMessage(EventId = 2013, Level = LogLevel.Warning, Message = "The organization could not be read; tenant() stays a deploy-time unknown: {Reason}")]
-    public static partial void TenantInfoUnavailable(ILogger logger, string reason);
-
     [LoggerMessage(EventId = 2020, Level = LogLevel.Information, Message = "Applying {ResourceId}: {ChangeType} ({Mode})")]
     public static partial void Applying(ILogger logger, string resourceId, string changeType, string mode);
 
@@ -53,7 +50,7 @@ internal static partial class EngineLog
     [LoggerMessage(EventId = 2031, Level = LogLevel.Information, Message = "Secure outputs written to {Path}")]
     public static partial void SecureOutputsWritten(ILogger logger, string path);
 
-    // ---- state (WI-06) ----
+    // ---- state ----
 
     [LoggerMessage(EventId = 2040, Level = LogLevel.Warning, Message = "Drift: the state pins {ResourceId} to Graph id {StateGraphId} but the live object was {Outcome}")]
     public static partial void StateDrift(ILogger logger, string resourceId, string stateGraphId, string outcome);
@@ -88,7 +85,7 @@ internal static partial class EngineLog
     [LoggerMessage(EventId = 2050, Level = LogLevel.Information, Message = "Parameter '{Parameter}' resolved from {Reference}")]
     public static partial void KeyVaultResolved(ILogger logger, string parameter, string reference);
 
-    // ---- edge pass (WI-09) ----
+    // ---- edge pass ----
 
     [LoggerMessage(EventId = 2060, Level = LogLevel.Information, Message = "Edge pass: {RowCount} resource(s) declare relationships, {OperationCount} edge operation(s) planned")]
     public static partial void EdgePassStarting(ILogger logger, int rowCount, int operationCount);
@@ -113,4 +110,36 @@ internal static partial class EngineLog
 
     [LoggerMessage(EventId = 2067, Level = LogLevel.Warning, Message = "Deleting {ResourceId}: {Warning}")]
     public static partial void DeleteWarning(ILogger logger, string resourceId, string warning);
+
+    // ---- safety review ----
+
+    [LoggerMessage(EventId = 2070, Level = LogLevel.Warning, Message = "{ResourceId} was not deleted: {Reason}")]
+    public static partial void DeleteRefused(ILogger logger, string resourceId, string reason);
+
+    [LoggerMessage(EventId = 2071, Level = LogLevel.Warning, Message = "State entry mismatch for {ResourceId}: {Reason}")]
+    public static partial void StateEntryMismatch(ILogger logger, string resourceId, string reason);
+
+    [LoggerMessage(EventId = 2072, Level = LogLevel.Warning, Message = "{ResourceId} adopted the existing object {GraphId}: it was not created by this deployment")]
+    public static partial void AdoptedExisting(ILogger logger, string resourceId, string graphId);
+
+    [LoggerMessage(EventId = 2073, Level = LogLevel.Warning, Message = "The create of {ResourceId} ended with an unknown outcome ({Error}); the object exists (Graph id {GraphId}), so the create is counted as done")]
+    public static partial void CreateOutcomeUncertain(ILogger logger, string resourceId, string error, string graphId);
+
+    [LoggerMessage(EventId = 2074, Level = LogLevel.Error, Message = "Saving the state failed: {Error}")]
+    public static partial void StateSaveFailed(ILogger logger, string error);
+
+    [LoggerMessage(EventId = 2075, Level = LogLevel.Warning, Message = "Saving the state failed ({Error}); retry {Attempt}")]
+    public static partial void StateSaveRetry(ILogger logger, string error, int attempt);
+
+    [LoggerMessage(EventId = 2076, Level = LogLevel.Warning, Message = "{ResourceId} and {OtherResourceId} resolve to the same Graph object {GraphId}")]
+    public static partial void DuplicateGraphObject(ILogger logger, string resourceId, string otherResourceId, string graphId);
+
+    [LoggerMessage(EventId = 2077, Level = LogLevel.Warning, Message = "The state was read without holding the deployment lock (what-if): {Detail}")]
+    public static partial void UnlockedSnapshot(ILogger logger, string detail);
+
+    [LoggerMessage(EventId = 2078, Level = LogLevel.Information, Message = "The one-time secret of {ResourceId} was saved to the secure outputs file immediately")]
+    public static partial void OneTimeSecretSaved(ILogger logger, string resourceId);
+
+    [LoggerMessage(EventId = 2079, Level = LogLevel.Error, Message = "Saving the secure outputs file failed: {Error}")]
+    public static partial void SecureOutputsSaveFailed(ILogger logger, string error);
 }

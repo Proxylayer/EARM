@@ -11,7 +11,7 @@ using EArm.Expressions.Values;
 namespace EArm.Providers;
 
 /// <summary>
-/// The pure rules of the service principals provider (plan sections 1.3 and 3.2), kept free of Graph I/O so they can
+/// The pure rules of the service principals provider, kept free of Graph I/O so they can
 /// be tested on their own:
 /// <list type="bullet">
 /// <item>the resource name is the application (client) id and must be a GUID once evaluated;</item>
@@ -153,7 +153,7 @@ public static class ServicePrincipalsRules
     /// True when any of <paramref name="templateTargets"/> (the instance's dependencies and the targets of its name
     /// expression) is a <c>Microsoft.Entra/applications</c> resource: the principal is created for an application
     /// this deployment manages, which <c>Application.ReadWrite.OwnedBy</c> covers. Otherwise the application is
-    /// pre-existing or first-party and <c>Application.ReadWrite.All</c> is needed (plan section 3.4).
+    /// pre-existing or first-party and <c>Application.ReadWrite.All</c> is needed.
     /// </summary>
     public static bool ReferencesTemplateApplication(IEnumerable<ResourceIdentifier> templateTargets)
     {

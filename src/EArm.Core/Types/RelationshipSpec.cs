@@ -1,6 +1,6 @@
 namespace EArm.Core.Types;
 
-/// <summary>The edge kinds of the relationship catalog (plan section 1.4).</summary>
+/// <summary>The edge kinds of the relationship catalog.</summary>
 public enum RelationshipKind
 {
     GroupMembership,

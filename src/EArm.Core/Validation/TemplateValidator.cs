@@ -19,8 +19,8 @@ namespace EArm.Core.Validation;
 /// entry without <c>resourceAccess</c>, a <c>directoryRoles</c> entry without a role) has no semantic counterpart and is reported.
 /// </summary>
 /// <remarks>
-/// Checks that need expression evaluation are deliberately NOT here and belong to the expression work item
-/// (WI-03): non-literal resource names, tainted values flowing into plain outputs, <c>dependsOn</c> /
+/// Checks that need expression evaluation are deliberately NOT here and belong to the expression validators:
+/// non-literal resource names, tainted values flowing into plain outputs, <c>dependsOn</c> /
 /// <c>reference()</c> target resolution, duplicate ids after <c>copy</c> expansion, <c>memberOf</c> pointing at a
 /// dynamic group, and conflicting edge extras.
 /// </remarks>
@@ -113,6 +113,18 @@ public sealed class TemplateValidator : ITemplateValidator
             diagnostics.Add(Diagnostic.Error(
                 DiagnosticCodes.InvalidJson,
                 $"The {what} contains an invalid Unicode escape (lone surrogate) or another string that cannot be read, so it could not be checked against the schema ({ex.Message})",
+                JsonPath.Root,
+                null,
+                source));
+            return [];
+        }
+        catch (Exception ex) when (ex is FormatException or OverflowException or ArgumentException or InvalidCastException or JsonException or NotSupportedException)
+        {
+            // A number beyond the decimal range (1e300) on a property with an enum or const keyword makes the schema library throw while it
+            // compares values; whatever the library trips over, the document is reported rather than crashing the command.
+            diagnostics.Add(Diagnostic.Error(
+                DiagnosticCodes.SchemaViolation,
+                $"The {what} could not be checked against the schema ({ex.GetType().Name}: {SafeText.Escape(ex.Message)}); a number outside the supported range (for example 1e300) or another value the schema cannot compare is the usual cause.",
                 JsonPath.Root,
                 null,
                 source));

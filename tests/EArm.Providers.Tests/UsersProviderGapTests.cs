@@ -4,7 +4,7 @@ using System.Linq;
 using System.Net;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Core;
 using EArm.Core.Secrets;
 using EArm.Engine;

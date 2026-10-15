@@ -20,7 +20,7 @@ public sealed record DeclaredRoleAssignment(string? RoleDefinitionId, string? Ro
 }
 
 /// <summary>
-/// The pure rules of directory role assignments (plan sections 1.4 and 3.2), shared by the standalone
+/// The pure rules of directory role assignments, shared by the standalone
 /// <c>Microsoft.Entra/roleAssignments</c> provider and the principal-side <c>directoryRoles</c> edge kind: the declared
 /// shape (<c>roleDefinitionId | role</c>, <c>principalId</c>, <c>directoryScopeId | administrativeUnit</c>), the
 /// canonical scope (<c>/</c>, <c>/administrativeUnits/{id}</c>, <c>/{appObjectId}</c>), the built-in role table, the

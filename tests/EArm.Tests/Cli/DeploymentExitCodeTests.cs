@@ -8,17 +8,15 @@ namespace EArm.Tests.Cli;
 
 /// <summary>
 /// Exit codes of <c>deployment what-if / create</c> that the other CLI suites leave out: unreadable templates and parameter files
-/// (1), an invalid template in every output format (2), a missing toolchain or Key Vault secret (3), and the output switches
-/// (<c>-o json / none</c>) on each failure. All but the Key Vault case stop before any Azure CLI process starts.
+/// (1), an invalid template in every output format (2), no sign-in or an unreadable Key Vault secret (3), and the output switches
+/// (<c>-o json / none</c>) on each failure. All but the sign-in and Key Vault cases stop before any request is sent.
 /// </summary>
 [Collection(CliCollection.Name)]
 public sealed class DeploymentExitCodeTests
 {
-    private const string NoSuchAz = "C:\\nonexistent\\earm-no-such-az.ps1";
-
     private static string[] Offline(CliSandbox sandbox, params string[] args)
     {
-        return [.. args, "--az-command", NoSuchAz, "--temp-dir", sandbox.TempDir, "--state-dir", sandbox.StateDir];
+        return [.. args, "--state-dir", sandbox.StateDir];
     }
 
     [Theory]
@@ -125,38 +123,118 @@ public sealed class DeploymentExitCodeTests
     }
 
     [Fact]
-    public async Task AMissingPowerShell_ExitsThree_WithThePreflightMessage_AndNeverTouchesTheState()
+    public async Task NoSignIn_ExitsThree_WithTheGuidance_AndNeverTouchesTheStateOrSendsARequest()
     {
-        using var sandbox = new CliSandbox(nameof(AMissingPowerShell_ExitsThree_WithThePreflightMessage_AndNeverTouchesTheState));
+        using var sandbox = new CliSandbox(nameof(NoSignIn_ExitsThree_WithTheGuidance_AndNeverTouchesTheStateOrSendsARequest));
         string template = sandbox.WriteEmptyTemplate();
+        sandbox.UseNotLoggedIn();
 
-        var whatIf = await CliRunner.RunAsync("deployment", "what-if", "-f", template, "--pwsh-path", "earm-no-such-pwsh", "--temp-dir", sandbox.TempDir, "--state-dir", sandbox.StateDir);
-        var create = await CliRunner.RunAsync("deployment", "create", "-f", template, "-y", "--pwsh-path", "C:\\nonexistent\\pwsh.exe", "--temp-dir", sandbox.TempDir, "--state-dir", sandbox.StateDir);
+        var whatIf = await CliRunner.RunAsync("deployment", "what-if", "-f", template, "--state-dir", sandbox.StateDir);
+        var create = await CliRunner.RunAsync("deployment", "create", "-f", template, "-y", "--state-dir", sandbox.StateDir);
 
-        Assert.Equal(3, whatIf.ExitCode);
-        Assert.Contains("Preflight failed:", whatIf.StandardError, StringComparison.Ordinal);
-        Assert.Contains("--pwsh-path", whatIf.StandardError, StringComparison.Ordinal);
-        Assert.Equal(3, create.ExitCode);
+        foreach (var result in new[] { whatIf, create })
+        {
+            Assert.Equal(3, result.ExitCode);
+            Assert.Contains("Preflight failed:", result.StandardError, StringComparison.Ordinal);
+            Assert.Contains("Not signed in", result.StandardError, StringComparison.Ordinal);
+            Assert.Contains("AZURE_TENANT_ID", result.StandardError, StringComparison.Ordinal);
+            Assert.Contains("AZURE_CLIENT_SECRET", result.StandardError, StringComparison.Ordinal);
+            Assert.Contains("earm auth login", result.StandardError, StringComparison.Ordinal);
+            Assert.DoesNotContain("az login", result.StandardError, StringComparison.Ordinal);
+        }
+
+        Assert.Empty(sandbox.RecordedCommands());
         Assert.False(File.Exists(sandbox.StatePath("empty")));
         Assert.False(File.Exists(sandbox.LockPath("empty")));
+    }
+
+    [Theory]
+    [InlineData("bogus")]
+    [InlineData("https://evil.example")]
+    public async Task AnUnknownCloud_ExitsOne_AndNamesTheAllowedValues(string cloud)
+    {
+        using var sandbox = new CliSandbox(nameof(AnUnknownCloud_ExitsOne_AndNamesTheAllowedValues));
+        string template = sandbox.WriteEmptyTemplate();
+        sandbox.UsePreflightOk();
+        string? saved = Environment.GetEnvironmentVariable("EARM_CLOUD");
+        try
+        {
+            Environment.SetEnvironmentVariable("EARM_CLOUD", cloud);
+
+            var result = await CliRunner.RunAsync("deployment", "what-if", "-f", template, "--state-dir", sandbox.StateDir);
+
+            Assert.Equal(1, result.ExitCode);
+            Assert.Contains("public, usgov, usgovdod, china", result.StandardError, StringComparison.Ordinal);
+            Assert.Empty(sandbox.RecordedCommands());
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("EARM_CLOUD", saved);
+        }
+    }
+
+    private static string KeyVaultTemplate(CliSandbox sandbox, string vaultId, string secretName, out string parameters)
+    {
+        string template = sandbox.WriteTemplate("kv.entra.json", "\"parameters\": { \"pw\": { \"type\": \"securestring\" } }, \"resources\": [], \"outputs\": { \"o\": { \"type\": \"string\", \"value\": \"x\" } }");
+        parameters = Path.Combine(sandbox.TemplatesDir, "kv.parameters.json");
+        File.WriteAllText(parameters, "{ \"parameters\": { \"pw\": { \"reference\": { \"keyVault\": { \"id\": \"" + vaultId + "\" }, \"secretName\": \"" + secretName + "\" } } } }");
+        return template;
     }
 
     [Fact]
     public async Task AKeyVaultSecretThatCannotBeRead_ExitsThree_WithTheParameterNamed_AndNoSecretTextAnywhere()
     {
         using var sandbox = new CliSandbox(nameof(AKeyVaultSecretThatCannotBeRead_ExitsThree_WithTheParameterNamed_AndNoSecretTextAnywhere));
-        string template = sandbox.WriteTemplate("kv.entra.json", "\"parameters\": { \"pw\": { \"type\": \"securestring\" } }, \"resources\": [], \"outputs\": { \"o\": { \"type\": \"string\", \"value\": \"x\" } }");
-        string parameters = Path.Combine(sandbox.TemplatesDir, "kv.parameters.json");
-        File.WriteAllText(parameters, "{ \"parameters\": { \"pw\": { \"reference\": { \"keyVault\": { \"id\": \"/subscriptions/0/resourceGroups/rg/providers/Microsoft.KeyVault/vaults/contoso-kv\" }, \"secretName\": \"orders-secret\" } } } }");
-        sandbox.UsePreflightOk(extraResponses: "{ \"match\": { \"argvContains\": \"keyvault secret show\" }, \"exitCode\": 3, \"stderr\": \"ERROR: (SecretNotFound) A secret with (name/id) orders-secret was not found in this key vault.\" }");
+        string template = KeyVaultTemplate(sandbox, "/subscriptions/0/resourceGroups/rg/providers/Microsoft.KeyVault/vaults/contoso-kv", "orders-secret", out string parameters);
+        sandbox.UsePreflightOk(extraResponses: "{ \"match\": { \"method\": \"GET\", \"urlContains\": \"/secrets/orders-secret\" }, \"status\": 404, \"body\": { \"error\": { \"code\": \"SecretNotFound\", \"message\": \"A secret with (name/id) orders-secret was not found in this key vault.\" } } }");
 
-        var result = await CliRunner.RunAsync([.. sandbox.AzArgs, "deployment", "create", "-f", template, "-p", "@" + parameters, "-y", "-o", "json"]);
+        var result = await CliRunner.RunAsync([.. sandbox.StateArgs, "deployment", "create", "-f", template, "-p", "@" + parameters, "-y", "-o", "json"]);
 
         Assert.Equal(3, result.ExitCode);
         var diagnostic = Assert.Single(result.Diagnostics);
         Assert.Contains("pw", diagnostic!["message"]!.GetValue<string>(), StringComparison.Ordinal);
         Assert.Contains("orders-secret", diagnostic["message"]!.GetValue<string>(), StringComparison.Ordinal);
+        Assert.Contains("SecretNotFound", diagnostic["message"]!.GetValue<string>(), StringComparison.Ordinal);
         Assert.False(File.Exists(sandbox.StatePath("kv")));
         Assert.False(File.Exists(sandbox.LockPath("kv")));
+        var vaultCall = Assert.Single(sandbox.RecordedRequests(), static r => r.Uri.Host.StartsWith("contoso-kv.", StringComparison.Ordinal));
+        Assert.Equal("https://contoso-kv.vault.azure.net/secrets/orders-secret?api-version=7.4", vaultCall.Uri.AbsoluteUri);
+        Assert.Contains("https://vault.azure.net/.default", sandbox.Tokens.RequestedScopes);
+    }
+
+    [Theory]
+    [InlineData("evil.example/x#", "orders-secret")]
+    [InlineData("contoso-kv", "../../x")]
+    [InlineData("contoso-kv", "a.b")]
+    public async Task AKeyVaultNameThatBreaksTheRules_ExitsThree_BeforeAnyVaultRequest(string vaultId, string secretName)
+    {
+        using var sandbox = new CliSandbox(nameof(AKeyVaultNameThatBreaksTheRules_ExitsThree_BeforeAnyVaultRequest));
+        string template = KeyVaultTemplate(sandbox, vaultId, secretName, out string parameters);
+        sandbox.UsePreflightOk();
+
+        var result = await CliRunner.RunAsync([.. sandbox.StateArgs, "deployment", "create", "-f", template, "-p", "@" + parameters, "-y", "-o", "json"]);
+
+        Assert.Equal(3, result.ExitCode);
+        var diagnostic = Assert.Single(result.Diagnostics);
+        Assert.Contains("not a valid Key Vault", diagnostic!["message"]!.GetValue<string>(), StringComparison.Ordinal);
+        Assert.All(sandbox.RecordedRequests(), static r => Assert.EndsWith("graph.microsoft.com", r.Uri.Host, StringComparison.Ordinal));
+        Assert.False(File.Exists(sandbox.StatePath("kv")));
+    }
+
+    [Fact]
+    public async Task AKeyVaultSecret_IsResolvedOverHttp_TaintedAndNeverPrinted()
+    {
+        using var sandbox = new CliSandbox(nameof(AKeyVaultSecret_IsResolvedOverHttp_TaintedAndNeverPrinted));
+        string template = sandbox.WriteTemplate("kv.entra.json", "\"parameters\": { \"pw\": { \"type\": \"securestring\" } }, \"resources\": [], \"outputs\": { \"echo\": { \"type\": \"securestring\", \"value\": \"[parameters('pw')]\" } }");
+        string parameters = Path.Combine(sandbox.TemplatesDir, "kv.parameters.json");
+        File.WriteAllText(parameters, "{ \"parameters\": { \"pw\": { \"reference\": { \"keyVault\": { \"id\": \"contoso-kv\" }, \"secretName\": \"orders-secret\" } } } }");
+        sandbox.UsePreflightOk(extraResponses: "{ \"match\": { \"method\": \"GET\", \"urlContains\": \"/secrets/orders-secret\" }, \"status\": 200, \"body\": { \"value\": \"V4ult-S3cret-Value\" } }");
+
+        var result = await CliRunner.RunAsync([.. sandbox.StateArgs, "deployment", "create", "-f", template, "-p", "@" + parameters, "-y", "-o", "json"]);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal("***", result.Json["outputs"]!["echo"]!["value"]!.GetValue<string>());
+        Assert.DoesNotContain("V4ult-S3cret-Value", result.StandardOutput + result.StandardError, StringComparison.Ordinal);
+        Assert.DoesNotContain("V4ult-S3cret-Value", await File.ReadAllTextAsync(sandbox.StatePath("kv"), TestContext.Current.CancellationToken), StringComparison.Ordinal);
     }
 }

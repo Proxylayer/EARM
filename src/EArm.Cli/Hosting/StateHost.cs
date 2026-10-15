@@ -11,7 +11,16 @@ internal static class StateHost
     public static FileStateStore OpenStore(string? stateDir, string? templateFile, ILoggerFactory loggerFactory)
     {
         ArgumentNullException.ThrowIfNull(loggerFactory);
-        return new FileStateStore(StateDirectory.Resolve(stateDir, templateFile), logger: loggerFactory.CreateLogger<FileStateStore>());
+        string directory = StateDirectory.Resolve(stateDir, templateFile);
+        var logger = loggerFactory.CreateLogger("EArm.Cli.State");
+        logger.LogDebug("State directory: {Directory}", directory);
+        if (!StateDirectory.IsExpectedLocation(directory, templateFile))
+        {
+            // A state directory somewhere else (a share, another drive, a temp folder) is legitimate but unusual: say where it is so a mistyped --state-dir or EARM_STATE_DIR shows.
+            logger.LogWarning("The state directory {Directory} is not under your user profile, the current directory or the template's folder; check --state-dir / EARM_STATE_DIR if that is not what you meant.", directory);
+        }
+
+        return new FileStateStore(directory, logger: loggerFactory.CreateLogger<FileStateStore>());
     }
 }
 
@@ -30,8 +39,9 @@ internal static class ConsolePrompt
             return false;
         }
 
-        stdout.Write(question + " (y/n): ");
-        stdout.Flush();
+        // The prompt goes to standard error so that standard output stays the machine-readable result (-o json).
+        stderr.Write(question + " (y/n): ");
+        stderr.Flush();
         string? answer = readLine();
         return answer is not null && (answer.Trim().Equals("y", StringComparison.OrdinalIgnoreCase) || answer.Trim().Equals("yes", StringComparison.OrdinalIgnoreCase));
     }

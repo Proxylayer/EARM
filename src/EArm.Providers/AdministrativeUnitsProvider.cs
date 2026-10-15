@@ -4,19 +4,19 @@ using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Core;
 using EArm.Core.Types;
 using EArm.Engine;
 using EArm.Engine.Providers;
 using EArm.Engine.State;
 using EArm.Expressions.Values;
-using GraphApi = EArm.Az.GraphApi;
+using GraphApi = EArm.Graph.GraphApi;
 
 namespace EArm.Providers;
 
 /// <summary>
-/// <c>Microsoft.Entra/administrativeUnits</c> (plan sections 1.3, 1.4, 3.2; work item WI-15). The resource name is the
+/// <c>Microsoft.Entra/administrativeUnits</c>. The resource name is the
 /// <c>displayName</c>; the Graph id is pinned in the state after the first run. The <c>members</c> property is the
 /// target side of the administrative unit membership edge (part A of the edge pass) and never reaches the body or
 /// the diff.
@@ -68,6 +68,16 @@ public sealed class AdministrativeUnitsProvider : ProviderBase
     {
     }
 
+    /// <summary>The top-level properties each template declares, selected next to <see cref="AdministrativeUnitsRules.ManagedProperties"/> on its reads (G-08).</summary>
+    private readonly DeclaredSelects _selects = new();
+
+    public override ResourceKey ResolveKey(ResourceInstance desired)
+    {
+        var key = base.ResolveKey(desired);
+        _selects.Register(key, Definition, desired);
+        return key;
+    }
+
     // ---- read ----
 
     public override async Task<ExistingResource?> ReadAsync(ResourceKey key, string? stateId, IGraphClient graph, CancellationToken cancellationToken)
@@ -75,17 +85,14 @@ public sealed class AdministrativeUnitsProvider : ProviderBase
         ArgumentNullException.ThrowIfNull(key);
         ArgumentNullException.ThrowIfNull(graph);
 
-        if (stateId is not null && await graph.GetAsync(Select(new GraphRequest(EntityPath(stateId), key.Api)), cancellationToken).ConfigureAwait(false) is JsonObject pinned)
+        if (stateId is not null && await graph.GetAsync(Select(new GraphRequest(EntityPath(stateId), key.Api), key), cancellationToken).ConfigureAwait(false) is JsonObject pinned)
         {
             return Existing(pinned);
         }
 
-        if (!key.TryGet(KeyProperty, out var name))
-        {
-            throw new ProviderException(EngineDiagnosticCodes.ResourceKeyUnresolved, $"{TypeName}: the key {key.Describe()} carries no displayName.");
-        }
+        string name = ProviderSupport.SingleKey(key, KeyProperty);
 
-        var matches = await FindByDisplayNameAsync(graph, name, key.Api, cancellationToken).ConfigureAwait(false);
+        var matches = await FindByDisplayNameAsync(graph, name, key, cancellationToken).ConfigureAwait(false);
         if (matches.Count == 0)
         {
             return null;
@@ -126,7 +133,7 @@ public sealed class AdministrativeUnitsProvider : ProviderBase
         var change = base.Plan(desired, existing, options);
         if (!change.HasError && AdministrativeUnitsRules.IsRestricted(properties) && DeclaresMembers(desired))
         {
-            // Plan section 3.2: scoped roles must exist before members can be added to a restricted unit, and the
+            // Scoped roles must exist before members can be added to a restricted unit, and the
             // membership edge (part A) is applied before the role assignments (part B).
             change = change with
             {
@@ -151,45 +158,20 @@ public sealed class AdministrativeUnitsProvider : ProviderBase
         var body = BuildCreateBody(desired);
         RemoveServerAssigned(body);
 
-        if (await FindSoftDeletedAsync(desired.Id.NameLeaf, desired.Api, graph, cancellationToken).ConfigureAwait(false) is { } deleted)
+        var warnings = new List<ProviderWarning>();
+        if (await DeletedItemsProbe.FindAsync(graph, DeletedUnitsPath, "administrativeUnit", KeyProperty, desired.Id.NameLeaf, ["id", "displayName", "deletedDateTime"], desired.Api, advanced: false, warnings, cancellationToken).ConfigureAwait(false) is { } deleted)
         {
-            return await RestoreOrFailAsync(desired, key, body, deleted, graph, cancellationToken).ConfigureAwait(false);
+            return await RestoreOrFailAsync(desired, key, body, deleted, graph, warnings, cancellationToken).ConfigureAwait(false);
         }
 
         var response = await graph.PostAsync(new GraphRequest(CollectionPath, desired.Api, hint: desired.RetryHint), body, cancellationToken).ConfigureAwait(false);
         var live = response.Body as JsonObject
             ?? throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{desired.Describe()}: Graph returned no object for the created administrative unit.", desired.Id);
 
-        return new AppliedResource(desired.Id, RequireId(live, desired), live, key);
+        return new AppliedResource(desired.Id, RequireId(live, desired), live, key) { Warnings = warnings };
     }
 
-    /// <summary>
-    /// The soft-deleted unit with this displayName, or <c>null</c>. Best effort: the recycle bin query is a
-    /// convenience, so a tenant that rejects it must not block the create.
-    /// </summary>
-    private static async Task<JsonObject?> FindSoftDeletedAsync(string displayName, GraphApi api, IGraphClient graph, CancellationToken cancellationToken)
-    {
-        string filter = KeyProperty + " eq '" + displayName.Replace("'", "''", StringComparison.Ordinal) + "'";
-        var request = new GraphRequest(DeletedUnitsPath, api).WithFilter(filter).WithSelect("id", "displayName", "deletedDateTime");
-        try
-        {
-            await foreach (var item in graph.GetAllPagesAsync(request, cancellationToken).ConfigureAwait(false))
-            {
-                if (item is JsonObject deleted && string.Equals(JsonObjects.GetString(deleted, KeyProperty), displayName, StringComparison.OrdinalIgnoreCase))
-                {
-                    return deleted;
-                }
-            }
-        }
-        catch (GraphException)
-        {
-            return null;
-        }
-
-        return null;
-    }
-
-    private async Task<AppliedResource> RestoreOrFailAsync(ResourceInstance desired, ResourceKey key, JsonObject body, JsonObject deleted, IGraphClient graph, CancellationToken cancellationToken)
+    private async Task<AppliedResource> RestoreOrFailAsync(ResourceInstance desired, ResourceKey key, JsonObject body, JsonObject deleted, IGraphClient graph, List<ProviderWarning> warnings, CancellationToken cancellationToken)
     {
         string deletedId = JsonObjects.GetId(deleted) ?? "?";
         string when = JsonObjects.GetString(deleted, "deletedDateTime") is { } deletedOn ? $", deleted {deletedOn}" : string.Empty;
@@ -205,9 +187,9 @@ public sealed class AdministrativeUnitsProvider : ProviderBase
         string id = JsonObjects.GetId(restored.Body as JsonObject) ?? deletedId;
         string path = EntityPath(id);
         await graph.PatchAsync(new GraphRequest(path, desired.Api, hint: RetryHint.ExpectReplicationLag), body, cancellationToken).ConfigureAwait(false);
-        var live = await graph.GetAsync(Select(new GraphRequest(path, desired.Api, hint: RetryHint.ExpectReplicationLag)), cancellationToken).ConfigureAwait(false) as JsonObject
+        var live = await graph.GetAsync(Select(new GraphRequest(path, desired.Api, hint: RetryHint.ExpectReplicationLag), key), cancellationToken).ConfigureAwait(false) as JsonObject
             ?? throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{TypeName}: '{desired.Name}' vanished after being restored.", desired.Id);
-        return new AppliedResource(desired.Id, id, live, key);
+        return new AppliedResource(desired.Id, id, live, key) { Warnings = warnings };
     }
 
     // ---- update ----
@@ -234,7 +216,7 @@ public sealed class AdministrativeUnitsProvider : ProviderBase
         else
         {
             await graph.PatchAsync(new GraphRequest(path, desired.Api, hint: desired.RetryHint), body, cancellationToken).ConfigureAwait(false);
-            live = await graph.GetAsync(Select(new GraphRequest(path, desired.Api, hint: desired.RetryHint)), cancellationToken).ConfigureAwait(false) as JsonObject
+            live = await graph.GetAsync(Select(new GraphRequest(path, desired.Api, hint: desired.RetryHint), ResolveKey(desired)), cancellationToken).ConfigureAwait(false) as JsonObject
                 ?? throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{desired.Describe()}: the administrative unit ({existing.GraphId}) vanished after the update.", desired.Id);
         }
 
@@ -261,10 +243,10 @@ public sealed class AdministrativeUnitsProvider : ProviderBase
     // ---- Graph helpers ----
 
     /// <summary><c>GET /directory/administrativeUnits?$filter=displayName eq '…'</c> (quotes doubled), every page, matched client-side.</summary>
-    private async Task<IReadOnlyList<JsonObject>> FindByDisplayNameAsync(IGraphClient graph, string displayName, GraphApi api, CancellationToken cancellationToken)
+    private async Task<IReadOnlyList<JsonObject>> FindByDisplayNameAsync(IGraphClient graph, string displayName, ResourceKey key, CancellationToken cancellationToken)
     {
-        string filter = KeyProperty + " eq '" + displayName.Replace("'", "''", StringComparison.Ordinal) + "'";
-        var request = Select(new GraphRequest(CollectionPath, api).WithFilter(filter));
+        string filter = KeyProperty + " eq '" + ProviderSupport.EscapeLiteral(displayName) + "'";
+        var request = Select(new GraphRequest(CollectionPath, key.Api).WithFilter(filter), key);
         var matches = new List<JsonObject>();
         await foreach (var item in graph.GetAllPagesAsync(request, cancellationToken).ConfigureAwait(false))
         {
@@ -277,9 +259,9 @@ public sealed class AdministrativeUnitsProvider : ProviderBase
         return matches;
     }
 
-    private static GraphRequest Select(GraphRequest request)
+    private GraphRequest Select(GraphRequest request, ResourceKey key)
     {
-        return request.WithSelect(AdministrativeUnitsRules.ManagedProperties);
+        return request.WithSelect(_selects.For(key, AdministrativeUnitsRules.ManagedProperties));
     }
 
     /// <summary>The live object wrapped for the planner, its diff view in canonical form (<c>membershipType</c> defaulted to <c>Assigned</c>).</summary>

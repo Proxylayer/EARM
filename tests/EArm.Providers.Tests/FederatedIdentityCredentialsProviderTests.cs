@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Core;
 using EArm.Engine;
 using EArm.Engine.Execution;
@@ -12,11 +12,11 @@ using EArm.Engine.Providers;
 using EArm.Engine.State;
 using EArm.Providers.Tests.Infrastructure;
 using Xunit;
-using GraphApi = EArm.Az.GraphApi;
+using GraphApi = EArm.Graph.GraphApi;
 
 namespace EArm.Providers.Tests;
 
-/// <summary>The federated identity credentials provider (WI-10) end to end.</summary>
+/// <summary>The federated identity credentials provider end to end.</summary>
 public sealed class FederatedIdentityCredentialsProviderTests
 {
     private const string AppType = ApplicationsProvider.ResourceType;
@@ -281,18 +281,30 @@ public sealed class FederatedIdentityCredentialsProviderTests
     {
         var host = new ProviderHost();
 
-        var ex = await Assert.ThrowsAsync<ValidationFailedException>(() => host.CreateAsync(host.Resources(App() + ", " + Fic("1bad", "repo:x"))));
-        Assert.Contains(ex.Diagnostics, d => d.Message.Contains("1bad", StringComparison.Ordinal));
+        var ex = await Assert.ThrowsAsync<ValidationFailedException>(() => host.CreateAsync(host.Resources(App() + ", " + Fic("_bad", "repo:x"))));
+        Assert.Contains(ex.Diagnostics, d => d.Message.Contains("_bad", StringComparison.Ordinal));
 
-        var expression = host.Resources(App() + """, { "type": "Microsoft.Entra/applications/federatedIdentityCredentials", "apiVersion": "2026-10-01-preview", "name": "[concat('test-api/1', 'bad')]", "properties": { "issuer": "https://token.actions.githubusercontent.com", "subject": "repo:x" } }""");
-        var whatIf = await host.WhatIfAsync(expression);
-        var row = whatIf.ChangeOfType(FicType);
-        Assert.True(row.HasError);
-        Assert.Contains("is not valid", row.UnsupportedReason, StringComparison.Ordinal);
+        var expression = host.Resources(App() + """, { "type": "Microsoft.Entra/applications/federatedIdentityCredentials", "apiVersion": "2026-10-01-preview", "name": "[concat('test-api/_', 'bad')]", "properties": { "issuer": "https://token.actions.githubusercontent.com", "subject": "repo:x" } }""");
+        // A name built from literals is folded and validated like a literal by the planner (a ValidationFailedException); a name that is only known
+        // when it is evaluated reaches the provider as an unsupported row. Either way nothing is written.
+        var early = await Record.ExceptionAsync(() => host.WhatIfAsync(expression));
+        if (early is null)
+        {
+            var whatIf = await host.WhatIfAsync(expression);
+            var row = whatIf.ChangeOfType(FicType);
+            Assert.True(row.HasError);
+            Assert.Contains("is not valid", row.UnsupportedReason, StringComparison.Ordinal);
 
-        var run = await host.CreateAsync(expression);
-        Assert.Equal(DeploymentStatus.Failed, run.Executed.Status);
-        Assert.DoesNotContain(run.Writes, w => w.Path.Contains("federatedIdentityCredentials", StringComparison.Ordinal));
+            var run = await host.CreateAsync(expression);
+            Assert.Equal(DeploymentStatus.Failed, run.Executed.Status);
+            Assert.DoesNotContain(run.Writes, w => w.Path.Contains("federatedIdentityCredentials", StringComparison.Ordinal));
+        }
+        else
+        {
+            Assert.IsType<ValidationFailedException>(early);
+        }
+
+        Assert.DoesNotContain(host.Fake.Writes, w => w.Path.Contains("federatedIdentityCredentials", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -339,12 +351,14 @@ public sealed class FederatedIdentityCredentialsProviderTests
         Assert.Equal("/applications/" + appId, writes[2].Path);
         Assert.Equal(0, host.Directory.Count("/applications"));
 
+        // Review 3I (intentional change): a parent known only by its uniqueName is resolved to its object id first (Learn documents the credential endpoints
+        // under /applications/{id} and /applications(appId=...), not under the uniqueName key), so a parent that is gone means nothing to delete and no write.
         var provider = host.Provider(FicType);
         var entry = new StateEntry { Id = ResourceIdentifier.Create(FicType, AppName + "/github-main"), Type = FicType, ApiVersion = ProviderHost.ApiVersion, Key = new Dictionary<string, string> { ["name"] = "github-main" }, GraphId = "whatever" };
         host.ClearRequests();
         await provider.DeleteAsync(entry, host.Fake, ProviderHost.Ct);
-        var write = Assert.Single(host.Fake.Writes);
-        Assert.Equal("/applications(uniqueName='test-api')/federatedIdentityCredentials(name='github-main')", write.Path);
+        Assert.Empty(host.Fake.Writes);
+        Assert.Contains(host.Fake.Requests, r => r.Method == "GET" && r.Path == "/applications(uniqueName='test-api')");
     }
 
     [Fact]
@@ -357,18 +371,24 @@ public sealed class FederatedIdentityCredentialsProviderTests
         var run = await host.CreateAsync(document);
 
         Check.Succeeded(run);
+        // Review 3I (intentional change): the parent known only by uniqueName is resolved to its object id first; every credential call then uses
+        // /applications/{id}/..., a form Learn documents.
         var requests = run.Requests;
         Assert.Equal("GET", requests[0].Method);
-        Assert.Equal("/applications(uniqueName='test-api')/federatedIdentityCredentials(name='github-main')", requests[0].Path);
-        Assert.Equal("id,name,issuer,subject,audiences,description", requests[0].UrlParameters!["$select"]);
+        Assert.Equal("/applications(uniqueName='test-api')", requests[0].Path);
+        Assert.Equal("id", requests[0].UrlParameters!["$select"]);
+        string parentPath = "/applications/" + appId;
         Assert.Equal("GET", requests[1].Method);
-        Assert.Equal("/applications(uniqueName='test-api')/federatedIdentityCredentials", requests[1].Path);
+        Assert.Equal(parentPath + "/federatedIdentityCredentials(name='github-main')", requests[1].Path);
+        Assert.Equal("id,name,issuer,subject,audiences,description", requests[1].UrlParameters!["$select"]);
+        Assert.Equal("GET", requests[2].Method);
+        Assert.Equal(parentPath + "/federatedIdentityCredentials", requests[2].Path);
         var upsert = Assert.Single(run.Writes);
         Assert.Equal("PATCH", upsert.Method);
-        Assert.Equal("/applications(uniqueName='test-api')/federatedIdentityCredentials(name='github-main')", upsert.Path);
+        Assert.Equal(parentPath + "/federatedIdentityCredentials(name='github-main')", upsert.Path);
         Assert.True(upsert.HasHeader("Prefer", "create-if-missing"));
         Assert.Equal(RetryHint.Default, upsert.Hint);
-        Assert.Contains(requests, r => r.Method == "GET" && r.Path == "/applications(uniqueName='test-api')" && r.UrlParameters!["$select"] == "id");
+        Assert.DoesNotContain(requests, r => r.Path.Contains("(uniqueName='test-api')/", StringComparison.Ordinal));
         var entry = run.Entry(AppResourceId + "/federatedIdentityCredentials/github-main");
         Assert.Equal(appId, entry.ParentGraphId);
         Assert.Equal(1, host.Directory.Count("/applications/" + appId + "/federatedIdentityCredentials"));
@@ -376,8 +396,7 @@ public sealed class FederatedIdentityCredentialsProviderTests
         var rerun = await host.CreateAsync(document);
         Assert.Equal(ChangeType.NoChange, rerun.Executed.Operations[0].ChangeType);
         Check.NoWrites(rerun);
-        Assert.Equal("/applications(uniqueName='test-api')/federatedIdentityCredentials/" + entry.GraphId, rerun.Requests[0].Path);
-
+        Assert.Equal(parentPath + "/federatedIdentityCredentials/" + entry.GraphId, rerun.Requests[0].Path);
         var missing = await new ProviderHost().CreateAsync(host.Resources(Fic("github-main", "repo:x")));
         Assert.Equal(DeploymentStatus.Failed, missing.Executed.Status);
         Assert.Equal(EngineDiagnosticCodes.ResourceApplyFailed, missing.Executed.Operations[0].ErrorCode);

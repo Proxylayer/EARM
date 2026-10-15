@@ -7,7 +7,7 @@ using EArm.Expressions.Syntax;
 namespace EArm.Expressions.Evaluation;
 
 /// <summary>
-/// The template expression engine (plan section 2.2). Values are <see cref="JsonNode"/> trees; secure values are
+/// The template expression engine. Values are <see cref="JsonNode"/> trees; secure values are
 /// <see cref="EArm.Core.Secrets.SecretValue"/> leaves and deploy-time-unknown values are
 /// <see cref="Values.UnknownValue"/> leaves, both of which propagate through every function.
 /// </summary>

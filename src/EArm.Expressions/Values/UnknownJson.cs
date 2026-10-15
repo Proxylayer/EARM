@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Text.Json.Nodes;
 using EArm.Core;
+using EArm.Core.Json;
 using EArm.Core.Secrets;
 
 namespace EArm.Expressions.Values;
@@ -22,7 +23,26 @@ public static class UnknownJson
 
     public static JsonValue Create(string symbol, UnknownOrigins origins, bool tainted = false, ResourceIdentifier? source = null, ResourceIdentifier? resourceId = null)
     {
-        return Create(new UnknownValue(symbol, origins, tainted, source, resourceId));
+        return Create(new UnknownValue(LimitSymbol(symbol), origins, tainted, source, resourceId));
+    }
+
+    /// <summary>The longest symbol kept in full; longer ones are shortened (see <see cref="LimitSymbol"/>).</summary>
+    internal const int MaxSymbolLength = 1024;
+
+    /// <summary>
+    /// A symbol is built from the symbols of the call's arguments, so <c>concat(x, x)</c> nested in variables doubles it at every level and
+    /// would grow without bound. A symbol over <see cref="MaxSymbolLength"/> characters keeps its start and gets a hash of the whole text
+    /// instead of the rest: still deterministic and, for practical purposes, as distinguishing as the full text.
+    /// </summary>
+    internal static string LimitSymbol(string symbol)
+    {
+        if (symbol.Length <= MaxSymbolLength)
+        {
+            return symbol;
+        }
+
+        byte[] hash = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(symbol));
+        return string.Concat(symbol.AsSpan(0, MaxSymbolLength - 24), "...#", Convert.ToHexStringLower(hash.AsSpan(0, 8)));
     }
 
     /// <summary>True when <paramref name="node"/> is an unknown leaf.</summary>
@@ -52,7 +72,7 @@ public static class UnknownJson
     /// <summary>True when any leaf under <paramref name="node"/> is a secret or a tainted unknown.</summary>
     public static bool ContainsTaint(JsonNode? node)
     {
-        return Any(node, static leaf => SecretJson.IsSecret(leaf) || (IsUnknown(leaf, out var unknown) && unknown.Tainted));
+        return Any(node, static leaf => SecretJson.IsSecret(leaf) || SecretJson.IsTaintedEmpty(leaf) || (IsUnknown(leaf, out var unknown) && unknown.Tainted));
     }
 
     /// <summary>The union of the origins of every unknown leaf under <paramref name="node"/>.</summary>
@@ -84,12 +104,19 @@ public static class UnknownJson
 
     internal static void Visit(JsonNode? node, Action<JsonNode?> leaf)
     {
+        ValueGuard.EnsureStack();
         switch (node)
         {
             case JsonObject obj:
                 foreach (var property in obj)
                 {
                     Visit(property.Value, leaf);
+                }
+
+                if (obj.Count == 0 && SecretJson.IsTaintedEmpty(obj))
+                {
+                    // An empty container that stands for a secret-dependent emptiness has no leaf of its own: it is visited as one.
+                    leaf(obj);
                 }
 
                 break;
@@ -99,6 +126,11 @@ public static class UnknownJson
                     Visit(item, leaf);
                 }
 
+                if (array.Count == 0 && SecretJson.IsTaintedEmpty(array))
+                {
+                    leaf(array);
+                }
+
                 break;
             default:
                 leaf(node);
@@ -106,8 +138,22 @@ public static class UnknownJson
         }
     }
 
-    internal static JsonNode? Transform(JsonNode? node, Func<JsonNode?, JsonNode?> leaf)
+    /// <summary>What a copy does with an empty container (see <see cref="SecretJson.MarkTaintedEmpty"/>).</summary>
+    internal enum EmptyMarks
     {
+        /// <summary>The copy of a marked empty container is marked too (a plain copy).</summary>
+        Keep,
+
+        /// <summary>The copy is a plain empty container (a revealed copy).</summary>
+        Drop,
+
+        /// <summary>Every empty container copied is marked: the taint of a derived value that has no leaf to carry it.</summary>
+        MarkAll,
+    }
+
+    internal static JsonNode? Transform(JsonNode? node, Func<JsonNode?, JsonNode?> leaf, EmptyMarks marks = EmptyMarks.Keep)
+    {
+        ValueGuard.EnsureStack();
         switch (node)
         {
             case JsonObject obj:
@@ -115,10 +161,10 @@ public static class UnknownJson
                     var copy = new JsonObject();
                     foreach (var property in obj)
                     {
-                        copy[property.Key] = Transform(property.Value, leaf);
+                        copy[property.Key] = Transform(property.Value, leaf, marks);
                     }
 
-                    return copy;
+                    return MarkedCopy(obj, copy, marks);
                 }
 
             case JsonArray array:
@@ -126,14 +172,25 @@ public static class UnknownJson
                     var copy = new JsonArray();
                     foreach (var item in array)
                     {
-                        copy.Add(Transform(item, leaf));
+                        copy.Add(Transform(item, leaf, marks));
                     }
 
-                    return copy;
+                    return MarkedCopy(array, copy, marks);
                 }
 
             default:
                 return leaf(node);
         }
+    }
+
+    private static JsonNode MarkedCopy(JsonNode source, JsonNode copy, EmptyMarks marks)
+    {
+        bool mark = marks switch
+        {
+            EmptyMarks.MarkAll => true,
+            EmptyMarks.Keep => SecretJson.IsTaintedEmpty(source),
+            _ => false,
+        };
+        return mark ? SecretJson.MarkTaintedEmpty(copy) : copy;
     }
 }

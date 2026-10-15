@@ -66,8 +66,17 @@ public static class CanonicalJson
         return Sha256(Serialize(node, excludePaths ?? []));
     }
 
+    /// <summary>The deepest tree the canonical form accepts: values are capped at 64 levels, the writer itself stops at 1000.</summary>
+    private const int MaxCanonicalDepth = 512;
+
     private static void Write(Utf8JsonWriter writer, JsonNode? node, JsonPath path, HashSet<JsonPath> excluded)
     {
+        ValueGuard.EnsureStack();
+        if (path.Depth > MaxCanonicalDepth)
+        {
+            throw new ValueTooDeepException();
+        }
+
         switch (node)
         {
             case null:

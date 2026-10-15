@@ -379,8 +379,8 @@ public sealed class TemplateSchemaValidationTests
 
     [Theory]
     [InlineData("ab")]
-    [InlineData("1abc")]
-    [InlineData("has_underscore")]
+    [InlineData("_underscore")]
+    [InlineData("has space")]
     [InlineData("-dash")]
     public void NestedFederatedCredentialNames_FollowTheChildPattern(string childName)
     {

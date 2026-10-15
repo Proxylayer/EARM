@@ -30,7 +30,7 @@ internal sealed class FakeTimeProvider : TimeProvider
     }
 }
 
-/// <summary>The file backend of the state (plan section 1.7): atomic saves, listing, locking, stale takeover, directory resolution.</summary>
+/// <summary>The file backend of the state: atomic saves, listing, locking, stale takeover, directory resolution.</summary>
 public sealed class FileStateStoreTests
 {
     private const string Name = "orders-dev";
@@ -41,7 +41,7 @@ public sealed class FileStateStoreTests
     private static StateFile Sample(string name = Name)
     {
         var state = StateFile.CreateNew(name, EngineHost.Tenant, Start);
-        state.Upsert(StateSerializerTests.Entry("/providers/Microsoft.Entra/applications/app", Fixture.AppType, "A1"));
+        state.Upsert(StateSerializerTests.Entry("/providers/Microsoft.Entra/applications/app", Fixture.AppType, "a1000000-0000-4000-8000-000000000001"));
         return state;
     }
 
@@ -60,7 +60,7 @@ public sealed class FileStateStoreTests
         Assert.Empty(Directory.GetFiles(store.Directory, "*.tmp"));
         Assert.Equal([Name + ".json"], Directory.GetFiles(store.Directory).Select(Path.GetFileName).ToList());
         Assert.NotNull(loaded);
-        Assert.Equal("A1", loaded.GraphIdOf("/providers/Microsoft.Entra/applications/app"));
+        Assert.Equal("a1000000-0000-4000-8000-000000000001", loaded.GraphIdOf("/providers/Microsoft.Entra/applications/app"));
         Assert.Equal(EngineHost.Tenant, loaded.TenantId);
         Assert.Null(await store.LoadAsync("never-run", Ct));
 

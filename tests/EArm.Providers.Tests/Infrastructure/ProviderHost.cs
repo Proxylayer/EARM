@@ -5,7 +5,7 @@ using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Core;
 using EArm.Core.Loading;
 using EArm.Core.Types;
@@ -81,6 +81,9 @@ internal sealed class ProviderHost
 
     public string? SignedInPrincipalId { get; set; }
 
+    /// <summary>Plan as if signed in with an application (app-only) token: <c>PlannerOptions.AppOnlyToken</c>.</summary>
+    public bool AppOnlyToken { get; set; }
+
     /// <summary>The discovered registry with every catalog type that has no provider yet served by <see cref="EchoProvider"/>.</summary>
     public static ProviderRegistry CreateRegistry(ResourceTypeCatalog catalog)
     {
@@ -148,6 +151,7 @@ internal sealed class ProviderHost
             AllowCaEnforce = AllowCaEnforce,
             EdgeKinds = EdgeKinds,
             SignedInPrincipalId = SignedInPrincipalId,
+            AppOnlyToken = AppOnlyToken,
         };
     }
 
@@ -213,10 +217,10 @@ internal sealed class ProviderHost
     }
 
     /// <summary><c>deployment delete --delete-resources</c> over the recorded state.</summary>
-    public async Task<DeploymentDeleteResult> DeleteAllAsync()
+    public async Task<DeploymentDeleteResult> DeleteAllAsync(bool deleteAdopted = false)
     {
         var state = await LoadStateAsync() ?? throw new InvalidOperationException("No state recorded.");
-        return await DeploymentDeleter.DeleteAllAsync(state, Store, Registry, Fake, UseRetry ? Retry : null, false, Logs.For<DeploymentExecutor>(), Ct);
+        return await DeploymentDeleter.DeleteAllAsync(state, Store, Registry, Fake, UseRetry ? Retry : null, false, new DeleteGuard { DeleteAdopted = deleteAdopted }, Logs.For<DeploymentExecutor>(), Ct);
     }
 
     // ---- state and directory helpers ----

@@ -5,7 +5,7 @@ using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Cli;
 using EArm.Cli.Commands;
 using EArm.Core;
@@ -38,7 +38,7 @@ public sealed class StateCommandTests
             Type = Fixture.AppType,
             ApiVersion = "2026-10-01-preview",
             Key = new Dictionary<string, string> { ["uniqueName"] = "orders-api" },
-            GraphId = "A1",
+            GraphId = "a1000000-0000-4000-8000-000000000001",
             LastWriteOn = Start,
             ContentHash = "sha256:a",
         });
@@ -48,12 +48,12 @@ public sealed class StateCommandTests
             Type = Fixture.FicType,
             ApiVersion = "2026-10-01-preview",
             Key = new Dictionary<string, string> { ["name"] = "github" },
-            GraphId = "F1",
-            ParentGraphId = "A1",
+            GraphId = "f1000000-0000-4000-8000-000000000001",
+            ParentGraphId = "a1000000-0000-4000-8000-000000000001",
             DependsOn = [AppId],
             LastWriteOn = Start,
         });
-        state.Operations.Add(new OperationRecord { ResourceId = AppId, Type = Fixture.AppType, Status = OperationStatus.Succeeded, ChangeType = ChangeType.Create, Batch = 1, StartedOn = Start, FinishedOn = Start.AddSeconds(2), GraphId = "A1" });
+        state.Operations.Add(new OperationRecord { ResourceId = AppId, Type = Fixture.AppType, Status = OperationStatus.Succeeded, ChangeType = ChangeType.Create, Batch = 1, StartedOn = Start, FinishedOn = Start.AddSeconds(2), GraphId = "a1000000-0000-4000-8000-000000000001" });
         state.Operations.Add(new OperationRecord { ResourceId = FicId, Type = Fixture.FicType, Status = OperationStatus.Failed, ChangeType = ChangeType.Create, Batch = 2, StartedOn = Start, FinishedOn = Start, Error = "Graph 403 Authorization_RequestDenied: no", ErrorCode = "ResourceApplyFailed" });
         state.CompleteRun(false, "Incremental", "sha256:template", Start.AddMinutes(1));
         return state;
@@ -66,7 +66,7 @@ public sealed class StateCommandTests
             Name = name,
             StateDir = sandbox.StateDir,
             Output = OutputFormat.Table,
-            Az = new AzOptions { AzCommand = CliSandbox.FakeAzPath, TempDirectory = sandbox.TempDir },
+            Connection = sandbox.Connection,
             Yes = yes,
         };
     }
@@ -152,8 +152,8 @@ public sealed class StateCommandTests
         Assert.Contains("Resource", table.StandardOutput);
         Assert.Contains("Graph id", table.StandardOutput);
         var rows = table.StandardOutput.Split('\n').Select(l => l.TrimEnd()).ToList();
-        Assert.Contains(rows, l => l.StartsWith(AppId, StringComparison.Ordinal) && l.Contains("  A1", StringComparison.Ordinal));
-        Assert.Contains(rows, l => l.StartsWith(FicId, StringComparison.Ordinal) && l.Contains("  F1", StringComparison.Ordinal));
+        Assert.Contains(rows, l => l.StartsWith(AppId, StringComparison.Ordinal) && l.Contains("  a1000000-0000-4000-8000-000000000001", StringComparison.Ordinal));
+        Assert.Contains(rows, l => l.StartsWith(FicId, StringComparison.Ordinal) && l.Contains("  f1000000-0000-4000-8000-000000000001", StringComparison.Ordinal));
         Assert.Equal(string.Empty, table.StandardError);
 
         Assert.Equal(0, json.ExitCode);
@@ -161,8 +161,8 @@ public sealed class StateCommandTests
         Assert.Equal(sandbox.StatePath("a-dep"), json.Json["stateFile"]!.GetValue<string>());
         Assert.Null(json.Json["lock"]);
         Assert.Null(json.Json["drift"]);
-        Assert.Equal("A1", json.Json["resources"]![AppId]!["id"]!.GetValue<string>());
-        Assert.Equal("A1", json.Json["resources"]![FicId]!["parentId"]!.GetValue<string>());
+        Assert.Equal("a1000000-0000-4000-8000-000000000001", json.Json["resources"]![AppId]!["id"]!.GetValue<string>());
+        Assert.Equal("a1000000-0000-4000-8000-000000000001", json.Json["resources"]![FicId]!["parentId"]!.GetValue<string>());
         Assert.Equal(2, json.Json["operations"]!.AsArray().Count);
     }
 
@@ -239,7 +239,7 @@ public sealed class StateCommandTests
         Assert.Equal("Create", operations[0]!["changeType"]!.GetValue<string>());
         Assert.Equal(1, operations[0]!["batch"]!.GetValue<int>());
         Assert.Equal(2000, operations[0]!["durationMs"]!.GetValue<long>());
-        Assert.Equal("A1", operations[0]!["graphId"]!.GetValue<string>());
+        Assert.Equal("a1000000-0000-4000-8000-000000000001", operations[0]!["graphId"]!.GetValue<string>());
         Assert.Equal("ResourceApplyFailed", operations[1]!["errorCode"]!.GetValue<string>());
 
         Assert.Equal(1, missing.ExitCode);
@@ -301,7 +301,7 @@ public sealed class StateCommandTests
 
         Assert.Equal(1, exitCode);
         Assert.Contains("Nothing forgotten.", stderr.ToString());
-        Assert.Contains("Forget '" + AppId + "' (Graph id A1)?", stdout.ToString());
+        Assert.Contains("Forget '" + AppId + "' (Graph id a1000000-0000-4000-8000-000000000001)?", stderr.ToString());
         Assert.Equal(2, (await sandbox.Store.LoadAsync("a-dep", Ct))!.Resources.Count);
         Assert.False(File.Exists(sandbox.LockPath("a-dep")));
     }
@@ -357,22 +357,22 @@ public sealed class StateCommandTests
 
         Assert.Equal(1, exitCode);
         Assert.Contains("Nothing deleted.", stderr.ToString());
-        Assert.Contains("Remove the state of deployment 'a-dep' (2 resource(s))?", stdout.ToString());
+        Assert.Contains("Remove the state of deployment 'a-dep' (2 resource(s))?", stderr.ToString());
         Assert.True(File.Exists(sandbox.StatePath("a-dep")));
         Assert.False(File.Exists(sandbox.LockPath("a-dep")));
     }
 
     [Fact]
-    public async Task Delete_WithDeleteResources_NotLoggedIn_ExitsThree()
+    public async Task Delete_WithDeleteResources_NotSignedIn_ExitsThree()
     {
-        using var sandbox = new CliSandbox(nameof(Delete_WithDeleteResources_NotLoggedIn_ExitsThree));
+        using var sandbox = new CliSandbox(nameof(Delete_WithDeleteResources_NotSignedIn_ExitsThree));
         sandbox.UseNotLoggedIn();
         await sandbox.WriteStateAsync(Sample("a-dep"));
 
-        var result = await CliRunner.RunAsync([.. sandbox.AzArgs, "deployment", "delete", "-n", "a-dep", "-y", "--delete-resources"]);
+        var result = await CliRunner.RunAsync([.. sandbox.StateArgs, "deployment", "delete", "-n", "a-dep", "-y", "--delete-resources"]);
 
         Assert.Equal(3, result.ExitCode);
-        Assert.Contains("az login --allow-no-subscriptions", result.StandardError);
+        Assert.Contains("earm auth login", result.StandardError);
         Assert.True(File.Exists(sandbox.StatePath("a-dep")));
         Assert.False(File.Exists(sandbox.LockPath("a-dep")));
     }
@@ -384,31 +384,10 @@ public sealed class StateCommandTests
         sandbox.UsePreflightOk(CliSandbox.OtherTenant);
         await sandbox.WriteStateAsync(Sample("a-dep"));
 
-        var result = await CliRunner.RunAsync([.. sandbox.AzArgs, "deployment", "delete", "-n", "a-dep", "-y", "--delete-resources"]);
+        var result = await CliRunner.RunAsync([.. sandbox.StateArgs, "deployment", "delete", "-n", "a-dep", "-y", "--delete-resources"]);
 
         Assert.Equal(3, result.ExitCode);
         Assert.Contains("was deployed to tenant " + CliSandbox.Tenant, result.StandardError);
         Assert.True(File.Exists(sandbox.StatePath("a-dep")));
-    }
-
-    [Fact]
-    public async Task Delete_WithDeleteResources_WithoutAProvider_FailsAndKeepsTheEntries()
-    {
-        var registry = ProviderDiscovery.CreateRegistry(ResourceTypeCatalog.Default);
-        Assert.SkipWhen(registry.Contains(Fixture.AppType) || registry.Contains(Fixture.FicType), "providers for the sample types are registered; the delete path is covered by the provider and engine tests.");
-        using var sandbox = new CliSandbox(nameof(Delete_WithDeleteResources_WithoutAProvider_FailsAndKeepsTheEntries));
-        sandbox.UsePreflightOk();
-        await sandbox.WriteStateAsync(Sample("a-dep"));
-
-        var result = await CliRunner.RunAsync([.. sandbox.AzArgs, "deployment", "delete", "-n", "a-dep", "-y", "--delete-resources"]);
-
-        Assert.Equal(1, result.ExitCode);
-        Assert.Contains("1 delete(s) failed, 1 skipped; 2 entry(ies) remain in the state.", result.StandardError);
-        Assert.Contains("! " + FicId, result.StandardError);
-        Assert.Contains("? " + AppId, result.StandardOutput + result.StandardError);
-        var loaded = await sandbox.Store.LoadAsync("a-dep", Ct);
-        Assert.Equal(2, loaded!.Resources.Count);
-        Assert.Equal(StateFile.StatusFailed, loaded.LastStatus);
-        Assert.False(File.Exists(sandbox.LockPath("a-dep")));
     }
 }

@@ -75,7 +75,7 @@ public static class JsonObjects
         return GetString(obj, "id");
     }
 
-    /// <summary>True for <c>null</c>, a JSON null leaf, or an empty array (plan section 3.1: <c>null</c>/<c>[]</c> ≡ absent).</summary>
+    /// <summary>True for <c>null</c>, a JSON null leaf, or an empty array (<c>null</c>/<c>[]</c> ≡ absent).</summary>
     public static bool IsAbsent(JsonNode? node)
     {
         return node switch

@@ -12,8 +12,27 @@
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>earm</ToolCommandName>
     <PackageId>earm</PackageId>
-    <Description>ARM-style JSON templates for Microsoft Entra ID, executed via Azure CLI.</Description>
+    <Description>ARM-style JSON templates for Microsoft Entra ID, deployed through the Microsoft Graph API.</Description>
   </PropertyGroup>
+
+  <!-- NuGet package metadata. -->
+  <PropertyGroup>
+    <Authors>Proxylayer</Authors>
+    <PackageProjectUrl>https://github.com/Proxylayer/EARM</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/Proxylayer/EARM</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageTags>entra;entra-id;azure-ad;microsoft-graph;arm-template;infrastructure-as-code;iac;dotnet-tool</PackageTags>
+    <!--
+      LICENCE: pending owner decision. No licence has been chosen, so neither PackageLicenseExpression nor PackageLicenseFile is set
+      and the package carries no licence metadata. Set PackageLicenseExpression (for example MIT) once the owner has decided,
+      and add the matching LICENSE file to the repository root. Do NOT publish to nuget.org before this is resolved.
+    -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="../../README.md" Pack="true" PackagePath="/" Visible="false" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="System.CommandLine" />
@@ -24,7 +43,7 @@
   <ItemGroup>
     <ProjectReference Include="../EArm.Core/EArm.Core.csproj" />
     <ProjectReference Include="../EArm.Expressions/EArm.Expressions.csproj" />
-    <ProjectReference Include="../EArm.Az/EArm.Az.csproj" />
+    <ProjectReference Include="../EArm.Graph/EArm.Graph.csproj" />
     <ProjectReference Include="../EArm.Engine/EArm.Engine.csproj" />
     <ProjectReference Include="../EArm.Providers/EArm.Providers.csproj" />
   </ItemGroup>

@@ -9,7 +9,7 @@ namespace EArm.Expressions.Evaluation;
 /// <summary>
 /// Supplies the object behind <c>reference()</c>. <paramref name="apiVersion"/> is <c>null</c> for a same-template
 /// resource (implicit dependency; the engine publishes the live object after the resource is applied) and set for
-/// an existing-resource lookup outside the template (plan section 1.2). Implemented live by the engine (WI-05);
+/// an existing-resource lookup outside the template. Implemented live by the engine;
 /// <see cref="StaticReferenceResolver"/> is the offline implementation.
 /// </summary>
 public interface IReferenceResolver

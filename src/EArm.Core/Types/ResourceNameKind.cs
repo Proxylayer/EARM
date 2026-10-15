@@ -1,6 +1,6 @@
 namespace EArm.Core.Types;
 
-/// <summary>How a resource's ARM-style <c>name</c> maps to its Graph identity (plan section 1.3).</summary>
+/// <summary>How a resource's ARM-style <c>name</c> maps to its Graph identity.</summary>
 public enum ResourceNameKind
 {
     /// <summary>Graph <c>uniqueName</c> alternate key (applications, groups).</summary>

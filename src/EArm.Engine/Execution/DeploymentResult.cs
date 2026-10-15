@@ -12,6 +12,9 @@ public enum DeploymentStatus
 {
     Succeeded,
     Failed,
+
+    /// <summary>Recorded in the state when the run was cancelled; <see cref="DeploymentExecutor.ExecuteAsync"/> then ends with an <see cref="OperationCanceledException"/> instead of a result.</summary>
+    Cancelled,
 }
 
 public enum OperationStatus

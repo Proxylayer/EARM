@@ -192,7 +192,7 @@ public sealed partial class StaticEvaluatorTests
 
         var ciSecret = Expr.AssertUnknown(analysis.Static.Outputs["ciSecret"].Value);
         Assert.True((ciSecret.Origins & UnknownOrigins.Parameter) != 0);
-        // WI-16: no function of the default registry is a stub any more, so the Info is the only finding.
+        // No function of the default registry is a stub any more, so the Info is the only finding.
         Assert.Equal(0, analysis.Diagnostics.Count(d => d.Code == DiagnosticCodes.NotImplementedYet));
         Assert.Single(analysis.Diagnostics);
     }
@@ -279,7 +279,7 @@ public sealed partial class StaticEvaluatorTests
 
         var diagnostics = Validator.Validate(document);
 
-        // With every parameter supplied the sample is clean (WI-16 removed the NotImplementedYet warnings).
+        // With every parameter supplied the sample is clean (no NotImplementedYet warnings remain).
         Assert.Empty(diagnostics);
     }
 }

@@ -4,7 +4,7 @@ using System.Linq;
 using System.Net;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Core;
 using EArm.Engine.Planning;
 using EArm.Engine.Providers;
@@ -14,7 +14,7 @@ using Xunit;
 
 namespace EArm.Providers.Tests;
 
-/// <summary>Authentication context class references and authentication strengths (WI-20): pure rules and end-to-end scenarios.</summary>
+/// <summary>Authentication context class references and authentication strengths: pure rules and end-to-end scenarios.</summary>
 public sealed class AuthenticationProvidersTests
 {
     private const string AccrType = AuthenticationContextClassReferencesProvider.ResourceType;

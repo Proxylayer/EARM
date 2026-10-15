@@ -7,7 +7,7 @@ using EArm.Expressions.Values;
 namespace EArm.Providers;
 
 /// <summary>
-/// The user side of <c>assignedLicenses</c> (plan section 1.4): a user's live <c>assignedLicenses</c> merges direct
+/// The user side of <c>assignedLicenses</c>: a user's live <c>assignedLicenses</c> merges direct
 /// assignments with those inherited through group-based licensing, and only the direct ones are managed. Graph tells
 /// them apart in <c>licenseAssignmentStates[]</c>: an entry whose <c>assignedByGroup</c> is <c>null</c> is a direct
 /// assignment. The diff and the <c>assignLicense</c> call themselves are shared with groups (<see cref="GroupsLicensing"/>).

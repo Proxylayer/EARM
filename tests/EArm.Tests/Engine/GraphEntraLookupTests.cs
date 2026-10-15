@@ -2,7 +2,7 @@ using System;
 using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Engine.Planning;
 using EArm.Expressions.Evaluation;
 using EArm.TestSupport;
@@ -10,7 +10,7 @@ using Xunit;
 
 namespace EArm.Tests.Engine;
 
-/// <summary>The engine's <see cref="IEntraLookup"/> over <see cref="FakeGraphClient"/> (WI-16): service principal first, application fallback, caching, messages, filters.</summary>
+/// <summary>The engine's <see cref="IEntraLookup"/> over <see cref="FakeGraphClient"/>: service principal first, application fallback, caching, messages, filters.</summary>
 public sealed class GraphEntraLookupTests
 {
     private const string AppId = "aaaaaaaa-1111-2222-3333-444444444444";

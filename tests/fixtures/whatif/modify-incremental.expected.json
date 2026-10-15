@@ -96,11 +96,7 @@
             "redirectUris": [
               "https://old.contoso.com/signin",
               "https://orders.contoso.com/signin"
-            ],
-            "implicitGrantSettings": {
-              "enableAccessTokenIssuance": false,
-              "enableIdTokenIssuance": false
-            }
+            ]
           },
           "after": {
             "redirectUris": [
@@ -132,14 +128,6 @@
                   "before": "https://old.contoso.com/signin"
                 }
               ]
-            },
-            {
-              "path": "implicitGrantSettings",
-              "propertyChangeType": "NoEffect",
-              "before": {
-                "enableAccessTokenIssuance": false,
-                "enableIdTokenIssuance": false
-              }
             }
           ]
         },
@@ -428,9 +416,41 @@
       "unsupportedReason": null
     }
   ],
-  "diagnostics": [],
+  "diagnostics": [
+    {
+      "level": "Warning",
+      "code": "AdoptedExistingObject",
+      "target": null,
+      "message": "'/providers/Microsoft.Entra/applications/contoso-dev-api' would adopt the existing Microsoft.Entra/applications object 33333333-0000-0000-0000-000000000001: it was not created by this deployment, so Complete mode will not delete it (--delete-adopted overrides)."
+    },
+    {
+      "level": "Warning",
+      "code": "AdoptedExistingObject",
+      "target": null,
+      "message": "'/providers/Microsoft.Entra/users/bg-orders@contoso.com' would adopt the existing Microsoft.Entra/users object 22222222-0000-0000-0000-000000000006: it was not created by this deployment, so Complete mode will not delete it (--delete-adopted overrides)."
+    },
+    {
+      "level": "Warning",
+      "code": "AdoptedExistingObject",
+      "target": null,
+      "message": "'/providers/Microsoft.Entra/groups/contoso-dev-orders-admins' would adopt the existing Microsoft.Entra/groups object 22222222-0000-0000-0000-000000000010: it was not created by this deployment, so Complete mode will not delete it (--delete-adopted overrides)."
+    },
+    {
+      "level": "Warning",
+      "code": "AdoptedExistingObject",
+      "target": null,
+      "message": "'/providers/Microsoft.Entra/groups/contoso-legacy' would adopt the existing Microsoft.Entra/groups object 22222222-0000-0000-0000-000000000011: it was not created by this deployment, so Complete mode will not delete it (--delete-adopted overrides)."
+    },
+    {
+      "level": "Warning",
+      "code": "AdoptedExistingObject",
+      "target": null,
+      "message": "'/providers/Microsoft.Entra/groups/contoso-dev-orders-ops' would adopt the existing Microsoft.Entra/groups object 22222222-0000-0000-0000-000000000012: it was not created by this deployment, so Complete mode will not delete it (--delete-adopted overrides)."
+    }
+  ],
   "requiredPermissions": [
     "Application.ReadWrite.All",
+    "Directory.Read.All",
     "Group.ReadWrite.All",
     "GroupMember.ReadWrite.All",
     "User.ReadWrite.All"

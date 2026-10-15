@@ -178,7 +178,7 @@ public sealed class ResourceTypeCatalogTests
         Assert.Equal(ResourceNameKind.Guid, Catalog.Find("Microsoft.Entra/oauth2PermissionGrants")!.NameKind);
         Assert.Equal(ResourceNameKind.Guid, Catalog.Find("Microsoft.Entra/roleAssignments")!.NameKind);
         Assert.Equal(ResourceNameKind.DisplayName, Catalog.Find("Microsoft.Entra/conditionalAccess/policies")!.NameKind);
-        Assert.Equal("^[A-Za-z][A-Za-z0-9-]{2,119}$", Catalog.Find("Microsoft.Entra/applications/federatedIdentityCredentials")!.NamePattern);
+        Assert.Equal("^[A-Za-z0-9][A-Za-z0-9_-]{2,119}$", Catalog.Find("Microsoft.Entra/applications/federatedIdentityCredentials")!.NamePattern);
         Assert.Equal("displayName", Catalog.Find("Microsoft.Entra/applications/passwordCredentials")!.NameMapsTo);
     }
 

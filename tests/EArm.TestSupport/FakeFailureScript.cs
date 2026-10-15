@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Net;
-using EArm.Az;
+using EArm.Graph;
 
 namespace EArm.TestSupport;
 
@@ -100,10 +100,10 @@ public sealed class FakeFailureScript
             request.Hint), times);
     }
 
-    /// <summary>A transient Azure CLI failure (no Graph body) N times.</summary>
-    public void AzFailure(string pathContains, int times = 1, string method = "*")
+    /// <summary>A transient transport failure (network error, no Graph response) N times.</summary>
+    public void TransportFailure(string pathContains, int times = 1, string method = "*")
     {
-        Add(method, pathContains, _ => new AzCliException(AzCliFailure.Transient, "az rest: transient Azure CLI failure (exit 1). Connection reset by peer."), times);
+        Add(method, pathContains, _ => new GraphTransportException(GraphTransportFailure.Network, "GET: the request to graph.microsoft.com failed (Connection reset by peer)."), times);
     }
 
     /// <summary>The exception to throw for this request, or <c>null</c>; a matching rule's counter is consumed.</summary>

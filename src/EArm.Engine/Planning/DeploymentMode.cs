@@ -6,7 +6,7 @@ public enum DeploymentMode
     /// <summary>Create/update declared resources; resources that vanished from the template are detached from state with a warning.</summary>
     Incremental,
 
-    /// <summary>As <see cref="Incremental"/>, plus state-managed resources absent from the template are deleted (WI-06).</summary>
+    /// <summary>As <see cref="Incremental"/>, plus state-managed resources absent from the template are deleted.</summary>
     Complete,
 }
 

@@ -4,19 +4,19 @@ using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Core;
 using EArm.Core.Types;
 using EArm.Engine;
 using EArm.Engine.Providers;
 using EArm.Engine.State;
 using EArm.Expressions.Values;
-using GraphApi = EArm.Az.GraphApi;
+using GraphApi = EArm.Graph.GraphApi;
 
 namespace EArm.Providers;
 
 /// <summary>
-/// <c>Microsoft.Entra/oauth2PermissionGrants</c> (plan sections 1.3, 3.2; work item WI-12): a delegated permission
+/// <c>Microsoft.Entra/oauth2PermissionGrants</c>: a delegated permission
 /// grant (admin consent) of a client service principal on a resource service principal. The resource name is a
 /// deterministic GUID chosen with <c>guid(...)</c>; the Graph object is found by the composite key (<c>clientId</c>,
 /// <c>resourceId</c>, <c>consentType</c>, <c>principalId</c>) and its id pinned in the state. Sugar: <c>scopes</c>
@@ -39,7 +39,7 @@ public sealed class OAuth2PermissionGrantsProvider : ProviderBase
     public const string ResourceType = "Microsoft.Entra/oauth2PermissionGrants";
 
     /// <summary><see cref="ProviderException"/> code: the declared grant cannot be made (unknown scope value, bad consent type, bad shape).</summary>
-    public const string InvalidGrant = "PermissionGrantInvalid";
+    public const string InvalidGrant = EngineDiagnosticCodes.PermissionGrantInvalid;
 
     public OAuth2PermissionGrantsProvider(ResourceTypeDefinition definition, ResourceTypeCatalog? catalog = null)
         : base(definition, catalog)
@@ -279,7 +279,7 @@ public sealed class OAuth2PermissionGrantsProvider : ProviderBase
         }
 
         var request = new GraphRequest(CollectionPath, key.Api, hint: hint).WithFilter(filter);
-        await foreach (var item in graph.GetAllPagesAsync(request, cancellationToken).ConfigureAwait(false))
+        await foreach (var item in ListGrantsAsync(graph, request, clientId, key.Api, hint, cancellationToken).ConfigureAwait(false))
         {
             if (item is not JsonObject grant)
             {
@@ -302,6 +302,45 @@ public sealed class OAuth2PermissionGrantsProvider : ProviderBase
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// The grants the filter selects. Learn documents <c>$filter</c> on grants as <c>eq</c> only (per property) and says nothing about combining
+    /// several clauses with <c>and</c>: a tenant that rejects the combination (400) is asked again with <c>clientId eq '…'</c> alone (the
+    /// property Learn recommends for fewer replication delays) and the caller matches the rest client-side.
+    /// </summary>
+    private async IAsyncEnumerable<JsonNode> ListGrantsAsync(IGraphClient graph, GraphRequest request, string clientId, GraphApi api, RetryHint hint, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        var items = new List<JsonNode>();
+        bool rejected = false;
+        try
+        {
+            await foreach (var item in graph.GetAllPagesAsync(request, cancellationToken).ConfigureAwait(false))
+            {
+                items.Add(item);
+            }
+        }
+        catch (GraphException ex) when (ex.Status == System.Net.HttpStatusCode.BadRequest)
+        {
+            rejected = true;
+            items.Clear();
+        }
+
+        if (rejected)
+        {
+            var narrow = new GraphRequest(CollectionPath, api, hint: hint).WithFilter("clientId eq '" + ProviderSupport.EscapeLiteral(clientId) + "'");
+            await foreach (var item in graph.GetAllPagesAsync(narrow, cancellationToken).ConfigureAwait(false))
+            {
+                yield return item;
+            }
+
+            yield break;
+        }
+
+        foreach (var item in items)
+        {
+            yield return item;
+        }
     }
 
     // ---- create ----

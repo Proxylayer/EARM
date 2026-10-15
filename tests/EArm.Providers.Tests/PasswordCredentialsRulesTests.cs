@@ -2,14 +2,14 @@ using System;
 using System.Linq;
 using System.Net;
 using System.Text.Json.Nodes;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Core.Secrets;
 using EArm.Engine.Providers;
 using Xunit;
 
 namespace EArm.Providers.Tests;
 
-/// <summary>Pure rules of the password credentials provider (WI-11): desired parsing, selection, rotation triggers with a fixed clock, Graph answers, views and state extra.</summary>
+/// <summary>Pure rules of the password credentials provider: desired parsing, selection, rotation triggers with a fixed clock, Graph answers, views and state extra.</summary>
 public sealed class PasswordCredentialsRulesTests
 {
     private static readonly DateTimeOffset Now = new(2026, 10, 14, 12, 0, 0, TimeSpan.Zero);

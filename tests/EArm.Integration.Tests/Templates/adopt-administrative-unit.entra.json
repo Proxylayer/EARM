@@ -2,7 +2,7 @@
   "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
   "contentVersion": "1.0.0.0",
   "metadata": {
-    "description": "WI-19: an administrative unit keyed by displayName; state adopt --object-id pins it to the intended object."
+    "description": "An administrative unit keyed by displayName; state adopt --object-id pins it to the intended object."
   },
   "parameters": {
     "prefix":      { "type": "string" },

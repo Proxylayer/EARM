@@ -2,7 +2,7 @@
   "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
   "contentVersion": "1.0.0.0",
   "metadata": {
-    "description": "WI-19: an authentication strength and an authentication context class reference, referenced by a report-only policy for one test group."
+    "description": "An authentication strength and an authentication context class reference, referenced by a report-only policy for one test group."
   },
   "parameters": {
     "prefix":             { "type": "string" },

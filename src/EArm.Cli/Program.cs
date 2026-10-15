@@ -1,14 +1,157 @@
+using System;
 using System.CommandLine;
 using System.CommandLine.Help;
+using System.CommandLine.Invocation;
+using System.IO;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using EArm.Cli.Commands;
+using EArm.Cli.Output;
+using EArm.Core.Diagnostics;
+using EArm.Core.Json;
+using EArm.Expressions.Evaluation;
+using EArm.Graph;
 
 namespace EArm.Cli;
 
 internal static class Program
 {
-    private static int Main(string[] args)
+    /// <summary>The longest text shown for an unexpected error (the message is cut, never the type).</summary>
+    private const int MaxUnexpectedMessageLength = 500;
+
+    private static Task<int> Main(string[] args)
     {
-        return BuildRootCommand().Parse(args, CreateParserConfiguration()).Invoke();
+        return InvokeAsync(args, new InvocationConfiguration(), CancellationToken.None);
+    }
+
+    /// <summary>
+    /// Runs the command line: the one entry point of the process, also used by the tests. Everything the commands write goes through
+    /// <see cref="ConsoleSanitizer"/> (control characters and CI log commands from untrusted text are neutralised), the evaluation budget of the
+    /// run is installed (<c>--evaluation-timeout</c>), usage errors and the help shown with them go to standard error, and no exception escapes:
+    /// anything unexpected becomes one line, <c>Unexpected error (type): message</c>, with exit code 1 (the full exception with <c>--debug</c> or
+    /// <c>EARM_DEBUG=1</c>). <paramref name="rootFactory"/> lets a test supply its own command tree.
+    /// </summary>
+    internal static async Task<int> InvokeAsync(string[] args, InvocationConfiguration configuration, CancellationToken cancellationToken, Func<RootCommand>? rootFactory = null)
+    {
+        ArgumentNullException.ThrowIfNull(args);
+        ArgumentNullException.ThrowIfNull(configuration);
+
+        var rawOutput = configuration.Output;
+        var rawError = configuration.Error;
+        var output = new ConsoleSanitizer(rawOutput);
+        var error = new ConsoleSanitizer(rawError);
+        configuration.Output = output;
+        configuration.Error = error;
+        configuration.EnableDefaultExceptionHandler = false;
+
+        bool debug = GlobalOptions.IsDebugEnvironment();
+
+        // The registry of secret values is created before the try block so a failure reported below still scrubs what the run learned.
+        using var secrets = SecretScrubber.Begin();
+        try
+        {
+            var parseResult = (rootFactory?.Invoke() ?? BuildRootCommand()).Parse(args, CreateParserConfiguration());
+            debug = GlobalOptions.IsDebug(parseResult);
+
+            if (parseResult.Action is ParseErrorAction)
+            {
+                if (WantsJson(parseResult))
+                {
+                    // -o json promises one JSON document on standard output, also for a command line that does not parse (the message stays on standard error).
+                    string message = string.Join("\n", parseResult.Errors.Select(e => e.Message));
+                    return FailureDocument.Write(OutputFormat.Json, output, error, ValidateCommand.InvalidArgumentCode, message, ExitCodes.Failure);
+                }
+
+                // A usage error: the message goes to standard error already; the help that follows it must not pollute standard output.
+                configuration.Output = error;
+            }
+
+            using var run = EvaluationBudget.BeginRun(GlobalOptions.GetEvaluationLimits(parseResult));
+            return await parseResult.InvokeAsync(configuration, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            error.WriteLine("Cancelled.");
+            return ExitCodes.Failure;
+        }
+        catch (OutOfMemoryException)
+        {
+            error.WriteLine("The command ran out of memory. The template is too large or builds values that are too large: lower copy.count, or reduce the size of the strings and arrays it computes.");
+            return ExitCodes.Failure;
+        }
+        catch (Exception ex)
+        {
+            ReportUnexpected(ex, error, debug);
+            return ExitCodes.Failure;
+        }
+        finally
+        {
+            configuration.Output = rawOutput;
+            configuration.Error = rawError;
+            output.Flush();
+            error.Flush();
+        }
+    }
+
+    private static bool WantsJson(ParseResult parseResult)
+    {
+        try
+        {
+            return GlobalOptions.GetOutputFormat(parseResult) == OutputFormat.Json;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// The text of an exception that no command handled: a single line, free of secrets (<see cref="SecretScrubber"/> and
+    /// <see cref="SecretRedactor"/>) and of control characters, naming the exception type and its message. File and permission problems get a
+    /// plain sentence. With <paramref name="debug"/> the full exception follows (stack trace included).
+    /// </summary>
+    internal static string DescribeUnexpected(Exception exception, bool debug)
+    {
+        ArgumentNullException.ThrowIfNull(exception);
+        string message = Clean(exception.Message);
+        bool depth = exception is ValueTooDeepException
+            || (exception is InvalidOperationException or System.Text.Json.JsonException && exception.Message.Contains("depth", StringComparison.OrdinalIgnoreCase));
+        string line = exception switch
+        {
+            _ when depth => "A value is nested too deeply to be processed or written as JSON (the limit is 64 levels). Reduce the nesting of the values the template builds.",
+            UnauthorizedAccessException => $"Access denied: {message} Check the permissions of the file or directory.",
+            IOException => $"A file operation failed ({exception.GetType().Name}): {message}",
+            _ => $"Unexpected error ({exception.GetType().Name}): {message}",
+        };
+
+        if (!debug)
+        {
+            return line;
+        }
+
+        return line + Environment.NewLine + Clean(exception.ToString(), keepLines: true);
+    }
+
+    private static void ReportUnexpected(Exception exception, TextWriter error, bool debug)
+    {
+        error.WriteLine(DescribeUnexpected(exception, debug));
+        if (!debug)
+        {
+            error.WriteLine("Run again with --debug (or EARM_DEBUG=1) for the details.");
+        }
+    }
+
+    private static string Clean(string text, bool keepLines = false)
+    {
+        string scrubbed = SecretRedactor.RedactText(SecretScrubber.Scrub(text));
+        if (!keepLines)
+        {
+            scrubbed = SafeText.Escape(scrubbed);
+            return scrubbed.Length <= MaxUnexpectedMessageLength ? scrubbed : scrubbed[..MaxUnexpectedMessageLength] + "...";
+        }
+
+        return scrubbed;
     }
 
     /// <summary>
@@ -25,7 +168,7 @@ internal static class Program
     /// </summary>
     internal static RootCommand BuildRootCommand()
     {
-        var root = new RootCommand("EARM - ARM-style JSON templates for Microsoft Entra ID, executed via Azure CLI.");
+        var root = new RootCommand("EARM - ARM-style JSON templates for Microsoft Entra ID, deployed through the Microsoft Graph API.");
 
         // Replace the built-in --version (which reports the *entry* assembly) with one pinned to this assembly,
         // so the answer is the same whether the CLI is run as a tool or driven in-process from a test host.
@@ -45,14 +188,16 @@ internal static class Program
         });
 
         root.Options.Add(GlobalOptions.Output);
-        root.Options.Add(GlobalOptions.PwshPath);
-        root.Options.Add(GlobalOptions.AzCommand);
-        root.Options.Add(GlobalOptions.TempDir);
+        root.Options.Add(GlobalOptions.Auth);
+        root.Options.Add(GlobalOptions.Tenant);
+        root.Options.Add(GlobalOptions.ClientId);
         root.Options.Add(GlobalOptions.StateDir);
         root.Options.Add(GlobalOptions.Verbose);
         root.Options.Add(GlobalOptions.Debug);
+        root.Options.Add(GlobalOptions.EvaluationTimeout);
         root.Subcommands.Add(DeploymentCommand.Build());
         root.Subcommands.Add(StateCommand.Build());
+        root.Subcommands.Add(AuthCommand.Build());
         root.Subcommands.Add(PermissionsCommand.Build());
         root.Subcommands.Add(SchemaCommand.Build());
 

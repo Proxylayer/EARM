@@ -6,7 +6,7 @@ using Xunit;
 
 namespace EArm.Providers.Tests;
 
-/// <summary>Pure rules of the applications provider (WI-07): derived ids, normalisation, value collisions, deferred identifier URIs, the two-step disable.</summary>
+/// <summary>Pure rules of the applications provider: derived ids, normalisation, value collisions, deferred identifier URIs, the two-step disable.</summary>
 public sealed class ApplicationsRulesTests
 {
     private const string Name = "test-api";

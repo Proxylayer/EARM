@@ -117,29 +117,37 @@ public sealed class TemplateInputRobustnessTests
     }
 
     [Fact]
-    public void InvalidUtf8InsideAString_IsEitherRejectedAtLoad_OrLoadsAsAStringTheLaterStagesCanRead()
+    public void InvalidUtf8InsideAString_IsAnInvalidJsonLoadException_WithTheByteOffset()
     {
-        byte[] bytes = [.. Bytes(Envelope + ", \"metadata\": { \"note\": \""), 0xC3, 0x28, .. Bytes("\" } }")];
+        // Review 4L defect, fixed in review 5M: the loader used to accept a string whose bytes are not valid UTF-8 (0xC3 followed by 0x28) and the first stage that read the
+        // string as text threw InvalidOperationException ("Unexpected error (InvalidOperationException)", exit 1). Strict UTF-8 decoding now refuses the document up front, as
+        // it already did for invalid bytes outside a string (InvalidUtf8Bytes_AndUtf16Files_AreInvalidJson_NotACrash), with the offset of the malformed sequence.
+        byte[] prefix = Bytes(Envelope + ", \"metadata\": { \"note\": \"");
+        byte[] bytes = [.. prefix, 0xC3, 0x28, .. Bytes("\" } }")];
 
-        try
-        {
-            var document = Parse(bytes);
-            Assert.NotNull(document.Metadata);
-        }
-        catch (TemplateLoadException ex)
-        {
-            Assert.Equal(DiagnosticCodes.InvalidJson, ex.Code);
-        }
+        var ex = Assert.Throws<TemplateLoadException>(() => Parse(bytes));
+
+        Assert.Equal(DiagnosticCodes.InvalidJson, ex.Code);
+        Assert.Equal("input.entra.json", ex.Source);
+        Assert.Contains("not valid JSON", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("valid UTF-8", ex.Message, StringComparison.Ordinal);
+        Assert.Contains($"byte offset {prefix.Length}", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("0xC3 0x28", ex.Message, StringComparison.Ordinal);
+        Assert.NotNull(ex.Location);
+        Assert.Equal(1, ex.Location!.Value.Line);
+        Assert.Equal(prefix.Length + 1, ex.Location.Value.Column);
     }
 
     [Fact]
-    public void LoneSurrogatesAndControlCharacterEscapes_RoundTripOrFailCleanly()
+    public void LoneSurrogatesAndControlCharacterEscapes_AreLoaded_WithTheSurrogateReplacedAndTheControlCharactersKept()
     {
-        // A lone surrogate escape is legal JSON text; the reader must not crash on it.
+        // A lone surrogate escape is legal JSON text; the loader must not crash on it. It rewrites the surrogate to U+FFFD (the validator then reports it, see
+        // ALoneSurrogateEscape_ShouldBeADiagnostic_NotAnUnhandledException); the escaped control characters survive as the characters they name.
         var document = Loader.Parse(Envelope + ", \"metadata\": { \"note\": \"\\ud800 and \\u0001 and \\u0000\" } }", "x.json", ParameterSet.Empty);
 
         Assert.NotNull(document.Metadata);
         Assert.Equal(["$schema", "contentVersion", "resources", "metadata"], document.TopLevelKeys);
+        Assert.Equal("\uFFFD and \u0001 and \u0000", TemplateJson.AsString(document.Root["metadata"]!["note"]));
     }
 
     /// <summary>
@@ -439,19 +447,29 @@ public sealed class TemplateInputRobustnessTests
     }
 
     [Fact]
-    public void DuplicateObjectKeys_DoNotCrashTheLoader()
+    public void DuplicateObjectKeys_AreRejectedByTheLoader_WithTheKeyPathAndPosition()
     {
         string json = Envelope + ", \"metadata\": { \"k\": 1, \"k\": 2, \"K\": 3 } }";
 
-        try
-        {
-            var document = Loader.Parse(json, "x.json", ParameterSet.Empty);
-            Assert.NotNull(document.Metadata);
-        }
-        catch (TemplateLoadException ex)
-        {
-            Assert.False(string.IsNullOrEmpty(ex.Code));
-        }
+        var ex = Assert.Throws<TemplateLoadException>(() => Loader.Parse(json, "x.json", ParameterSet.Empty));
+
+        Assert.Equal(DiagnosticCodes.DuplicateJsonKey, ex.Code);
+        Assert.Equal("metadata.k", ex.Path!.ToString());
+        Assert.NotNull(ex.Location);
+        Assert.Equal("x.json", ex.Source);
+        Assert.IsType<DuplicateJsonKeyException>(ex.InnerException);
+    }
+
+    [Fact]
+    public void KeysThatDifferOnlyInCase_AreRejectedToo_BecauseReadersDisagreeAboutWhichOneWins()
+    {
+        string json = Envelope + ", \"metadata\": { \"k\": 1, \"K\": 3 } }";
+
+        var ex = Assert.Throws<TemplateLoadException>(() => Loader.Parse(json, "x.json", ParameterSet.Empty));
+
+        Assert.Equal(DiagnosticCodes.DuplicateJsonKey, ex.Code);
+        Assert.Contains("letter case", ex.Message, StringComparison.Ordinal);
+        Assert.Equal("metadata.K", ex.Path!.ToString());
     }
 
     [Fact]

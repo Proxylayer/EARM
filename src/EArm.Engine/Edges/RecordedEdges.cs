@@ -4,7 +4,7 @@ using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Core.Types;
 using EArm.Engine.State;
 
@@ -12,7 +12,7 @@ namespace EArm.Engine.Edges;
 
 /// <summary>
 /// Removes the edges a state entry records (<c>relationships</c>) before the object itself is deleted in Complete
-/// mode (plan section 1.4: "<c>--mode Complete</c> removes all state-recorded edges of a resource before deleting
+/// mode ("<c>--mode Complete</c> removes all state-recorded edges of a resource before deleting
 /// it"). A 404 means the edge is already gone; any other failure is logged and does not stop the delete, since
 /// Graph drops the edges of a deleted object anyway.
 /// </summary>
@@ -57,6 +57,12 @@ public static class RecordedEdges
                 if (edge is null)
                 {
                     EngineLog.RecordedEdgeSkipped(context.Logger, entry.Id.Id, $"relationships.{property} entry '{record?.ToJsonString()}' could not be interpreted");
+                    continue;
+                }
+
+                if (!await handler.VerifyRecordedAsync(edge, entry.GraphId, api, context, cancellationToken).ConfigureAwait(false))
+                {
+                    EngineLog.RecordedEdgeSkipped(context.Logger, entry.Id.Id, $"relationships.{property} entry is not an edge of this object in the tenant (an assignment of another principal, or one that no longer exists); it was not removed");
                     continue;
                 }
 

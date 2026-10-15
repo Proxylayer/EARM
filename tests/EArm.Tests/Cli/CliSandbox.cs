@@ -3,112 +3,128 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
+using EArm.Cli.Hosting;
 using EArm.Engine.State;
+using EArm.Graph;
+using EArm.Graph.Auth;
+using EArm.TestSupport;
 using Xunit;
 
 namespace EArm.Tests.Cli;
 
+/// <summary>A delay provider that never waits, so retries in CLI tests run at full speed.</summary>
+internal sealed class NoDelay : IDelayProvider
+{
+    public Task DelayAsync(TimeSpan delay, CancellationToken cancellationToken)
+    {
+        return Task.CompletedTask;
+    }
+}
+
 /// <summary>
-/// One isolated environment per CLI test: a private folder under the test output directory with a state directory,
-/// the runner's temp directory, the fake az steering files, and templates written on demand. The fake az is steered
-/// through process-wide environment variables (the CLI has no other hook), which is why every test that uses a
-/// sandbox lives in the sequential <c>Cli</c> collection; the variables are restored on dispose.
+/// One isolated environment per CLI test: a private folder under the test output directory with a state directory and templates written on
+/// demand, plus the HTTP seam of the CLI: a <see cref="ScriptedGraphHandler"/> (the fake Microsoft Graph), a <see cref="FakeJwtTokenProvider"/> (the fake
+/// sign-in) and a <see cref="ServiceOverrides"/> installed for the current async flow, so every command the test runs in-process talks to the fakes.
+/// Nothing is passed through environment variables except <c>EARM_STATE_DIR</c>, which is restored on dispose.
 /// </summary>
 internal sealed class CliSandbox : IDisposable
 {
-    public const string ArgvFileVariable = "EARM_FAKE_AZ_ARGV_FILE";
-    public const string FixtureVariable = "EARM_FAKE_AZ_FIXTURE";
-    public const string StateFileVariable = "EARM_FAKE_AZ_STATE_FILE";
     public const string Tenant = "11111111-1111-1111-1111-111111111111";
     public const string OtherTenant = "22222222-2222-2222-2222-222222222222";
 
     private static readonly UTF8Encoding Utf8NoBom = new(encoderShouldEmitUTF8Identifier: false);
-    private static readonly string[] ManagedVariables = [ArgvFileVariable, FixtureVariable, StateFileVariable, StateDirectory.EnvironmentVariable];
 
-    private readonly Dictionary<string, string?> _previous = new(StringComparer.OrdinalIgnoreCase);
-
-    public static string FakeAzPath { get; } = Path.Combine(AppContext.BaseDirectory, "fake-az", "fake-az.ps1");
+    private readonly string? _previousStateDirVariable;
+    private readonly IDisposable _ambient;
 
     public CliSandbox(string testName)
     {
-        if (!File.Exists(FakeAzPath))
-        {
-            throw new FileNotFoundException("fake-az.ps1 was not copied next to the test binaries; check EArm.Tests.csproj.", FakeAzPath);
-        }
-
         char[] invalid = Path.GetInvalidFileNameChars();
         string safe = new string(testName.Select(c => invalid.Contains(c) ? '_' : c).ToArray());
         Root = Path.Combine(AppContext.BaseDirectory, "cli-runs", (safe.Length > 40 ? safe[..40] : safe) + "-" + Guid.NewGuid().ToString("N")[..8]);
         Directory.CreateDirectory(Root);
         StateDir = Path.Combine(Root, "state");
-        TempDir = Path.Combine(Root, "tmp");
         TemplatesDir = Path.Combine(Root, "templates");
+        RecordPath = Path.Combine(Root, "auth", "record.json");
         Directory.CreateDirectory(TemplatesDir);
-        ArgvFile = Path.Combine(Root, "argv.jsonl");
-        FakeStateFile = Path.Combine(Root, "argv.state");
-        FixtureFile = Path.Combine(Root, "fixture.json");
 
-        foreach (var name in ManagedVariables)
+        _previousStateDirVariable = Environment.GetEnvironmentVariable(StateDirectory.EnvironmentVariable);
+        Environment.SetEnvironmentVariable(StateDirectory.EnvironmentVariable, null);
+
+        Handler = new ScriptedGraphHandler();
+        Tokens = new FakeJwtTokenProvider();
+        Overrides = new ServiceOverrides
         {
-            _previous[name] = Environment.GetEnvironmentVariable(name);
-            Environment.SetEnvironmentVariable(name, null);
-        }
-
-        Environment.SetEnvironmentVariable(ArgvFileVariable, ArgvFile);
-        Environment.SetEnvironmentVariable(StateFileVariable, FakeStateFile);
+            Handler = Handler,
+            Tokens = Tokens,
+            Delay = new NoDelay(),
+            RecordStore = new AuthRecordStore(RecordPath),
+        };
+        _ambient = ServiceOverrides.UseAmbient(Overrides);
     }
 
     public string Root { get; }
 
     public string StateDir { get; }
 
-    public string TempDir { get; }
-
     public string TemplatesDir { get; }
 
-    public string ArgvFile { get; }
+    /// <summary>Where the sandbox's sign-in record would live.</summary>
+    public string RecordPath { get; }
 
-    public string FakeStateFile { get; }
+    /// <summary>The fake Microsoft Graph every online command of this sandbox talks to.</summary>
+    public ScriptedGraphHandler Handler { get; }
 
-    public string FixtureFile { get; }
+    /// <summary>The fake sign-in: claims of the "signed-in" identity, or a failure.</summary>
+    public FakeJwtTokenProvider Tokens { get; }
 
-    /// <summary>The global options every online invocation needs: the fake az, a private temp directory and the sandbox state directory.</summary>
-    public string[] AzArgs => ["--az-command", FakeAzPath, "--temp-dir", TempDir, "--state-dir", StateDir];
+    public ServiceOverrides Overrides { get; }
 
-    /// <summary>The global options without <c>--state-dir</c> (for directory-resolution tests).</summary>
-    public string[] AzArgsWithoutStateDir => ["--az-command", FakeAzPath, "--temp-dir", TempDir];
+    /// <summary>Connection settings for tests that build an invocation record directly instead of going through the command line.</summary>
+    public ConnectionSettings Connection => new() { Overrides = Overrides };
+
+    /// <summary>The global option every online invocation needs: the sandbox state directory.</summary>
+    public string[] StateArgs => ["--state-dir", StateDir];
 
     public FileStateStore Store => new(StateDir);
 
-    public void UseFixture(string json)
+    /// <summary>Every request the fake Graph received, across scripts, as <c>METHOD /path?query</c> (percent-decoded).</summary>
+    public IReadOnlyList<string> RecordedCommands()
     {
-        File.WriteAllText(FixtureFile, json, Utf8NoBom);
-        Environment.SetEnvironmentVariable(FixtureVariable, FixtureFile);
-        if (File.Exists(FakeStateFile))
-        {
-            File.Delete(FakeStateFile);
-        }
+        return Handler.Commands;
     }
 
+    public IReadOnlyList<RecordedHttpRequest> RecordedRequests()
+    {
+        return Handler.Requests;
+    }
+
+    public void UseScript(string json)
+    {
+        Handler.SetScript(json);
+    }
+
+    /// <summary>
+    /// A signed-in identity of <paramref name="tenant"/> whose <c>GET /organization</c> succeeds (the preflight's single read), followed by
+    /// <paramref name="extraResponses"/> (comma-separated <see cref="ScriptedGraphHandler"/> rules). Replaces the previous script.
+    /// </summary>
     public void UsePreflightOk(string tenant = Tenant, string extraResponses = "")
     {
-        UseFixture("{ \"responses\": [" +
-            "{ \"match\": { \"argvContains\": \"version --only-show-errors\" }, \"exitCode\": 0, \"stdoutJson\": { \"azure-cli\": \"2.70.0\", \"extensions\": {} } }," +
-            "{ \"match\": { \"argvContains\": \"account show\" }, \"exitCode\": 0, \"stdoutJson\": { \"environmentName\": \"AzureCloud\", \"id\": \"33333333-3333-3333-3333-333333333333\", \"name\": \"Sub\", \"tenantId\": \"" + tenant + "\", \"user\": { \"name\": \"alice@contoso.example\", \"type\": \"user\" } } }," +
-            // Preflight reads /organization?$select=id; DeploymentEnvironment.ReadTenantAsync (tenant()) reads it again with displayName/verifiedDomains.
-            "{ \"match\": { \"method\": \"GET\", \"urlContains\": \"/organization\" }, \"exitCode\": 0, \"stdoutJson\": { \"value\": [ { \"id\": \"" + tenant + "\", \"displayName\": \"Contoso\", \"verifiedDomains\": [ { \"name\": \"contoso.com\", \"isDefault\": true } ] } ] } }," +
-            "{ \"match\": { \"method\": \"GET\", \"urlContains\": \"/organization\" }, \"exitCode\": 0, \"stdoutJson\": { \"value\": [ { \"id\": \"" + tenant + "\", \"displayName\": \"Contoso\", \"verifiedDomains\": [ { \"name\": \"contoso.com\", \"isDefault\": true } ] } ] } }" +
+        Tokens.Failure = null;
+        Tokens.TenantId = tenant;
+        UseScript("{ \"responses\": [" +
+            "{ \"match\": { \"method\": \"GET\", \"urlContains\": \"/organization\" }, \"sticky\": true, \"status\": 200, \"body\": { \"value\": [ { \"id\": \"" + tenant + "\", \"displayName\": \"Contoso\", \"verifiedDomains\": [ { \"name\": \"contoso.com\", \"isDefault\": true } ] } ] } }" +
             (extraResponses.Length == 0 ? string.Empty : "," + extraResponses) +
             "] }");
     }
 
+    /// <summary>No credential signs in: every online command fails its preflight with the sign-in guidance (exit 3) before any request is sent.</summary>
     public void UseNotLoggedIn()
     {
-        UseFixture("{ \"responses\": [" +
-            "{ \"match\": { \"argvContains\": \"version --only-show-errors\" }, \"exitCode\": 0, \"stdoutJson\": { \"azure-cli\": \"2.70.0\" } }," +
-            "{ \"match\": { \"argvContains\": \"account show\" }, \"exitCode\": 1, \"stderr\": \"ERROR: Please run 'az login' to setup account.\" }" +
-            "] }");
+        Tokens.Failure = FakeJwtTokenProvider.NotSignedIn().Failure;
+        UseScript("{ \"responses\": [] }");
     }
 
     public void SetStateDirVariable(string? value)
@@ -158,59 +174,10 @@ internal sealed class CliSandbox : IDisposable
         return Path.Combine(StateDir, deploymentName + ".lock");
     }
 
-    /// <summary>The argv of every az invocation the fake recorded (one line per call).</summary>
-    public IReadOnlyList<string> RecordedCommands()
-    {
-        return ReadArgvLines()
-            .Select(l => string.Join(' ', System.Text.Json.Nodes.JsonNode.Parse(l)!["argv"]!.AsArray().Select(a => a!.GetValue<string>())))
-            .ToList();
-    }
-
-    /// <summary>
-    /// The non-empty lines of the fake's argv file. Opened with FileShare.ReadWrite|Delete and re-read (50 x 20 ms) while the
-    /// last line is still unterminated, so a reader never trips over a fake that is mid-append.
-    /// </summary>
-    public IReadOnlyList<string> ReadArgvLines()
-    {
-        for (var attempt = 1; ; attempt++)
-        {
-            string text;
-            try
-            {
-                using var stream = new FileStream(ArgvFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-                using var reader = new StreamReader(stream, Utf8NoBom);
-                text = reader.ReadToEnd();
-            }
-            catch (FileNotFoundException)
-            {
-                return [];
-            }
-            catch (DirectoryNotFoundException)
-            {
-                return [];
-            }
-            catch (IOException) when (attempt < 50)
-            {
-                System.Threading.Thread.Sleep(20);
-                continue;
-            }
-
-            if (text.Length > 0 && text[^1] != '\n' && attempt < 50)
-            {
-                System.Threading.Thread.Sleep(20);
-                continue;
-            }
-
-            return text.Split('\n').Select(static l => l.TrimEnd('\r')).Where(static l => l.Length > 0).ToList();
-        }
-    }
-
     public void Dispose()
     {
-        foreach (var pair in _previous)
-        {
-            Environment.SetEnvironmentVariable(pair.Key, pair.Value);
-        }
+        _ambient.Dispose();
+        Environment.SetEnvironmentVariable(StateDirectory.EnvironmentVariable, _previousStateDirVariable);
 
         try
         {

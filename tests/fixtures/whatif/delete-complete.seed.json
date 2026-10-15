@@ -17,9 +17,9 @@
       "id": "22222222-0000-0000-0000-000000000099",
       "uniqueName": "contoso-dev-retired",
       "displayName": "Retired",
-      "mailEnabled": false,
+      "mailEnabled": true,
       "mailNickname": "retired",
-      "securityEnabled": true,
+      "securityEnabled": false,
       "groupTypes": []
     }
   }

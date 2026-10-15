@@ -11,7 +11,7 @@ using EArm.Engine.Providers;
 namespace EArm.Engine.WhatIf;
 
 /// <summary>
-/// The ARM-shaped what-if JSON of plan section 1.8: <c>status</c>, <c>deploymentName</c>, <c>tenantId</c>,
+/// The ARM-shaped what-if JSON: <c>status</c>, <c>deploymentName</c>, <c>tenantId</c>,
 /// <c>mode</c>, <c>changes[]</c> (<c>resourceId</c>, <c>changeType</c>, <c>before</c>, <c>after</c>, <c>delta[]</c>
 /// with <c>path</c> / <c>propertyChangeType</c> / <c>before</c> / <c>after</c> / <c>children</c>,
 /// <c>unsupportedReason</c>) and <c>diagnostics[]</c>, plus EARM's extensions: <c>reasons[]</c> per change,
@@ -21,12 +21,12 @@ namespace EArm.Engine.WhatIf;
 /// </summary>
 public static class WhatIfJson
 {
-    private static readonly JsonSerializerOptions Pretty = new() { WriteIndented = true, NewLine = "\n", Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
-    private static readonly JsonSerializerOptions Compact = new() { WriteIndented = false, Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
+    private static readonly JsonSerializerOptions Pretty = new() { WriteIndented = true, MaxDepth = 256, NewLine = "\n", Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
+    private static readonly JsonSerializerOptions Compact = new() { WriteIndented = false, MaxDepth = 256, Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 
     /// <summary>
     /// The document as text: indented or on one line (<c>--no-pretty-print</c>), with quotes and non-ASCII written
-    /// raw (the output is for terminals and pipes, as with <c>az</c>), so the same call produces the CLI output and
+    /// raw (the output is for terminals and pipes, as with the Azure CLI), so the same call produces the CLI output and
     /// the golden fixtures. Pretty output uses LF line endings on every OS (not <see cref="Environment.NewLine"/>), as
     /// the fixtures and docs/whatif.md specify.
     /// </summary>

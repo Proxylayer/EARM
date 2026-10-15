@@ -1,7 +1,7 @@
 # Samples
 
 Every sample validates offline with no diagnostics when its parameter file is supplied (`earm deployment validate`), and `earm permissions` lists
-what each needs. Deploying one needs an Azure CLI session (`az login --allow-no-subscriptions`) with those permissions; `orders-api` additionally needs read access
+what each needs. Deploying one needs a sign-in (`earm auth login`, or the `AZURE_*` variables of a service principal; see [docs/cli.md](../docs/cli.md#signing-in)) with those permissions; `orders-api` additionally needs read access
 to a Key Vault secret unless you replace its parameter file's `reference` entry.
 
 | Sample | Shows | Parameters |
@@ -15,12 +15,12 @@ to a Key Vault secret unless you replace its parameter file's `reference` entry.
 
 ```powershell
 # offline
-earm deployment validate -f samples/app-with-sp-and-secret.entra.json -p @samples/app-with-sp-and-secret.parameters.json
-earm permissions         -f samples/tenant-security.entra.json        -p @samples/tenant-security.parameters.json --mode delegated
+earm deployment validate -f samples/app-with-sp-and-secret.entra.json -p '@samples/app-with-sp-and-secret.parameters.json'
+earm permissions         -f samples/tenant-security.entra.json        -p '@samples/tenant-security.parameters.json' --mode delegated
 
-# against a dev tenant (az login --allow-no-subscriptions first)
-earm deployment what-if -f samples/app-with-sp-and-secret.entra.json -p @samples/app-with-sp-and-secret.parameters.json
-earm deployment create  -f samples/app-with-sp-and-secret.entra.json -p @samples/app-with-sp-and-secret.parameters.json -c --secure-outputs-file ./secrets.json
+# against a dev tenant (sign in first: earm auth login)
+earm deployment what-if -f samples/app-with-sp-and-secret.entra.json -p '@samples/app-with-sp-and-secret.parameters.json'
+earm deployment create  -f samples/app-with-sp-and-secret.entra.json -p '@samples/app-with-sp-and-secret.parameters.json' -c --secure-outputs-file ./secure-outputs.json
 ```
 
 Notes:

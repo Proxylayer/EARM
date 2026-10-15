@@ -367,7 +367,7 @@ public sealed class ExpressionValidatorTests
         Single(analysis, DiagnosticCodes.UnknownFunction, "resources[0].properties.a");
         Single(analysis, DiagnosticCodes.UnknownFunction, "resources[0].properties.b");
         Single(analysis, DiagnosticCodes.InvalidFunctionArguments, "resources[0].properties.c");
-        // WI-16: a well-formed user-function call is clean; the broken body of c.bad is reported where it is declared, not at the call.
+        // A well-formed user-function call is clean; the broken body of c.bad is reported where it is declared, not at the call.
         None(analysis, "resources[0].properties.d");
         None(analysis, "resources[0].properties.e");
     }
@@ -520,7 +520,7 @@ public sealed class ExpressionValidatorTests
     [Fact]
     public void HasErrors_IgnoresWarningsAndInfos()
     {
-        // WI-16: wellKnownApp() is implemented, so this template is entirely clean and the value is the Graph appId.
+        // WellKnownApp() is implemented, so this template is entirely clean and the value is the Graph appId.
         var clean = Analyze("\"resources\": [ " + Resource("Microsoft.Entra/groups", "g", "\"properties\": { \"x\": \"[wellKnownApp('MicrosoftGraph')]\" }") + " ]");
 
         Assert.False(clean.HasErrors);

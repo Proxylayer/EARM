@@ -2,7 +2,7 @@ using EArm.Core.Types;
 
 namespace EArm.Engine.Edges;
 
-/// <summary>The edge kinds of the relationship catalog (plan section 1.4), as the edge pass applies them.</summary>
+/// <summary>The edge kinds of the relationship catalog, as the edge pass applies them.</summary>
 public enum EdgeKind
 {
     /// <summary><c>groups.members</c> / <c>memberOf</c>: <c>POST /groups/{g}/members/$ref</c>.</summary>
@@ -17,15 +17,15 @@ public enum EdgeKind
     /// <summary><c>manager</c> on users (single-valued): <c>PUT</c> / <c>DELETE /users/{u}/manager/$ref</c>.</summary>
     Manager,
 
-    /// <summary><c>appRoleAssignments</c> on principals and the standalone <c>Microsoft.Entra/appRoleAssignments</c> type (WI-12).</summary>
+    /// <summary><c>appRoleAssignments</c> on principals and the standalone <c>Microsoft.Entra/appRoleAssignments</c> type.</summary>
     AppRoleAssignment,
 
-    /// <summary><c>directoryRoles</c> on principals and the standalone <c>Microsoft.Entra/roleAssignments</c> type (WI-15).</summary>
+    /// <summary><c>directoryRoles</c> on principals and the standalone <c>Microsoft.Entra/roleAssignments</c> type.</summary>
     DirectoryRole,
 }
 
 /// <summary>
-/// The two parts of the edge pass (plan section 3.3): part A (owners/ownerOf, members/memberOf, AU members,
+/// The two parts of the edge pass: part A (owners/ownerOf, members/memberOf, AU members,
 /// manager) runs first; part B (directory roles, app role assignments) plugs in behind it.
 /// </summary>
 public enum EdgePhase

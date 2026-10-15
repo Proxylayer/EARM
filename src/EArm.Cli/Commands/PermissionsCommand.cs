@@ -15,6 +15,8 @@ using EArm.Core.Loading;
 using EArm.Core.Types;
 using EArm.Core.Validation;
 using EArm.Engine.Planning;
+using EArm.Engine.Providers;
+using EArm.Engine.State;
 using EArm.Expressions;
 using EArm.Expressions.Evaluation;
 using EArm.Expressions.Validation;
@@ -23,9 +25,11 @@ using EArm.Providers;
 namespace EArm.Cli.Commands;
 
 /// <summary>
-/// <c>earm permissions -f &lt;template&gt; [-p ...] [--mode app|delegated] [-o table|json]</c> (plan sections 1.9
-/// and 3.4): the Microsoft Graph permissions (and, for delegated use, the Entra roles) a template needs, computed
-/// offline from the expanded resources. Exit 0; 2 when the template has validation errors; 1 when it or a parameter
+/// <c>earm permissions -f &lt;template&gt; [-p ...] [--mode app|delegated] [-n &lt;deployment&gt;] [-o table|json]</c>:
+/// the Microsoft Graph permissions (and, for delegated use, the Entra roles) a template needs, computed
+/// offline from the expanded resources. With <c>-n</c> (and <c>--state-dir</c>) the delete permissions of the types the deployment's state
+/// records but the template no longer declares are included (what <c>--mode Complete</c> needs); without it a note says so.
+/// Exit 0; 2 when the template has validation errors; 1 when it or a parameter
 /// file cannot be loaded or an argument is malformed.
 /// </summary>
 internal static class PermissionsCommand
@@ -41,7 +45,7 @@ internal static class PermissionsCommand
         var parameters = new Option<string[]>("--parameters", "-p")
         {
             Description = "Parameter values: @file.json (ARM deploymentParameters shape) or name=value. Repeatable; later values win. Values decide copy counts and conditions.",
-            AllowMultipleArgumentsPerToken = true,
+            AllowMultipleArgumentsPerToken = false,
             DefaultValueFactory = _ => [],
         };
 
@@ -52,10 +56,16 @@ internal static class PermissionsCommand
         };
         mode.AcceptOnlyFromAmong("app", "delegated");
 
+        var deployment = new Option<string?>("--name", "-n")
+        {
+            Description = "Deployment name (state file name): also list the delete permissions that '--mode Complete' needs for the objects this deployment's state records but the template no longer declares. Reads the state from --state-dir (default: .earm/state next to the template); needs no sign-in.",
+        };
+
         var command = new Command("permissions", "Lists the Microsoft Graph permissions and Entra roles a template needs, offline (no tenant access).");
         command.Options.Add(templateFile);
         command.Options.Add(parameters);
         command.Options.Add(mode);
+        command.Options.Add(deployment);
         command.SetAction((parseResult, ct) => RunAsync(
             parseResult.GetRequiredValue(templateFile),
             parseResult.GetValue(parameters) ?? [],
@@ -63,11 +73,13 @@ internal static class PermissionsCommand
             GlobalOptions.GetOutputFormat(parseResult),
             parseResult.InvocationConfiguration.Output,
             parseResult.InvocationConfiguration.Error,
-            ct));
+            ct,
+            parseResult.GetValue(deployment),
+            parseResult.GetValue(GlobalOptions.StateDir)));
         return command;
     }
 
-    internal static async Task<int> RunAsync(string templateFile, IReadOnlyList<string> parameterTokens, PermissionMode mode, OutputFormat format, TextWriter stdout, TextWriter stderr, CancellationToken ct)
+    internal static async Task<int> RunAsync(string templateFile, IReadOnlyList<string> parameterTokens, PermissionMode mode, OutputFormat format, TextWriter stdout, TextWriter stderr, CancellationToken ct, string? deploymentName = null, string? stateDir = null)
     {
         var report = new ValidationReport { TemplateFile = templateFile };
 
@@ -149,8 +161,91 @@ internal static class PermissionsCommand
                 .Select(b => (b.Name, b.PendingReference!)),
             ignored);
 
+        result = await WithCompleteModeDeletesAsync(result, templateFile, mode, instances, registry, deploymentName, stateDir, ct).ConfigureAwait(false);
         Write(result, format, stdout);
         return ExitCodes.Ok;
+    }
+
+    /// <summary>
+    /// <c>--mode Complete</c> also deletes what the state records and the template no longer declares, which needs the delete permissions of
+    /// those types. With a deployment name the state is read and the delete permissions of every such type are added (the provider's own
+    /// rule for "no desired state"); without one a note says that the list is incomplete for Complete mode.
+    /// </summary>
+    private static async Task<PermissionReport> WithCompleteModeDeletesAsync(PermissionReport report, string templateFile, PermissionMode mode, IReadOnlyList<ResourceInstance> instances, ProviderRegistry registry, string? deploymentName, string? stateDir, CancellationToken ct)
+    {
+        const string CompleteNote = "Incremental deployments need the permissions above. '--mode Complete' additionally deletes the objects the state records but the template no longer declares, which needs the delete permissions of every type the state records: pass -n <deployment> (and --state-dir) to list them.";
+        if (string.IsNullOrWhiteSpace(deploymentName))
+        {
+            return report with { Notes = [.. report.Notes, CompleteNote] };
+        }
+
+        string directory = StateDirectory.Resolve(stateDir, templateFile);
+        StateFile? state;
+        try
+        {
+            state = await new FileStateStore(directory).LoadAsync(deploymentName, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is StateException or IOException or UnauthorizedAccessException or ArgumentException or System.Text.Json.JsonException or InvalidOperationException)
+        {
+            return report with { Notes = [.. report.Notes, $"The state of deployment '{SafeText.Escape(deploymentName)}' could not be read ({ex.GetType().Name}); the delete permissions of '--mode Complete' are not included."] };
+        }
+
+        if (state is null)
+        {
+            return report with { Notes = [.. report.Notes, $"There is no state for deployment '{SafeText.Escape(deploymentName)}' in '{SafeText.Escape(directory)}'; nothing to delete in '--mode Complete', so no delete permissions are added."] };
+        }
+
+        var declared = new HashSet<ResourceIdentifier>(instances.Select(i => i.PlannedId));
+        var orphans = state.Resources.Values.Where(e => !declared.Contains(e.Id)).OrderBy(e => e.Id.Id, StringComparer.Ordinal).ToList();
+        var merged = report.Permissions.ToDictionary(p => p.Name, p => p, StringComparer.OrdinalIgnoreCase);
+        var kind = mode == PermissionMode.App ? PermissionKind.GraphApplication : PermissionKind.GraphDelegated;
+        int unprovided = 0;
+        foreach (var orphan in orphans)
+        {
+            if (!registry.TryGet(orphan.Type, out var provider))
+            {
+                unprovided++;
+                continue;
+            }
+
+            IReadOnlyList<string> required;
+            try
+            {
+                required = provider.RequiredPermissions(null);
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or NotSupportedException)
+            {
+                unprovided++;
+                continue;
+            }
+
+            foreach (string permission in required)
+            {
+                string name = PermissionManifest.ForMode(permission, mode);
+                const string reason = "Complete mode: delete of an object the state records";
+                merged[name] = merged.TryGetValue(name, out var existing)
+                    ? existing with { Resources = Union(existing.Resources, orphan.Id.Id), Reasons = Union(existing.Reasons, reason) }
+                    : new PermissionEntry(name, kind, [orphan.Id.Id], [reason]);
+            }
+        }
+
+        var notes = new List<string>(report.Notes)
+        {
+            orphans.Count == 0
+                ? $"Deployment '{SafeText.Escape(deploymentName)}' records no object that the template does not declare: '--mode Complete' deletes nothing, so no delete permissions are added."
+                : $"{orphans.Count} object(s) recorded in the state of deployment '{SafeText.Escape(deploymentName)}' are not declared by the template: '--mode Complete' deletes them, and their delete permissions are included (reason 'Complete mode').",
+        };
+        if (unprovided > 0)
+        {
+            notes.Add($"{unprovided} state-recorded object(s) are of a type without a provider rule for deletion; their permissions are not included.");
+        }
+
+        return report with { Permissions = [.. merged.Values.OrderBy(p => p.Kind).ThenBy(p => p.Name, StringComparer.OrdinalIgnoreCase)], Notes = notes };
+    }
+
+    private static IReadOnlyList<string> Union(IReadOnlyList<string> existing, string added)
+    {
+        return existing.Contains(added, StringComparer.Ordinal) ? existing : [.. existing, added];
     }
 
     private static IEnumerable<string> ExpressionStrings(JsonNode? root)
@@ -198,7 +293,7 @@ internal static class PermissionsCommand
             case OutputFormat.None:
                 return;
             case OutputFormat.Json:
-                stdout.WriteLine(ToJson(report).ToJsonString(new JsonSerializerOptions { WriteIndented = true, Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping }));
+                stdout.WriteLine(ToJson(report).ToJsonString(new JsonSerializerOptions { WriteIndented = true, MaxDepth = JsonOutput.MaxDepth, Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping }));
                 return;
             default:
                 WriteTable(report, stdout);
@@ -279,7 +374,7 @@ internal static class PermissionsCommand
         var azure = report.Permissions.Where(p => p.Kind == PermissionKind.AzureRbac).ToList();
         if (azure.Count > 0)
         {
-            WriteGroup(writer, azure, "Azure (Azure CLI identity)");
+            WriteGroup(writer, azure, "Azure (signed-in identity)");
         }
 
         writer.WriteLine();

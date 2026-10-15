@@ -7,6 +7,7 @@ using System.Text.Json.Nodes;
 using EArm.Core.Json;
 using EArm.Core;
 using EArm.Core.Secrets;
+using EArm.Core.Types;
 using EArm.Engine.Execution;
 using EArm.Engine.Providers;
 using EArm.Expressions.Values;
@@ -29,6 +30,15 @@ public static class StateSerializer
 
     public static StateFile Deserialize(string json, string deploymentName)
     {
+        return Deserialize(json, deploymentName, validateEntries: true);
+    }
+
+    /// <param name="validateEntries">
+    /// <c>false</c> only for the repair path (<c>earm state forget</c>): the integrity rules of <see cref="StateKeyRules"/> are skipped so
+    /// an entry that fails them can still be removed. Everything else (JSON, ids shapes) is still required.
+    /// </param>
+    public static StateFile Deserialize(string json, string deploymentName, bool validateEntries)
+    {
         ArgumentNullException.ThrowIfNull(json);
         ArgumentNullException.ThrowIfNull(deploymentName);
 
@@ -42,7 +52,7 @@ public static class StateSerializer
             throw new StateSchemaUnsupportedException(deploymentName, $"The state file of deployment '{deploymentName}' is not valid JSON: {ex.Message}", ex);
         }
 
-        return FromDocument(StateMigrator.Read(root, deploymentName), deploymentName);
+        return FromDocument(StateMigrator.Read(root, deploymentName), deploymentName, validateEntries);
     }
 
     /// <summary>Throws when any entry carries a secret or a deploy-time placeholder: neither may ever reach the disk.</summary>
@@ -89,6 +99,8 @@ public static class StateSerializer
                 Id = entry.GraphId,
                 ParentId = entry.ParentGraphId,
                 ContentHash = entry.ContentHash,
+                Provenance = StateProvenances.ToText(entry.Provenance),
+                CreatedDateTime = entry.CreatedDateTime,
                 DependsOn = [.. entry.DependsOn.Order(StringComparer.Ordinal)],
                 LastWriteOn = entry.LastWriteOn,
                 Extra = entry.Extra?.DeepClone().AsObject(),
@@ -118,6 +130,11 @@ public static class StateSerializer
 
     public static StateFile FromDocument(StateDocument document, string deploymentName)
     {
+        return FromDocument(document, deploymentName, validateEntries: true);
+    }
+
+    public static StateFile FromDocument(StateDocument document, string deploymentName, bool validateEntries)
+    {
         ArgumentNullException.ThrowIfNull(document);
         ArgumentNullException.ThrowIfNull(deploymentName);
 
@@ -144,15 +161,47 @@ public static class StateSerializer
             var id = ParseResourceId(pair.Key, resource.Type)
                 ?? throw new StateSchemaUnsupportedException(deploymentName, $"The state entry key '{pair.Key}' is not a resource id of type '{resource.Type}'.");
 
-            state.Resources[pair.Key] = new StateEntry
+            // A state file is committed and can be edited by anyone with write access to the repository: the ids in it end up in
+            // Graph paths (and in deletes), so only well-formed ids are accepted (review finding S-01c).
+            if (!StateIdShapes.IsValidGraphId(id.Type, resource.Id))
+            {
+                throw new StateSchemaUnsupportedException(deploymentName, $"The state entry '{pair.Key}' records Graph id '{resource.Id}', which is not {StateIdShapes.Describe(id.Type)}; the state file is corrupt or was edited. Fix or remove the entry (earm state forget).");
+            }
+
+            if (!string.IsNullOrEmpty(resource.ParentId) && !StateIdShapes.IsValidGraphId(id.Parent?.Type ?? id.Type, resource.ParentId))
+            {
+                throw new StateSchemaUnsupportedException(deploymentName, $"The state entry '{pair.Key}' records parent Graph id '{resource.ParentId}', which is not {StateIdShapes.Describe(id.Parent?.Type ?? id.Type)}; the state file is corrupt or was edited.");
+            }
+
+            if (state.Resources.ContainsKey(id.Id))
+            {
+                throw new StateSchemaUnsupportedException(deploymentName, $"The state file records '{pair.Key}' more than once (resource ids differing only by case are the same resource).");
+            }
+
+            // The key and the recorded relationship ids decide which live objects a state-driven write or delete touches: they must be what the
+            // resource id implies, never whatever the (committed, editable) file says (review round 2, finding S2-01 / S2-02).
+            if (validateEntries)
+            {
+                string? problem = StateKeyRules.Validate(ResourceTypeCatalog.Default, id, resource.Key, allowEmpty: true) ?? StateKeyRules.ValidateRelationships(resource.Relationships);
+                if (problem is not null)
+                {
+                    throw new StateEntryInvalidException(deploymentName, id.Id, problem);
+                }
+            }
+
+            state.Resources[id.Id] = new StateEntry
             {
                 Id = id,
                 Type = id.Type,
                 ApiVersion = resource.ApiVersion,
-                Key = new Dictionary<string, string>(resource.Key, StringComparer.OrdinalIgnoreCase),
+                // An entry without a key (no tool of ours writes one) gets the key its resource id implies: for a name-keyed type nothing else is possible.
+                Key = new Dictionary<string, string>(resource.Key.Count == 0 ? StateKeyRules.DerivedKey(ResourceTypeCatalog.Default, id) ?? resource.Key : resource.Key, StringComparer.OrdinalIgnoreCase),
                 GraphId = resource.Id,
                 ParentGraphId = resource.ParentId,
                 ContentHash = resource.ContentHash,
+                Provenance = StateProvenances.Parse(resource.Provenance),
+                ProvenanceRecorded = !string.IsNullOrWhiteSpace(resource.Provenance),
+                CreatedDateTime = resource.CreatedDateTime,
                 DependsOn = [.. resource.DependsOn],
                 LastWriteOn = resource.LastWriteOn,
                 Extra = resource.Extra,

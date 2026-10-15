@@ -2,7 +2,7 @@
   "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
   "contentVersion": "1.0.0.0",
   "metadata": {
-    "description": "WI-19: membership and ownership edges declared from both sides. ga: target side (members, owners). gb: principal side (memberOf gc). u2: principal side (memberOf gc, ownerOf gb)."
+    "description": "Membership and ownership edges declared from both sides. ga: target side (members, owners). gb: principal side (memberOf gc). u2: principal side (memberOf gc, ownerOf gb)."
   },
   "parameters": {
     "prefix":     { "type": "string" },

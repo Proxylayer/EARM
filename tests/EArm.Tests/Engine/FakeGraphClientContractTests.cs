@@ -5,15 +5,15 @@ using System.Net;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
-using EArm.Az;
+using EArm.Graph;
 using EArm.TestSupport;
 using Xunit;
-using GraphApi = EArm.Az.GraphApi;
+using GraphApi = EArm.Graph.GraphApi;
 
 namespace EArm.Tests.Engine;
 
 /// <summary>
-/// The behaviour the provider work items rely on from <see cref="FakeGraphClient"/> / <see cref="FakeDirectory"/>:
+/// The behaviour the provider tests rely on from <see cref="FakeGraphClient"/> / <see cref="FakeDirectory"/>:
 /// routing, filters, upserts, pagination, references, actions, batches, error shapes and the failure script.
 /// </summary>
 public sealed class FakeGraphClientContractTests
@@ -104,7 +104,7 @@ public sealed class FakeGraphClientContractTests
     {
         var client = new FakeGraphClient();
 
-        var error = await Assert.ThrowsAsync<GraphException>(() => AllAsync(client, new GraphRequest("/groups").WithFilter("startsWith(displayName, 'a')")));
+        var error = await Assert.ThrowsAsync<GraphException>(() => AllAsync(client, new GraphRequest("/groups").WithFilter("displayName gt 'a'")));
 
         Assert.Equal(HttpStatusCode.BadRequest, error.Status);
     }
@@ -117,7 +117,7 @@ public sealed class FakeGraphClientContractTests
         var client = new FakeGraphClient();
         var request = new GraphRequest("/groups(uniqueName='g')").WithPrefer("create-if-missing");
 
-        var created = await client.PatchAsync(request, J("{\"displayName\":\"G\",\"mailEnabled\":false,\"securityEnabled\":true}"), Ct);
+        var created = await client.PatchAsync(request, J("{\"displayName\":\"G\",\"mailNickname\":\"g\",\"mailEnabled\":false,\"securityEnabled\":true}"), Ct);
         var updated = await client.PatchAsync(request, J("{\"displayName\":\"G2\"}"), Ct);
         var live = client.Directory.Find("/groups", "uniqueName", "g")!;
 
@@ -294,7 +294,9 @@ public sealed class FakeGraphClientContractTests
 
         Assert.Empty(client.Directory.References("/groups/" + g + "/members"));
         Assert.Equal(0, client.Directory.Count("/applications/" + app["id"] + "/federatedIdentityCredentials"));
-        Assert.Null(client.Directory.FindById(u));
+        // Users and applications are soft-deleted (Review 1D / Q-12): gone from their collection, kept in the recycle bin.
+        Assert.Null(client.Directory.Find("/users", "id", u));
+        Assert.Equal("#microsoft.graph.user", client.Directory.FindById(u)!["@odata.type"]!.GetValue<string>());
         Assert.True((await Assert.ThrowsAsync<GraphException>(() => client.DeleteAsync(new GraphRequest("/users/" + u), Ct))).IsNotFound);
     }
 
@@ -387,8 +389,9 @@ public sealed class FakeGraphClientContractTests
 
     [Theory]
     [InlineData("/applications", "{\"uniqueName\":\"dup\",\"displayName\":\"A\"}")]
-    [InlineData("/groups", "{\"uniqueName\":\"dup\",\"displayName\":\"G\"}")]
-    [InlineData("/users", "{\"userPrincipalName\":\"dup@contoso.com\",\"displayName\":\"U\"}")]
+    // Review 3I: the fake refuses a create without the properties Graph requires, so these bodies carry them.
+    [InlineData("/groups", "{\"uniqueName\":\"dup\",\"displayName\":\"G\",\"mailNickname\":\"dup\",\"mailEnabled\":false,\"securityEnabled\":true}")]
+    [InlineData("/users", "{\"userPrincipalName\":\"dup@contoso.com\",\"displayName\":\"U\",\"accountEnabled\":true,\"mailNickname\":\"dup\",\"passwordProfile\":{\"password\":\"x-1-Secret\"}}")]
     public async Task DuplicateKeys_AreAlreadyExistsErrors(string collection, string body)
     {
         var client = new FakeGraphClient();
@@ -434,7 +437,7 @@ public sealed class FakeGraphClientContractTests
         var client = new FakeGraphClient();
 
         var error = await Assert.ThrowsAsync<GraphException>(() => client.PostAsync(new GraphRequest("/users"), J("{\"displayName\":\"x\"}"), Ct));
-        var created = await client.PostAsync(new GraphRequest("/users"), J("{\"userPrincipalName\":\"a@contoso.com\",\"displayName\":\"A\",\"passwordProfile\":{\"password\":\"p\"}}"), Ct);
+        var created = await client.PostAsync(new GraphRequest("/users"), J("{\"userPrincipalName\":\"a@contoso.com\",\"displayName\":\"A\",\"accountEnabled\":true,\"mailNickname\":\"a\",\"passwordProfile\":{\"password\":\"p\"}}"), Ct);
 
         Assert.Equal(HttpStatusCode.BadRequest, error.Status);
         Assert.False(created.Body!.AsObject().ContainsKey("passwordProfile"));
@@ -468,20 +471,20 @@ public sealed class FakeGraphClientContractTests
     }
 
     [Fact]
-    public async Task FailureScript_MatchesMethodAndPathFragment_AndAzFailuresAreAzCliExceptions()
+    public async Task FailureScript_MatchesMethodAndPathFragment_AndTransportFailuresAreGraphTransportExceptions()
     {
         var client = new FakeGraphClient();
         client.Directory.AddGroup("g", "G");
         client.Failures.ServerError("/groups", times: 1, method: "PATCH");
-        client.Failures.AzFailure("/users", times: 1);
+        client.Failures.TransportFailure("/users", times: 1);
 
         Assert.NotNull(await client.GetAsync(new GraphRequest("/groups(uniqueName='g')"), Ct));
         var patch = await Assert.ThrowsAsync<GraphException>(() => client.PatchAsync(new GraphRequest("/groups(uniqueName='g')"), J("{\"description\":\"x\"}"), Ct));
-        var az = await Assert.ThrowsAsync<AzCliException>(() => client.GetAsync(new GraphRequest("/users/x"), Ct));
+        var transport = await Assert.ThrowsAsync<GraphTransportException>(() => client.GetAsync(new GraphRequest("/users/x"), Ct));
 
         Assert.Equal(HttpStatusCode.ServiceUnavailable, patch.Status);
-        Assert.Equal(AzCliFailure.Transient, az.Failure);
-        Assert.True(az.IsRetryable);
+        Assert.Equal(GraphTransportFailure.Network, transport.Failure);
+        Assert.True(transport.IsRetryable);
     }
 
     // ---- request log ----
@@ -492,8 +495,9 @@ public sealed class FakeGraphClientContractTests
         var client = new FakeGraphClient();
         var request = new GraphRequest("/groups", GraphApi.Beta, hint: RetryHint.ExpectReplicationLag).WithHeader("Prefer", "return=representation").WithConsistencyLevelEventual();
 
-        await client.PostAsync(request, J("{\"uniqueName\":\"g\",\"displayName\":\"G\"}"), Ct);
-        await client.GetAsync(new GraphRequest("/groups").WithSelect("id").WithCount(), Ct);
+        await client.PostAsync(request, J("{\"uniqueName\":\"g\",\"displayName\":\"G\",\"mailNickname\":\"g\",\"mailEnabled\":false,\"securityEnabled\":true}"), Ct);
+        // $count on a directory object collection needs ConsistencyLevel: eventual (Review 1D / Q-12), exactly like Graph.
+        await client.GetAsync(new GraphRequest("/groups").WithSelect("id").WithCount().WithConsistencyLevelEventual(), Ct);
 
         var post = client.Requests[0];
         Assert.Equal("POST", post.Method);

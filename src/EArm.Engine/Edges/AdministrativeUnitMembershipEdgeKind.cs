@@ -3,13 +3,13 @@ using System.Collections.Generic;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Engine.Providers;
 
 namespace EArm.Engine.Edges;
 
 /// <summary>
-/// Administrative unit membership (plan section 1.4): target side <c>administrativeUnits.members</c>
+/// Administrative unit membership: target side <c>administrativeUnits.members</c>
 /// (authoritative set), principal side <c>administrativeUnits</c> on users and groups. Live reads:
 /// <c>GET /directory/administrativeUnits/{au}/members?$select=id</c> for the target, the principal's <c>memberOf</c>
 /// filtered to administrative units for the principal. Writes: <c>POST .../members/$ref</c>,

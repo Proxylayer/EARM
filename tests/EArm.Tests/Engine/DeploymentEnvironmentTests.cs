@@ -1,37 +1,15 @@
+using System;
 using System.Text.Json.Nodes;
-using System.Threading;
-using System.Threading.Tasks;
-using EArm.Az;
 using EArm.Engine.Planning;
-using EArm.TestSupport;
-using Microsoft.Extensions.Logging.Abstractions;
+using EArm.Graph;
 using Xunit;
 
 namespace EArm.Tests.Engine;
 
-/// <summary>What <c>tenant()</c> and <c>environment()</c> are built from after preflight (WI-16).</summary>
+/// <summary>What <c>tenant()</c> and <c>environment()</c> are built from after the preflight: the one organization read and the cloud table.</summary>
 public sealed class DeploymentEnvironmentTests
 {
     private const string Tenant = "11111111-1111-1111-1111-111111111111";
-
-    private static CancellationToken Ct => TestContext.Current.CancellationToken;
-
-    /// <summary>Answers every GET with the same body (or throws).</summary>
-    private sealed class StubGraphClient : GraphClientDecorator
-    {
-        private readonly JsonNode? _body;
-
-        public StubGraphClient(JsonNode? body)
-            : base(new FakeGraphClient())
-        {
-            _body = body;
-        }
-
-        public override Task<JsonNode?> GetAsync(GraphRequest request, CancellationToken cancellationToken)
-        {
-            return Task.FromResult(_body?.DeepClone());
-        }
-    }
 
     private static JsonObject Organization(string? displayName, params (string Name, bool? IsDefault)[] domains)
     {
@@ -53,32 +31,26 @@ public sealed class DeploymentEnvironmentTests
             organization["displayName"] = displayName;
         }
 
-        return new JsonObject { ["value"] = new JsonArray(organization) };
+        return organization;
     }
 
     [Fact]
-    public async Task ReadTenant_UsesTheFakeOrganization_AndSelectsTheRightFields()
+    public void Tenant_IsBuiltFromTheOrganizationTheDefaultDomainAndTheDisplayName()
     {
-        var fake = new FakeGraphClient();
-
-        var tenant = await DeploymentEnvironment.ReadTenantAsync(fake, Tenant, NullLogger.Instance, Ct);
+        var tenant = DeploymentEnvironment.TenantFromOrganization(Organization("Contoso", ("contoso.onmicrosoft.com", false), ("contoso.com", true)), Tenant);
 
         Assert.NotNull(tenant);
         Assert.Equal(Tenant, tenant["tenantId"]!.GetValue<string>());
         Assert.Equal("contoso.com", tenant["defaultDomain"]!.GetValue<string>());
-        Assert.Equal("Contoso (fake)", tenant["displayName"]!.GetValue<string>());
-        var request = Assert.Single(fake.Requests);
-        Assert.Equal("/organization", request.Path);
-        Assert.Equal("id,displayName,verifiedDomains", request.UrlParameters!["$select"]);
-        Assert.Equal(RetryHint.Default, request.Hint);
+        Assert.Equal("Contoso", tenant["displayName"]!.GetValue<string>());
     }
 
     [Fact]
-    public async Task ReadTenant_PrefersTheDefaultDomain_ElseTheFirst()
+    public void Tenant_PrefersTheDefaultDomain_ElseTheFirst()
     {
-        var preferred = await DeploymentEnvironment.ReadTenantAsync(new StubGraphClient(Organization("Contoso", ("other.onmicrosoft.com", false), ("contoso.com", true), ("third.com", false))), Tenant, NullLogger.Instance, Ct);
-        var first = await DeploymentEnvironment.ReadTenantAsync(new StubGraphClient(Organization("Contoso", ("a.com", null), ("b.com", false))), Tenant, NullLogger.Instance, Ct);
-        var none = await DeploymentEnvironment.ReadTenantAsync(new StubGraphClient(Organization(null)), Tenant, NullLogger.Instance, Ct);
+        var preferred = DeploymentEnvironment.TenantFromOrganization(Organization("Contoso", ("other.onmicrosoft.com", false), ("contoso.com", true), ("third.com", false)), Tenant);
+        var first = DeploymentEnvironment.TenantFromOrganization(Organization("Contoso", ("a.com", null), ("b.com", false)), Tenant);
+        var none = DeploymentEnvironment.TenantFromOrganization(Organization(null), Tenant);
 
         Assert.Equal("contoso.com", preferred!["defaultDomain"]!.GetValue<string>());
         Assert.Equal("a.com", first!["defaultDomain"]!.GetValue<string>());
@@ -88,40 +60,42 @@ public sealed class DeploymentEnvironmentTests
     }
 
     [Fact]
-    public async Task ReadTenant_FallsBackToThePreflightTenantId_WhenTheObjectHasNone()
+    public void Tenant_FallsBackToThePreflightTenantId_WhenTheObjectHasNone()
     {
-        var body = new JsonObject { ["value"] = new JsonArray(new JsonObject { ["displayName"] = "X" }) };
-
-        var tenant = await DeploymentEnvironment.ReadTenantAsync(new StubGraphClient(body), Tenant, NullLogger.Instance, Ct);
+        var tenant = DeploymentEnvironment.TenantFromOrganization(new JsonObject { ["displayName"] = "X" }, Tenant);
 
         Assert.Equal(Tenant, tenant!["tenantId"]!.GetValue<string>());
         Assert.Equal("X", tenant["displayName"]!.GetValue<string>());
     }
 
     [Fact]
-    public async Task ReadTenant_ReturnsNull_WhenTheReadFailsOrYieldsNoOrganization()
+    public void Tenant_IsNull_WhenTheOrganizationCouldNotBeRead()
     {
-        var fake = new FakeGraphClient();
-        fake.Failures.Forbid("/organization");
-
-        Assert.Null(await DeploymentEnvironment.ReadTenantAsync(fake, Tenant, NullLogger.Instance, Ct));
-        Assert.Null(await DeploymentEnvironment.ReadTenantAsync(new StubGraphClient(new JsonObject { ["value"] = new JsonArray() }), Tenant, NullLogger.Instance, Ct));
-        Assert.Null(await DeploymentEnvironment.ReadTenantAsync(new StubGraphClient(null), Tenant, NullLogger.Instance, Ct));
-        Assert.Null(await DeploymentEnvironment.ReadTenantAsync(new StubGraphClient(new JsonArray()), Tenant, NullLogger.Instance, Ct));
+        Assert.Null(DeploymentEnvironment.TenantFromOrganization(null, Tenant));
+        Assert.Throws<ArgumentException>(() => DeploymentEnvironment.TenantFromOrganization(null, " "));
     }
 
     [Theory]
-    [InlineData(null, "AzureCloud")]
-    [InlineData("", "AzureCloud")]
-    [InlineData("AzureCloud", "AzureCloud")]
-    [InlineData("AzureUSGovernment", "AzureUSGovernment")]
-    public void Environment_IsThePublicCloudConstants_NamedAfterTheSession(string? cloudName, string expectedName)
+    [InlineData("public", "AzureCloud", "https://graph.microsoft.com", "https://login.microsoftonline.com/")]
+    [InlineData("usgov", "AzureUSGovernment", "https://graph.microsoft.us", "https://login.microsoftonline.us/")]
+    [InlineData("usgovdod", "AzureUSGovernmentDoD", "https://dod-graph.microsoft.us", "https://login.microsoftonline.us/")]
+    [InlineData("china", "AzureChinaCloud", "https://microsoftgraph.chinacloudapi.cn", "https://login.chinacloudapi.cn/")]
+    public void Environment_ComesFromTheCloudTable(string cloud, string expectedName, string graph, string loginEndpoint)
     {
-        var environment = DeploymentEnvironment.Environment(cloudName);
+        var environment = DeploymentEnvironment.Environment(GraphCloud.Parse(cloud));
 
         Assert.Equal(expectedName, environment["name"]!.GetValue<string>());
-        Assert.Equal("https://graph.microsoft.com", environment["graph"]!.GetValue<string>());
-        Assert.Equal("https://login.microsoftonline.com/", environment["authentication"]!["loginEndpoint"]!.GetValue<string>());
+        Assert.Equal(graph, environment["graph"]!.GetValue<string>());
+        Assert.Equal(loginEndpoint, environment["authentication"]!["loginEndpoint"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public void Environment_OfThePublicCloud_MatchesTheDocumentedConstants()
+    {
+        var environment = DeploymentEnvironment.Environment(GraphCloud.Public);
+
+        Assert.Equal(DeploymentEnvironment.DefaultCloudName, environment["name"]!.GetValue<string>());
         Assert.Equal(DeploymentEnvironment.PublicLoginEndpoint, environment["authentication"]!["loginEndpoint"]!.GetValue<string>());
+        Assert.Equal(GraphApiExtensions.Host, environment["graph"]!.GetValue<string>());
     }
 }

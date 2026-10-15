@@ -14,7 +14,7 @@ using Xunit;
 
 namespace EArm.Tests.Engine;
 
-/// <summary>The state file model (plan section 1.7): serialisation, identifiers, the secret guard, schema gating, hashing, names.</summary>
+/// <summary>The state file model: serialisation, identifiers, the secret guard, schema gating, hashing, names.</summary>
 public sealed class StateSerializerTests
 {
     private const string Name = "orders-dev";
@@ -41,21 +41,21 @@ public sealed class StateSerializerTests
     private static StateFile Sample()
     {
         var state = StateFile.CreateNew(Name, Tenant, Now);
-        state.Upsert(Entry("/providers/Microsoft.Entra/applications/zz", Fixture.AppType, "Z1", "/providers/Microsoft.Entra/users/u@contoso.com"));
-        state.Upsert(Entry("/providers/Microsoft.Entra/applications/aa", Fixture.AppType, "A1"));
+        state.Upsert(Entry("/providers/Microsoft.Entra/applications/zz", Fixture.AppType, "e1000000-0000-4000-8000-000000000001", "/providers/Microsoft.Entra/users/u@contoso.com"));
+        state.Upsert(Entry("/providers/Microsoft.Entra/applications/aa", Fixture.AppType, "a1000000-0000-4000-8000-000000000001"));
         state.Upsert(new StateEntry
         {
             Id = ResourceIdentifier.Create(Fixture.PasswordType, "aa/ci-secret"),
             Type = Fixture.PasswordType,
             ApiVersion = "2026-10-01-preview.beta",
             Key = new Dictionary<string, string> { ["displayName"] = "ci-secret" },
-            GraphId = "K1",
-            ParentGraphId = "A1",
+            GraphId = "b1000000-0000-4000-8000-000000000001",
+            ParentGraphId = "a1000000-0000-4000-8000-000000000001",
             ContentHash = "sha256:def",
             DependsOn = ["/providers/Microsoft.Entra/applications/zz", "/providers/Microsoft.Entra/applications/aa"],
             LastWriteOn = Now.AddMinutes(1),
-            Extra = new JsonObject { ["keyId"] = "K1", ["endDateTime"] = "2027-10-01T00:00:00Z" },
-            Relationships = new JsonObject { ["memberOf"] = new JsonArray("G1", "G2") },
+            Extra = new JsonObject { ["keyId"] = "b1000000-0000-4000-8000-000000000001", ["endDateTime"] = "2027-10-01T00:00:00Z" },
+            Relationships = new JsonObject { ["memberOf"] = new JsonArray("a1000000-0000-4000-8000-0000000000a1", "a1000000-0000-4000-8000-0000000000a2") },
         });
         state.Operations.Add(new OperationRecord
         {
@@ -66,7 +66,7 @@ public sealed class StateSerializerTests
             Batch = 2,
             StartedOn = Now,
             FinishedOn = Now.AddSeconds(3),
-            GraphId = "A1",
+            GraphId = "a1000000-0000-4000-8000-000000000001",
         });
         state.Operations.Add(new OperationRecord
         {
@@ -110,7 +110,7 @@ public sealed class StateSerializerTests
         Assert.True(json.IndexOf("applications/aa\"", StringComparison.Ordinal) < json.IndexOf("applications/zz\"", StringComparison.Ordinal));
 
         var aa = resources["/providers/Microsoft.Entra/applications/aa"]!.AsObject();
-        Assert.Equal("A1", aa["id"]!.GetValue<string>());
+        Assert.Equal("a1000000-0000-4000-8000-000000000001", aa["id"]!.GetValue<string>());
         Assert.False(aa.ContainsKey("graphId"));
         Assert.False(aa.ContainsKey("parentId"), "null members are omitted");
         Assert.False(aa.ContainsKey("extra"));
@@ -118,10 +118,10 @@ public sealed class StateSerializerTests
         Assert.Equal(Fixture.AppType, aa["type"]!.GetValue<string>());
 
         var child = resources["/providers/Microsoft.Entra/applications/aa/passwordCredentials/ci-secret"]!.AsObject();
-        Assert.Equal("K1", child["id"]!.GetValue<string>());
-        Assert.Equal("A1", child["parentId"]!.GetValue<string>());
-        Assert.Equal("K1", child["extra"]!["keyId"]!.GetValue<string>());
-        Assert.Equal("[\"G1\",\"G2\"]", child["relationships"]!["memberOf"]!.ToJsonString());
+        Assert.Equal("b1000000-0000-4000-8000-000000000001", child["id"]!.GetValue<string>());
+        Assert.Equal("a1000000-0000-4000-8000-000000000001", child["parentId"]!.GetValue<string>());
+        Assert.Equal("b1000000-0000-4000-8000-000000000001", child["extra"]!["keyId"]!.GetValue<string>());
+        Assert.Equal("[\"a1000000-0000-4000-8000-0000000000a1\",\"a1000000-0000-4000-8000-0000000000a2\"]", child["relationships"]!["memberOf"]!.ToJsonString());
         Assert.Equal(["/providers/Microsoft.Entra/applications/aa", "/providers/Microsoft.Entra/applications/zz"], child["dependsOn"]!.AsArray().Select(d => d!.GetValue<string>()).ToList());
         Assert.Equal("2026-10-01-preview.beta", child["apiVersion"]!.GetValue<string>());
 
@@ -258,9 +258,9 @@ public sealed class StateSerializerTests
     public void AssertPersistable_RefusesSecretsAndPlaceholders()
     {
         var withSecret = StateFile.CreateNew(Name, Tenant, Now);
-        withSecret.Upsert(Entry("/providers/Microsoft.Entra/applications/a", Fixture.AppType, "A1") with { Extra = new JsonObject { ["secretText"] = SecretJson.CreateString("s") } });
+        withSecret.Upsert(Entry("/providers/Microsoft.Entra/applications/a", Fixture.AppType, "a1000000-0000-4000-8000-000000000001") with { Extra = new JsonObject { ["secretText"] = SecretJson.CreateString("s") } });
         var withUnknown = StateFile.CreateNew(Name, Tenant, Now);
-        withUnknown.Upsert(Entry("/providers/Microsoft.Entra/applications/a", Fixture.AppType, "A1") with { Relationships = new JsonObject { ["memberOf"] = new JsonArray(UnknownJson.Create("ref(x).id", UnknownOrigins.Reference)) } });
+        withUnknown.Upsert(Entry("/providers/Microsoft.Entra/applications/a", Fixture.AppType, "a1000000-0000-4000-8000-000000000001") with { Relationships = new JsonObject { ["memberOf"] = new JsonArray(UnknownJson.Create("ref(x).id", UnknownOrigins.Reference)) } });
         var clean = Sample();
 
         var secret = Assert.Throws<InvalidOperationException>(() => StateSerializer.AssertPersistable(withSecret));
@@ -388,7 +388,7 @@ public sealed class StateSerializerTests
         Assert.Equal(EngineDiagnosticCodes.TenantMismatch, error.Code);
         Assert.Equal(Tenant, error.StateTenantId);
         Assert.Equal("22222222-2222-2222-2222-222222222222", error.CurrentTenantId);
-        Assert.Contains("az login --tenant " + Tenant + " --allow-no-subscriptions", error.Message);
+        Assert.Contains("earm auth login --tenant " + Tenant, error.Message);
         Assert.Equal(Name, error.DeploymentName);
     }
 
@@ -411,7 +411,7 @@ public sealed class StateSerializerTests
 
         Assert.Equal(StateFile.StatusFailed, state.LastStatus);
         Assert.Equal(Now.AddHours(2), state.LastDeployedOn);
-        Assert.Equal("A1", state.GraphIdOf("/providers/Microsoft.Entra/applications/aa"));
+        Assert.Equal("a1000000-0000-4000-8000-000000000001", state.GraphIdOf("/providers/Microsoft.Entra/applications/aa"));
         Assert.Null(state.GraphIdOf("/providers/Microsoft.Entra/applications/missing"));
         Assert.True(state.Remove("/providers/Microsoft.Entra/applications/aa"));
         Assert.False(state.Remove("/providers/Microsoft.Entra/applications/aa"));
@@ -427,8 +427,8 @@ public sealed class StateSerializerTests
 
         Assert.Equal(Fixture.PasswordType, key.Type);
         Assert.Equal("ci-secret", key.Single);
-        Assert.Equal("A1", key.ParentGraphId);
-        Assert.Equal(EArm.Az.GraphApi.Beta, key.Api);
+        Assert.Equal("a1000000-0000-4000-8000-000000000001", key.ParentGraphId);
+        Assert.Equal(EArm.Graph.GraphApi.Beta, key.Api);
         Assert.True(key.IsResolved);
     }
 

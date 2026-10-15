@@ -4,7 +4,7 @@ using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Core.Json;
 using EArm.Engine;
 using EArm.Engine.Providers;
@@ -13,11 +13,11 @@ using EArm.Expressions.Values;
 namespace EArm.Providers;
 
 /// <summary>
-/// The action-backed <c>assignedLicenses</c> property (plan sections 1.4 and 3.2): <c>[{ skuId | skuPartNumber,
+/// The action-backed <c>assignedLicenses</c> property: <c>[{ skuId | skuPartNumber,
 /// disabledPlans }]</c> is reconciled against the live direct assignments with
 /// <c>POST /{groups|users}/{id}/assignLicense { addLicenses, removeLicenses }</c>; <c>skuPartNumber</c> is resolved
 /// through <c>GET /subscribedSkus</c>, read once per run (per provider instance). Written for groups, shaped so the
-/// users provider (WI-13) can reuse the diff and the SKU table.
+/// users provider can reuse the diff and the SKU table.
 /// </summary>
 internal sealed class GroupsLicensing
 {
@@ -101,7 +101,7 @@ internal sealed class GroupsLicensing
             {
                 return null;
             }
-            catch (AzCliException)
+            catch (GraphTransportException)
             {
                 return null;
             }
@@ -249,7 +249,7 @@ internal sealed class GroupsLicensing
         if (needsTable)
         {
             skus = await TryGetSkusAsync(graph, api, cancellationToken).ConfigureAwait(false)
-                ?? throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{describe}: skuPartNumber values cannot be resolved because GET /subscribedSkus failed (Organization.Read.All is required).");
+                ?? throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{describe}: skuPartNumber values cannot be resolved because GET /subscribedSkus failed (LicenseAssignment.Read.All, Directory.Read.All or Organization.Read.All is required).");
         }
 
         var diff = Diff(desired, live, skus);

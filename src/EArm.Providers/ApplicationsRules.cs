@@ -50,7 +50,7 @@ public sealed record DerivedMemberIds(IReadOnlyDictionary<string, string> AppRol
 }
 
 /// <summary>
-/// The pure rules of the applications provider (plan sections 1.3 and 3.2), kept free of Graph I/O so they can be
+/// The pure rules of the applications provider, kept free of Graph I/O so they can be
 /// tested on their own:
 /// <list type="bullet">
 /// <item>deterministic ids for <c>appRoles</c> / <c>api.oauth2PermissionScopes</c> members declared without <c>id</c> (UUIDv5 of (uniqueName, value));</item>

@@ -25,7 +25,7 @@ public sealed class StateRobustnessTests
     private static StateFile Sample()
     {
         var state = StateFile.CreateNew(Name, EngineHost.Tenant, Start);
-        state.Upsert(StateSerializerTests.Entry("/providers/Microsoft.Entra/applications/app", Fixture.AppType, "A1"));
+        state.Upsert(StateSerializerTests.Entry("/providers/Microsoft.Entra/applications/app", Fixture.AppType, "a1000000-0000-4000-8000-000000000001"));
         return state;
     }
 
@@ -81,7 +81,7 @@ public sealed class StateRobustnessTests
         var loaded = await store.LoadAsync(Name, Ct);
 
         Assert.NotNull(loaded);
-        Assert.Equal("A1", loaded.GraphIdOf("/providers/Microsoft.Entra/applications/app"));
+        Assert.Equal("a1000000-0000-4000-8000-000000000001", loaded.GraphIdOf("/providers/Microsoft.Entra/applications/app"));
     }
 
     [Fact]
@@ -95,7 +95,7 @@ public sealed class StateRobustnessTests
         var loaded = await store.LoadAsync("copied", Ct);
 
         Assert.NotNull(loaded);
-        Assert.Equal("A1", loaded.GraphIdOf("/providers/Microsoft.Entra/applications/app"));
+        Assert.Equal("a1000000-0000-4000-8000-000000000001", loaded.GraphIdOf("/providers/Microsoft.Entra/applications/app"));
     }
 
     // ---- failed saves ----
@@ -114,17 +114,18 @@ public sealed class StateRobustnessTests
     }
 
     [Fact]
-    public async Task Save_AndLock_WhenTheStateDirectoryIsAFile_ThrowIOExceptions()
+    public async Task EveryOperation_WhenTheStateDirectoryIsAFile_ThrowsAStateStoreException()
     {
-        using var directory = new TestDirectory(nameof(Save_AndLock_WhenTheStateDirectoryIsAFile_ThrowIOExceptions));
+        // Review finding S-06: a state directory that is a file is reported (a clean message, exit 1), never read as "no deployments".
+        using var directory = new TestDirectory(nameof(EveryOperation_WhenTheStateDirectoryIsAFile_ThrowsAStateStoreException));
         string blocker = directory.File("state-is-a-file");
         await File.WriteAllTextAsync(blocker, "x", Ct);
         var store = new FileStateStore(blocker);
 
-        await Assert.ThrowsAnyAsync<IOException>(() => store.SaveAsync(Sample(), Ct));
-        await Assert.ThrowsAnyAsync<IOException>(() => store.LockAsync(Name, TimeSpan.Zero, Ct));
-        Assert.Empty(await store.ListAsync(Ct));
-        Assert.Null(await store.LoadAsync(Name, Ct));
+        await Assert.ThrowsAsync<StateStoreException>(() => store.SaveAsync(Sample(), Ct));
+        await Assert.ThrowsAsync<StateStoreException>(() => store.LockAsync(Name, TimeSpan.Zero, Ct));
+        await Assert.ThrowsAsync<StateStoreException>(() => store.ListAsync(Ct));
+        await Assert.ThrowsAsync<StateStoreException>(() => store.LoadAsync(Name, Ct));
     }
 
     [Fact]
@@ -248,9 +249,11 @@ public sealed class StateRobustnessTests
         var replacement = await store.LockAsync(Name, TimeSpan.Zero, Ct);
         await old.DisposeAsync();
 
-        // The old lease deleted the path it knew: the replacement's lock is gone too (documented best effort), not an exception.
-        Assert.False(File.Exists(store.LockPathFor(Name)));
+        // Review round 2 (S2-11a): the old lease releases by lockId (compare-and-delete): the replacement's lock stays in place, nobody else's lock is deleted.
+        Assert.True(File.Exists(store.LockPathFor(Name)));
+        Assert.NotNull(await store.GetLockAsync(Name, Ct));
         await replacement.DisposeAsync();
+        Assert.False(File.Exists(store.LockPathFor(Name)));
     }
 
     [Fact]

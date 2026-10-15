@@ -1,13 +1,13 @@
 using System;
-using AzGraphApi = EArm.Az.GraphApi;
+using AzGraphApi = EArm.Graph.GraphApi;
 using CoreGraphApi = EArm.Core.Types.GraphApi;
 
 namespace EArm.Engine.Providers;
 
 /// <summary>
 /// Converts between the catalog's notion of a Graph endpoint (<see cref="EArm.Core.Types.GraphApi"/>, read from the
-/// overlay) and the transport's (<see cref="EArm.Az.GraphApi"/>, used to build requests). The two enums exist
-/// because EArm.Az has no reference to EArm.Core.
+/// overlay) and the transport's (<see cref="EArm.Graph.GraphApi"/>, used to build requests). The two enums exist
+/// because EArm.Graph has no reference to EArm.Core.
 /// </summary>
 public static class GraphApiMapping
 {

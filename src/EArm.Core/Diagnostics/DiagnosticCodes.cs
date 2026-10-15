@@ -11,6 +11,8 @@ public static class DiagnosticCodes
     public const string InvalidJson = "InvalidJson";
     public const string TemplateRootNotObject = "TemplateRootNotObject";
     public const string InvalidParameterFile = "InvalidParameterFile";
+    public const string DuplicateJsonKey = "DuplicateJsonKey";
+    public const string InputTooLarge = "InputTooLarge";
 
     // ---- Load diagnostics (non-fatal: attached to the document and reported by the validator) ----
     public const string NestingTooDeep = "NestingTooDeep";
@@ -35,6 +37,7 @@ public static class DiagnosticCodes
     public const string InvalidResourceName = "InvalidResourceName";
     public const string ParentChildTypeMismatch = "ParentChildTypeMismatch";
     public const string DuplicateResourceId = "DuplicateResourceId";
+    public const string PropertyTypeMismatch = "PropertyTypeMismatch";
     public const string NameMappedPropertyConflict = "NameMappedPropertyConflict";
     public const string DynamicMembershipConflict = "DynamicMembershipConflict";
     public const string DirectoryRolesRequireRoleAssignableGroup = "DirectoryRolesRequireRoleAssignableGroup";
@@ -66,11 +69,15 @@ public static class DiagnosticCodes
     public const string FunctionNotAllowedHere = "FunctionNotAllowedHere";
     public const string InvalidFunctionArguments = "InvalidFunctionArguments";
     public const string ExpressionEvaluationFailed = "ExpressionEvaluationFailed";
+    public const string ValueTooDeep = "ValueTooDeep";
+    public const string EvaluationBudgetExceeded = "EvaluationBudgetExceeded";
+    public const string ExpansionLimitExceeded = "ExpansionLimitExceeded";
 
     // ---- Expressions: parameters, variables, copy ----
     public const string UndefinedParameter = "UndefinedParameter";
     public const string UndefinedVariable = "UndefinedVariable";
     public const string VariableCycle = "VariableCycle";
+    public const string VariableChainTooDeep = "VariableChainTooDeep";
     public const string ParameterDefaultCycle = "ParameterDefaultCycle";
     public const string CopyIndexOutsideCopy = "CopyIndexOutsideCopy";
 

@@ -4,8 +4,8 @@ using System.Text.Json.Nodes;
 namespace EArm.Core.Types;
 
 /// <summary>
-/// The Graph permissions and Entra roles a type needs (plan section 3.4). <see cref="Raw"/> keeps the overlay
-/// object verbatim so later work items can read conditional entries without a model change.
+/// The Graph permissions and Entra roles a type needs. <see cref="Raw"/> keeps the overlay
+/// object verbatim so conditional entries can be read without a model change.
 /// </summary>
 public sealed record PermissionSet(
     IReadOnlyList<string> Application,

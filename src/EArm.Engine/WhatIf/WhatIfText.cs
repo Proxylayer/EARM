@@ -19,7 +19,7 @@ public sealed record WhatIfTextOptions(ResultFormat Format = ResultFormat.FullRe
 }
 
 /// <summary>
-/// The human-readable what-if (plan section 1.8), laid out like <c>az deployment group what-if</c>: a header, the
+/// The human-readable what-if, laid out like <c>az deployment group what-if</c>: a header, the
 /// symbol legend, one block per change (<c>+ ~ - = *</c>, <c>?</c> for deploy-time values, <c>!</c> for changes that
 /// cannot be applied as planned) with the resource payload or the property deltas indented under it, then the
 /// summary counts, the edge counts, the required permissions and the warnings. Lines are never padded into

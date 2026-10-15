@@ -17,7 +17,7 @@ using Xunit;
 namespace EArm.Tests.Engine;
 
 /// <summary>
-/// The mode pass (plan section 2.4, step 8) and the delete machinery: <see cref="ModePass"/> rules, the planner's
+/// The mode pass and the delete machinery: <see cref="ModePass"/> rules, the planner's
 /// what-if rows with a state, the executor's detach / delete behaviour, and <see cref="DeploymentDeleter"/>.
 /// </summary>
 public sealed class ModePassTests
@@ -195,7 +195,8 @@ public sealed class ModePassTests
         Assert.True(plan.HasChanges);
         Assert.Equal(3, plan.Summary.Delete);
         Assert.Empty(host.Fake.Writes);
-        Assert.Contains(host.Fake.Requests, r => r.Path == "/applications/OLD-APP/federatedIdentityCredentials/OLD-FIC");
+        // Review finding S-01: the live object is looked up by its KEY (never by the pinned id alone) before a delete is planned.
+        Assert.Contains(host.Fake.Requests, r => r.Path == "/applications/OLD-APP/federatedIdentityCredentials(name='gh')");
         Assert.DoesNotContain(plan.Diagnostics, d => d.Code == EngineDiagnosticCodes.ResourceDetached);
     }
 
@@ -254,7 +255,8 @@ public sealed class ModePassTests
         var resolved = new EngineHost();
         resolved.SeedExisting();
         resolved.Directory.AddApplication("contoso-dev-api", "Orders API", "aaaaaaaa-1111-2222-3333-444444444444");
-        resolved.Directory.AddServicePrincipal(OldSpAppId, "Old");
+        string oldSpId = resolved.Directory.AddServicePrincipal(OldSpAppId, "Old")["id"]!.GetValue<string>();
+        state.Upsert(Entry(OldSp, Fixture.SpType, oldSpId, "appId", OldSpAppId, null));
         var decided = await resolved.WhatIfAsync(await Templates.FixtureAsync(), state, DeploymentMode.Complete);
 
         var row = Assert.Single(decided.ModeChanges);
@@ -338,7 +340,9 @@ public sealed class ModePassTests
         Assert.True(result.Succeeded);
         Assert.Equal(3, result.DeletedCount);
         Assert.Empty(state.Resources);
-        Assert.Equal(3, host.Fake.Writes.Count(w => w.Method == "DELETE"));
+
+        // The objects are found gone by the key re-read, so no DELETE is sent at all.
+        Assert.Empty(host.Fake.Writes);
     }
 
     [Fact]

@@ -8,7 +8,7 @@ using Xunit;
 
 namespace EArm.Tests.Engine;
 
-/// <summary>Expansion (plan section 2.4, step 3): copy loops, per-iteration names and conditions, duplicate ids, parent linkage.</summary>
+/// <summary>Expansion: copy loops, per-iteration names and conditions, duplicate ids, parent linkage.</summary>
 public sealed class ResourceExpanderTests
 {
     private const string GroupType = "Microsoft.Entra/groups";

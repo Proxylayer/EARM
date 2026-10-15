@@ -8,11 +8,11 @@ using EArm.Engine.Providers;
 namespace EArm.Engine.State;
 
 /// <summary>
-/// One resource recorded in the deployment state file (plan section 1.7): the Graph id pinned under the ARM-style
+/// One resource recorded in the deployment state file: the Graph id pinned under the ARM-style
 /// resource id, the key the object is addressed by, the parent's Graph id for child types, a content hash of the
 /// evaluated properties (informational; the diff is always live-vs-desired), the resource ids it depended on (the
 /// Complete-mode delete order), provider-specific extra data (<c>keyId</c>, <c>endDateTime</c>...) and the edges
-/// this deployment created from the resource's side (<see cref="Relationships"/>, filled by the edge pass, WI-09).
+/// this deployment created from the resource's side (<see cref="Relationships"/>, filled by the edge pass).
 /// Never holds a secret.
 /// </summary>
 public sealed record StateEntry
@@ -42,6 +42,27 @@ public sealed record StateEntry
     /// <summary>Resource ids this resource depended on when it was last applied (reverse order = delete order).</summary>
     public IReadOnlyList<string> DependsOn { get; init; } = [];
 
+    /// <summary>
+    /// <see cref="StateProvenance.Created"/> when this deployment created the object, <see cref="StateProvenance.Adopted"/> when it existed
+    /// before (serialised as <c>provenance</c>: <c>created</c> | <c>adopted</c>; absent = <c>adopted</c>). Adopted objects are never deleted
+    /// by Complete mode or <c>deployment delete --delete-resources</c> without <c>--delete-adopted</c>.
+    /// </summary>
+    public StateProvenance Provenance { get; init; } = StateProvenance.Created;
+
+    /// <summary>
+    /// <c>false</c> when the entry was read from a state file that had no <c>provenance</c> at all (written by an older version): the entry is treated as
+    /// <see cref="StateProvenance.Adopted"/>, and messages say "no provenance record" instead of claiming the object existed before.
+    /// </summary>
+    public bool ProvenanceRecorded { get; init; } = true;
+
+    /// <summary>
+    /// The immutable fingerprint of the object: the <c>createdDateTime</c> Graph reported when it was created (or adopted), serialised as
+    /// <c>createdDateTime</c>. Optional (older state files and types without the property have none). When present, a state-driven
+    /// delete or update requires the live object to carry the same value (review round 2, finding S2-01): an entry re-pointed at another
+    /// object, even one with the same key, no longer matches.
+    /// </summary>
+    public DateTimeOffset? CreatedDateTime { get; init; }
+
     /// <summary>When the object was last created or updated by EARM.</summary>
     public DateTimeOffset? LastWriteOn { get; init; }
 
@@ -49,7 +70,7 @@ public sealed record StateEntry
     /// The edges this deployment created from this resource's side, per relationship kind
     /// (<c>memberOf</c>, <c>ownerOf</c>, <c>administrativeUnits</c>, <c>manager</c>, <c>appRoleAssignments</c>,
     /// <c>directoryRoles</c>): arrays of target ids, or of objects carrying the Graph assignment id. The edge pass
-    /// (WI-09) fills and consumes it; the sink preserves it across runs.
+    /// fills and consumes it; the sink preserves it across runs.
     /// </summary>
     public JsonObject? Relationships { get; init; }
 
@@ -60,7 +81,7 @@ public sealed record StateEntry
     public ResourceKey ToResourceKey(ResourceTypeCatalog catalog)
     {
         ArgumentNullException.ThrowIfNull(catalog);
-        var api = catalog.TryGetGraphApi(Type, ApiVersion, out var coreApi) ? GraphApiMapping.ToAz(coreApi) : Az.GraphApi.V1;
+        var api = catalog.TryGetGraphApi(Type, ApiVersion, out var coreApi) ? GraphApiMapping.ToAz(coreApi) : Graph.GraphApi.V1;
         return new ResourceKey
         {
             Type = Type,

@@ -13,7 +13,7 @@ using EArm.Expressions.Values;
 namespace EArm.Expressions.Static;
 
 /// <summary>
-/// Evaluates, offline, everything of a template that can be evaluated before deployment (plan section 1.5,
+/// Evaluates, offline, everything of a template that can be evaluated before deployment (
 /// phases 2-4): parameter defaults (non-deterministic functions permitted), variables (lazily), and for every
 /// resource its <c>name</c>, <c>apiVersion</c> (must be literal), <c>condition</c>, <c>copy.count</c> and
 /// <c>dependsOn</c> entries, plus the <c>reference()</c> occurrences inside <c>properties</c> and the outputs.
@@ -97,6 +97,7 @@ public sealed class StaticEvaluator
             }
 
             ReportDuplicateIds(resources);
+            ReportInstanceLimit(resources);
 
             var withDependencies = new List<ResolvedResource>();
             foreach (var resource in resources)
@@ -299,6 +300,17 @@ public sealed class StaticEvaluator
                 return result with { NameValue = value };
             }
 
+            // A literal name was checked by the core validator; a computed one is checked here, with the same rules.
+            if (ExpressionSyntax.IsExpression(declaration.Name!) && ResourceNameRules.Validate(definition, name) is { } nameProblem)
+            {
+                if (strict)
+                {
+                    Error(DiagnosticCodes.InvalidResourceName, nameProblem, namePath);
+                }
+
+                return result with { NameValue = value };
+            }
+
             return result with
             {
                 NameKind = ResolvedNameKind.Static,
@@ -393,7 +405,28 @@ public sealed class StaticEvaluator
                 return result;
             }
 
+            if (count > EvaluationLimits.MaxCopyCount)
+            {
+                Error(DiagnosticCodes.ExpansionLimitExceeded, $"copy.count is {count}, more than the limit of {EvaluationLimits.MaxCopyCount} iterations per resource (the ARM limit); nothing is expanded.", path);
+                return result;
+            }
+
             return result with { CopyCount = count };
+        }
+
+        /// <summary>The expansion of the whole template may not exceed <see cref="EvaluationLimits.MaxInstances"/> instances; reported before anything is expanded.</summary>
+        private void ReportInstanceLimit(IReadOnlyList<ResolvedResource> resources)
+        {
+            long total = 0;
+            foreach (var resource in resources)
+            {
+                total += resource.Declaration.Copy is null ? 1 : resource.CopyCount ?? 0;
+                if (total > EvaluationLimits.MaxInstances)
+                {
+                    Error(DiagnosticCodes.ExpansionLimitExceeded, $"The template expands to more than {EvaluationLimits.MaxInstances} resource instances (all copy loops together); nothing is expanded.", resource.Declaration.Path);
+                    return;
+                }
+            }
         }
 
         private void ReportDuplicateIds(IReadOnlyList<ResolvedResource> resources)

@@ -5,7 +5,7 @@ using System.Linq;
 using System.Net;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using EArm.Az;
+using EArm.Graph;
 
 namespace EArm.TestSupport;
 
@@ -18,6 +18,18 @@ namespace EArm.TestSupport;
 /// <see cref="AddDeleted"/> / <see cref="SoftDelete"/>) and the Graph-shaped errors the engine classifies (404 not
 /// found, 400 "already exists", 400 bad appId). Every call is serialised on one lock; the planner's parallelism is
 /// exercised, not the fake's.
+/// <para>
+/// Graph fidelity (Review 1D / Q-12, Review 3I): DELETE of a soft-deletable object (applications, Microsoft 365 and security groups, users, service
+/// principals, administrative units; only distribution lists are deleted at once) moves it to <c>/directory/deletedItems</c> for 30 days (<see cref="Clock"/>), where it keeps its keys
+/// (a create with the same uniqueName / userPrincipalName / appId / Microsoft 365 mailNickname conflicts until it is restored or purged);
+/// a create without the properties Learn lists as required, a bogus Conditional Access <c>state</c>, a named location without its <c>@odata.type</c>, a <c>$top</c> over 999 and a
+/// <c>$select</c> of a property the type does not have (<see cref="FakeDirectorySchema"/>) are 400s, typed objects come back with their default property set unless <c>$select</c> asks for more,
+/// and a navigation below the <c>uniqueName</c> alternate key (which Learn documents for the entity upsert only) is not a route;
+/// advanced queries (<c>$search</c>, <c>$count</c>, <c>ne</c> / <c>endswith</c> / <c>not</c> in <c>$filter</c>) on directory objects need
+/// <c>ConsistencyLevel: eventual</c> (and <c>$count=true</c> for a filter); a <c>$filter</c> operator Graph does not offer on the endpoint is a
+/// 400; an operation Graph does not document (PUT on an entity, PATCH of a read-only child, an untyped
+/// <c>GET /directory/deletedItems</c>...) is a 405 / 400 instead of working.
+/// </para>
 /// </summary>
 public sealed class FakeDirectory
 {
@@ -63,6 +75,8 @@ public sealed class FakeDirectory
 
     private static readonly Dictionary<string, string> CollectionByODataType = ODataTypeByCollection.ToDictionary(p => p.Value, p => p.Key, StringComparer.OrdinalIgnoreCase);
 
+    private static readonly TimeSpan DeletedRetention = TimeSpan.FromDays(30);
+
     private readonly object _gate = new();
     private readonly Dictionary<string, List<JsonObject>> _collections = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, List<string>> _references = new(StringComparer.OrdinalIgnoreCase);
@@ -86,6 +100,9 @@ public sealed class FakeDirectory
     /// app-only token does ("/me request is only valid with delegated authentication flow").
     /// </summary>
     public string? SignedInUserId { get; set; }
+
+    /// <summary>The clock the 30-day soft-delete retention is measured with; tests move it to expire a deleted item.</summary>
+    public TimeProvider Clock { get; set; } = TimeProvider.System;
 
     /// <summary>The lock every operation takes; exposed so tests can inspect consistently.</summary>
     public object SyncRoot => _gate;
@@ -286,15 +303,21 @@ public sealed class FakeDirectory
     {
         lock (_gate)
         {
+            PurgeExpiredDeletedItems();
             var route = Route.Parse(path, KnownRoots);
             if (route is null)
             {
                 throw NotFound(path, hint);
             }
 
+            if (method == "GET")
+            {
+                EnforceQueryRules(route, query, headers, hint);
+            }
+
             if (route.Root.Equals("me", StringComparison.OrdinalIgnoreCase))
             {
-                return HandleMe(method, route, hint);
+                return HandleMe(method, route, query, hint);
             }
 
             return route.Nav is null
@@ -316,16 +339,22 @@ public sealed class FakeDirectory
 
             string odataType = "#" + cast.Value;
             var typed = Collection(collectionPath).Where(o => ValueEquals(GetString(o, "@odata.type"), odataType)).ToList();
-            return (HttpStatusCode.OK, Page(Filter(typed, query, hint), route.Root + "/" + cast.Value, query, pageSize));
+            return (HttpStatusCode.OK, Page(Project(Filter(typed, query, hint), FakeDirectorySchema.ForODataType(odataType), query, hint), route.Root + "/" + cast.Value, query, pageSize));
         }
 
         if (route.Selector is null)
         {
+            if (collectionPath.Equals(DeletedItemsPath, StringComparison.OrdinalIgnoreCase))
+            {
+                // Learn (directory-deleteditems-list): listing /directory/deletedItems without a type is not supported.
+                throw BadRequest("Listing /directory/deletedItems requires a type cast (for example /directory/deletedItems/microsoft.graph.application).", hint);
+            }
+
             return method switch
             {
-                "GET" => (HttpStatusCode.OK, Page(Filter(Collection(collectionPath), query, hint), route.Root, query, pageSize)),
+                "GET" => (HttpStatusCode.OK, Page(Project(Filter(Collection(collectionPath), query, hint), FakeDirectorySchema.ForCollection(collectionPath), query, hint), route.Root, query, pageSize)),
                 "POST" => (HttpStatusCode.Created, Create(collectionPath, body, hint)),
-                _ => throw BadRequest($"{method} is not supported on collection '{collectionPath}'.", hint),
+                _ => throw MethodNotAllowed($"{method} is not supported on collection '{collectionPath}'.", hint),
             };
         }
 
@@ -333,7 +362,7 @@ public sealed class FakeDirectory
         switch (method)
         {
             case "GET":
-                return entity is null ? throw NotFound(route.Path, hint) : (HttpStatusCode.OK, entity.DeepClone());
+                return entity is null ? throw NotFound(route.Path, hint) : (HttpStatusCode.OK, ProjectOne(entity, collectionPath.Equals(DeletedItemsPath, StringComparison.OrdinalIgnoreCase) ? FakeDirectorySchema.ForODataType(GetString(entity, "@odata.type")) : FakeDirectorySchema.ForCollection(collectionPath), query, hint));
 
             case "PATCH":
                 if (entity is null)
@@ -354,13 +383,8 @@ public sealed class FakeDirectory
                 return (HttpStatusCode.NoContent, null);
 
             case "PUT":
-                if (entity is null)
-                {
-                    throw NotFound(route.Path, hint);
-                }
-
-                Patch(entity, body, collectionPath, hint);
-                return (HttpStatusCode.NoContent, null);
+                // Graph has no PUT on an entity (only PUT /users/{id}/manager/$ref and a few relationship links).
+                throw MethodNotAllowed($"PUT is not supported on '{route.Path}'.", hint);
 
             case "DELETE":
                 if (entity is null)
@@ -371,12 +395,18 @@ public sealed class FakeDirectory
                 RejectBuiltInStrengthWrite(collectionPath, entity, hint);
                 RejectConditionalAccessDelete(collectionPath, entity, hint);
                 RejectRoleDefinitionDelete(collectionPath, entity, hint);
+                if (IsSoftDeletable(collectionPath, entity))
+                {
+                    SoftDeleteWithCascade(entity, collectionPath);
+                    return (HttpStatusCode.NoContent, null);
+                }
+
                 Collection(collectionPath).Remove(entity);
                 RemoveReferencesTo(GetString(entity, "id")!);
                 return (HttpStatusCode.NoContent, null);
 
             default:
-                throw BadRequest($"{method} is not supported on '{route.Path}'.", hint);
+                throw MethodNotAllowed($"{method} is not supported on '{route.Path}'.", hint);
         }
     }
 
@@ -391,6 +421,13 @@ public sealed class FakeDirectory
 
         string entityId = GetString(entity, "id")!;
         string nav = route.Nav!;
+
+        // Learn documents navigations and actions under an object id or the appId alternate key; the uniqueName key appears only on the entity upsert
+        // (application-upsert, group-upsert, federatedidentitycredential-upsert URL forms), so anything below it is not a Graph route.
+        if (route.Selector is { IsAlternateKey: true } alternate && alternate.Property!.Equals("uniqueName", StringComparison.OrdinalIgnoreCase))
+        {
+            throw BadRequest($"The segment '{nav}' cannot follow the alternate key 'uniqueName' ({route.Path}); address the object by its id (or appId) first.", hint);
+        }
 
         // Actions.
         switch (nav.ToLowerInvariant())
@@ -432,9 +469,9 @@ public sealed class FakeDirectory
         {
             return method switch
             {
-                "GET" => (HttpStatusCode.OK, Page(Filter(Collection(navPath), query, hint), route.Root + "/" + entityId + "/" + nav, query, pageSize)),
+                "GET" => (HttpStatusCode.OK, Page(Project(Filter(Collection(navPath), query, hint), FakeDirectorySchema.ForCollection(navPath), query, hint), route.Root + "/" + entityId + "/" + nav, query, pageSize)),
                 "POST" => (HttpStatusCode.Created, Create(navPath, body, hint)),
-                _ => throw BadRequest($"{method} is not supported on '{route.Path}'.", hint),
+                _ => throw MethodNotAllowed($"{method} is not supported on '{route.Path}'.", hint),
             };
         }
 
@@ -442,8 +479,14 @@ public sealed class FakeDirectory
         switch (method)
         {
             case "GET":
-                return child is null ? throw NotFound(route.Path, hint) : (HttpStatusCode.OK, child.DeepClone());
+                return child is null ? throw NotFound(route.Path, hint) : (HttpStatusCode.OK, ProjectOne(child, FakeDirectorySchema.ForCollection(navPath), query, hint));
             case "PATCH":
+                if (!nav.Equals("federatedIdentityCredentials", StringComparison.OrdinalIgnoreCase))
+                {
+                    // Graph documents no update for an app role assignment, a password credential...: only federated identity credentials are patched.
+                    throw MethodNotAllowed($"PATCH is not supported on '{route.Path}'.", hint);
+                }
+
                 if (child is null)
                 {
                     if (PrefersCreateIfMissing(headers))
@@ -530,7 +573,7 @@ public sealed class FakeDirectory
                 throw NotFound(route.Path, hint);
             }
 
-            return (HttpStatusCode.OK, WithODataType(target));
+            return (HttpStatusCode.OK, ProjectOne(WithODataType(target), SchemaOfId(GetString(target, "id")), query, hint));
         }
 
         var objects = new List<JsonObject>();
@@ -542,7 +585,7 @@ public sealed class FakeDirectory
             }
         }
 
-        return (HttpStatusCode.OK, Page(Filter(objects, query, hint), route.Root + "/" + GetString(Locate("/" + route.Root, route.Selector!)!, "id") + "/" + nav, query, pageSize));
+        return (HttpStatusCode.OK, Page(ProjectMixed(Filter(objects, query, hint), query), route.Root + "/" + GetString(Locate("/" + route.Root, route.Selector!)!, "id") + "/" + nav, query, pageSize));
     }
 
     /// <summary>
@@ -595,7 +638,7 @@ public sealed class FakeDirectory
     }
 
     /// <summary><c>GET /me</c>: the signed-in user (<see cref="SignedInUserId"/>), or the app-only error.</summary>
-    private (HttpStatusCode, JsonNode?) HandleMe(string method, Route route, RetryHint hint)
+    private (HttpStatusCode, JsonNode?) HandleMe(string method, Route route, IReadOnlyDictionary<string, string>? query, RetryHint hint)
     {
         if (method != "GET" || route.Selector is not null)
         {
@@ -607,7 +650,7 @@ public sealed class FakeDirectory
             throw BadRequest("/me request is only valid with delegated authentication flow.", hint);
         }
 
-        return LocateById(SignedInUserId, out _) is { } me ? (HttpStatusCode.OK, me.DeepClone()) : throw NotFound(route.Path, hint);
+        return LocateById(SignedInUserId, out _) is { } me ? (HttpStatusCode.OK, ProjectOne(me, FakeDirectorySchema.Users, query, hint)) : throw NotFound(route.Path, hint);
     }
 
     // ---- entities ----
@@ -697,6 +740,11 @@ public sealed class FakeDirectory
         }
 
         string root = collectionPath.ToLowerInvariant();
+        if (root != "/users")
+        {
+            RequireProperties(root, entity, hint);
+        }
+
         if (root == "/applications")
         {
             entity["appId"] ??= Guid.NewGuid().ToString("D");
@@ -704,12 +752,19 @@ public sealed class FakeDirectory
             entity["publisherDomain"] ??= "contoso.com";
             RejectDuplicate(collectionPath, entity, "uniqueName", hint);
             RejectDuplicate(collectionPath, entity, "appId", hint);
+            RejectDeletedDuplicate(collectionPath, entity, "uniqueName", hint);
         }
         else if (root == "/groups")
         {
             entity["createdDateTime"] ??= DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture);
             entity["securityIdentifier"] ??= "S-1-12-1-" + Guid.NewGuid().ToString("N")[..12];
             RejectDuplicate(collectionPath, entity, "uniqueName", hint);
+            RejectDeletedDuplicate(collectionPath, entity, "uniqueName", hint);
+            if (IsUnified(entity))
+            {
+                // A soft-deleted Microsoft 365 group keeps its mailNickname for 30 days.
+                RejectDeletedDuplicate(collectionPath, entity, "mailNickname", hint);
+            }
         }
         else if (root == "/users")
         {
@@ -718,9 +773,12 @@ public sealed class FakeDirectory
                 throw BadRequest("A user requires a userPrincipalName.", hint);
             }
 
+            RequireProperties(root, entity, hint);
+
             entity.Remove("passwordProfile");
             entity["createdDateTime"] ??= DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture);
             RejectDuplicate(collectionPath, entity, "userPrincipalName", hint);
+            RejectDeletedDuplicate(collectionPath, entity, "userPrincipalName", hint);
         }
         else if (root == "/serviceprincipals")
         {
@@ -731,6 +789,7 @@ public sealed class FakeDirectory
             }
 
             RejectDuplicate(collectionPath, entity, "appId", hint);
+            RejectDeletedDuplicate(collectionPath, entity, "appId", hint);
             var application = Collection("/applications").FirstOrDefault(a => ValueEquals(GetString(a, "appId"), appId));
             if (application is null)
             {
@@ -774,7 +833,35 @@ public sealed class FakeDirectory
         }
 
         Collection(collectionPath).Add(entity);
+        ApplyBinds(entity, collectionPath);
         return (JsonObject)entity.DeepClone();
+    }
+
+    /// <summary>
+    /// <c>owners@odata.bind</c> / <c>members@odata.bind</c> in a create or update body (Learn: group-upsert, group-post-groups): the
+    /// referenced objects become owners / members and the annotation is not stored.
+    /// </summary>
+    private void ApplyBinds(JsonObject entity, string collectionPath)
+    {
+        foreach (string key in entity.Select(p => p.Key).Where(k => k.EndsWith("@odata.bind", StringComparison.OrdinalIgnoreCase)).ToList())
+        {
+            string nav = key[..^"@odata.bind".Length];
+            if (entity[key] is JsonArray targets && GetString(entity, "id") is { } id)
+            {
+                var list = ReferencesList(collectionPath + "/" + id + "/" + nav);
+                foreach (var target in targets)
+                {
+                    string? url = target is JsonValue v && v.TryGetValue<string>(out var text) ? text : null;
+                    string targetId = url is null ? string.Empty : url.TrimEnd('/')[(url.TrimEnd('/').LastIndexOf('/') + 1)..];
+                    if (targetId.Length > 0 && !list.Contains(targetId, StringComparer.OrdinalIgnoreCase))
+                    {
+                        list.Add(targetId);
+                    }
+                }
+            }
+
+            entity.Remove(key);
+        }
     }
 
     // ---- directory roles ----
@@ -1073,10 +1160,22 @@ public sealed class FakeDirectory
             throw BadRequest("A JSON object body is required.", hint);
         }
 
+        if (collectionPath.Equals(ConditionalAccessPoliciesPath, StringComparison.OrdinalIgnoreCase) && GetString(payload, "state") is { } newState && !PolicyStates.Contains(newState))
+        {
+            throw BadRequest($"The value '{newState}' of property 'state' is not valid; use enabled, disabled or enabledForReportingButNotEnforced.", hint);
+        }
+
         foreach (var property in payload)
         {
             if (property.Key.Equals("id", StringComparison.OrdinalIgnoreCase))
             {
+                continue;
+            }
+
+            if (property.Key.EndsWith("@odata.bind", StringComparison.OrdinalIgnoreCase))
+            {
+                var bind = new JsonObject { [property.Key] = property.Value?.DeepClone(), ["id"] = GetString(entity, "id") };
+                ApplyBinds(bind, collectionPath);
                 continue;
             }
 
@@ -1127,13 +1226,161 @@ public sealed class FakeDirectory
             throw BadRequest("The deleted item has no restorable @odata.type.", hint);
         }
 
-        Collection(collectionPath).Remove(entity);
         var restored = (JsonObject)entity.DeepClone();
         restored.Remove("deletedDateTime");
         restored.Remove("@odata.type");
+
+        // The keys are free again only if nobody took them while the object sat in the recycle bin.
+        foreach (string key in new[] { "uniqueName", "userPrincipalName", "appId" })
+        {
+            if (GetString(restored, key) is { } value && Collection(target).Any(o => ValueEquals(GetString(o, key), value)))
+            {
+                throw new GraphException(HttpStatusCode.BadRequest, "Request_BadRequest", $"Another object with the same value for property {key} already exists.", hint);
+            }
+        }
+
+        Collection(collectionPath).Remove(entity);
         Collection(target).Add(restored);
         return (JsonObject)restored.DeepClone();
     }
+
+    // ---- soft delete ----
+
+    /// <summary>
+    /// Graph soft-deletes applications, service principals, users, administrative units, Microsoft 365 groups AND security groups (Learn group-delete:
+    /// "both Microsoft 365 and security groups are moved to a temporary container and can be restored within 30 days ... This doesn't apply to Distribution
+    /// groups which are permanently deleted immediately"); distribution lists and every other type are deleted permanently.
+    /// </summary>
+    private static bool IsSoftDeletable(string collectionPath, JsonObject entity)
+    {
+        if (!ODataTypeByCollection.ContainsKey(collectionPath))
+        {
+            return false;
+        }
+
+        return !collectionPath.Equals("/groups", StringComparison.OrdinalIgnoreCase) || !IsDistributionList(entity);
+    }
+
+    /// <summary>Mail-enabled, not security-enabled, no <c>Unified</c>: the one group kind that is deleted immediately.</summary>
+    private static bool IsDistributionList(JsonObject entity)
+    {
+        return !IsUnified(entity) && GetBool(entity, "mailEnabled") == true && GetBool(entity, "securityEnabled") != true;
+    }
+
+    private static bool? GetBool(JsonObject entity, string property)
+    {
+        foreach (var pair in entity)
+        {
+            if (pair.Key.Equals(property, StringComparison.OrdinalIgnoreCase) && pair.Value is JsonValue value)
+            {
+                return value.GetValueKind() switch
+                {
+                    JsonValueKind.True => true,
+                    JsonValueKind.False => false,
+                    _ => null,
+                };
+            }
+        }
+
+        return null;
+    }
+    private static bool IsUnified(JsonObject entity)
+    {
+        return entity["groupTypes"] is JsonArray types && types.Any(t => t is JsonValue v && v.TryGetValue<string>(out var text) && text.Equals("Unified", StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>Deleting an application also soft-deletes its service principal (Graph cascades the home principal).</summary>
+    private void SoftDeleteWithCascade(JsonObject entity, string collectionPath)
+    {
+        string id = GetString(entity, "id")!;
+        if (collectionPath.Equals("/applications", StringComparison.OrdinalIgnoreCase) && GetString(entity, "appId") is { } appId)
+        {
+            foreach (var principal in Collection("/servicePrincipals").Where(p => ValueEquals(GetString(p, "appId"), appId)).ToList())
+            {
+                SoftDelete(GetString(principal, "id")!);
+            }
+        }
+
+        SoftDelete(id);
+    }
+
+    /// <summary>A key held by a soft-deleted object of the same type conflicts like a live one until the object is restored or purged.</summary>
+    private void RejectDeletedDuplicate(string collectionPath, JsonObject entity, string property, RetryHint hint)
+    {
+        string? value = GetString(entity, property);
+        if (value is null || !ODataTypeByCollection.TryGetValue(collectionPath, out var odataType))
+        {
+            return;
+        }
+
+        if (Collection(DeletedItemsPath).Any(d => ValueEquals(GetString(d, "@odata.type"), odataType) && ValueEquals(GetString(d, property), value)))
+        {
+            throw new GraphException(HttpStatusCode.BadRequest, "Request_BadRequest", $"Another object with the same value for property {property} already exists.", hint);
+        }
+    }
+
+    private void PurgeExpiredDeletedItems()
+    {
+        if (!_collections.TryGetValue(DeletedItemsPath, out var deleted) || deleted.Count == 0)
+        {
+            return;
+        }
+
+        var cutoff = Clock.GetUtcNow() - DeletedRetention;
+        deleted.RemoveAll(d => GetString(d, "deletedDateTime") is { } stamp
+            && DateTimeOffset.TryParse(stamp, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var when)
+            && when < cutoff);
+    }
+
+    // ---- advanced queries ----
+
+    /// <summary>The largest <c>$top</c> Graph accepts on a directory collection (users, groups, applications, servicePrincipals, administrative units, deleted items).</summary>
+    private const int MaxDirectoryPageSize = 999;
+
+    private static readonly HashSet<string> DirectoryObjectRoots = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "users", "groups", "applications", "servicePrincipals", "directoryObjects", "directory/administrativeUnits", "directory/deletedItems",
+    };
+
+    /// <summary>
+    /// Graph rejects <c>$search</c>, <c>$count</c> and the advanced <c>$filter</c> operators (<c>ne</c>, <c>endswith</c>, <c>not</c>) on
+    /// directory objects unless <c>ConsistencyLevel: eventual</c> is sent, and a <c>$filter</c> of that kind also needs <c>$count=true</c>.
+    /// </summary>
+    private static void EnforceQueryRules(Route route, IReadOnlyDictionary<string, string>? query, IReadOnlyDictionary<string, string>? headers, RetryHint hint)
+    {
+        if (query is null || query.Count == 0 || !DirectoryObjectRoots.Contains(route.Root))
+        {
+            return;
+        }
+
+        if (query.TryGetValue("$top", out var top) && int.TryParse(top, NumberStyles.Integer, CultureInfo.InvariantCulture, out var topValue) && topValue > MaxDirectoryPageSize)
+        {
+            throw new GraphException(HttpStatusCode.BadRequest, "Request_UnsupportedQuery", $"Invalid page size specified: '{topValue}'. Must be between 1 and {MaxDirectoryPageSize} inclusive.", hint);
+        }
+
+        bool search = query.ContainsKey("$search");
+        bool count = query.TryGetValue("$count", out var countValue) && countValue.Equals("true", StringComparison.OrdinalIgnoreCase);
+        query.TryGetValue("$filter", out var filter);
+        bool advancedFilter = !string.IsNullOrWhiteSpace(filter) && AdvancedFilter.IsMatch(filter);
+        if (!search && !count && !advancedFilter)
+        {
+            return;
+        }
+
+        bool eventual = headers is not null && headers.Any(h => h.Key.Equals("ConsistencyLevel", StringComparison.OrdinalIgnoreCase) && h.Value.Equals("eventual", StringComparison.OrdinalIgnoreCase));
+        if (!eventual)
+        {
+            string what = search ? "$search" : count ? "$count" : "this $filter";
+            throw new GraphException(HttpStatusCode.BadRequest, "Request_UnsupportedQuery", $"The request with {what} is only supported on directory objects with the header 'ConsistencyLevel: eventual'.", hint);
+        }
+
+        if (advancedFilter && !count)
+        {
+            throw new GraphException(HttpStatusCode.BadRequest, "Request_UnsupportedQuery", "Operator applied to the $filter property is not supported without $count=true (advanced query).", hint);
+        }
+    }
+
+    private static readonly System.Text.RegularExpressions.Regex AdvancedFilter = new(@"(\s(ne)\s)|endswith\s*\(|(^|\s|\()not(\s|\()", System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
 
     private void RemoveReferencesTo(string id)
     {
@@ -1294,6 +1541,184 @@ public sealed class FakeDirectory
         }
     }
 
+    // ---- $select and default property sets ----
+
+    private static IReadOnlyList<string>? SelectOf(IReadOnlyDictionary<string, string>? query)
+    {
+        if (query is null || !query.TryGetValue("$select", out var select) || string.IsNullOrWhiteSpace(select))
+        {
+            return null;
+        }
+
+        var names = select.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        return names.Length == 0 ? null : names;
+    }
+
+    /// <summary>Graph answers a <c>$select</c> of a property the type does not have with a 400, even when nothing matches.</summary>
+    private static void ValidateSelect(FakeDirectorySchema schema, IReadOnlyList<string>? select, RetryHint hint)
+    {
+        if (select is null)
+        {
+            return;
+        }
+
+        foreach (var name in select)
+        {
+            if (name != "*" && !schema.IsKnown(name))
+            {
+                throw new GraphException(HttpStatusCode.BadRequest, "Request_BadRequest", $"Could not find a property named '{name}' on type '{schema.Name}'.", hint);
+            }
+        }
+    }
+
+    /// <summary>
+    /// What Graph returns for a typed object: <c>id</c>, the <c>@odata.*</c> annotations and either the selected properties or, without <c>$select</c>, only the
+    /// type's default property set (stored properties outside both are left out; a selected property the object holds no value for is left out too, where Graph would
+    /// answer <c>null</c>: keeping the stored order and omitting it avoids a diff against objects seeded without it). Untyped objects, and <c>$select=*</c>, are returned whole.
+    /// </summary>
+    private static JsonObject ProjectObject(JsonObject entity, FakeDirectorySchema? schema, IReadOnlyList<string>? select)
+    {
+        if (schema is null || (select is not null && select.Contains("*")))
+        {
+            return (JsonObject)entity.DeepClone();
+        }
+
+        IReadOnlyCollection<string> wanted = select ?? schema.Default;
+        var result = new JsonObject();
+        foreach (var pair in entity)
+        {
+            if (pair.Key.Contains('@', StringComparison.Ordinal) || pair.Key.Equals("id", StringComparison.OrdinalIgnoreCase) || wanted.Contains(pair.Key, StringComparer.OrdinalIgnoreCase))
+            {
+                result[pair.Key] = pair.Value?.DeepClone();
+            }
+        }
+
+        return result;
+    }
+    private static List<JsonObject> Project(IEnumerable<JsonObject> items, FakeDirectorySchema? schema, IReadOnlyDictionary<string, string>? query, RetryHint hint)
+    {
+        var list = items.ToList();
+        if (schema is null)
+        {
+            return list;
+        }
+
+        var select = SelectOf(query);
+        ValidateSelect(schema, select, hint);
+        return list.Select(o => ProjectObject(o, schema, select)).ToList();
+    }
+
+    private static JsonNode ProjectOne(JsonObject entity, FakeDirectorySchema? schema, IReadOnlyDictionary<string, string>? query, RetryHint hint)
+    {
+        if (schema is null)
+        {
+            return entity.DeepClone();
+        }
+
+        var select = SelectOf(query);
+        ValidateSelect(schema, select, hint);
+        return ProjectObject(entity, schema, select);
+    }
+
+    /// <summary>A navigation that mixes object types (members, owners): each object is projected by its own type.</summary>
+    private List<JsonObject> ProjectMixed(IEnumerable<JsonObject> items, IReadOnlyDictionary<string, string>? query)
+    {
+        var select = SelectOf(query);
+        return items.Select(o => ProjectObject(o, SchemaOfId(GetString(o, "id")), select?.Where(n => SchemaOfId(GetString(o, "id"))?.IsKnown(n) != false).ToList())).ToList();
+    }
+
+    private FakeDirectorySchema? SchemaOfId(string? id)
+    {
+        return id is not null && LocateById(id, out var collectionPath) is not null ? FakeDirectorySchema.ForCollection(collectionPath) : null;
+    }
+
+    // ---- required properties ----
+
+    private static readonly HashSet<string> PolicyStates = new(StringComparer.OrdinalIgnoreCase) { "enabled", "disabled", "enabledForReportingButNotEnforced" };
+
+    /// <summary>
+    /// The properties Graph requires on create (Learn: group-post-groups / group-upsert, user-post-users, application-post-applications,
+    /// directory-post-administrativeunits, rbacapplication-post-roledefinitions, conditionalaccessroot-post-policies / post-namedlocations).
+    /// A body without them is a 400, not an empty object.
+    /// </summary>
+    private static void RequireProperties(string root, JsonObject entity, RetryHint hint)
+    {
+        var missing = new List<string>();
+        void Need(string property)
+        {
+            if (JsonObjects_IsAbsent(entity, property))
+            {
+                missing.Add(property);
+            }
+        }
+
+        switch (root)
+        {
+            case "/applications":
+            case "/directory/administrativeunits":
+            case "/rolemanagement/directory/roledefinitions":
+                Need("displayName");
+                break;
+            case "/groups":
+                Need("displayName");
+                Need("mailNickname");
+                Need("mailEnabled");
+                Need("securityEnabled");
+                break;
+            case "/users":
+                Need("accountEnabled");
+                Need("displayName");
+                Need("mailNickname");
+                Need("passwordProfile");
+                if (entity.FirstOrDefault(p => p.Key.Equals("passwordProfile", StringComparison.OrdinalIgnoreCase)).Value is JsonObject profile && JsonObjects_IsAbsent(profile, "password"))
+                {
+                    missing.Add("passwordProfile.password");
+                }
+
+                break;
+            case "/identity/conditionalaccess/policies":
+                Need("displayName");
+                Need("state");
+                if (GetString(entity, "state") is { } state && !PolicyStates.Contains(state))
+                {
+                    throw BadRequest($"The value '{state}' of property 'state' is not valid; use enabled, disabled or enabledForReportingButNotEnforced.", hint);
+                }
+
+                break;
+            case "/identity/conditionalaccess/namedlocations":
+                Need("displayName");
+                string? type = GetString(entity, "@odata.type");
+                if (type is null)
+                {
+                    missing.Add("@odata.type");
+                }
+                else if (type.Equals("#microsoft.graph.ipNamedLocation", StringComparison.OrdinalIgnoreCase))
+                {
+                    Need("ipRanges");
+                }
+                else if (type.Equals("#microsoft.graph.countryNamedLocation", StringComparison.OrdinalIgnoreCase))
+                {
+                    Need("countriesAndRegions");
+                }
+                else if (!type.Equals("#microsoft.graph.compliantNetworkNamedLocation", StringComparison.OrdinalIgnoreCase))
+                {
+                    throw BadRequest($"The @odata.type '{type}' is not a named location type (use #microsoft.graph.ipNamedLocation or #microsoft.graph.countryNamedLocation).", hint);
+                }
+
+                break;
+        }
+
+        if (missing.Count > 0)
+        {
+            throw BadRequest($"Required properties are missing from the request body: {string.Join(", ", missing)}.", hint);
+        }
+    }
+
+    private static bool JsonObjects_IsAbsent(JsonObject entity, string property)
+    {
+        var pair = entity.FirstOrDefault(p => p.Key.Equals(property, StringComparison.OrdinalIgnoreCase));
+        return pair.Key is null || pair.Value is null || (pair.Value is JsonValue value && value.TryGetValue<string>(out var text) && string.IsNullOrWhiteSpace(text));
+    }
     // ---- query ----
 
     private static List<JsonObject> Filter(IEnumerable<JsonObject> objects, IReadOnlyDictionary<string, string>? query, RetryHint hint)
@@ -1307,24 +1732,43 @@ public sealed class FakeDirectory
         var clauses = filter.Split(" and ", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         foreach (var clause in clauses)
         {
-            int eq = clause.IndexOf(" eq ", StringComparison.OrdinalIgnoreCase);
-            if (eq < 0)
+            var negation = System.Text.RegularExpressions.Regex.Match(clause, @"^\s*not\s*\((?<inner>.*)\)\s*$", System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
+            string text = negation.Success ? negation.Groups["inner"].Value : clause;
+            var before = list;
+            var match = FilterClause.Match(text);
+            if (!match.Success)
             {
-                throw BadRequest($"Unsupported $filter clause '{clause}' (the fake supports 'property eq value').", hint);
+                throw new GraphException(HttpStatusCode.BadRequest, "Request_UnsupportedQuery", $"Unsupported $filter clause '{clause}' (the fake supports eq, ne, startswith and endswith joined by and).", hint);
             }
 
-            string property = clause[..eq].Trim();
-            string literal = clause[(eq + 4)..].Trim();
+            string property = match.Groups["prop"].Success ? match.Groups["prop"].Value.Trim() : match.Groups["fprop"].Value.Trim();
+            string literal = (match.Groups["lit"].Success ? match.Groups["lit"].Value : match.Groups["flit"].Value).Trim();
             string? expected = literal.Equals("null", StringComparison.OrdinalIgnoreCase)
                 ? null
                 : literal.StartsWith('\'') && literal.EndsWith('\'') && literal.Length >= 2
                     ? literal[1..^1].Replace("''", "'", StringComparison.Ordinal)
                     : literal;
-            list = list.Where(o => ValueEquals(GetScalar(o, property), expected)).ToList();
+            string op = match.Groups["op"].Success ? match.Groups["op"].Value.ToLowerInvariant() : match.Groups["fn"].Value.ToLowerInvariant();
+            list = op switch
+            {
+                "eq" => list.Where(o => ValueEquals(GetScalar(o, property), expected)).ToList(),
+                "ne" => list.Where(o => !ValueEquals(GetScalar(o, property), expected)).ToList(),
+                "startswith" => list.Where(o => GetScalar(o, property)?.StartsWith(expected ?? string.Empty, StringComparison.OrdinalIgnoreCase) == true).ToList(),
+                _ => list.Where(o => GetScalar(o, property)?.EndsWith(expected ?? string.Empty, StringComparison.OrdinalIgnoreCase) == true).ToList(),
+            };
+            if (negation.Success)
+            {
+                list = before.Where(o => !list.Contains(o)).ToList();
+            }
         }
 
         return list;
     }
+
+    private static readonly System.Text.RegularExpressions.Regex FilterClause = new(
+        @"^\s*(?:(?<prop>[A-Za-z_@][\w.@/]*)\s+(?<op>eq|ne)\s+(?<lit>'(?:[^']|'')*'|[^\s'()]+)|(?<fn>startswith|endswith)\s*\(\s*(?<fprop>[A-Za-z_@][\w.@/]*)\s*,\s*(?<flit>'(?:[^']|'')*')\s*\))\s*$",
+        System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant,
+        TimeSpan.FromSeconds(1));
 
     private static JsonObject Page(List<JsonObject> objects, string relativePath, IReadOnlyDictionary<string, string>? query, int pageSize)
     {
@@ -1470,6 +1914,11 @@ public sealed class FakeDirectory
     internal static GraphException NotFound(string path, RetryHint hint)
     {
         return new GraphException(HttpStatusCode.NotFound, "Request_ResourceNotFound", $"Resource '{path}' does not exist or one of its queried reference-property objects are not present.", hint);
+    }
+
+    internal static GraphException MethodNotAllowed(string message, RetryHint hint)
+    {
+        return new GraphException(HttpStatusCode.MethodNotAllowed, "Request_BadRequest", message, hint);
     }
 
     internal static GraphException BadRequest(string message, RetryHint hint)

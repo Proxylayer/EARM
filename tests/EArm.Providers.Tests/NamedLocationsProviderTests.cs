@@ -4,7 +4,7 @@ using System.Linq;
 using System.Net;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Core;
 using EArm.Engine.Execution;
 using EArm.Engine.Planning;
@@ -12,11 +12,11 @@ using EArm.Engine.Providers;
 using EArm.Engine.State;
 using EArm.Providers.Tests.Infrastructure;
 using Xunit;
-using GraphApi = EArm.Az.GraphApi;
+using GraphApi = EArm.Graph.GraphApi;
 
 namespace EArm.Providers.Tests;
 
-/// <summary>The named locations provider (WI-14) end to end.</summary>
+/// <summary>The named locations provider end to end.</summary>
 public sealed class NamedLocationsProviderTests
 {
     private const string LocType = NamedLocationsProvider.ResourceType;

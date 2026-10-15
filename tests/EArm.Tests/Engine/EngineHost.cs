@@ -6,7 +6,7 @@ using System.Runtime.CompilerServices;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Core;
 using EArm.Core.Loading;
 using EArm.Core.Types;
@@ -17,7 +17,7 @@ using EArm.Engine.State;
 using EArm.TestSupport;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
-using GraphApi = EArm.Az.GraphApi;
+using GraphApi = EArm.Graph.GraphApi;
 
 namespace EArm.Tests.Engine;
 

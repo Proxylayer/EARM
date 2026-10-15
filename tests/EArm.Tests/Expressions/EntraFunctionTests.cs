@@ -13,7 +13,7 @@ using Xunit;
 namespace EArm.Tests;
 
 /// <summary>
-/// Group 6 (WI-16): <see cref="WellKnownIds"/>, <c>wellKnownApp</c>, <c>appRole</c> / <c>permissionScope</c> /
+/// Group 6: <see cref="WellKnownIds"/>, <c>wellKnownApp</c>, <c>appRole</c> / <c>permissionScope</c> /
 /// <c>roleTemplate</c> through the tables, a live template object and <see cref="IEntraLookup"/>, the phase rules,
 /// redaction, <c>tenant()</c> / <c>environment()</c>, and the dependency the reference scanner records.
 /// </summary>
@@ -92,12 +92,12 @@ public sealed class EntraFunctionTests
         Assert.Equal(GlobalReader, roleTemplate);
         Assert.False(WellKnownIds.TryGetGraphScopeId("Nope.Scope", out _));
 
-        // Unverified scopes stay resolvable offline but are flagged so the integration run can confirm them.
+        // Every scope id is confirmed against the Microsoft Graph permissions reference (Review1D: all entries Verified).
         var email = Assert.Single(WellKnownIds.GraphScopes, s => s.Value == "email");
-        Assert.False(email.Verified);
+        Assert.True(email.Verified);
         Assert.True(WellKnownIds.TryGetGraphScopeId("email", out var emailId));
         Assert.Equal(email.Id, emailId);
-        Assert.All(WellKnownIds.GraphScopes.Take(4), s => Assert.True(s.Verified));
+        Assert.All(WellKnownIds.GraphScopes, s => Assert.True(s.Verified));
         Assert.All(WellKnownIds.GraphAppRoles, r => Assert.True(r.Verified));
 
         Assert.True(WellKnownIds.IsMicrosoftGraph("00000003-0000-0000-C000-000000000000"));
@@ -346,7 +346,7 @@ public sealed class EntraFunctionTests
         var error = Expr.Fails(expression, DiagnosticCodes.FunctionNotAllowedHere, Context(scope: scope));
 
         Assert.Contains("cannot be used in " + where, error.Message);
-        Assert.Contains("plan section 1.5, phase 3", error.Message);
+        Assert.Contains("it needs the tenant", error.Message);
         Assert.Equal(1, error.Offset);
     }
 

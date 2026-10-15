@@ -34,7 +34,7 @@ internal static class StateWriter
         switch (format)
         {
             case OutputFormat.Json:
-                stdout.WriteLine(ShowJson(state, path, lockInfo, drift).ToJsonString(new JsonSerializerOptions { WriteIndented = prettyPrint }));
+                stdout.WriteLine(ShowJson(state, path, lockInfo, drift).ToJsonString(JsonOutput.Options(prettyPrint)));
                 break;
             case OutputFormat.None:
                 break;
@@ -68,7 +68,7 @@ internal static class StateWriter
                         });
                     }
 
-                    stdout.WriteLine(new JsonObject { ["stateDirectory"] = directory, ["deployments"] = array }.ToJsonString(new JsonSerializerOptions { WriteIndented = prettyPrint }));
+                    stdout.WriteLine(new JsonObject { ["stateDirectory"] = directory, ["deployments"] = array }.ToJsonString(JsonOutput.Options(prettyPrint)));
                     break;
                 }
 
@@ -128,7 +128,7 @@ internal static class StateWriter
                         ["lastMode"] = state.LastMode,
                         ["lastDeployedOn"] = state.LastDeployedOn?.ToString("O", CultureInfo.InvariantCulture),
                         ["operations"] = array,
-                    }.ToJsonString(new JsonSerializerOptions { WriteIndented = prettyPrint }));
+                    }.ToJsonString(JsonOutput.Options(prettyPrint)));
                     break;
                 }
 
@@ -214,8 +214,8 @@ internal static class StateWriter
 
         stdout.WriteLine();
         var table = drift is null
-            ? new TextTable("Resource", "Graph id", "Last write", "Depends on")
-            : new TextTable("Resource", "Graph id", "Last write", "Depends on", "Live");
+            ? new TextTable("Resource", "Graph id", "Provenance", "Last write", "Depends on")
+            : new TextTable("Resource", "Graph id", "Provenance", "Last write", "Depends on", "Live");
         foreach (var pair in state.Resources.OrderBy(p => p.Key, StringComparer.Ordinal))
         {
             var entry = pair.Value;
@@ -223,6 +223,7 @@ internal static class StateWriter
             {
                 pair.Key,
                 entry.GraphId,
+                StateProvenances.ToText(entry.Provenance),
                 StateSerializer.Timestamp(entry.LastWriteOn),
                 entry.DependsOn.Count.ToString(CultureInfo.InvariantCulture),
             };

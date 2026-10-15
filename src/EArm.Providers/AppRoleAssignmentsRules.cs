@@ -19,7 +19,7 @@ public sealed record DeclaredAppRoleAssignment(string? PrincipalId, string? Reso
 }
 
 /// <summary>
-/// The pure rules of app role assignments (plan sections 1.4 and 3.2), shared by the standalone
+/// The pure rules of app role assignments, shared by the standalone
 /// <c>Microsoft.Entra/appRoleAssignments</c> provider and the principal-side <c>appRoleAssignments</c> edge kind:
 /// the declared shape (<c>principalId</c>, <c>resourceId | resourceAppId</c>, <c>appRoleId | appRole</c>), the
 /// <c>allowedMemberTypes</c> / <c>isEnabled</c> checks against the resource's app role, and the composite identity

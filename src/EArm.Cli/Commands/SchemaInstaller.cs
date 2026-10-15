@@ -7,6 +7,7 @@ using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
+using EArm.Cli.Output;
 using EArm.Core;
 using EArm.Core.Json;
 using EArm.Core.Types;
@@ -34,7 +35,7 @@ internal sealed record SchemaInstallRequest
 }
 
 /// <summary>
-/// <c>earm schema install</c> (plan section 1.10): extracts the schemas to a stable per-user directory and merges a
+/// <c>earm schema install</c>: extracts the schemas to a stable per-user directory and merges a
 /// <c>json.schemas</c> entry (<c>fileMatch: ["**/*.entra.json", "**/*.entra.jsonc"]</c>) into the VS Code settings.
 /// </summary>
 /// <remarks>
@@ -63,8 +64,7 @@ internal static class SchemaInstaller
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException or ArgumentException)
         {
-            stderr.WriteLine("schema install failed: " + ex.Message);
-            return ExitCodes.Failure;
+            return FailureDocument.Write(request.Output, stdout, stderr, ValidateCommand.InvalidArgumentCode, "schema install failed: " + ex.Message, ExitCodes.Failure);
         }
     }
 
@@ -92,28 +92,55 @@ internal static class SchemaInstaller
             written++;
         }
 
-        stdout.WriteLine($"Schemas ({files.Count} file(s), {(written == 0 ? "up to date" : $"{written} written")}) at {destination}{(checkout is null ? " (from the schemas embedded in this tool)" : $" (from {checkout})")}.");
+        bool json = request.Output == OutputFormat.Json;
+        bool table = request.Output == OutputFormat.Table;
+        if (table)
+        {
+            stdout.WriteLine($"Schemas ({files.Count} file(s), {(written == 0 ? "up to date" : $"{written} written")}) at {destination}{(checkout is null ? " (from the schemas embedded in this tool)" : $" (from {checkout})")}.");
+        }
 
         // 2. Merge the mapping into the settings file.
         string settingsPath = ResolveSettingsPath(request, workspace);
         string url = new Uri(Path.Combine(destination, "deploymentTemplate.json")).AbsoluteUri;
         var outcome = MergeSettings(settingsPath, url);
-        switch (outcome.Status)
+        if (table)
         {
-            case SettingsStatus.Created:
-                stdout.WriteLine($"Created {settingsPath} with the json.schemas mapping for {string.Join(", ", FileMatch)}.");
-                break;
-            case SettingsStatus.Updated:
-                stdout.WriteLine($"Updated {settingsPath}: json.schemas maps {string.Join(", ", FileMatch)} to {url}.");
-                break;
-            default:
-                stdout.WriteLine($"{settingsPath} already maps {string.Join(", ", FileMatch)} to {url}; nothing to change.");
-                break;
+            switch (outcome.Status)
+            {
+                case SettingsStatus.Created:
+                    stdout.WriteLine($"Created {settingsPath} with the json.schemas mapping for {string.Join(", ", FileMatch)}.");
+                    break;
+                case SettingsStatus.Updated:
+                    stdout.WriteLine($"Updated {settingsPath}: json.schemas maps {string.Join(", ", FileMatch)} to {url}.");
+                    break;
+                default:
+                    stdout.WriteLine($"{settingsPath} already maps {string.Join(", ", FileMatch)} to {url}; nothing to change.");
+                    break;
+            }
         }
 
         if (outcome.BackupPath is not null)
         {
             stderr.WriteLine($"warning: {settingsPath} contained comments or trailing commas, which are not preserved when the file is rewritten; the original is saved as {outcome.BackupPath}.");
+        }
+
+        if (json)
+        {
+            var report = new JsonObject
+            {
+                ["status"] = "Succeeded",
+                ["schemaDirectory"] = destination,
+                ["files"] = files.Count,
+                ["written"] = written,
+                ["source"] = checkout is null ? "embedded" : "checkout",
+                ["checkout"] = checkout,
+                ["settingsFile"] = settingsPath,
+                ["settings"] = outcome.Status.ToString().ToLowerInvariant(),
+                ["settingsBackup"] = outcome.BackupPath,
+                ["url"] = url,
+                ["fileMatch"] = new JsonArray(FileMatch.Select(m => (JsonNode?)JsonValue.Create(m)).ToArray()),
+            };
+            stdout.WriteLine(report.ToJsonString(FailureDocument.Options));
         }
 
         return ExitCodes.Ok;

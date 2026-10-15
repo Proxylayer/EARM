@@ -5,7 +5,7 @@ using System.Runtime.CompilerServices;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Core;
 using EArm.Core.Diagnostics;
 using EArm.Core.Secrets;
@@ -14,12 +14,12 @@ using EArm.Engine;
 using EArm.Engine.Providers;
 using EArm.Engine.State;
 using EArm.Expressions.Values;
-using GraphApi = EArm.Az.GraphApi;
+using GraphApi = EArm.Graph.GraphApi;
 
 namespace EArm.Providers;
 
 /// <summary>
-/// <c>Microsoft.Entra/applications/federatedIdentityCredentials</c> (plan sections 1.2, 1.3, 3.2; work item WI-10).
+/// <c>Microsoft.Entra/applications/federatedIdentityCredentials</c>.
 /// The resource name is <c>&lt;application uniqueName&gt;/&lt;credential name&gt;</c> (nested children are flattened to
 /// that form by the loader); the credential name is the Graph <c>name</c>, an alternate key under the application.
 /// <para>
@@ -72,13 +72,26 @@ public sealed class FederatedIdentityCredentialsProvider : ProviderBase
     }
 
     /// <summary>
-    /// Same rule as the applications provider, applied to the parent (plan section 3.4):
+    /// Same rule as the applications provider, applied to the parent:
     /// <c>Application.ReadWrite.OwnedBy</c> when the parent application is declared in the template (this
     /// deployment creates and therefore owns it), otherwise <c>Application.ReadWrite.All</c>.
     /// </summary>
     public override IReadOnlyList<string> RequiredPermissions(ResourceInstance? desired)
     {
         return desired?.Parent is not null ? [ApplicationsProvider.OwnedByPermission] : [ApplicationsProvider.ReadWriteAllPermission];
+    }
+
+    /// <summary>The top-level properties each template declares, selected next to the managed set on its reads (G-08).</summary>
+    private readonly DeclaredSelects _selects = new();
+
+    /// <summary>Application object ids found by <c>uniqueName</c>, so a parent is looked up once per run.</summary>
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _parentIds = new(StringComparer.OrdinalIgnoreCase);
+
+    public override ResourceKey ResolveKey(ResourceInstance desired)
+    {
+        var key = base.ResolveKey(desired);
+        _selects.Register(key, Definition, desired);
+        return key;
     }
 
     // ---- read ----
@@ -94,9 +107,19 @@ public sealed class FederatedIdentityCredentialsProvider : ProviderBase
         }
 
         string? parentUniqueName = key.ParentKey is { } parentKey && parentKey.TryGet(ParentKeyProperty, out var unique) ? unique : null;
-        string parentPath = ParentPath(key.ParentGraphId, parentUniqueName, null);
-        var managed = ManagedPropertiesFor(key.Api);
+        string? parentPath = await TryResolveParentPathAsync(graph, key.ParentGraphId, parentUniqueName, key.Api, cancellationToken).ConfigureAwait(false);
+        if (parentPath is null)
+        {
+            // The parent application does not exist (yet): neither does the credential, and there are no siblings.
+            _siblings[SnapshotKey(key.ParentGraphId, parentUniqueName)] = [];
+            return null;
+        }
 
+        var managed = _selects.For(key, ManagedPropertiesFor(key.Api));
+        return await ReadCoreAsync(graph, key, stateId, name, parentPath, parentUniqueName, managed, cancellationToken).ConfigureAwait(false);
+    }
+    private async Task<ExistingResource?> ReadCoreAsync(IGraphClient graph, ResourceKey key, string? stateId, string name, string parentPath, string? parentUniqueName, string[] managed, CancellationToken cancellationToken)
+    {
         JsonObject? live = null;
         if (stateId is not null)
         {
@@ -112,6 +135,74 @@ public sealed class FederatedIdentityCredentialsProvider : ProviderBase
         return live is null ? null : ToExisting(live);
     }
 
+    /// <summary>The object id of the application with this <c>uniqueName</c>, found with an advanced <c>$filter</c>; <c>null</c> when there is none.</summary>
+    private async Task<string?> FindParentIdByFilterAsync(IGraphClient graph, string uniqueName, GraphApi api, CancellationToken cancellationToken)
+    {
+        var request = new GraphRequest(CollectionPath, api)
+            .WithFilter(ParentKeyProperty + " eq '" + ProviderSupport.EscapeLiteral(uniqueName) + "'")
+            .WithCount()
+            .WithConsistencyLevelEventual()
+            .WithSelect("id", ParentKeyProperty);
+        await foreach (var item in graph.GetAllPagesAsync(request, cancellationToken).ConfigureAwait(false))
+        {
+            if (item is JsonObject app && string.Equals(JsonObjects.GetString(app, ParentKeyProperty), uniqueName, StringComparison.OrdinalIgnoreCase))
+            {
+                return JsonObjects.GetId(app);
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// The path of the parent application in a form Learn documents for the credential endpoints: <c>/applications/{id}</c> (federatedidentitycredential-upsert,
+    /// application-list-federatedidentitycredentials). The <c>applications(uniqueName='…')</c> form appears only in an example, so a parent known by its
+    /// <c>uniqueName</c> alone is resolved to its object id first (alternate-key read, then an advanced <c>$filter</c> when the tenant rejects the key form).
+    /// Null when the application does not exist.
+    /// </summary>
+    private async Task<string?> TryResolveParentPathAsync(IGraphClient graph, string? parentGraphId, string? parentUniqueName, GraphApi api, CancellationToken cancellationToken)
+    {
+        if (parentGraphId is not null)
+        {
+            return CollectionPath + "/" + GraphPath.Segment(parentGraphId);
+        }
+
+        if (parentUniqueName is null)
+        {
+            throw new ProviderException(EngineDiagnosticCodes.ResourceKeyUnresolved, $"{TypeName}: the parent application is not known (neither its Graph id nor its uniqueName).");
+        }
+
+        if (_parentIds.TryGetValue(parentUniqueName, out var cached))
+        {
+            return CollectionPath + "/" + GraphPath.Segment(cached);
+        }
+
+        string? parentId;
+        try
+        {
+            var parent = await graph.GetAsync(new GraphRequest(GraphPath.AlternateKey(CollectionPath, ParentKeyProperty, parentUniqueName), api).WithSelect("id"), cancellationToken).ConfigureAwait(false) as JsonObject;
+            parentId = JsonObjects.GetId(parent);
+        }
+        catch (GraphException ex) when (ex.Status == System.Net.HttpStatusCode.BadRequest)
+        {
+            parentId = await FindParentIdByFilterAsync(graph, parentUniqueName, api, cancellationToken).ConfigureAwait(false);
+        }
+
+        if (parentId is null)
+        {
+            return null;
+        }
+
+        _parentIds[parentUniqueName] = parentId;
+        return CollectionPath + "/" + GraphPath.Segment(parentId);
+    }
+
+    /// <summary><see cref="TryResolveParentPathAsync"/> for a write: a missing parent is an error.</summary>
+    private async Task<string> ResolveParentPathAsync(IGraphClient graph, string? parentGraphId, string? parentUniqueName, GraphApi api, ResourceIdentifier id, CancellationToken cancellationToken)
+    {
+        return await TryResolveParentPathAsync(graph, parentGraphId, parentUniqueName, api, cancellationToken).ConfigureAwait(false)
+            ?? throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{TypeName}: the parent application '{parentUniqueName}' of '{id.NameLeaf}' does not exist.", id);
+    }
     // ---- plan ----
 
     public override ResourceChange Plan(ResourceInstance desired, ExistingResource? existing, PlanOptions options)
@@ -203,7 +294,7 @@ public sealed class FederatedIdentityCredentialsProvider : ProviderBase
         }
 
         string name = desired.Id.NameLeaf;
-        string parentPath = ParentPath(desired.ParentGraphId, desired.Id.Parent?.NameLeaf, desired.Id);
+        string parentPath = await ResolveParentPathAsync(graph, desired.ParentGraphId, desired.Id.Parent?.NameLeaf, desired.Api, desired.Id, cancellationToken).ConfigureAwait(false);
         var body = BuildCreateBody(desired);
         RemoveServerAssigned(body);
 
@@ -227,7 +318,7 @@ public sealed class FederatedIdentityCredentialsProvider : ProviderBase
         }
 
         string name = desired.Id.NameLeaf;
-        string parentPath = ParentPath(desired.ParentGraphId, desired.Id.Parent?.NameLeaf, desired.Id);
+        string parentPath = await ResolveParentPathAsync(graph, desired.ParentGraphId, desired.Id.Parent?.NameLeaf, desired.Api, desired.Id, cancellationToken).ConfigureAwait(false);
         var body = BuildPatchBody(desired, existing, change);
         RemoveServerAssigned(body);
 
@@ -256,7 +347,13 @@ public sealed class FederatedIdentityCredentialsProvider : ProviderBase
         ArgumentNullException.ThrowIfNull(graph);
         var key = entry.ToResourceKey(Catalog);
         string name = key.TryGet("name", out var recorded) ? recorded : entry.Id.NameLeaf;
-        string parentPath = ParentPath(entry.ParentGraphId, entry.Id.Parent?.NameLeaf, entry.Id);
+        string? parentPath = await TryResolveParentPathAsync(graph, entry.ParentGraphId, entry.Id.Parent?.NameLeaf, key.Api, cancellationToken).ConfigureAwait(false);
+        if (parentPath is null)
+        {
+            // The parent application is gone (and its credentials with it): nothing to do.
+            return;
+        }
+
         try
         {
             await graph.DeleteAsync(new GraphRequest(CredentialByNamePath(parentPath, name), key.Api), cancellationToken).ConfigureAwait(false);
@@ -285,7 +382,7 @@ public sealed class FederatedIdentityCredentialsProvider : ProviderBase
 
         // 204: the credential existed and the body was merged into it. It was just written, so the re-read may hit
         // replication lag.
-        var reread = new GraphRequest(path, desired.Api, hint: RetryHint.ExpectReplicationLag).WithSelect(ManagedPropertiesFor(desired.Api));
+        var reread = new GraphRequest(path, desired.Api, hint: RetryHint.ExpectReplicationLag).WithSelect(_selects.For(ResolveKey(desired), ManagedPropertiesFor(desired.Api)));
         return await graph.GetAsync(reread, cancellationToken).ConfigureAwait(false) as JsonObject
             ?? throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{desired.Describe()}: the upsert returned no object and the credential '{name}' could not be read back.", desired.Id);
     }
@@ -326,28 +423,11 @@ public sealed class FederatedIdentityCredentialsProvider : ProviderBase
             return key;
         }
 
-        var request = new GraphRequest(GraphPath.AlternateKey(CollectionPath, ParentKeyProperty, parentId.NameLeaf), desired.Api, hint: desired.RetryHint).WithSelect("id");
-        var parent = await graph.GetAsync(request, cancellationToken).ConfigureAwait(false) as JsonObject;
-        return JsonObjects.GetId(parent) is { } parentGraphId ? key with { ParentGraphId = parentGraphId } : key;
+        string? parentPath = await TryResolveParentPathAsync(graph, null, parentId.NameLeaf, desired.Api, cancellationToken).ConfigureAwait(false);
+        return parentPath is not null ? key with { ParentGraphId = parentPath[(CollectionPath.Length + 1)..] } : key;
     }
 
     // ---- paths ----
-
-    /// <summary><c>/applications/{id}</c> when the parent's Graph id is known, otherwise <c>/applications(uniqueName='…')</c>.</summary>
-    private string ParentPath(string? parentGraphId, string? parentUniqueName, ResourceIdentifier? id)
-    {
-        if (parentGraphId is not null)
-        {
-            return CollectionPath + "/" + GraphPath.Segment(parentGraphId);
-        }
-
-        if (parentUniqueName is not null)
-        {
-            return GraphPath.AlternateKey(CollectionPath, ParentKeyProperty, parentUniqueName);
-        }
-
-        throw new ProviderException(EngineDiagnosticCodes.ResourceKeyUnresolved, $"{TypeName}: the parent application is not known (neither its Graph id nor its uniqueName).", id);
-    }
 
     private static string CredentialByNamePath(string parentPath, string name)
     {

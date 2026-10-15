@@ -65,7 +65,7 @@ Derive from `ProviderBase` and implement the four Graph calls; override `Plan`, 
 Rules every provider follows:
 
 1. **`ResourceInstance.RetryHint` goes on every write request** (`new GraphRequest(path, desired.Api, hint: desired.RetryHint)`):
-   when a dependency was created in this run the executor sets `ExpectReplicationLag` and the Az layer retries
+   when a dependency was created in this run the executor sets `ExpectReplicationLag` and the Graph transport retries
    404 / "does not reference a valid …" for up to 90 s. Reads use the default hint (a 404 on read means "create").
    A write that addresses an object *you* created a moment earlier (a second PATCH after a create) uses
    `RetryHint.ExpectReplicationLag` explicitly.
@@ -78,15 +78,30 @@ Rules every provider follows:
    read them back into the body. `RequiredPermissions` may consult `EdgeProperties` (the applications provider
    returns `Application.ReadWrite.OwnedBy` only when `owners` is declared).
 4. **Select the managed property set on reads** (`.WithSelect(...)`): users return a tiny default set, and a
-   property the template declares but the read does not return would show as drift on every run.
+   property the template declares but the read does not return would show as drift on every run. The `$select` of a
+   read is the managed set **plus the top-level properties the template declares for that resource** (`DeclaredSelects`,
+   filled by the provider's `ResolveKey`; edge, create-only, secure and server-managed names are left out), so a
+   passthrough property outside the managed set (`description` of an application, `employeeHireDate` of a user) is
+   compared and not PATCHed on every run. The managed set of users, groups and applications also selects `createdDateTime` (the state
+   fingerprint is verified on every pinned read; the overlay's `stripOnRead` keeps it out of the diff, so it is never compared or PATCHed);
+   the other types either return it by default (named locations, Conditional Access policies, authentication strengths) or do not have it
+   (service principals, administrative units, role definitions, federated identity credentials, authentication contexts: Learn).
+   A provider that reads "the" single key value uses `ProviderSupport.SingleKey(key, nameMapsTo)`, which refuses a key of another property.
+   A multi-step create or restore that fails after its first write throws `ProviderException` with `Partial` set (groups: licenses after a
+   create or restore; applications: the `{appId}` identifierUris PATCH and any step after a restore; service principals: after a restore), so the
+   executor records the object and reports the resource failed.
 5. **Let `GraphException` propagate**; the executor classifies it (retry, "already exists" → re-read and adopt,
    terminal). Throw `ProviderException` (with an `EngineDiagnosticCodes` or provider constant such as
    `SoftDeletedConflict`) for failures that are not Graph errors. Treat a 404 on delete as "already gone".
-6. **Soft delete.** For types Graph keeps in `/directory/deletedItems` (applications, M365 groups, users, service
-   principals, administrative units) probe before a create whose key lookup was a 404; a hit is
+6. **Soft delete.** For types Graph keeps in `/directory/deletedItems` (applications, Microsoft 365 **and security** groups ([group-delete](https://learn.microsoft.com/en-us/graph/api/group-delete):
+   only distribution groups are deleted immediately), users, service principals, administrative units) probe before a create whose key lookup was a 404; a hit is
    `ProviderException(SoftDeletedConflict)` unless `PlanOptions.OnSoftDeletedConflict == Restore`, in which case
    `POST /directory/deletedItems/{id}/restore` and continue with the upsert. `PlanOptions` only reaches `Plan`;
-   capture what `CreateAsync` needs there (the executor plans each instance right before applying it).
+   capture what `CreateAsync` needs there (the executor plans each instance right before applying it). The probe needs
+   the type's **read** permission (Learn: directory-deleteditems-list; `Application.Read.All` for applications, which an
+   `Application.ReadWrite.OwnedBy`-only identity lacks): use `DeletedItemsProbe.FindAsync`, which treats a 403 (or a 400
+   that its fallback listing repeats) as "probe unavailable" and returns a `SoftDeleteProbeSkipped`
+   `ProviderWarning` for `AppliedResource.Warnings` instead of failing the create.
 7. **Never `JsonNode.DeepClone` evaluated properties** (secret and unknown leaves are lost); use `JsonValues.Clone`.
 8. **Put per-type pure logic in a separate static class** (`ApplicationsRules`) so it can be unit-tested without
    Graph, and keep provider state out of instance fields: one provider instance serves every resource of its type,
@@ -106,8 +121,8 @@ Requests per operation (every read selects `ApplicationsProvider.ManagedProperti
 
 | Operation | Requests |
 |---|---|
-| Read | `GET /applications/{pinnedId}` (when the state knows it) → `GET /applications(uniqueName='…')` → `GET /applications(appId='…')` (only when the template declares `appId`, to adopt a brownfield app whose `uniqueName` is still unset) |
-| Create | `GET /directory/deletedItems/microsoft.graph.application?$filter=uniqueName eq '…'&$count=true` (`ConsistencyLevel: eventual`; falls back to listing the deleted applications if Graph rejects the filter) → `[POST /directory/deletedItems/{id}/restore]` → `PATCH /applications(uniqueName='…')` + `Prefer: create-if-missing` (201: created; 204: existed → `GET /applications(uniqueName='…')` and adopt) → `[PATCH /applications/{id} { identifierUris }]` when any URI carries `{appId}` |
+| Read | `GET /applications/{pinnedId}` (when the state knows it) → `GET /applications(uniqueName='…')` (a 400 — Learn documents `uniqueName` as an alternate key of the upsert only — falls back to `GET /applications?$filter=uniqueName eq '…'&$count=true` with `ConsistencyLevel: eventual`) → `GET /applications(appId='…')` (only when the template declares `appId`, to adopt a brownfield app whose `uniqueName` is still unset). The `$select` is `ManagedProperties` plus the declared top-level properties |
+| Create | `GET /directory/deletedItems/microsoft.graph.application?$filter=uniqueName eq '…'&$count=true` (`ConsistencyLevel: eventual`; falls back to listing the deleted applications if Graph rejects the filter; a 403 skips the probe with the `SoftDeleteProbeSkipped` warning) → `[POST /directory/deletedItems/{id}/restore]` → `PATCH /applications(uniqueName='…')` + `Prefer: create-if-missing` (**the body does not carry `uniqueName`**: it is the URL key and Learn documents it as read-only; 201: created; 204: existed → `GET /applications(uniqueName='…')` and adopt) → `[PATCH /applications/{id} { identifierUris }]` when any URI carries `{appId}` |
 | Update | `[PATCH /applications/{id}` disabling removed/changed roles and scopes `]` → `PATCH /applications/{id}` (merge body) → `GET /applications/{id}` |
 | Delete | `DELETE /applications/{id}` (soft delete; a 404 is tolerated) |
 
@@ -220,7 +235,7 @@ unknown / disabled scope values); the Graph reads shared with the edge kind are 
 | Operation | Requests |
 |---|---|
 | Read | `GET /servicePrincipals/{pinnedId}` (state id; ignored when its `appId` is not the key's) → `GET /servicePrincipals(appId='…')`; a 404 is "does not exist" |
-| Create | `POST /servicePrincipals { appId, accountEnabled, appRoleAssignmentRequired, …declared properties }` under the instance's retry hint (`ExpectReplicationLag` when the application was created in this run: the 400 "does not reference a valid application object" and the 404 are retried for up to 90 s). A 400 "same value for property appId already exists" means the principal exists (auto-provisioned, or not yet visible to the read): it is re-read by `appId` under the lag hint and adopted, with one `PATCH /servicePrincipals/{id}` when the declared properties differ, then re-read |
+| Create | soft-delete probe `GET /directory/deletedItems/microsoft.graph.servicePrincipal?$filter=appId eq '…'` (advanced query; a 403 skips it with a warning) → a hit is `ProviderException(SoftDeletedConflict)`, or with `--on-soft-deleted-conflict restore` `POST /directory/deletedItems/{id}/restore` and the restored principal is adopted (declared properties PATCHed on) instead of `POST`; otherwise `POST /servicePrincipals { appId, accountEnabled, appRoleAssignmentRequired, …declared properties }` under the instance's retry hint (`ExpectReplicationLag` when the application was created in this run: the 400 "does not reference a valid application object" and the 404 are retried for up to 90 s). A 400 "same value for property appId already exists" means the principal exists (auto-provisioned, or not yet visible to the read): it is re-read by `appId` under the lag hint and adopted, with one `PATCH /servicePrincipals/{id}` when the declared properties differ, then re-read |
 | Update | `PATCH /servicePrincipals/{id}` (merge body: changed scalars; `tags`, `notificationEmailAddresses`, `replyUrls`, `alternativeNames` and `samlSingleSignOnSettings` whole) → `GET /servicePrincipals/{id}` |
 | Delete | `DELETE /servicePrincipals/{id}` (soft delete; cascades the principal's assignments and grants in both directions); a 404 is "already gone" |
 
@@ -241,17 +256,20 @@ Type-specific rules (`ServicePrincipalsRules`, pure):
 
 `Microsoft.Entra/applications/federatedIdentityCredentials`: the name is `<application uniqueName>/<credential name>`
 (nested children are flattened to that form by the loader). Every path starts with the parent segment:
-`/applications/{parentId}` when the parent's Graph id is known (applied in this run, read during planning or pinned in the
-state), otherwise `/applications(uniqueName='…')`.
+`/applications/{parentId}`. When the parent's Graph id is not known (an application outside the template, found by `uniqueName`), the provider
+resolves it first (`GET /applications(uniqueName='…')?$select=id`, a `$filter=uniqueName eq '…'` listing when a tenant rejects the key form; once per run): Learn documents
+the credential endpoints under `/applications/{id}` and `/applications(appId='…')` ([federatedidentitycredential-upsert](https://learn.microsoft.com/en-us/graph/api/federatedidentitycredential-upsert)),
+and the `applications(uniqueName='…')/federatedIdentityCredentials` form appears only in one of its examples. A parent that does not exist makes a create fail with a clear message, a
+read find nothing and a delete a no-op; the fake directory answers 400 to any navigation below a `(uniqueName=…)` key.
 
 | Operation | Requests |
 |---|---|
 | Read | `GET {parent}/federatedIdentityCredentials/{pinnedId}` → `GET {parent}/federatedIdentityCredentials(name='…')` → `GET {parent}/federatedIdentityCredentials` (the siblings, for the uniqueness and limit checks); a 404 is "does not exist" |
-| Create / Update | the upsert `PATCH {parent}/federatedIdentityCredentials(name='…')` + `Prefer: create-if-missing` (201: created, the body is the object; 204: merged into the existing one, re-read); when the parent's id was not known, `GET /applications(uniqueName='…')?$select=id` first so the state entry records `parentId` |
+| Create / Update | the upsert `PATCH {parent}/federatedIdentityCredentials(name='…')` + `Prefer: create-if-missing` (201: created, the body is the object; 204: merged into the existing one, re-read); when the parent's id was not known, the lookup above runs first so the state entry records `parentId` |
 | Delete | `DELETE {parent}/federatedIdentityCredentials(name='…')`; a 404 is "already gone" |
 
 `Plan` refuses (an unsupported what-if row, a failed create) a name outside the overlay pattern
-(`^[A-Za-z][A-Za-z0-9-]{2,119}$`), a non-https `issuer`, an empty `subject`, `claimsMatchingExpression` on `2026-10-01-preview`
+(`^[A-Za-z0-9][A-Za-z0-9_-]{2,119}$`: 3-120 letters, digits, `-` or `_`, starting with a letter or digit), a non-https `issuer`, an empty `subject`, `claimsMatchingExpression` on `2026-10-01-preview`
 (Graph v1.0; it needs `2026-10-01-preview.beta`), an `issuer` + `subject` pair already used by another credential of the application (live, or declared
 elsewhere in the same deployment) and a 21st credential. A rename is a new resource: the old credential is detached
 (Incremental) or deleted by the mode pass (Complete) after the apply pass, so a rename that keeps issuer and subject is
@@ -267,7 +285,7 @@ selects `UsersProvider.ManagedProperties` (a user read returns a tiny default se
 | Read | `GET /users/{pinnedId}` → `GET /users/{upn}`; a 404 is "does not exist". When the user holds licenses `GET /subscribedSkus` runs once per run to resolve `skuPartNumber` |
 | Create | soft-delete probe `GET /directory/deletedItems/microsoft.graph.user?$filter=userPrincipalName eq '…'` (advanced query; a 400 falls back to listing) → on a hit `ProviderException(SoftDeletedConflict)`, or with `--on-soft-deleted-conflict restore` `POST /directory/deletedItems/{id}/restore` + `PATCH /users/{id}` + `GET /users/{id}`; otherwise `POST /users`; then `POST /users/{id}/assignLicense` when `assignedLicenses` is declared |
 | Update | `PATCH /users/{id}` (merge body; never `passwordProfile`, `userPrincipalName` or `id`) → `GET /users/{id}` → `POST /users/{id}/assignLicense` for the add/remove delta of the **direct** assignments |
-| Delete | `DELETE /users/{id}` (soft delete, 30-day recycle bin; the UPN stays reserved); a 404 is "already gone" |
+| Delete | `DELETE /users/{id}` (soft delete, 30-day recycle bin: `GET /directory/deletedItems/microsoft.graph.user` lists it, `…/restore` brings it back; Microsoft Learn does not say whether the UPN stays reserved, so EARM never assumes it either way — it probes before a create and reports a hit as a conflict); a 404 is "already gone" |
 
 Type-specific rules (`UsersRules`, `UsersLicensing`, pure):
 
@@ -291,6 +309,10 @@ Type-specific rules (`UsersRules`, `UsersLicensing`, pure):
   target type's permission, which that provider reports.
 
 ### Worked example: Conditional Access (`NamedLocationsProvider`, `ConditionalAccessPoliciesProvider`)
+
+Policy reads and writes carry `Prefer: include-unknown-enum-members`: [conditionalaccessgrantcontrols](https://learn.microsoft.com/en-us/graph/api/resources/conditionalaccessgrantcontrols)
+lists `riskRemediation` as a member of the evolvable `builtInControls` enum that Graph returns only to such a request (otherwise it reads back as `unknownFutureValue`). The schema enum
+knows `riskRemediation`, and `passwordChange` together with `riskRemediation` is an unsupported row (Learn: "must be used separately").
 
 Both are named by `displayName`; the Graph id is pinned in the state after the first run. A lookup that finds no object
 is a create, one hit is the object, several hits are `ProviderException(AmbiguousMatch)` listing the ids (resolve with
@@ -333,10 +355,13 @@ preview-only properties (`templateId`, `partialEnablementStrategy`, `sessionCont
 locations by named location id (`reference('Contoso offices').id` makes the dependency), roles by role template id. The
 last `PlanOptions` seen is kept so a direct `CreateAsync`/`UpdateAsync` applies the same guard.
 
-### Worked example: authentication context and authentication strength (`WI-20`)
+### Worked example: authentication context and authentication strength
 
 `Microsoft.Entra/conditionalAccess/authenticationContextClassReferences`: the name **is** the Graph id (`c1`..`c99`, pattern
-`^c[1-9][0-9]?$`); there is no displayName lookup and the state id is the name. Graph upserts on this collection.
+`^c[1-9][0-9]?$`); there is no displayName lookup and the state id is the name. Graph upserts on this collection. The two Learn pages disagree on the range:
+[authenticationcontextclassreference](https://learn.microsoft.com/en-us/graph/api/resources/authenticationcontextclassreference) says `c1` to `c25`, while the Conditional Access documentation
+([cloud apps, actions and authentication context](https://learn.microsoft.com/en-us/entra/identity/conditional-access/concept-conditional-access-cloud-apps): "up to 99 authentication context definitions (c1-c99)") allows `c1` to `c99`; EARM accepts
+`c1`..`c99` and leaves the limit to Graph, which answers a 400 for an id the tenant does not allow.
 
 | Operation | Requests |
 |---|---|
@@ -372,7 +397,7 @@ and stripped on read; a declared `custom` is dropped as implied, anything else i
 
 ## Adding an edge kind
 
-Part B edge kinds (plan section 1.4: app role assignments, directory roles) live next to their standalone provider and
+Part B edge kinds (app role assignments, directory roles) live next to their standalone provider and
 are discovered like providers: implement `IEdgeKindHandler` (`EArm.Engine.Edges`) with `Phase = EdgePhase.B`,
 attribute the class `[EntraEdgeKind(EdgeKind.<Kind>)]`, give it a `(ResourceTypeCatalog)` or parameterless
 constructor, and `ProviderDiscovery.CreateEdgeKinds(catalog)` returns `EdgeKindRegistry.Default` (part A) plus every
@@ -409,12 +434,49 @@ What the engine's edge pass expects from a part B handler (worked example: `Edge
   for the principal and removed when undeclared. (Known wart: a what-if on a tenant where neither exists yet shows the
   add under both rows, since the pass cannot see the standalone resource's planned create.)
 
+## Review 1D behaviours
+
+- **Warnings.** A provider reports a non-fatal observation of an apply (`SoftDeleteProbeSkipped`, `GroupHasNoOwnerAtCreate`) in `AppliedResource.Warnings`
+  (`ProviderWarning(Code, Message)`, never persisted); a what-if observation of a plan (`SecretExpiresSoon`) is a row reason of the form `Code: message`
+  (`ProviderWarnings.Format`). The executor reports every `AppliedResource.Warnings` entry as a warning diagnostic against the resource, and the planner and
+  executor turn a plan row reason that starts with `SecretExpiresSoon:` into a warning diagnostic too (`ProviderWarningReasons`), so what-if and create both list them.
+  The codes are `EngineDiagnosticCodes` constants documented in [diagnostics.md](diagnostics.md#provider-codes).
+- **`x-earm.ignoreLiveOnly`** (overlay): dotted paths (`web`, `api`, `sessionControls.signInFrequency`). Under each path, sub-properties that exist only on the live
+  object are neither drift nor nulled in the PATCH (Graph fills server-defaulted children such as `signInFrequency.authenticationType` /
+  `frequencyInterval` or `web.redirectUriSettings`). Applied by `ProviderSupport.PruneLiveOnly` to the live diff view of applications and
+  Conditional Access policies; to clear such a child, declare it (`null` / `[]`). Live `@odata.*` annotations inside a policy are dropped when it is read.
+- **Role-assignable groups** (`isAssignableToRole: true`, Learn group-post-groups example 3): `securityEnabled` defaults to `true`, a Microsoft 365 group defaults to
+  `visibility: Private`; a dynamic group, `securityEnabled: false` or another visibility is an unsupported row. (The page also says such a group "cannot have an owner",
+  yet its own example creates one with `owners@odata.bind`; EARM does not forbid owners.)
+- **Owners at create**: declared `owners` (object ids, at most 20) are bound in the group upsert body as `owners@odata.bind`; the edge pass remains authoritative.
+- **Password credentials**: the secret is rotated when `liveEnd < now + rotateBeforeDays` **and** a replacement would live longer than the live credential (the
+  declared `endDateTime`, else now + 180 days); otherwise the what-if row is `NoChange` with a `SecretExpiresSoon` reason naming the date. An `addPassword` whose
+  answer is lost (timeout, dropped connection, 5xx on the write) is never repeated: the provider lists the application's credentials and the failure message names
+  every same-name credential it did not record (`PasswordCredentialOrphaned`, with the `keyId`); nothing is deleted automatically.
+- **Fallbacks** for forms Learn does not document on a read: `GET /groups|applications(uniqueName='…')` → `$filter=uniqueName eq '…'` on a 400;
+  the parent application of a credential is always resolved to its object id first (the `uniqueName` key form, then that filter on a 400); the `oauth2PermissionGrants`
+  multi-clause `$filter … and …` → `clientId eq '…'` alone with a client-side match on a 400.
+- **`ApplicationsProvider.AdoptUniqueNameAsync`** sets the `uniqueName` of an application that has none (adoption by `appId`) with its own PATCH and turns a Graph
+  refusal into `UniqueNameNotSettable` (uniqueName is documented as immutable and read-only; an application created without it may not be adoptable by name).
+- **Pinned-id reads**: `GET /servicePrincipals/{id}/appRoleAssignedTo/{assignmentId}`, `GET /oauth2PermissionGrants/{id}` and
+  `GET /roleManagement/directory/roleAssignments/{id}` are documented operations (approleassignment-get, oauth2permissiongrant-get, unifiedroleassignment-get).
+
 ## Test fixtures
 
 - Drive the provider through `FakeGraphClient` / `FakeDirectory` (`tests/EArm.TestSupport`). Seed objects
   with `AddApplication`, `AddGroup`, `AddUser`, `AddServicePrincipal`, `Add(path, entity)`; stage soft-deleted
   objects with `AddDeleted("/applications", entity)` or `SoftDelete(id)` (they are listed by
-  `GET /directory/deletedItems/microsoft.graph.<type>`, restored by `POST …/{id}/restore`, purged by `DELETE`).
+  `GET /directory/deletedItems/microsoft.graph.<type>`, restored by `POST …/{id}/restore`, purged by `DELETE`). Like Graph, `DELETE` of an
+  application, service principal, user, administrative unit, Microsoft 365 group or **security group** (only distribution lists are deleted immediately) **moves the object there**
+  (30 days, `FakeDirectory.Clock`); a create with the same `uniqueName` / `userPrincipalName` / `appId` / Microsoft 365 `mailNickname` conflicts until it is restored or purged.
+  The fake is as strict as the Learn pages it was written from: a create without the required properties (group `displayName` / `mailEnabled` / `mailNickname` / `securityEnabled`; user
+  `accountEnabled` / `displayName` / `mailNickname` / `passwordProfile.password`; application, administrative unit, role definition and conditional access policy `displayName`; policy `state` one of
+  `enabled` / `disabled` / `enabledForReportingButNotEnforced`; named location `@odata.type` plus `ipRanges` or `countriesAndRegions`) is a 400, a `$top` over 999 on a directory collection is a 400, and
+  typed objects (`FakeDirectorySchema`: user, group, application, service principal, administrative unit, role definition, permission grant, federated credential, app role assignment) come back
+  with only the default property set of their Learn resource page unless `$select` names more; `$select` of a property the type does not have is a 400 (`$select=*` returns the whole object; a selected property the object holds no value for is left out, where Graph answers `null`). Duplicate named-location display names are not rejected (Learn does not document it). Advanced queries
+  (`$search`, `$count`, `ne` / `endswith` / `not` in `$filter`) on directory objects need `ConsistencyLevel: eventual` (and `$count=true` for a filter), a `$filter` operator the
+  fake does not implement is a 400, an undocumented operation (`PUT` on an entity, `PATCH` of an app role assignment, an untyped `GET /directory/deletedItems`) is a 405 / 400, and
+  `owners@odata.bind` / `members@odata.bind` in a create or update body become references.
   Assert on `client.Requests` / `client.Writes` (method, path, headers, body) and on `Directory.Objects(path)`.
   App role assignments live in `/servicePrincipals/{id}/appRoleAssignedTo` (`Objects(...)` to inspect; `POST` fills
   `principalType` and the display names, rejects a duplicate with the Graph 400, and the principal-side

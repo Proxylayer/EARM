@@ -4,7 +4,7 @@ using System.CommandLine;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Cli.Hosting;
 using EArm.Cli.Output;
 using EArm.Core.Types;
@@ -16,7 +16,7 @@ namespace EArm.Cli.Commands;
 /// <summary>
 /// <c>earm deployment show -n &lt;name&gt; [--refresh] [-f template] [--state-dir dir] [-o table|json]</c>: the
 /// deployment's state summary and its resources. <c>--refresh</c> re-reads every object through its provider (needs
-/// an Azure CLI session; exit 3 on a tenant mismatch) and reports drift (<c>InSync</c>, <c>Missing</c>,
+/// a sign-in; exit 3 on a tenant mismatch) and reports drift (<c>InSync</c>, <c>Missing</c>,
 /// <c>Replaced</c>) without changing the state.
 /// </summary>
 internal static class ShowCommand
@@ -26,7 +26,7 @@ internal static class ShowCommand
         var options = new StateOptions();
         var refresh = new Option<bool>("--refresh")
         {
-            Description = "Re-read every state-managed object from the tenant and report drift (needs an Azure CLI session).",
+            Description = "Re-read every state-managed object from the tenant and report drift (needs a sign-in).",
         };
 
         var command = new Command("show", "Shows a deployment's state: last run, tenant and the resources it manages.");
@@ -50,44 +50,50 @@ internal static class ShowCommand
         }
         catch (ArgumentException ex)
         {
-            stderr.WriteLine(ex.Message);
-            return ExitCodes.Failure;
+            return VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.Failure, "InvalidArgument", ex.Message);
         }
 
         using var loggerFactory = GlobalOptions.CreateLoggerFactory(invocation.LogLevel);
         var store = StateHost.OpenStore(invocation.StateDir, invocation.TemplateFile, loggerFactory);
         StateFile? state;
+        StateLockInfo? lockInfo;
         try
         {
             state = await store.LoadAsync(name, cancellationToken).ConfigureAwait(false);
+            lockInfo = state is null ? null : await store.GetLockAsync(name, cancellationToken).ConfigureAwait(false);
         }
         catch (StateException ex)
         {
-            stderr.WriteLine(ex.Message);
-            return ExitCodes.Failure;
+            return VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.Failure, ex.Code, ex.Message);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.Failure, "StateIoFailed", $"The state of deployment '{name}' could not be read: {ex.Message}");
         }
 
         if (state is null)
         {
-            stderr.WriteLine($"No deployment named '{name}' in {store.Directory}.");
-            return ExitCodes.Failure;
+            return VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.Failure, "DeploymentNotFound", $"No deployment named '{name}' in {store.Directory}.");
         }
 
-        var lockInfo = await store.GetLockAsync(name, cancellationToken).ConfigureAwait(false);
         IReadOnlyDictionary<string, DriftReport>? drift = null;
         if (refresh)
         {
-            using var services = new EngineServices(invocation.Az, loggerFactory);
-            AzPreflightResult preflight;
+            if (!EngineServices.TryCreate(invocation.Connection, loggerFactory, stdout, stderr, invocation.Output, out var created, out int createExit))
+            {
+                return createExit;
+            }
+
+            using var services = created!;
+            GraphPreflightResult preflight;
             try
             {
                 preflight = await services.Preflight.RunAsync(cancellationToken).ConfigureAwait(false);
                 state.EnsureTenant(preflight.TenantId);
             }
-            catch (Exception ex) when (ex is AzCliException or ToolchainException or TenantMismatchException)
+            catch (Exception ex) when (ex is GraphTransportException or GraphException or TenantMismatchException)
             {
-                stderr.WriteLine(ex.Message);
-                return ExitCodes.AuthOrPreflight;
+                return VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.AuthOrPreflight, ex is TenantMismatchException mismatch ? mismatch.Code : "PreflightFailed", ex.Message);
             }
 
             drift = await RefreshAsync(state, services, cancellationToken).ConfigureAwait(false);
@@ -120,7 +126,7 @@ internal static class ShowCommand
                     _ => new DriftReport(DriftReport.Replaced, existing.GraphId, $"the key now belongs to {existing.GraphId}"),
                 };
             }
-            catch (Exception ex) when (ex is ProviderException or GraphException or AzCliException)
+            catch (Exception ex) when (ex is ProviderException or GraphException or GraphTransportException)
             {
                 drift[pair.Key] = new DriftReport(DriftReport.Unknown, null, ex.Message);
             }

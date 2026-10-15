@@ -12,7 +12,7 @@ namespace EArm.Providers;
 public sealed record FederatedCredentialSummary(string? Id, string Name, string? Issuer, string? Subject);
 
 /// <summary>
-/// The pure rules of the federated identity credentials provider (plan sections 1.3 and 3.2), free of Graph I/O so
+/// The pure rules of the federated identity credentials provider, free of Graph I/O so
 /// they can be tested on their own: the name, issuer and subject constraints Graph enforces, the
 /// <c>issuer + subject</c> pair that must be unique per application, and the 20-per-application limit.
 /// </summary>
@@ -21,8 +21,8 @@ public static class FederatedIdentityCredentialsRules
     /// <summary>Graph allows at most this many federated identity credentials per application.</summary>
     public const int MaxPerApplication = 20;
 
-    /// <summary>The overlay's name constraint: 3–120 characters, letters, digits and <c>-</c>, starting with a letter.</summary>
-    public const string DefaultNamePattern = "^[A-Za-z][A-Za-z0-9-]{2,119}$";
+    /// <summary>The overlay's name constraint: 3–120 characters, letters, digits, <c>-</c> and <c>_</c>, starting with a letter or digit.</summary>
+    public const string DefaultNamePattern = "^[A-Za-z0-9][A-Za-z0-9_-]{2,119}$";
 
     /// <summary>Only the beta endpoint (<c>2026-10-01-preview.beta</c>) accepts this property.</summary>
     public const string PreviewOnlyProperty = "claimsMatchingExpression";
@@ -46,7 +46,7 @@ public static class FederatedIdentityCredentialsRules
             return null;
         }
 
-        return $"the credential name '{name}' is not valid: Graph requires 3 to 120 characters, letters, digits and '-' only, starting with a letter (pattern {regex}).";
+        return $"the credential name '{name}' is not valid: Graph requires 3 to 120 characters, letters, digits, '-' and '_' only, starting with a letter or digit (pattern {regex}).";
     }
 
     /// <summary>

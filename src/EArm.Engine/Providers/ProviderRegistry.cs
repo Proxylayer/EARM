@@ -10,7 +10,7 @@ public sealed class ProviderRegistry
 {
     private readonly Dictionary<string, IResourceProvider> _providers = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>A registry with no providers: every type is unknown until a provider work item registers one.</summary>
+    /// <summary>A registry with no providers: every type is unknown until a provider registers it.</summary>
     public static ProviderRegistry Empty => new();
 
     public IReadOnlyCollection<IResourceProvider> Providers => _providers.Values;

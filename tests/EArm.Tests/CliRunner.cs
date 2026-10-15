@@ -27,8 +27,8 @@ internal sealed record CliResult(int ExitCode, string StandardOutput, string Sta
 }
 
 /// <summary>
-/// Drives the real command line in-process: <see cref="Program.BuildRootCommand"/> plus the production parser
-/// configuration, with standard output and error captured.
+/// Drives the real command line in-process through the production entry point (<see cref="Program.InvokeAsync"/>: root command, parser
+/// configuration, output sanitizing and the catch-all), with standard output and error captured.
 /// </summary>
 internal static class CliRunner
 {
@@ -38,8 +38,7 @@ internal static class CliRunner
         using var stderr = new StringWriter();
         var configuration = new InvocationConfiguration { Output = stdout, Error = stderr };
 
-        var parseResult = Program.BuildRootCommand().Parse(args, Program.CreateParserConfiguration());
-        int exitCode = await parseResult.InvokeAsync(configuration, TestContext.Current.CancellationToken);
+        int exitCode = await Program.InvokeAsync(args, configuration, TestContext.Current.CancellationToken);
 
         return new CliResult(exitCode, stdout.ToString(), stderr.ToString());
     }

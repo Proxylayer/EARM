@@ -2,6 +2,7 @@ using System;
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using EArm.Core.Json;
 using EArm.Core.Secrets;
 
 namespace EArm.Expressions.Values;
@@ -244,6 +245,7 @@ public static class JsonValues
     /// </summary>
     public static bool AreEqual(JsonNode? left, JsonNode? right)
     {
+        ValueGuard.EnsureStack();
         if (ReferenceEquals(left, right))
         {
             return true;
@@ -340,6 +342,89 @@ public static class JsonValues
 
             default:
                 return false;
+        }
+    }
+
+    /// <summary>
+    /// A hash consistent with <see cref="AreEqual"/> (values that are equal hash equal): numbers hash by their double value, objects
+    /// independently of property order. Lets set operations (<c>union</c>, <c>intersection</c>) run in linear time.
+    /// </summary>
+    public static int StructuralHash(JsonNode? node)
+    {
+        ValueGuard.EnsureStack();
+        if (node is null)
+        {
+            return 0;
+        }
+
+        if (SecretJson.IsSecret(node, out var secret))
+        {
+            return HashCode.Combine(1, secret.Kind, string.GetHashCode(secret.Value, StringComparison.Ordinal));
+        }
+
+        if (UnknownJson.IsUnknown(node, out var unknown))
+        {
+            return HashCode.Combine(2, string.GetHashCode(unknown.Symbol, StringComparison.Ordinal));
+        }
+
+        switch (node)
+        {
+            case JsonObject obj:
+                {
+                    int sum = obj.Count;
+                    foreach (var property in obj)
+                    {
+                        sum += HashCode.Combine(string.GetHashCode(property.Key, StringComparison.Ordinal), StructuralHash(property.Value));
+                    }
+
+                    return HashCode.Combine(3, sum);
+                }
+
+            case JsonArray array:
+                {
+                    var hash = new HashCode();
+                    hash.Add(4);
+                    foreach (var item in array)
+                    {
+                        hash.Add(StructuralHash(item));
+                    }
+
+                    return hash.ToHashCode();
+                }
+
+            case JsonValue value:
+                switch (value.GetValueKind())
+                {
+                    case JsonValueKind.Number:
+                        return TryGetDouble(value, out double d) ? HashCode.Combine(5, d == 0 ? 0d : d) : 5;
+                    case JsonValueKind.String:
+                        return TryGetString(value, out var text) ? HashCode.Combine(6, string.GetHashCode(text, StringComparison.Ordinal)) : 6;
+                    case JsonValueKind.True:
+                        return 7;
+                    case JsonValueKind.False:
+                        return 8;
+                    default:
+                        return 9;
+                }
+
+            default:
+                return 10;
+        }
+    }
+
+    /// <summary>The equality of <see cref="AreEqual"/> with the matching hash, for <see cref="System.Collections.Generic.HashSet{T}"/> and dictionaries.</summary>
+    public sealed class Comparer : System.Collections.Generic.IEqualityComparer<JsonNode?>
+    {
+        public static Comparer Instance { get; } = new();
+
+        public bool Equals(JsonNode? x, JsonNode? y)
+        {
+            return AreEqual(x, y);
+        }
+
+        public int GetHashCode(JsonNode? obj)
+        {
+            return StructuralHash(obj);
         }
     }
 

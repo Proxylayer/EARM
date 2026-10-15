@@ -41,9 +41,10 @@
     "stripOnRead": ["id", "createdDateTime", "modifiedDateTime", "policyType", "requirementsSatisfied", "combinationConfigurations"],
     "nullable": {},
     "permissions": {
-      "application": ["Policy.ReadWrite.AuthenticationMethod", "Policy.Read.All"],
-      "delegated": ["Policy.ReadWrite.AuthenticationMethod", "Policy.Read.All"],
-      "roles": ["Authentication Policy Administrator"]
+      "application": ["Policy.ReadWrite.ConditionalAccess", "Policy.Read.All"],
+      "delegated": ["Policy.ReadWrite.ConditionalAccess", "Policy.Read.All"],
+      "roles": ["Authentication Policy Administrator"],
+      "notes": "Learn (authenticationstrengthroot-post-policies, authenticationstrengthpolicy-update/-get): Policy.ReadWrite.ConditionalAccess is the least privileged application permission for create, update and delete; Policy.ReadWrite.AuthenticationMethod is the higher privileged alternative; Policy.Read.All reads. updateAllowedCombinations is not covered by a page of its own that was checked."
     }
   }
 }

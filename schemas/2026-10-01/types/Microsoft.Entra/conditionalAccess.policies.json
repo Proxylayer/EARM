@@ -363,7 +363,7 @@
               "anyOf": [ { "type": "string", "enum": [ "AND", "OR" ] }, { "$ref": "#/$defs/expression" } ]
             },
             "builtInControls": {
-              "description": "Built-in controls to require.",
+              "description": "Built-in controls to require. riskRemediation is an evolvable-enum member that Graph returns only to a read sent with Prefer: include-unknown-enum-members (EARM sends it).",
               "anyOf": [
                 {
                   "type": "array",
@@ -379,7 +379,8 @@
                           "approvedApplication",
                           "compliantApplication",
                           "passwordChange",
-                          "unknownFutureValue"
+                          "unknownFutureValue",
+                          "riskRemediation"
                         ]
                       },
                       { "$ref": "#/$defs/expression" }
@@ -558,6 +559,7 @@
     "memberKey": {},
     "stripOnRead": ["id", "createdDateTime", "modifiedDateTime", "templateId", "deletedDateTime"],
     "nullable": {},
+    "ignoreLiveOnly": ["sessionControls.signInFrequency"],
     "permissions": {
       "application": ["Policy.ReadWrite.ConditionalAccess", "Policy.Read.All", "Application.Read.All"],
       "delegated": ["Policy.ReadWrite.ConditionalAccess", "Policy.Read.All", "Application.Read.All"],

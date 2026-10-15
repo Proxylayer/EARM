@@ -4,7 +4,7 @@ using System.Linq;
 using System.Net;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Engine;
 using EArm.Engine.Edges;
 using EArm.Engine.Execution;
@@ -17,7 +17,7 @@ using Xunit;
 
 namespace EArm.Providers.Tests;
 
-/// <summary>The edge pass (WI-09) driven through the real providers: the T1–T9 lifecycle, batching, tolerated Graph answers, skipped / unsupported kinds and type discovery.</summary>
+/// <summary>The edge pass driven through the real providers: the T1–T9 lifecycle, batching, tolerated Graph answers, skipped / unsupported kinds and type discovery.</summary>
 public sealed class EdgePassTests
 {
     private const string AliceId = "/providers/Microsoft.Entra/users/alice@contoso.com";

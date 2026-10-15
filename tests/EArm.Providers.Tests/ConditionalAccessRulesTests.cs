@@ -2,11 +2,11 @@ using System;
 using System.Linq;
 using System.Text.Json.Nodes;
 using Xunit;
-using GraphApi = EArm.Az.GraphApi;
+using GraphApi = EArm.Graph.GraphApi;
 
 namespace EArm.Providers.Tests;
 
-/// <summary>Pure rules of the named locations and Conditional Access policies providers (WI-14).</summary>
+/// <summary>Pure rules of the named locations and Conditional Access policies providers.</summary>
 public sealed class ConditionalAccessRulesTests
 {
     private const string StrengthId = "00000000-0000-0000-0000-000000000004";

@@ -1,7 +1,7 @@
 # What-if output
 
 How `earm deployment what-if` (and `deployment create --what-if` / `-c`) report the changes a deployment would
-make, in the human-readable text form and in the ARM-shaped JSON form (plan section 1.8). The renderers live in
+make, in the human-readable text form and in the ARM-shaped JSON form. The renderers live in
 `src/EArm.Engine/WhatIf/`; the CLI glue (`-o`, colours, `--no-pretty-print`, exit codes) in
 `src/EArm.Cli/Output/WhatIfWriter.cs` and `src/EArm.Cli/Commands/DeploymentRunner.cs`.
 
@@ -138,7 +138,7 @@ Rules:
   `appRoles` / `oauth2PermissionScopes`, `cidrAddress` for `ipRanges`, `value` for roles / scopes, …; index when
   the member has no key), bare property names inside objects. A one-sided composite value prints as an indented
   block. `NoEffect` deltas (live-only sub-properties Graph refuses to null) are hidden unless `--verbose`.
-- **Edge deltas** (plan section 1.4) appear under the declaring resource as `properties.<property>` array deltas with
+- **Edge deltas** appear under the declaring resource as `properties.<property>` array deltas with
   `+ [n]: "<objectId>"` / `- [n]: "<objectId>"` children (`manager` is a scalar delta). A `NoChange` object with edge
   deltas is a `Modify` row.
 - **Reasons** are printed in parentheses under the row (symbolic name: `the name is only known once '<id>' exists`;
@@ -214,7 +214,7 @@ Rules:
 | `deploymentName`, `tenantId`, `mode` | `-n` (or the template stem), the signed-in tenant (`null` offline), `Incremental` / `Complete`. |
 | `changes[]` | Same order as the text. `resourceId` is the ARM-style id; `changeType` one of `Create`, `Modify`, `Delete`, `NoChange`, `Ignore`. |
 | `before` / `after` | `{ name, type, apiVersion?, properties }`. ARM semantics: Create has `after`, Delete has `before`, Modify and NoChange have both, Ignore has neither. `apiVersion` is absent on mode-pass rows (no template instance). `after.properties` includes the relationship properties; `before.properties` is the live object as the provider reads it (server-managed properties stripped). Absent with `--result-format ResourceIdOnly`. |
-| `delta[]` | Modify rows only (ARM: Create / Delete carry only the payload). Each entry: `path`, `propertyChangeType` (`Create`, `Delete`, `Modify`, `Array`, `NoEffect`), `before` / `after` (omitted when null), `children[]`. Top-level paths are rooted at the resource (`properties.web.redirectUris`); child paths are relative to their parent (`[0]`, `['<memberKey>']`, `isEnabled`), as in the plan's example. Absent with `ResourceIdOnly`. |
+| `delta[]` | Modify rows only (ARM: Create / Delete carry only the payload). Each entry: `path`, `propertyChangeType` (`Create`, `Delete`, `Modify`, `Array`, `NoEffect`), `before` / `after` (omitted when null), `children[]`. Top-level paths are rooted at the resource (`properties.web.redirectUris`); child paths are relative to their parent (`[0]`, `['<memberKey>']`, `isEnabled`), as in ARM's what-if output. Absent with `ResourceIdOnly`. |
 | `unsupportedReason` | Always present on every change; `null` unless the change cannot be applied as planned. |
 | `reasons[]` | **Extension.** Present when non-empty: the human-readable reasons printed in parentheses in the text (ignore reason, symbolic name, deploy-time values, recreate, delete risks) including the unsupported reason. |
 | `diagnostics[]` | `level` (`Info` / `Warning` / `Error`), `code`, `target` (template path or `null`), `message`. Planning warnings (detached resources, destructive deletes, edge warnings) plus one `UnresolvedReference` warning per unresolved existing-resource lookup. |
@@ -224,7 +224,7 @@ Rules:
 
 `--no-pretty-print` writes the same document on one line. Member order is fixed (as listed) so the document diffs
 cleanly between runs. The text is produced by `WhatIfJson.Serialize(document, prettyPrint)`: quotes and non-ASCII
-are written raw (no `'` escapes), as `az` does for terminal and pipe output. `-o none` prints nothing (useful
+are written raw (no `'` escapes), as the Azure CLI does for terminal and pipe output. `-o none` prints nothing (useful
 with `--exit-code-on-changes`).
 
 ## CLI flags and exit codes
@@ -236,10 +236,10 @@ with `--exit-code-on-changes`).
 | `--no-pretty-print` | `what-if`, `create` | Compact JSON (`-o json`). |
 | `--what-if` | `create` | Alias of `deployment what-if`: same output and exit codes, never locks or writes the state. |
 | `-c` / `--confirm-with-what-if` | `create` | Prints the what-if in the selected `-o` format, asks `Are you sure you want to execute the deployment? (y/n):` and applies the same plan on `y` / `yes`. With `-o json` the what-if JSON precedes the prompt on standard output. |
-| `-y` / `--yes` | `create` | Skips the prompt. Required when standard input is not interactive: without it the CLI prints `Standard input is not interactive; pass --yes to confirm.` and `Deployment not started.` to standard error and exits `1` without writing anything. Answering anything but `y` / `yes` exits `1` the same way. |
+| `-y` / `--yes` | `create` | Skips the confirmation prompts: the one `-c` asks (the deployment is applied right after the what-if) and the Complete-mode delete list prompt. Plain `create` (no `-c`, nothing to delete) never prompts. It does **not** waive `--allow-delete-all`. With `-c` and no `-y`, standard input must be interactive: without it the CLI prints `Standard input is not interactive; pass --yes to confirm.` and `Deployment not started.` to standard error and exits `1` without writing anything. Answering anything but `y` / `yes` exits `1` the same way. |
 | `--verbose` | global | Also prints the payload of `NoChange` rows and the `NoEffect` deltas (and the usual debug logging on standard error). |
 
-Exit codes of the what-if path (plan section 1.9): `0` no changes or changes without `--exit-code-on-changes`,
+Exit codes of the what-if path: `0` no changes or changes without `--exit-code-on-changes`,
 `5` changes with it, `2` validation failure (before anything is rendered), `3` auth / preflight / tenant mismatch,
 `1` unreadable state or a type without a provider. `create -c` continues with the `create` exit codes (`0` / `1`)
 after the prompt.
@@ -262,18 +262,16 @@ result format; `tests/fixtures/whatif/README.md` has the seed format.
 | `delete-complete` | `--mode Complete` with a state entry the template dropped: `-` row with the `before` payload, delete-risk reason and `DestructiveDelete` warning; a `NoChange` row. |
 | `detach-incremental` | The same state in Incremental mode: `*` "will be detached" row, `ResourceDetached` warning after the footer, `HasChanges == false`. |
 
-Regenerate them (after an intentional rendering change) with the WI-17 harness:
+Regenerate them after an intentional rendering change with:
 
 ```powershell
-# from the harness directory (scratchpad/harness-wi17): builds against src/EArm.Providers and tests/EArm.TestSupport
-dotnet build Harness.csproj
-dotnet bin/Debug/net10.0/harness-wi17.dll C:\Users\mrjon\source\EARM
+pwsh -File tools/Update-WhatIfGoldens.ps1     # sets EARM_UPDATE_GOLDENS=1 and runs WhatIfGoldenTests in rewrite mode
+pwsh -File test.ps1                           # confirm: the goldens now match
 ```
 
-The harness rewrites every fixture under `tests/fixtures/whatif/`, prints each rendering and checks the decisive
-lines (symbols, masking, counts, exit codes through the built CLI with `tests/fake-az/fake-az.ps1`). Golden tests
-should load the template with `TemplateLoader`, seed a `FakeGraphClient` from the seed file, deserialize the state
-with `StateSerializer.Deserialize`, plan with `PlanMode.WhatIf` (tenant id and deployment name from the manifest,
-`EdgeKinds = ProviderDiscovery.CreateEdgeKinds(catalog)`), build `WhatIfReport.From(plan)` and compare
-`WhatIfText.Render` / `WhatIfJson.Serialize(WhatIfJson.Build(report, format), prettyPrint: true)` against the
-expected files after normalising line endings.
+`WhatIfGoldenTests` (`tests/EArm.Tests/Engine`) loads each scenario from `scenarios.json`, loads the template with `TemplateLoader`,
+seeds a `FakeGraphClient` from the seed file, deserializes the state with `StateSerializer.Deserialize`, plans with `PlanMode.WhatIf`
+(tenant id and deployment name from the manifest, `EdgeKinds = ProviderDiscovery.CreateEdgeKinds(catalog)`), builds
+`WhatIfReport.From(plan)` and compares `WhatIfText.Render` / `WhatIfJson.Serialize(WhatIfJson.Build(report, format), prettyPrint: true)`
+against the expected files after normalising line endings. With `EARM_UPDATE_GOLDENS=1` it writes the files instead of comparing. Review the
+diff of `tests/fixtures/whatif/*.expected.*` before committing it: a changed golden is a changed user-visible output.

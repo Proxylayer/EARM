@@ -3,7 +3,7 @@ using System.Net;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
-using EArm.Az;
+using EArm.Graph;
 using EArm.TestSupport;
 
 namespace EArm.Providers.Tests.Infrastructure;

@@ -1,10 +1,11 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Core;
 using EArm.Core.Diagnostics;
 using EArm.Core.Json;
@@ -14,12 +15,12 @@ using EArm.Engine;
 using EArm.Engine.Providers;
 using EArm.Engine.State;
 using EArm.Expressions.Values;
-using GraphApi = EArm.Az.GraphApi;
+using GraphApi = EArm.Graph.GraphApi;
 
 namespace EArm.Providers;
 
 /// <summary>
-/// <c>Microsoft.Entra/applications/passwordCredentials</c> (plan sections 1.3, 1.5, 3.2; work item WI-11). The
+/// <c>Microsoft.Entra/applications/passwordCredentials</c>. The
 /// resource name is <c>&lt;application uniqueName&gt;/&lt;credential displayName&gt;</c>; the credential is matched
 /// among the application's <c>passwordCredentials</c> by <c>displayName</c> (the one the state pinned by
 /// <c>keyId</c> first, else the newest). Graph never edits a credential: every change is a replacement, and the
@@ -79,7 +80,7 @@ public sealed class PasswordCredentialsProvider : ProviderBase
     public TimeProvider Clock { get; set; } = TimeProvider.System;
 
     /// <summary>
-    /// Same rule as the applications provider, applied to the parent (plan section 3.4):
+    /// Same rule as the applications provider, applied to the parent:
     /// <c>Application.ReadWrite.OwnedBy</c> when the parent application is declared in the template (this
     /// deployment creates and therefore owns it), otherwise <c>Application.ReadWrite.All</c>.
     /// </summary>
@@ -178,7 +179,9 @@ public sealed class PasswordCredentialsProvider : ProviderBase
         var live = PasswordCredentialsRules.SummaryOf(existing.Raw)
             ?? throw new ProviderException(EngineDiagnosticCodes.ReadFailed, $"{desired.Describe()}: the live credential carries no keyId.", desired.Id);
         var recorded = PasswordCredentialsRules.Recorded(options.State?.Find(desired.Id.Id)?.Extra);
-        var triggers = PasswordCredentialsRules.RotationTriggers(parsed, live, recorded, Clock.GetUtcNow());
+        var assessment = PasswordCredentialsRules.AssessRotation(parsed, live, recorded, Clock.GetUtcNow());
+        var triggers = assessment.Triggers;
+        var warningReasons = assessment.Warnings.Select(w => ProviderWarnings.Format(ProviderWarnings.SecretExpiresSoon, $"{desired.Describe()}: {w}")).ToList();
 
         var before = PasswordCredentialsRules.DiffView(live, recorded.RotationTag);
         var after = AfterView(properties, name, parsed);
@@ -193,6 +196,7 @@ public sealed class PasswordCredentialsProvider : ProviderBase
                 Before = before,
                 After = after,
                 GraphId = existing.GraphId,
+                Reasons = warningReasons,
             };
         }
 
@@ -221,7 +225,7 @@ public sealed class PasswordCredentialsProvider : ProviderBase
             Before = before,
             After = after,
             GraphId = existing.GraphId,
-            Reasons = ["the secret is rotated (a new credential is added, then the previous one removed): " + string.Join("; ", reasons)],
+            Reasons = ["the secret is rotated (a new credential is added, then the previous one removed): " + string.Join("; ", reasons), .. warningReasons],
         };
     }
 
@@ -320,7 +324,18 @@ public sealed class PasswordCredentialsProvider : ProviderBase
         var body = PasswordCredentialsRules.AddPasswordBody(name, endDateTime, parsed.StartDateTime);
         var request = new GraphRequest(ParentPathById(parentId) + "/" + AddPasswordAction, desired.Api, hint: desired.RetryHint);
 
-        var response = await graph.PostAsync(request, body, cancellationToken).ConfigureAwait(false);
+        GraphResponse response;
+        try
+        {
+            response = await graph.PostAsync(request, body, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (IsAmbiguousWrite(ex))
+        {
+            // The credential may exist although no answer came back, and the secret was lost with the answer: the call is never repeated
+            // blindly. Report any same-name credential EARM did not record so the user can remove it; nothing is deleted automatically.
+            throw await DescribeAmbiguousAddAsync(desired, parentId, name, ex, graph, cancellationToken).ConfigureAwait(false);
+        }
+
         if (response.Body is not JsonObject result)
         {
             throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{desired.Describe()}: addPassword returned no credential object.", desired.Id);
@@ -346,6 +361,44 @@ public sealed class PasswordCredentialsProvider : ProviderBase
         var live = PasswordCredentialsRules.LiveView(created, new SecretValue(secretText));
         var extra = PasswordCredentialsRules.ExtraFor(created, parsed.RotationTag);
         return (created, live, extra);
+    }
+
+    private static bool IsAmbiguousWrite(Exception exception)
+    {
+        return exception is GraphException { IsAmbiguous: true } or GraphTransportException { Ambiguous: true };
+    }
+
+    /// <summary>
+    /// After an ambiguous <c>addPassword</c> failure: lists the application's same-name credentials and reports the ones this run did not
+    /// know about (not in the last read's snapshot) by <c>keyId</c>. The Graph answer that carried the secret is lost, so such a credential
+    /// is an orphan (its secret is unrecoverable): it is reported, never removed.
+    /// </summary>
+    private async Task<ProviderException> DescribeAmbiguousAddAsync(ResourceInstance desired, string parentId, string name, Exception cause, IGraphClient graph, CancellationToken cancellationToken)
+    {
+        string text = $"{desired.Describe()}: addPassword failed without a usable answer ({cause.Message}); the request is not repeated because the credential may have been created and its secret is only returned once.";
+        try
+        {
+            var parent = await ReadParentAsync(graph, ParentPathById(parentId), desired.Api, RetryHint.Default, cancellationToken).ConfigureAwait(false);
+            var known = _sameName.TryGetValue(SnapshotKey(desired.ParentGraphId, desired.Id.Parent?.NameLeaf, name), out var snapshot) ? snapshot : [];
+            var orphans = PasswordCredentialsRules.SameName(PasswordCredentialsRules.Summarize(parent?[PasswordCredentialsRules.PasswordCredentialsProperty]), name)
+                .Where(c => !known.Any(k => PasswordCredentialsRules.KeyIdEquals(k.KeyId, c.KeyId)))
+                .ToList();
+            if (orphans.Count > 0)
+            {
+                string ids = string.Join(", ", orphans.Select(o => $"keyId {o.KeyId} (hint '{o.Hint}', expires {(o.EndDateTime is { } end ? PasswordCredentialsRules.Format(end) : "?")})"));
+                text += $" {ProviderWarnings.PasswordCredentialOrphaned}: the application now holds {orphans.Count} credential(s) named '{name}' that EARM did not record: {ids}. Their secrets are lost; remove them with POST /applications/{parentId}/removePassword {{ \"keyId\": \"…\" }} (EARM never deletes them automatically), then run the deployment again.";
+            }
+            else
+            {
+                text += " No unrecorded credential named '" + name + "' was found, so the deployment can simply be run again.";
+            }
+        }
+        catch (Exception reconcile) when (reconcile is GraphException or GraphTransportException)
+        {
+            text += $" The credentials could not be listed to check for a duplicate ({reconcile.Message}); before running again, look for an extra credential named '{name}' on application {parentId}.";
+        }
+
+        return new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, text, desired.Id, cause);
     }
 
     /// <summary><c>POST {parent}/removePassword { keyId }</c>; an unknown key id (404, or Graph's 400) counts as removed.</summary>

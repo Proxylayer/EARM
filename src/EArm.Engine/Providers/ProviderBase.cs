@@ -4,7 +4,7 @@ using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Core;
 using EArm.Core.Diagnostics;
 using EArm.Core.Json;
@@ -12,7 +12,7 @@ using EArm.Core.Secrets;
 using EArm.Core.Types;
 using EArm.Engine.State;
 using EArm.Expressions.Values;
-using GraphApi = EArm.Az.GraphApi;
+using GraphApi = EArm.Graph.GraphApi;
 
 namespace EArm.Engine.Providers;
 
@@ -74,6 +74,10 @@ public abstract class ProviderBase : IResourceProvider, IExistingResourceLookup
     /// immutable) or is a hard error (applications, groups, users). Defaults to the overlay's <c>immutable: ["*"]</c>.
     /// </summary>
     protected virtual bool RecreateOnImmutableChange => Definition.ImmutableAll;
+
+    /// <summary>The upserts (<c>uniqueName</c>-keyed applications and groups, authentication contexts by id, federated identity credentials: PATCH with <c>Prefer: create-if-missing</c>) can be repeated after an unknown outcome; every POST create cannot.</summary>
+    public virtual bool CreateIsRepeatable => Definition.NameKind is ResourceNameKind.UniqueName or ResourceNameKind.Id
+        || Definition.Type.EndsWith("/federatedIdentityCredentials", StringComparison.OrdinalIgnoreCase);
 
     // ---- key ----
 
@@ -417,7 +421,7 @@ public abstract class ProviderBase : IResourceProvider, IExistingResourceLookup
     /// The body of a create: the evaluated object properties with the ARM-style name injected into
     /// <c>nameMapsTo</c> (an equal declared value is tolerated, a different one is an error), the overlay defaults
     /// filled in, and secret leaves revealed (this is the only place, besides <c>--reveal-secure-outputs</c>, where
-    /// a secret becomes plain text; the Az layer never logs bodies).
+    /// a secret becomes plain text; the Graph transport never logs bodies).
     /// </summary>
     public JsonObject BuildCreateBody(ResourceInstance desired)
     {

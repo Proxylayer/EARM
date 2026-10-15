@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    Provider test suite (WI-07 .. WI-14): the real EArm.Providers driven end to end through the engine against
+    Provider test suite: the real EArm.Providers driven end to end through the engine against
     FakeGraphClient / FakeDirectory, plus unit tests of every provider's pure rules. Same conventions as
     EArm.Tests: xunit.v3 on Microsoft.Testing.Platform, explicit usings, internals visible.
   -->

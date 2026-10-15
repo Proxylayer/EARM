@@ -6,7 +6,7 @@ using System.Runtime.CompilerServices;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
-using EArm.Az;
+using EArm.Graph;
 
 namespace EArm.TestSupport;
 
@@ -15,7 +15,7 @@ namespace EArm.TestSupport;
 /// (<c>applications(uniqueName='x')</c>, <c>servicePrincipals(appId='x')</c>, <c>users/{upn}</c>), <c>$filter</c>,
 /// <c>Prefer: create-if-missing</c>, pagination, <c>$batch</c>, scripted failures and a request log. It does not
 /// retry: wrap engine calls in a <see cref="RetryPolicy"/> (with a fake delay provider) to exercise retries.
-/// Like <see cref="AzGraphClient"/>, <see cref="GetAsync"/> returns <c>null</c> for a 404 unless the request expects
+/// Like <see cref="HttpGraphClient"/>, <see cref="GetAsync"/> returns <c>null</c> for a 404 unless the request expects
 /// replication lag, in which case the 404 is thrown (and would be retried by the policy).
 /// </summary>
 public sealed class FakeGraphClient : IGraphClient

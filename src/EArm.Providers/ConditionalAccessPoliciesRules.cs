@@ -2,14 +2,15 @@ using System;
 using System.Collections.Generic;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using EArm.Core.Secrets;
 using EArm.Engine.Providers;
 using EArm.Expressions.Values;
-using GraphApi = EArm.Az.GraphApi;
+using GraphApi = EArm.Graph.GraphApi;
 
 namespace EArm.Providers;
 
 /// <summary>
-/// The pure rules of <see cref="ConditionalAccessPoliciesProvider"/> (plan sections 1.3, 3.2): defaults, the
+/// The pure rules of <see cref="ConditionalAccessPoliciesProvider"/>: defaults, the
 /// read-back normalisation (<c>authenticationStrength</c> reduced to <c>{ id }</c>, <c>null</c> / <c>[]</c> members
 /// dropped), the required-shape checks Graph would otherwise reject with a 400, the <c>--allow-ca-enforce</c> guard,
 /// the lockout lint, the grant-control exclusivity rules, the preview-only properties, and the PATCH body fix-ups.
@@ -29,18 +30,45 @@ public static class ConditionalAccessPoliciesRules
 
     public const string AllMarker = "All";
 
-    /// <summary>The top-level complex properties Graph replaces whole (plan section 3.2: send the full object).</summary>
+    /// <summary>The top-level complex properties Graph replaces whole (send the full object).</summary>
     public static readonly string[] ComplexProperties = ["conditions", "grantControls", "sessionControls"];
 
     /// <summary>Properties Graph assigns; never sent in a body.</summary>
     public static readonly string[] ServerAssignedProperties = ["id", "createdDateTime", "modifiedDateTime", "deletedDateTime"];
 
-    /// <summary>Dotted paths only the beta endpoint accepts (plan section 3.2: preview-only).</summary>
+    /// <summary>Dotted paths only the beta endpoint accepts (preview-only).</summary>
     public static readonly string[] PreviewOnlyProperties = ["templateId", "partialEnablementStrategy", "sessionControls.continuousAccessEvaluation"];
 
     private static readonly string[] ApplicationIncludes = ["includeApplications", "includeUserActions", "includeAuthenticationContextClassReferences"];
 
     private static readonly string[] UserIncludes = ["includeUsers", "includeGroups", "includeRoles", "includeGuestsOrExternalUsers"];
+
+    /// <summary>
+    /// The problems of a FINAL request body (the revealed values that will actually be sent), judged again right before the write:
+    /// <c>state: enabled</c> without the enforce flag, and for a create body every check of <see cref="Problems"/>.
+    /// </summary>
+    public static IReadOnlyList<string> FinalBodyProblems(JsonObject body, GraphApi api, bool allowCaEnforce, bool isCreate)
+    {
+        ArgumentNullException.ThrowIfNull(body);
+        var problems = new List<string>();
+        if (JsonObjects.GetString(body, "state") is { } state && state.Trim().Equals(EnabledState, StringComparison.OrdinalIgnoreCase) && !allowCaEnforce)
+        {
+            problems.Add($"state '{EnabledState}' enforces the policy for every targeted sign-in; rerun with {AllowCaEnforceFlag} to confirm, or deploy it as '{DefaultState}' first");
+        }
+
+        if (isCreate)
+        {
+            foreach (string problem in Problems(body, api, allowCaEnforce))
+            {
+                if (!problems.Contains(problem))
+                {
+                    problems.Add(problem);
+                }
+            }
+        }
+
+        return problems;
+    }
 
     /// <summary>
     /// Normalises the evaluated properties in place: <c>state</c> defaults to <see cref="DefaultState"/>,
@@ -80,6 +108,7 @@ public static class ConditionalAccessPoliciesRules
             ReduceAuthenticationStrength(grantObject);
         }
 
+        StripAnnotations(copy);
         PruneAbsent(copy);
         return copy;
     }
@@ -96,6 +125,11 @@ public static class ConditionalAccessPoliciesRules
     {
         ArgumentNullException.ThrowIfNull(properties);
         var problems = new List<string>();
+
+        // Review 1D / I-01: every guard and lint judges the REVEALED values. A securestring parameter (or a Key Vault value) can carry
+        // "enabled", "All" or "block"; secret leaves never match a literal, so judging the tainted object let such a policy through.
+        // The values are only compared here; no message below echoes them.
+        properties = (JsonObject)SecretJson.Reveal(properties)!;
 
         if (IsLiteral(properties, "state", EnabledState) && !allowCaEnforce)
         {
@@ -159,7 +193,7 @@ public static class ConditionalAccessPoliciesRules
     }
 
     /// <summary>
-    /// The declared controls are the whole desired set (plan section 3.2: an omitted control is removed with an explicit
+    /// The declared controls are the whole desired set (an omitted control is removed with an explicit
     /// <c>null</c>): a <c>grantControls</c> / <c>sessionControls</c> the template does not declare but the live object
     /// carries is written as <c>null</c> into the desired properties, so the shared diff reports the removal and the
     /// PATCH body carries the <c>null</c>. Nothing is added when the live object lacks the control too, so what-if
@@ -274,6 +308,12 @@ public static class ConditionalAccessPoliciesRules
             }
         }
 
+        // Learn (conditionalaccessgrantcontrols): passwordChange and riskRemediation must be used separately, not in combination.
+        if (ContainsLiteral(builtIn, "passwordChange") && ContainsLiteral(builtIn, "riskRemediation"))
+        {
+            problems.Add("grantControls 'passwordChange' and 'riskRemediation' must be used separately, not in combination");
+        }
+
         if (ContainsLiteral(builtIn, MfaControl) && hasStrength)
         {
             problems.Add($"grantControls '{MfaControl}' and authenticationStrength are mutually exclusive; declare one of them");
@@ -286,8 +326,8 @@ public static class ConditionalAccessPoliciesRules
             if (usersNode is JsonObject users && applicationsNode is JsonObject applications
                 && ContainsLiteral(Member(users, "includeUsers"), AllMarker)
                 && ContainsLiteral(Member(applications, "includeApplications"), AllMarker)
-                && JsonObjects.IsAbsent(Member(users, "excludeUsers"))
-                && JsonObjects.IsAbsent(Member(users, "excludeGroups")))
+                && !HasEntries(Member(users, "excludeUsers"))
+                && !HasEntries(Member(users, "excludeGroups")))
             {
                 problems.Add("lockout risk: the policy blocks all users on all applications with no excludeUsers or excludeGroups; add a break-glass exclusion");
             }
@@ -304,13 +344,55 @@ public static class ConditionalAccessPoliciesRules
 
         foreach (var include in includes)
         {
-            if (!JsonObjects.IsAbsent(Member(obj, include)))
+            if (HasEntries(Member(obj, include)))
             {
                 return true;
             }
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// True when the node carries something: not absent, and (for an array) at least one entry that is not blank. <c>excludeUsers: [""]</c>
+    /// is not a break-glass exclusion, and <c>includeUsers: ["  "]</c> is not an include.
+    /// </summary>
+    private static bool HasEntries(JsonNode? node)
+    {
+        if (JsonObjects.IsAbsent(node))
+        {
+            return false;
+        }
+
+        if (node is JsonArray array)
+        {
+            foreach (var item in array)
+            {
+                if (item is null)
+                {
+                    continue;
+                }
+
+                if (item is JsonValue value && !UnknownJson.IsUnknown(value) && JsonValues.TryGetString(value, out var text))
+                {
+                    if (!string.IsNullOrWhiteSpace(text))
+                    {
+                        return true;
+                    }
+
+                    continue;
+                }
+
+                if (!JsonObjects.IsAbsent(item))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        return !(node is JsonValue leaf && !UnknownJson.IsUnknown(leaf) && JsonValues.TryGetString(leaf, out var scalar) && string.IsNullOrWhiteSpace(scalar));
     }
 
     private static JsonNode? Member(JsonObject obj, string key)
@@ -320,7 +402,7 @@ public static class ConditionalAccessPoliciesRules
 
     private static bool IsLiteral(JsonObject properties, string key, string literal)
     {
-        return JsonObjects.GetString(properties, key) is { } text && text.Equals(literal, StringComparison.OrdinalIgnoreCase);
+        return JsonObjects.GetString(properties, key) is { } text && text.Trim().Equals(literal, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary><c>authenticationStrength</c> is declared and read back as the whole policy; only its id takes part in the diff and the body.</summary>
@@ -331,6 +413,22 @@ public static class ConditionalAccessPoliciesRules
             if (JsonObjects.TryGetIgnoreCase(strength, "id", out var id) && !JsonObjects.IsAbsent(id))
             {
                 grant[key] = new JsonObject { ["id"] = JsonValues.Clone(id) };
+            }
+        }
+    }
+
+    /// <summary>Removes OData annotations Graph adds next to navigation-like members (<c>authenticationStrength@odata.context</c>): they are not part of the policy.</summary>
+    private static void StripAnnotations(JsonObject obj)
+    {
+        foreach (string key in new List<string>(KeysOf(obj)))
+        {
+            if (key.Contains("@odata.", StringComparison.Ordinal))
+            {
+                obj.Remove(key);
+            }
+            else if (obj[key] is JsonObject child)
+            {
+                StripAnnotations(child);
             }
         }
     }

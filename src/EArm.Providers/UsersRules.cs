@@ -12,7 +12,7 @@ using EArm.Expressions.Values;
 namespace EArm.Providers;
 
 /// <summary>
-/// The pure rules of <c>Microsoft.Entra/users</c> (plan sections 1.3 and 3.2): the userPrincipalName shape, the
+/// The pure rules of <c>Microsoft.Entra/users</c>: the userPrincipalName shape, the
 /// <c>mailNickname</c> derivation, the create-time defaults, the <c>passwordProfile</c> handling (taint, presence,
 /// generation) and the body clean-ups. No Graph access, so every rule can be unit-tested directly.
 /// </summary>
@@ -25,7 +25,7 @@ internal static class UsersRules
     public const string ForceChangePasswordNextSignIn = "forceChangePasswordNextSignIn";
     public const string UserType = "userType";
 
-    /// <summary>The length of a generated initial password (plan section 3.2).</summary>
+    /// <summary>The length of a generated initial password.</summary>
     public const int GeneratedPasswordLength = 24;
 
     // Visually unambiguous alphabets (no 0/O, 1/l/I) so a password read from a secure-outputs file is typed correctly.
@@ -136,7 +136,7 @@ internal static class UsersRules
     }
 
     /// <summary>
-    /// A random initial password (plan section 3.2): <see cref="GeneratedPasswordLength"/> characters from a CSPRNG
+    /// A random initial password: <see cref="GeneratedPasswordLength"/> characters from a CSPRNG
     /// with at least one upper-case letter, one lower-case letter, one digit and one symbol, shuffled so the
     /// guaranteed characters sit at random positions.
     /// </summary>

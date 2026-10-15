@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    Real-tenant tests (work item WI-19). Only run by test.ps1 when EARM_IT_TENANT is set (or when this project is
+    Real-tenant tests. Only run by test.ps1 when EARM_IT_TENANT is set (or when this project is
     named with -Target); every test skips cleanly when the variable is unset. See README.md.
   -->
 

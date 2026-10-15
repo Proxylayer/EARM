@@ -2,13 +2,13 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json.Nodes;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Core.Diagnostics;
 using EArm.Core.Json;
 using EArm.Core.Types;
 using EArm.Engine.Providers;
 using EArm.Expressions.Values;
-using GraphApi = EArm.Az.GraphApi;
+using GraphApi = EArm.Graph.GraphApi;
 
 namespace EArm.Engine.Edges;
 
@@ -87,6 +87,12 @@ public sealed class EdgePropertyPlan
     /// <summary>False when the template does not declare the property this run (only state records exist).</summary>
     public bool IsDeclared { get; set; }
 
+    /// <summary>
+    /// True when the property was left alone with a warning (<c>EdgeUnsupportedInAppMode</c>, <c>ManagerReadForbidden</c>): no
+    /// operations are planned for it and the state keeps its previous record.
+    /// </summary>
+    public bool IsSkipped { get; set; }
+
     public List<EdgeDeclaration> Declarations { get; } = [];
 
     /// <summary>The raw records of the state entry's <c>relationships[property]</c>.</summary>
@@ -94,6 +100,9 @@ public sealed class EdgePropertyPlan
 
     /// <summary>The records that could be interpreted as edges (for removal and for "created by this deployment" checks).</summary>
     public List<Edge> PreviouslyRecorded { get; } = [];
+
+    /// <summary>The identities of previously recorded edges the planner saw are no longer live (nothing to remove, nothing left to record).</summary>
+    public HashSet<string> GoneRecorded { get; } = new(StringComparer.Ordinal);
 
     /// <summary>Per-entry children of the what-if <c>Array</c> delta (multi-valued kinds).</summary>
     public List<PropertyDelta> Children { get; } = [];
@@ -235,11 +244,41 @@ public sealed class EdgePlan
             }
 
             var handler = property.Handler;
+            if (property.IsSkipped)
+            {
+                // Nothing was read or written for it: the previous record stays as it was.
+                if (property.PreviousRecords.Count > 0)
+                {
+                    recorded[property.Name] = handler.IsSingleValued
+                        ? property.PreviousRecords[0]?.DeepClone()
+                        : new JsonArray([.. property.PreviousRecords.Select(r => r?.DeepClone())]);
+                }
+
+                continue;
+            }
+
             if (!property.IsDeclared)
             {
                 if (handler.IsSingleValued && property.PreviousRecords.Count > 0 && property.PreviousRecords[0] is { } kept)
                 {
                     recorded[property.Name] = kept.DeepClone();
+                }
+                else if (!handler.IsSingleValued)
+                {
+                    // Not declared (any more): the edges whose removal failed, was not attempted, or whose declaration moved to the target side are still recorded.
+                    var stillThere = new JsonArray();
+                    foreach (var previous in property.PreviouslyRecorded)
+                    {
+                        if (StillLive(property, previous, result))
+                        {
+                            stillThere.Add(handler.RecordEntry(previous, null));
+                        }
+                    }
+
+                    if (stillThere.Count > 0)
+                    {
+                        recorded[property.Name] = stillThere;
+                    }
                 }
 
                 continue;
@@ -252,16 +291,33 @@ public sealed class EdgePlan
                 {
                     recorded[property.Name] = handler.RecordEntry(single, result.BodyOf(handler.IdentityOf(single)));
                 }
+                else if (property.PreviouslyRecorded.FirstOrDefault(p => StillLive(property, p, result)) is { } keptSingle && property.PreviousRecords.Count > 0)
+                {
+                    // The previous edge is still there (its removal failed, or the replacement was not added): it stays recorded.
+                    recorded[property.Name] = property.PreviousRecords[0]?.DeepClone() ?? handler.RecordEntry(keptSingle, null);
+                }
 
                 continue;
             }
 
             var entries = new JsonArray();
+            var identities = new HashSet<string>(StringComparer.Ordinal);
             foreach (var declaration in property.Declarations)
             {
-                if (declaration.Edge is { } edge && IsCreatedByDeployment(property, edge, result))
+                if (declaration.Edge is { } edge && IsCreatedByDeployment(property, edge, result) && identities.Add(handler.IdentityOf(edge)))
                 {
                     entries.Add(handler.RecordEntry(edge, result.BodyOf(handler.IdentityOf(edge))));
+                }
+            }
+
+            // A previously recorded edge that is not declared (any more) and was not removed stays recorded while it is live: its removal failed or was not
+            // attempted, or its declaration moved to the other side (a target's members) - dropping the record would leave a managed edge nobody can remove later.
+            for (int i = 0; i < property.PreviouslyRecorded.Count; i++)
+            {
+                var previous = property.PreviouslyRecorded[i];
+                if (StillLive(property, previous, result) && identities.Add(handler.IdentityOf(previous)))
+                {
+                    entries.Add(handler.RecordEntry(previous, null));
                 }
             }
 
@@ -272,6 +328,12 @@ public sealed class EdgePlan
         }
 
         return recorded.Count == 0 ? null : recorded;
+    }
+
+    private static bool StillLive(EdgePropertyPlan property, Edge previous, EdgeApplyResult result)
+    {
+        string identity = property.Handler.IdentityOf(previous);
+        return !result.WasRemoved(identity) && !property.GoneRecorded.Contains(identity);
     }
 
     private static bool IsCreatedByDeployment(EdgePropertyPlan property, Edge edge, EdgeApplyResult result)

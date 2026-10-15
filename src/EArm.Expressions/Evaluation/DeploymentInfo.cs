@@ -15,7 +15,7 @@ public sealed record DeploymentInfo(string Name, string? TemplateHash, string? T
     /// <summary><c>{ tenantId, defaultDomain, displayName }</c> from <c>/organization</c>; <c>null</c> offline.</summary>
     public JsonObject? Tenant { get; init; }
 
-    /// <summary><c>{ name, graph, authentication: { loginEndpoint } }</c> from <c>az cloud show</c>; <c>null</c> offline.</summary>
+    /// <summary><c>{ name, graph, authentication: { loginEndpoint } }</c> for the selected cloud (<c>EARM_CLOUD</c>); <c>null</c> offline.</summary>
     public JsonObject? Environment { get; init; }
 
     /// <summary>The object <c>deployment()</c> returns.</summary>

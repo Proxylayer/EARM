@@ -4,7 +4,7 @@ using System.Linq;
 using System.Net;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Engine;
 using EArm.Engine.Execution;
 using EArm.Engine.Planning;
@@ -112,7 +112,20 @@ public sealed class ProviderFailureMatrixTests
 
         Assert.False(run.Succeeded);
         Assert.Contains(run.Executed.Operations, o => o.Status == OperationStatus.Failed);
-        Assert.True(host.Delays.Count > 0, "the policy waited between attempts");
+
+        // Review round 2 (S2-07): a create that is a POST is never repeated blindly by the executor's retry policy (a 5xx may have followed a commit; the object is
+        // re-read by key instead), so it waits for nothing; the upserts (a PATCH with create-if-missing: applications, groups, authentication contexts, federated credentials, and what depends on them) are still retried, bounded.
+        bool firstWriteIsAnUpsert = name is "groups" or "applications" or "authenticationContexts" or "federatedIdentityCredentials" or "passwordCredentials" or "servicePrincipals";
+        if (firstWriteIsAnUpsert)
+        {
+            Assert.True(host.Delays.Count > 0, "the policy waited between attempts");
+        }
+        else
+        {
+            Assert.Equal(0, host.Delays.Count);
+            Assert.Single(host.Fake.Writes, w => w.Method == "POST");
+        }
+
         Assert.True(host.Delays.Count <= 60, "retries are bounded: " + host.Delays.Count);
     }
 

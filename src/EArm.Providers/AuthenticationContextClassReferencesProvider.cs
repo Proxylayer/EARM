@@ -4,7 +4,7 @@ using System.Net;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Core;
 using EArm.Core.Types;
 using EArm.Engine;
@@ -15,8 +15,7 @@ using EArm.Expressions.Values;
 namespace EArm.Providers;
 
 /// <summary>
-/// <c>Microsoft.Entra/conditionalAccess/authenticationContextClassReferences</c> (plan sections 1.3, 3.2; work item
-/// WI-20). The resource name <b>is</b> the Graph id (<c>c1</c>..<c>c99</c>); there is no displayName lookup and the
+/// <c>Microsoft.Entra/conditionalAccess/authenticationContextClassReferences</c>. The resource name <b>is</b> the Graph id (<c>c1</c>..<c>c99</c>); there is no displayName lookup and the
 /// state id is the name.
 /// <para>
 /// Requests per operation:
@@ -40,7 +39,7 @@ public sealed class AuthenticationContextClassReferencesProvider : ProviderBase
     public const string ResourceType = "Microsoft.Entra/conditionalAccess/authenticationContextClassReferences";
 
     /// <summary><see cref="ProviderException.Code"/> when Graph refuses to delete a context that is still available or still referenced by a policy.</summary>
-    public const string Referenced = "AuthenticationContextReferenced";
+    public const string Referenced = EngineDiagnosticCodes.AuthenticationContextReferenced;
 
     private const string KeyProperty = "id";
 
@@ -69,10 +68,7 @@ public sealed class AuthenticationContextClassReferencesProvider : ProviderBase
         ArgumentNullException.ThrowIfNull(key);
         ArgumentNullException.ThrowIfNull(graph);
 
-        if (!key.TryGet(KeyProperty, out var id))
-        {
-            throw new ProviderException(EngineDiagnosticCodes.ResourceKeyUnresolved, $"{TypeName}: the key {key.Describe()} carries no id.");
-        }
+        string id = ProviderSupport.SingleKey(key, KeyProperty);
 
         if (AuthenticationContextClassReferencesRules.NameProblem(id) is { } problem)
         {
@@ -182,7 +178,7 @@ public sealed class AuthenticationContextClassReferencesProvider : ProviderBase
         {
             if (AuthenticationContextClassReferencesRules.IsAvailable(live) != false)
             {
-                // Graph only deletes an unavailable context (plan section 3.2): switch it off first.
+                // Graph only deletes an unavailable context: switch it off first.
                 await graph.PatchAsync(new GraphRequest(path, api), AuthenticationContextClassReferencesRules.UnavailableBody(), cancellationToken).ConfigureAwait(false);
             }
 

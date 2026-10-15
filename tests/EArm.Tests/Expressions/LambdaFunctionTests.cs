@@ -10,7 +10,7 @@ using Xunit;
 
 namespace EArm.Tests;
 
-/// <summary>Group 5 (WI-16): <c>map filter reduce sort toObject groupBy lambdaVariables</c>, their error codes, and unknown / secure propagation.</summary>
+/// <summary>Group 5: <c>map filter reduce sort toObject groupBy lambdaVariables</c>, their error codes, and unknown / secure propagation.</summary>
 public sealed class LambdaFunctionTests
 {
     private const string Secret = "abc";
@@ -178,7 +178,7 @@ public sealed class LambdaFunctionTests
     [Fact]
     public void SecretKeys_AreNotRenderedInClearText()
     {
-        // Plan 1.5: a secure value renders as *** everywhere except Graph bodies. A key computed from a secret is
+        // A secure value renders as *** everywhere except Graph bodies. A key computed from a secret is
         // part of the rendered object, so it must not surface the value either.
         var grouped = Assert.IsType<JsonObject>(Expr.Eval("[groupBy(createArray(1), lambda('x', parameters('pw')))]", Context()));
         var keyed = Assert.IsType<JsonObject>(Expr.Eval("[toObject(createArray(1), lambda('x', parameters('pw')))]", Context()));

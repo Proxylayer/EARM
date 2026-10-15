@@ -1,5 +1,5 @@
 using System.Text.Json.Nodes;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Core.Types;
 using EArm.Engine.Edges;
 using EArm.Engine.Providers;
@@ -28,6 +28,9 @@ public sealed record PlannerOptions
 
     public bool AllowCaEnforce { get; init; }
 
+    /// <summary><c>--delete-adopted</c>: what-if shows adopted state entries as deletions in Complete mode instead of "not deleted".</summary>
+    public bool DeleteAdopted { get; init; }
+
     public SoftDeletedConflict OnSoftDeletedConflict { get; init; } = SoftDeletedConflict.Error;
 
     public ResourceTypeCatalog Catalog { get; init; } = ResourceTypeCatalog.Default;
@@ -42,7 +45,7 @@ public sealed record PlannerOptions
     /// </summary>
     public RetryPolicy? RetryPolicy { get; init; }
 
-    /// <summary>The edge-kind handlers of the edge pass (plan section 1.4); part A by default, part B kinds plug in here.</summary>
+    /// <summary>The edge-kind handlers of the edge pass; part A by default, part B kinds plug in here.</summary>
     public EdgeKindRegistry? EdgeKinds { get; init; }
 
     /// <summary>
@@ -50,4 +53,7 @@ public sealed record PlannerOptions
     /// it from an object's owners; <c>null</c> lets the pass look it up with <c>GET /me</c> when needed.
     /// </summary>
     public string? SignedInPrincipalId { get; init; }
+
+    /// <summary>True when the token is an application (app-only) token (no <c>scp</c> claim; preflight reports principal type <c>application</c>): <c>ownerOf</c> on a user is then reported as <c>EdgeUnsupportedInAppMode</c> instead of read.</summary>
+    public bool AppOnlyToken { get; init; }
 }

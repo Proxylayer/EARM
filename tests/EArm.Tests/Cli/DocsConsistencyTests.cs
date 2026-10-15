@@ -211,7 +211,8 @@ public sealed class DocsConsistencyTests
     {
         return section.Lines
             .Where(l => l.TrimStart().StartsWith('|'))
-            .Select(l => l.Trim().Trim('|').Split('|').Select(c => c.Trim()).ToArray())
+            // A pipe inside a cell is written \| in the Markdown (--mode Incremental\|Complete): it is part of the cell, not a separator.
+            .Select(l => l.Trim().Trim('|').Replace("\\|", "\u0001", StringComparison.Ordinal).Split('|').Select(c => c.Trim().Replace("\u0001", "|", StringComparison.Ordinal)).ToArray())
             .Where(cells => !cells[0].StartsWith("---", StringComparison.Ordinal) && !cells[0].All(c => c == '-' || c == ' '))
             .Skip(1) // the header row
             .ToList();
@@ -460,7 +461,7 @@ public sealed class DocsConsistencyTests
     [Fact]
     public void EveryCodeInTheDiagnosticsTables_IsAKnownCode()
     {
-        var known = new HashSet<string>(CodeConstants().Keys, StringComparer.Ordinal) { ValidateCommand.InvalidArgumentCode };
+        var known = new HashSet<string>(CodeConstants().Keys, StringComparer.Ordinal) { ValidateCommand.InvalidArgumentCode, AuthCommand.AuthenticationFailedCode };
         var documented = new Regex(@"^\|\s*`([A-Z][A-Za-z0-9]+)`\s*\|", RegexOptions.Multiline | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(2))
             .Matches(DiagnosticsDoc)
             .Select(m => m.Groups[1].Value)

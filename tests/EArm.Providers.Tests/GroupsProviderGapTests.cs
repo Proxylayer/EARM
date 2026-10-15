@@ -134,7 +134,8 @@ public sealed class GroupsProviderGapTests
     }
 
     [Theory]
-    [InlineData("{ \"displayName\": \"Sec\" }", true)]
+    // Review 3I (intentional change): security groups are soft-deleted too (Learn group-delete), so neither created kind warns; the permanent kinds are adopt-only (see Review3I_GroupSoftDeleteTests).
+    [InlineData("{ \"displayName\": \"Sec\" }", false)]
     [InlineData("{ \"displayName\": \"M365\", \"groupTypes\": [\"Unified\"] }", false)]
     public async Task CompleteModeDeleteWarnings_DependOnTheGroupKind(string properties, bool permanent)
     {

@@ -8,7 +8,7 @@ using EArm.Expressions.Values;
 namespace EArm.Providers;
 
 /// <summary>
-/// The pure rules of custom directory role definitions (plan sections 1.3 and 3.2): the shape of
+/// The pure rules of custom directory role definitions: the shape of
 /// <c>rolePermissions</c>, its canonical form (each entry's action lists are sets: sorted, duplicates collapsed, so
 /// a reordered template is not drift), the server-managed properties a template must not declare, and the constant
 /// <c>resourceScopes: ["/"]</c> Graph requires on create. No Graph here.
@@ -18,10 +18,14 @@ public static class RoleDefinitionsRules
     /// <summary>Properties Graph assigns; a template declaring one is an error (the read strips them, so they could never converge).</summary>
     public static readonly string[] ServerManagedProperties = ["id", "templateId", "version", "isBuiltIn", "inheritsPermissionsFrom"];
 
-    /// <summary>The properties every read selects.</summary>
+    /// <summary>
+    /// The properties every read selects. <c>inheritsPermissionsFrom</c> is a navigation property of unifiedRoleDefinition (Learn:
+    /// resources/unifiedroledefinition; only built-in roles carry it, supports <c>$expand</c>), not a selectable structural property, so it
+    /// is not part of the <c>$select</c>.
+    /// </summary>
     public static readonly string[] ManagedProperties =
     [
-        "id", "displayName", "description", "isEnabled", "isBuiltIn", "templateId", "version", "resourceScopes", "rolePermissions", "inheritsPermissionsFrom",
+        "id", "displayName", "description", "isEnabled", "isBuiltIn", "templateId", "version", "resourceScopes", "rolePermissions",
     ];
 
     /// <summary>The only resource scope directory role definitions support.</summary>

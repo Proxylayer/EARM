@@ -19,15 +19,15 @@ The deployment would make the following changes:
       properties:
         uniqueName: "contoso-dev-retired"
         displayName: "Retired"
-        mailEnabled: false
+        mailEnabled: true
         mailNickname: "retired"
-        securityEnabled: true
+        securityEnabled: false
         groupTypes: []
       (not in template; Complete mode deletes it)
-      (this group is not a Microsoft 365 group and is deleted permanently (no 30-day recycle bin); its memberships, owners and role assignments are lost.)
+      (this group is a distribution list or a mail-enabled security group and is deleted permanently (no 30-day recycle bin); its memberships, owners and role assignments are lost.)
 
 Resource changes: 0 to create, 0 to modify, 1 to delete, 1 unchanged, 0 ignored.
 Edges: 0 to add, 0 to remove.
 Required permissions: Group.ReadWrite.All.
 
-warning DestructiveDelete: '/providers/Microsoft.Entra/groups/contoso-dev-retired': this group is not a Microsoft 365 group and is deleted permanently (no 30-day recycle bin); its memberships, owners and role assignments are lost.
+warning DestructiveDelete: '/providers/Microsoft.Entra/groups/contoso-dev-retired': this group is a distribution list or a mail-enabled security group and is deleted permanently (no 30-day recycle bin); its memberships, owners and role assignments are lost.

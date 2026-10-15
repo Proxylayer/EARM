@@ -51,13 +51,13 @@ public sealed class PermissionManifestTests
     // ---- edge tables ----
 
     [Theory]
-    [InlineData(RelationshipKind.GroupMembership, new[] { "GroupMember.ReadWrite.All" })]
-    [InlineData(RelationshipKind.Ownership, new string[0])]
+    [InlineData(RelationshipKind.GroupMembership, new[] { "GroupMember.ReadWrite.All", "Directory.Read.All" })]
+    [InlineData(RelationshipKind.Ownership, new[] { "Directory.Read.All" })]
     [InlineData(RelationshipKind.AdministrativeUnitMembership, new[] { "AdministrativeUnit.ReadWrite.All" })]
     [InlineData(RelationshipKind.Manager, new[] { "User.ReadWrite.All" })]
-    [InlineData(RelationshipKind.AppRoleAssignment, new[] { "AppRoleAssignment.ReadWrite.All", "Application.Read.All" })]
-    [InlineData(RelationshipKind.DirectoryRoleAssignment, new[] { "RoleManagement.ReadWrite.Directory" })]
-    [InlineData(RelationshipKind.License, new[] { "Organization.Read.All" })]
+    [InlineData(RelationshipKind.AppRoleAssignment, new[] { "AppRoleAssignment.ReadWrite.All", "Application.Read.All", "Directory.Read.All" })]
+    [InlineData(RelationshipKind.DirectoryRoleAssignment, new[] { "RoleManagement.ReadWrite.Directory", "Directory.Read.All" })]
+    [InlineData(RelationshipKind.License, new[] { "LicenseAssignment.ReadWrite.All", "LicenseAssignment.Read.All" })]
     public void EdgeApplicationPermissions_MatchTheDocumentedTable(RelationshipKind kind, string[] expected)
     {
         Assert.Equal(expected, PermissionManifest.EdgeApplicationPermissions(kind));
@@ -84,8 +84,9 @@ public sealed class PermissionManifestTests
             var permissions = PermissionManifest.EdgeApplicationPermissions(kind);
             var roles = PermissionManifest.EdgeRoles(kind);
 
-            // Ownership is the only kind whose permission is the target type's own (docs/permissions.md, Edge kinds).
-            Assert.Equal(kind == RelationshipKind.Ownership, permissions.Count == 0);
+            // Ownership is the only kind whose write permission and roles are the target type's own (docs/permissions.md, Edge kinds);
+            // its edge-level need is only Directory.Read.All (principal kinds are resolved with GET /directoryObjects/{id}).
+            Assert.NotEmpty(permissions);
             Assert.Equal(kind == RelationshipKind.Ownership, roles.Count == 0);
         }
     }
@@ -143,7 +144,7 @@ public sealed class PermissionManifestTests
         Assert.All(report.Permissions, p => Assert.Equal(PermissionKind.AzureRbac, p.Kind));
         var first = report.Permissions.Single(p => p.Resources.Contains("parameter 'alpha'"));
         Assert.Equal("Key Vault secret read ('Key Vault Secrets User' or the get-secret access policy) on vault 'vault-a'", first.Name);
-        Assert.Equal(["az keyvault secret show --vault-name vault-a --name secret-a"], first.Reasons);
+        Assert.Equal(["GET https://vault-a.vault.azure.net/secrets/secret-a"], first.Reasons);
     }
 
     // ---- expression lookups ----

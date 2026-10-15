@@ -24,6 +24,31 @@ public sealed class TypeSchemaGeneratorTests
             .ToDictionary(f => Path.GetRelativePath(directory, f), f => File.ReadAllBytes(f), StringComparer.Ordinal);
     }
 
+    /// <summary>True when a <c>pwsh</c> executable is on the PATH (the generator is a script; the product itself needs no PowerShell).</summary>
+    private static bool PwshIsAvailable()
+    {
+        string[] names = OperatingSystem.IsWindows() ? ["pwsh.exe"] : ["pwsh"];
+        foreach (string directory in (Environment.GetEnvironmentVariable("PATH") ?? string.Empty).Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
+        {
+            foreach (string name in names)
+            {
+                try
+                {
+                    if (File.Exists(Path.Combine(directory.Trim('"'), name)))
+                    {
+                        return true;
+                    }
+                }
+                catch (ArgumentException)
+                {
+                    // A malformed PATH entry: ignore it.
+                }
+            }
+        }
+
+        return false;
+    }
+
     private static async Task RunGenerator(string schemaRoot)
     {
         var start = new ProcessStartInfo("pwsh")
@@ -50,6 +75,7 @@ public sealed class TypeSchemaGeneratorTests
     [Fact]
     public async Task Regeneration_IsDeterministic_AndEqualsTheCheckedInSchemas()
     {
+        Assert.SkipUnless(PwshIsAvailable(), "pwsh (PowerShell 7) is not on the PATH; the schema generator is a PowerShell script.");
         string root = Path.Combine(Path.GetTempPath(), "earm-tests-schemagen-" + Guid.NewGuid().ToString("N")[..10]);
         try
         {

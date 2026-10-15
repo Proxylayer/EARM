@@ -12,9 +12,4 @@
     <ProjectReference Include="../EArm.TestSupport/EArm.TestSupport.csproj" />
   </ItemGroup>
 
-  <ItemGroup>
-    <!-- The fake Azure CLI (tests/fake-az/fake-az.ps1) travels with the test binaries for the in-process CLI tests. -->
-    <None Include="../fake-az/fake-az.ps1" Link="fake-az/fake-az.ps1" CopyToOutputDirectory="PreserveNewest" />
-  </ItemGroup>
-
 </Project>

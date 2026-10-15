@@ -418,7 +418,7 @@ public sealed class DeploymentFunctionTests
     [Fact]
     public void Parameters_InsideAUserFunction_AreTheFunctionsOwnParameters()
     {
-        // WI-16: inside a user-defined function parameters() names only the function's own parameters; a name that
+        // Inside a user-defined function parameters() names only the function's own parameters; a name that
         // is not one of them (here: none are bound) is UndefinedParameter, not a placeholder.
         var error = Expr.Fails("[parameters('x')]", DiagnosticCodes.UndefinedParameter, Expr.Context(scope: EvaluationScope.UserFunction));
 
@@ -651,7 +651,7 @@ public sealed class DeploymentFunctionTests
         Assert.NotNull(registry.Find("resourceId"));
         Assert.Null(registry.Find("nope"));
         Assert.Equal(["extensionResourceId", "listKeys", "listSecrets", "managementGroup", "pickZones", "providers", "resourceGroup", "subscription", "subscriptionResourceId", "tenantResourceId"], registry.NamesOfKind(FunctionKind.Rejected));
-        // WI-16: lambdas and the Entra functions are implemented; nothing in the default registry is a stub.
+        // Lambdas and the Entra functions are implemented; nothing in the default registry is a stub.
         Assert.Empty(registry.NamesOfKind(FunctionKind.NotImplementedYet));
         foreach (var name in new[] { "map", "filter", "reduce", "sort", "toObject", "groupBy", "lambdaVariables", "wellKnownApp", "appRole", "permissionScope", "roleTemplate", "tenant", "environment" })
         {

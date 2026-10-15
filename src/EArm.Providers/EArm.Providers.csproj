@@ -6,7 +6,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../EArm.Engine/EArm.Engine.csproj" />
-    <ProjectReference Include="../EArm.Az/EArm.Az.csproj" />
+    <ProjectReference Include="../EArm.Graph/EArm.Graph.csproj" />
   </ItemGroup>
 
 </Project>

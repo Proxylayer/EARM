@@ -10,7 +10,7 @@ validation code. Worked templates are in [`samples/`](../samples/README.md).
   a UTF-8 byte-order mark.
 - Editor support: `earm schema install` maps the JSON Schemas to `**/*.entra.json` in VS Code
   (see [JSON Schemas](#json-schemas)).
-- Validate offline at any time: `earm deployment validate -f template.entra.json -p @params.json`.
+- Validate offline at any time: `earm deployment validate -f template.entra.json -p '@params.json'`.
 
 ## Envelope
 
@@ -78,13 +78,19 @@ declaring that Graph property in `properties` too is an error unless the values 
 
 | Name kind | Types | Meaning |
 |---|---|---|
-| `uniqueName` | applications, groups | Graph `uniqueName` alternate key; upsert is `PATCH /x(uniqueName='…')` with `Prefer: create-if-missing`. Immutable. A brownfield object gets one with `earm state adopt --type … --id … --name …`. |
+| `uniqueName` | applications, groups | Graph `uniqueName` alternate key; upsert is `PATCH /x(uniqueName='…')` with `Prefer: create-if-missing`. Immutable. A brownfield object gets one with `earm state adopt --type … --id … --unique-name …`. |
 | `userPrincipalName` | users | `local@domain`. |
 | `appId` | servicePrincipals | The application (client) id GUID, or `[reference('app').appId]`. |
 | child name | federatedIdentityCredentials, passwordCredentials | `parent/child`; the child is the credential's own name. Nested children get the parent's name prepended by the loader. |
 | `displayName` | named locations, CA policies, authentication strengths, administrative units, role definitions | Looked up by `displayName` (0 hits: create, 1: pin the id in state, more than one: error; resolve with `state adopt --resource-id … --object-id …`). |
 | `id` | authenticationContextClassReferences | `c1` … `c99`; the name is the Graph id. |
 | GUID | appRoleAssignments, oauth2PermissionGrants, roleAssignments | A deterministic GUID chosen by the author with `guid(...)`, as with `Microsoft.Authorization/roleAssignments`. The Graph object is found by its composite properties and its id pinned in state; a changed composite under the same name is `Modify`/`Recreate`. |
+
+Every name segment, of every type, must be printable single-line text without leading or trailing whitespace and must not consist of dots only
+(`.`, `..`); `namePattern` and `nameKind` are checked for literal names offline and for names an expression computes (offline once the value
+is known, and again for each `copy` iteration). `namePattern` is matched against the whole segment: `^` and `$` mean the start and the very end of
+the text, so a name with a trailing line feed does not match. A property whose expression evaluates, offline, to a value of the wrong JSON type for
+the type's schema is `PropertyTypeMismatch`.
 
 The resource id is `/providers/Microsoft.Entra/<type>/<name>[/<childType>/<childName>]` (tenant scope, ARM style):
 deterministic, the key of the state file and what the what-if output prints. `resourceId('Microsoft.Entra/applications/passwordCredentials', 'app', 'ci-secret')` builds it.
@@ -126,7 +132,8 @@ behaviour.
 An immutable change is a hard error for applications, groups and users; for the cheap types (assignments, grants, secrets,
 federated credentials, named location kinds) it is `Modify` with `mode: recreate`. Soft-deleted objects (applications,
 Microsoft 365 groups, users, service principals, administrative units) keep their keys for 30 days: a create that finds one
-fails with a hint unless `--on-soft-deleted-conflict restore`.
+fails with a hint unless `--on-soft-deleted-conflict restore`. The probe that finds them needs the type's read permission; an identity without it (for example an
+`Application.ReadWrite.OwnedBy`-only service principal creating applications) gets the warning `SoftDeleteProbeSkipped` and the create proceeds without the check.
 
 ### Property vocabulary
 
@@ -217,12 +224,58 @@ they may flow into resource properties and `securestring` / `secureObject` outpu
 `dependsOn` or plain outputs, which are written to state and logs). They are `***` in what-if, logs and diagnostics; the plain text
 exists only in Graph request bodies and in `--reveal-secure-outputs` / `--secure-outputs-file`.
 
+### Evaluation limits
+
+Templates are untrusted input, so what an expression may produce is bounded. The size limits are part of the format (the same template
+passes or fails the same way everywhere); the work limits bound one run of a command. A violation is a diagnostic
+([diagnostics.md](diagnostics.md#expressions-limits)), never a crash or an out-of-memory failure.
+
+| Limit | Value | Diagnostic |
+|---|---|---|
+| JSON nesting of a template or parameter file | 64 levels (the reader's limit) | `InvalidJson` |
+| Nesting of a **value** an expression builds (`createArray`, `createObject`, `array`, `union`, `items`, `map`, user function outputs, a wrapped parameter) | 64 levels. The JSON output of a command allows 256, so a 64-level value fits inside the structure around it. | `ValueTooDeep` |
+| Nesting of one expression (calls, indexers, lambda bodies) | 100 levels | `ExpressionTooDeep` |
+| Length of one expression | 24,576 characters | `ExpressionTooLong` |
+| Length of one string a function produces | 1 MiB (1,048,576 characters) | `EvaluationBudgetExceeded` |
+| Elements of one array or object | 100,000 | `EvaluationBudgetExceeded` |
+| Nodes (containers and leaves) of one value | 1,000,000 | `EvaluationBudgetExceeded` |
+| `copy.count` of one resource | 800 (the ARM limit) | `ExpansionLimitExceeded` |
+| Resource instances of a template, all `copy` loops together | 5,000 | `ExpansionLimitExceeded` |
+| Steps of a run (function calls plus lambda iterations) | 50,000,000 | `EvaluationBudgetExceeded` |
+| Value nodes produced by a run / characters of text produced by a run | 5,000,000 / 134,217,728 (128 Mi) | `EvaluationBudgetExceeded` |
+| Memory held by evaluated variables (string characters at 2 bytes each plus a fixed cost per node) | 256 MiB per run | `EvaluationBudgetExceeded` |
+| Variables reading variables (a chain `v1` uses `v0`, `v2` uses `v1`, ...) | 128 levels | `VariableChainTooDeep` |
+| `format()` | The format string is parsed by EARM: a specifier is at most 100 characters; a standard numeric specifier (`D N F X G P E`, either case) has a precision of at most 100; a string argument ignores its specifier (as in .NET). Padded items and arguments are added up against the 1 MiB string limit as they are written. | `InvalidFunctionArguments`, `EvaluationBudgetExceeded` |
+| `indexOf`, `lastIndexOf`, `contains` on strings | Linear time (case-insensitive search of the folded text); the length of the text and the needle is charged to the step budget (1 step per 1,024 characters), as is every other string operation | `EvaluationBudgetExceeded` |
+| Time one evaluation (a variable, the properties of a resource, an output) may take | 60 seconds; `--evaluation-timeout <seconds>` or `EARM_EVALUATION_TIMEOUT`, `0` = no clock. The clock runs from the start of the evaluation, so the time a deployment spends on the network between evaluations never counts; the step and node limits above bound the total work. | `EvaluationBudgetExceeded` |
+
+A per-value limit fails that value (and what depends on it) and the run goes on, so one oversized variable does not hide the other findings.
+A work limit ends the run: it stays tripped, and every later expression fails fast with the same message. `union` and `intersection` are linear
+in the number of elements, so they stay within the limits for any array that is within them. An unknown (deploy-time) value's symbol, built
+from the symbols of its arguments, is cut to 1,024 characters (the rest replaced by a hash) so `concat(x, x)` chains over an unknown cannot grow it without bound.
+
+Repeated property names in an object (`"state": "disabled", "state": "enabled"`) are rejected when the file is loaded (`DuplicateJsonKey`):
+JSON readers disagree about which value wins. **Names that differ only in letter case count as repeated** (`"state"` and `"State"`): EARM looks
+properties up ignoring case and takes the first match, so a guard (the `--allow-ca-enforce` check on a conditional access policy, for one) would
+judge one key and the request would carry both. The same holds for an object an expression builds (`union`, `createObject`, `items`, `toObject`):
+it fails with `DuplicateJsonKey` naming both spellings when its value is used. The names under `parameters`, `variables` and `outputs` are the one
+exception (case variants there are `DuplicateDefinition`).
+
+### Input limits
+
+A template file and a parameter file are each read only up to **8 MiB (8,388,608 bytes)**; a larger file is refused with `InputTooLarge`
+(exit code 1) from its size, before it is read, and the read itself stops at the limit for a file that reports no size. A document may also hold
+at most **2,000,000 JSON values** (objects, arrays and leaves); they are counted in one cheap pass over the text before anything is built, so a
+file of millions of tiny nodes is refused without allocating its tree. Files must be UTF-8 (a byte-order mark is accepted); UTF-16 and UTF-32
+are named as such instead of failing with a byte-level syntax error. A directory passed as the template file is reported as a directory. The
+state file has its own limit (see the state documentation).
+
 ## Parameters and parameter files
 
 Parameter types: `string`, `securestring`, `int`, `bool`, `object`, `secureObject`, `array`. An `int` accepts any JSON number whose exact
 value is a whole number in the 64-bit range, however it is spelled (`3`, `3.0`, `1.5e3`, `-0.0`); a fraction (`3.5`) or a number outside
 the range is a `ParameterValueTypeMismatch`, and `copy.count` / `copy.batchSize` follow the same rule. A value is supplied, in precedence order, by
-`-p name=value` (inline; converted to the parameter type), by a parameter file (`-p @file.json`, later files and values win), then by
+`-p name=value` (inline; converted to the parameter type), by a parameter file (`-p '@file.json'`, quoted in PowerShell, later files and values win), then by
 `defaultValue`. An unknown parameter name is an error (`UnknownParameter`); a value of the wrong type or outside `allowedValues` is
 reported (`ParameterValueTypeMismatch`, `ParameterValueNotAllowed`). A parameter without a value is a warning in `deployment validate`
 and an error for `create` and `what-if`.
@@ -246,11 +299,12 @@ and an error for `create` and `what-if`.
 ### Key Vault references
 
 An entry with `reference` instead of `value` is a Key Vault secret. For `create` and `what-if` the CLI resolves it after the
-preflight with `az keyvault secret show --vault-name <vault> --name <secretName> [--version <v>] --query value`, through the same
-Azure CLI session; the vault name is the last segment of `keyVault.id` (a bare name is accepted). `secretVersion` is optional and must be a string
+preflight with an HTTPS read of the vault (`GET https://<vault>.vault.azure.net/secrets/<secretName>[/<version>]?api-version=7.4`, using a Key Vault token of the
+signed-in identity; the host suffix follows `EARM_CLOUD`); the vault name is the last segment of `keyVault.id` (a bare name is accepted) and must follow the Key Vault
+naming rules (3-24 letters, digits and hyphens), as must the secret name (1-127 letters, digits and hyphens) and a version (32 hex characters), or the reference fails before any request. `secretVersion` is optional and must be a string
 (absent, `null` or blank means the latest version); a number or any other non-string is an `InvalidParameterFile` error with the
 path and position, never silently replaced by the latest version. The value is **always secure
-(tainted)**, whatever the declared parameter type. The identity behind the Azure CLI session needs read access to the secret (`Key Vault
+(tainted)**, whatever the declared parameter type, and it must satisfy the constraints of the parameter (`allowedValues`, `minValue` / `maxValue`, `minLength` / `maxLength`) like a supplied value; the error names the parameter and the constraint, never the value. `EARM_KEYVAULT_ALLOWED` restricts the vaults a parameter file may read ([cli.md](cli.md)). The signed-in identity needs read access to the secret (`Key Vault
 Secrets User` or the `get` secret permission of an access policy); that is an Azure permission, not a Graph one
 ([permissions.md](permissions.md)). `deployment validate` stays offline and does not resolve references; a failed resolution is
 `KeyVaultReferenceUnresolved` (exit 3).
@@ -266,6 +320,25 @@ Secrets User` or the `get` secret permission of an access policy); that is an Az
 
 Outputs are evaluated after the edge pass. A `securestring` / `secureObject` output (or any tainted value) prints as `***` unless
 `--reveal-secure-outputs`; `--secure-outputs-file <path>` writes the revealed values to a file with owner-only permissions.
+
+## Security considerations
+
+A template is code that runs with the credentials of the person or pipeline that runs `earm`: treat an untrusted template like an untrusted script.
+
+- **Secrets and untrusted templates.** Secure values are masked everywhere EARM prints them, and a secure value cannot reach a name, a `condition`, a
+  `copy.count`, `dependsOn` or a plain output. A hostile template can still learn **one bit per output** from a secret it is allowed to read: an
+  expression such as `filter(createArray(1), lambda('x', equals(substring(parameters('pw'), 0, 1), 'S')))` is empty or not depending on the first
+  character, and a plain output would show that. The elements a secret-dependent `filter`, `sort` or `if` lets through are secure, and a
+  container or `null` that comes out *empty* because of a secret (a `filter` verdict, a `take` / `skip` / `range` count, an `if` condition) carries the
+  mark itself (a tainted empty): it cannot reach a plain output, is written as `***` in what-if and logs and is a plain `[]` / `{}` / `null` only in a
+  Graph request body. Other channels of an expression language (timing, error messages of a template you control) cannot all be closed. **Do not supply secrets (secure parameters, Key Vault references) to `validate`, `what-if`
+  or `create` runs of templates you do not trust**, for example the pull-request validation of a repository that accepts outside contributions;
+  run those with no secrets, or only with throw-away values.
+- **Log commands.** Everything EARM prints goes through a sanitizer: control characters are written as visible escapes (`\u001b`), and text a CI
+  log parser would run as a command is broken (`##vso[` and `##[` anywhere in a line become `#\u0023vso[` and `#\u0023[`, a leading `::` gets an
+  apostrophe in front). In `-o json` output the `\u0023` is an ordinary JSON escape that decodes back to `#`.
+- **Resource use.** Evaluation, file size, JSON node count and variable depth are bounded (see [Evaluation limits](#evaluation-limits) and
+  [Input limits](#input-limits)); a template that exceeds them fails with a diagnostic instead of using the machine.
 
 ## JSON Schemas
 
@@ -295,7 +368,9 @@ Conventions of the per-type schemas:
 - `additionalProperties` stays `true` (Graph passthrough) except for the edge entry objects of `appRoleAssignments`, `directoryRoles`
   and `assignedLicenses`, whose handlers reject unknown members.
 - `x-earm` (`type`, `graphPath`, `apiVersions`, `nameMapsTo`, `nameKind`, `namePattern`, `keyProperties`, `requiredOnCreate`,
-  `defaults`, `immutable`, `createOnly`, `secure`, `relationships`, `memberKey`, `stripOnRead`, `nullable`, `permissions`) drives the executor.
+  `defaults`, `immutable`, `createOnly`, `secure`, `relationships`, `memberKey`, `stripOnRead`, `nullable`, `ignoreLiveOnly`, `permissions`) drives the executor.
+  `ignoreLiveOnly` lists dotted paths (`web`, `api`, `sessionControls.signInFrequency`) under which sub-properties that exist only on the live object (server-defaulted
+  children) are not drift and are not nulled in a PATCH.
   The property schemas are generated from one table by `tools/New-TypeSchemas.ps1`, which keeps the overlay text untouched.
 
 `earm schema install` writes copies to `%LOCALAPPDATA%\EArm\schemas\2026-10-01\` (with the cross-file references rewritten to

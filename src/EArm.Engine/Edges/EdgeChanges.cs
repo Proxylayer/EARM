@@ -4,7 +4,7 @@ using EArm.Engine.Providers;
 
 namespace EArm.Engine.Edges;
 
-/// <summary>Folds the edge pass outcome of a declaring resource into its what-if / result row (plan section 1.8).</summary>
+/// <summary>Folds the edge pass outcome of a declaring resource into its what-if / result row.</summary>
 public static class EdgeChanges
 {
     /// <summary>

@@ -6,7 +6,7 @@ using System.Text.Json.Serialization;
 namespace EArm.Engine.State;
 
 /// <summary>
-/// The on-disk shape of a state file (plan section 1.7, <c>schemaVersion</c> 1). <see cref="StateSerializer"/> maps
+/// The on-disk shape of a state file (<c>schemaVersion</c> 1). <see cref="StateSerializer"/> maps
 /// it to and from <see cref="StateFile"/>; <see cref="StateJsonContext"/> serialises it without reflection.
 /// </summary>
 public sealed class StateDocument
@@ -64,6 +64,14 @@ public sealed class StateResourceDocument
 
     [JsonPropertyName("contentHash")]
     public string? ContentHash { get; set; }
+
+    /// <summary><c>created</c> or <c>adopted</c>; absent reads as <c>adopted</c> (<see cref="StateProvenances.Parse"/>).</summary>
+    [JsonPropertyName("provenance")]
+    public string? Provenance { get; set; }
+
+    /// <summary>The object's Graph <c>createdDateTime</c> when it was recorded (a fingerprint checked before state-driven deletes); absent for older files.</summary>
+    [JsonPropertyName("createdDateTime")]
+    public DateTimeOffset? CreatedDateTime { get; set; }
 
     [JsonPropertyName("dependsOn")]
     public List<string> DependsOn { get; set; } = [];
@@ -126,6 +134,14 @@ public sealed class StateLockDocument
 
     [JsonPropertyName("acquiredOn")]
     public DateTimeOffset AcquiredOn { get; set; }
+
+    /// <summary>Rewritten every ~30 s while the lock is held; a lock whose newest timestamp is old is abandoned.</summary>
+    [JsonPropertyName("heartbeatOn")]
+    public DateTimeOffset? HeartbeatOn { get; set; }
+
+    /// <summary>Random token of the acquisition; a heartbeat only rewrites a lock that still carries it.</summary>
+    [JsonPropertyName("lockId")]
+    public string? LockId { get; set; }
 }
 
 /// <summary>Source-generated serializer metadata for the state file and lock file documents.</summary>

@@ -48,12 +48,7 @@ public sealed class TemplateLoader : ITemplateLoader
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         ArgumentNullException.ThrowIfNull(parameters);
 
-        if (!File.Exists(path))
-        {
-            throw new TemplateLoadException(DiagnosticCodes.FileNotFound, $"Template file '{path}' was not found.", path);
-        }
-
-        byte[] bytes = await File.ReadAllBytesAsync(path, ct).ConfigureAwait(false);
+        byte[] bytes = await InputFiles.ReadAllBytesAsync(path, "Template", ct).ConfigureAwait(false);
         return Parse(bytes, path, parameters);
     }
 
@@ -75,7 +70,15 @@ public sealed class TemplateLoader : ITemplateLoader
         JsonNode? node;
         try
         {
-            (element, node) = TemplateJson.Parse(utf8);
+            (element, node) = TemplateJson.Parse(utf8, DuplicateKeys.TemplateNameMaps);
+        }
+        catch (DuplicateJsonKeyException ex)
+        {
+            throw new TemplateLoadException(DiagnosticCodes.DuplicateJsonKey, ex.Message, sourcePath, ex.First.Location, ex.First.Path, inner: ex);
+        }
+        catch (InputTooLargeException ex)
+        {
+            throw new TemplateLoadException(DiagnosticCodes.InputTooLarge, $"Template is too large: {ex.Message}", sourcePath, inner: ex);
         }
         catch (JsonException ex)
         {
@@ -590,7 +593,21 @@ public sealed class TemplateLoader : ITemplateLoader
             case TemplateParameterType.Array:
                 try
                 {
-                    var parsed = JsonNode.Parse(LoneSurrogates.Replace(rawText), documentOptions: TemplateJson.DocumentOptions);
+                    string jsonText = LoneSurrogates.Replace(rawText);
+                    var duplicates = DuplicateKeys.Find(Encoding.UTF8.GetBytes(jsonText), limit: 1);
+                    if (duplicates.Count > 0)
+                    {
+                        context.Diagnostics.Add(Diagnostic.Error(
+                            DiagnosticCodes.DuplicateJsonKey,
+                            $"The inline value for parameter '{definition.Name}' is not accepted: {duplicates[0].Describe()}",
+                            definition.Path,
+                            definition.Location,
+                            context.SourcePath));
+                        value = JsonValue.Create(rawText);
+                        return false;
+                    }
+
+                    var parsed = JsonNode.Parse(jsonText, documentOptions: TemplateJson.DocumentOptions);
                     if (TemplateParameterTypes.Matches(parsed, definition.ParsedType.Value))
                     {
                         value = parsed;

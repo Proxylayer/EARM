@@ -5,19 +5,19 @@ using System.Net;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Core;
 using EArm.Core.Types;
 using EArm.Engine;
 using EArm.Engine.Providers;
 using EArm.Engine.State;
 using EArm.Expressions.Values;
-using GraphApi = EArm.Az.GraphApi;
+using GraphApi = EArm.Graph.GraphApi;
 
 namespace EArm.Providers;
 
 /// <summary>
-/// <c>Microsoft.Entra/conditionalAccess/namedLocations</c> (plan sections 1.3, 3.2; work item WI-14). The resource
+/// <c>Microsoft.Entra/conditionalAccess/namedLocations</c>. The resource
 /// name is the <c>displayName</c>; the Graph id is pinned in the state after the first run.
 /// <para>
 /// Requests per operation:
@@ -42,7 +42,7 @@ public sealed class NamedLocationsProvider : ProviderBase
     public const string ResourceType = "Microsoft.Entra/conditionalAccess/namedLocations";
 
     /// <summary><see cref="ProviderException.Code"/> when Graph refuses to delete a location that a policy still references.</summary>
-    public const string ReferencedByPolicy = "NamedLocationReferenced";
+    public const string ReferencedByPolicy = EngineDiagnosticCodes.NamedLocationReferenced;
 
     private const string KeyProperty = "displayName";
 
@@ -60,7 +60,7 @@ public sealed class NamedLocationsProvider : ProviderBase
     {
     }
 
-    /// <summary>A changed <c>@odata.type</c> replaces the location (plan section 3.2: kind change = recreate).</summary>
+    /// <summary>A changed <c>@odata.type</c> replaces the location (kind change = recreate).</summary>
     protected override bool RecreateOnImmutableChange => true;
 
     // ---- read ----
@@ -75,10 +75,7 @@ public sealed class NamedLocationsProvider : ProviderBase
             return Existing(pinned);
         }
 
-        if (!key.TryGet(KeyProperty, out var name))
-        {
-            throw new ProviderException(EngineDiagnosticCodes.ResourceKeyUnresolved, $"{TypeName}: the key {key.Describe()} carries no displayName.");
-        }
+        string name = ProviderSupport.SingleKey(key, KeyProperty);
 
         var matches = await FindByDisplayNameAsync(graph, name, key.Api, cancellationToken).ConfigureAwait(false);
         if (matches.Count == 0)
@@ -191,7 +188,7 @@ public sealed class NamedLocationsProvider : ProviderBase
         }
         catch (GraphException ex) when (ex.Status == HttpStatusCode.BadRequest)
         {
-            // Graph refuses to delete a location a Conditional Access policy still references (plan section 3.2).
+            // Graph refuses to delete a location a Conditional Access policy still references.
             throw new ProviderException(
                 ReferencedByPolicy,
                 $"{entry.Id.Id}: Graph refused to delete named location {entry.GraphId} ({ex.Code}: {ex.GraphMessage}). A named location cannot be deleted (or recreated with another kind) while a Conditional Access policy references it; remove it from the policies' conditions.locations first.",

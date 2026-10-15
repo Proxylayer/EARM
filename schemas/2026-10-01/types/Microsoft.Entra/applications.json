@@ -463,6 +463,7 @@
     "memberKey": { "appRoles": "id", "api.oauth2PermissionScopes": "id" },
     "stripOnRead": ["id", "appId", "createdDateTime", "deletedDateTime", "publisherDomain", "applicationTemplateId", "disabledByMicrosoftStatus", "certification", "verifiedPublisher", "defaultRedirectUri", "info.logoUrl", "passwordCredentials", "keyCredentials"],
     "nullable": { "web.implicitGrantSettings": false, "api.requestedAccessTokenVersion": false },
+    "ignoreLiveOnly": ["web", "api"],
     "permissions": {
       "application": ["Application.ReadWrite.OwnedBy", "Application.ReadWrite.All"],
       "delegated": ["Application.ReadWrite.All"],

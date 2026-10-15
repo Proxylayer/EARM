@@ -20,12 +20,15 @@ public sealed class PermissionsCommandTests
         "Application.Read.All",
         "Application.ReadWrite.All",
         "AppRoleAssignment.ReadWrite.All",
+        "AuthenticationContext.ReadWrite.All",
         "DelegatedPermissionGrant.ReadWrite.All",
+        "Directory.Read.All",
         "Group.ReadWrite.All",
         "GroupMember.ReadWrite.All",
+        "LicenseAssignment.Read.All",
+        "LicenseAssignment.ReadWrite.All",
         "Organization.Read.All",
         "Policy.Read.All",
-        "Policy.ReadWrite.AuthenticationMethod",
         "Policy.ReadWrite.ConditionalAccess",
         "RoleManagement.ReadWrite.Directory",
         "User.ReadWrite.All",
@@ -112,7 +115,8 @@ public sealed class PermissionsCommandTests
         Assert.Contains(user, Strings(Entry(result, "AdministrativeUnit.ReadWrite.All")["resources"]));
 
         var organization = Entry(result, "Organization.Read.All");
-        Assert.Equal(["edge: assignedLicenses", "preflight: GET /organization", "provider"], Strings(organization["reasons"]));
+        Assert.Equal(["preflight: GET /organization"], Strings(organization["reasons"]));
+        Assert.Equal(["edge: assignedLicenses", "provider"], Strings(Entry(result, "LicenseAssignment.ReadWrite.All")["reasons"]));
         Assert.Contains("(every deployment)", Strings(organization["resources"]));
     }
 
@@ -141,7 +145,7 @@ public sealed class PermissionsCommandTests
         var vault = Entry(result, KeyVaultName);
         Assert.Equal("azureRbac", vault["kind"]!.GetValue<string>());
         Assert.Equal(["parameter 'initialPassword'"], Strings(vault["resources"]));
-        Assert.Equal(["az keyvault secret show --vault-name contoso-kv --name bg-initial"], Strings(vault["reasons"]));
+        Assert.Equal(["GET https://contoso-kv.vault.azure.net/secrets/bg-initial"], Strings(vault["reasons"]));
         Assert.Equal(KeyVaultName, Names(result).Last());
     }
 
@@ -154,8 +158,10 @@ public sealed class PermissionsCommandTests
 
         Assert.Equal(0, result.ExitCode);
         Assert.Equal("delegated", result.Json["mode"]!.GetValue<string>());
-        Assert.Equal([.. OrdersGraphNames, KeyVaultName], Names(result));
-        Assert.All(result.Json["permissions"]!.AsArray().Take(OrdersGraphNames.Length), p => Assert.Equal("graphDelegated", p!["kind"]!.GetValue<string>()));
+        // The preflight read of /organization is an application-mode requirement only (and licenses no longer need Organization.Read.All).
+        string[] delegatedGraphNames = OrdersGraphNames.Where(n => n != "Organization.Read.All").ToArray();
+        Assert.Equal([.. delegatedGraphNames, KeyVaultName], Names(result));
+        Assert.All(result.Json["permissions"]!.AsArray().Take(delegatedGraphNames.Length), p => Assert.Equal("graphDelegated", p!["kind"]!.GetValue<string>()));
         Assert.Equal("azureRbac", Entry(result, KeyVaultName)["kind"]!.GetValue<string>());
 
         string[] expectedGroups =
@@ -245,19 +251,23 @@ public sealed class PermissionsCommandTests
         var app = await RunJsonAsync(template, parameters);
         var delegated = await RunJsonAsync(template, parameters, "--mode", "delegated");
 
+        // Review 1D: authentication strengths need Policy.ReadWrite.ConditionalAccess (Learn), authentication contexts AuthenticationContext.ReadWrite.All,
+        // group members of unknown kind may be service principals (Application.ReadWrite.All) and every edge resolves principals (Directory.Read.All).
         string[] common =
         [
             "AdministrativeUnit.ReadWrite.All",
             "Application.Read.All",
+            "Application.ReadWrite.All",
+            "AuthenticationContext.ReadWrite.All",
+            "Directory.Read.All",
             "Group.ReadWrite.All",
             "GroupMember.ReadWrite.All",
             "Policy.Read.All",
-            "Policy.ReadWrite.AuthenticationMethod",
             "Policy.ReadWrite.ConditionalAccess",
             "RoleManagement.ReadWrite.Directory",
         ];
         Assert.Equal(10, app.Json["resourceCount"]!.GetValue<int>());
-        Assert.Equal(["AdministrativeUnit.ReadWrite.All", "Application.Read.All", "Group.ReadWrite.All", "GroupMember.ReadWrite.All", "Organization.Read.All", "Policy.Read.All", "Policy.ReadWrite.AuthenticationMethod", "Policy.ReadWrite.ConditionalAccess", "RoleManagement.ReadWrite.Directory"], Names(app));
+        Assert.Equal(["AdministrativeUnit.ReadWrite.All", "Application.Read.All", "Application.ReadWrite.All", "AuthenticationContext.ReadWrite.All", "Directory.Read.All", "Group.ReadWrite.All", "GroupMember.ReadWrite.All", "Organization.Read.All", "Policy.Read.All", "Policy.ReadWrite.ConditionalAccess", "RoleManagement.ReadWrite.Directory"], Names(app));
 
         // The preflight read of /organization is an application-mode requirement only.
         Assert.Equal(common, Names(delegated));
@@ -289,8 +299,9 @@ public sealed class PermissionsCommandTests
         var app = await CliRunner.RunAsync("permissions", "-f", template, "-o", "json");
         var delegated = await CliRunner.RunAsync("permissions", "-f", template, "-o", "json", "--mode", "delegated");
 
-        Assert.Equal(["Application.ReadWrite.OwnedBy", "Organization.Read.All"], Names(app));
-        Assert.Equal(["Application.ReadWrite.All"], Names(delegated));
+        // Declaring owners adds the edge pass' Directory.Read.All (Learn: application-post-owners).
+        Assert.Equal(["Application.ReadWrite.OwnedBy", "Directory.Read.All", "Organization.Read.All"], Names(app));
+        Assert.Equal(["Application.ReadWrite.All", "Directory.Read.All"], Names(delegated));
         Assert.Equal(["Application Administrator|Application Developer|Cloud Application Administrator"], RoleGroups(delegated));
     }
 
@@ -315,7 +326,7 @@ public sealed class PermissionsCommandTests
 
         var app = await CliRunner.RunAsync("permissions", "-f", template, "-o", "json");
 
-        Assert.Equal(["Application.ReadWrite.All", "Organization.Read.All"], Names(app));
+        Assert.Equal(["Application.ReadWrite.All", "Directory.Read.All", "Organization.Read.All"], Names(app));
         var all = Entry(app, "Application.ReadWrite.All");
         Assert.Equal(
             ["/providers/Microsoft.Entra/applications/owned-app", "/providers/Microsoft.Entra/applications/unowned-app"],
@@ -378,7 +389,7 @@ public sealed class PermissionsCommandTests
         var result = await CliRunner.RunAsync("permissions", "-f", template, "-o", "json");
 
         Assert.Equal(0, result.ExitCode);
-        Assert.Equal(["Application.Read.All", "Application.ReadWrite.OwnedBy", "Organization.Read.All", "RoleManagement.Read.Directory"], Names(result));
+        Assert.Equal(["Application.Read.All", "Application.ReadWrite.OwnedBy", "Directory.Read.All", "Organization.Read.All", "RoleManagement.Read.Directory"], Names(result));
         Assert.Equal(["lookup: appRole()", "lookup: permissionScope()"], Strings(Entry(result, "Application.Read.All")["reasons"]));
         Assert.Equal(["lookup: roleTemplate() (custom role names)"], Strings(Entry(result, "RoleManagement.Read.Directory")["reasons"]));
         Assert.Equal(["(expression lookups)"], Strings(Entry(result, "RoleManagement.Read.Directory")["resources"]));
@@ -514,7 +525,7 @@ public sealed class PermissionsCommandTests
         Assert.Contains("(mode: app, 16 resource(s))", app.StandardOutput, StringComparison.Ordinal);
         Assert.Contains("Microsoft Graph application permissions", app.StandardOutput, StringComparison.Ordinal);
         Assert.Contains("  Application.ReadWrite.All", app.StandardOutput, StringComparison.Ordinal);
-        Assert.Contains("Azure (Azure CLI identity)", app.StandardOutput, StringComparison.Ordinal);
+        Assert.Contains("Azure (signed-in identity)", app.StandardOutput, StringComparison.Ordinal);
         Assert.Contains("parameter 'initialPassword'", app.StandardOutput, StringComparison.Ordinal);
         Assert.Contains("note: ", app.StandardOutput, StringComparison.Ordinal);
         Assert.DoesNotContain("Entra roles", app.StandardOutput, StringComparison.Ordinal);
@@ -527,15 +538,16 @@ public sealed class PermissionsCommandTests
     }
 
     [Fact]
-    public async Task Permissions_NeverTouchesAz()
+    public async Task Permissions_NeverSendsARequestOrAsksForAToken()
     {
-        using var sandbox = new CliSandbox(nameof(Permissions_NeverTouchesAz));
+        using var sandbox = new CliSandbox(nameof(Permissions_NeverSendsARequestOrAsksForAToken));
         sandbox.UseNotLoggedIn();
 
-        string[] args = ["permissions", "-f", TestPaths.Sample("orders-api.entra.json"), "-p", "@" + TestPaths.Sample("orders-api.parameters.json"), "-o", "json", .. sandbox.AzArgs];
+        string[] args = ["permissions", "-f", TestPaths.Sample("orders-api.entra.json"), "-p", "@" + TestPaths.Sample("orders-api.parameters.json"), "-o", "json", .. sandbox.StateArgs];
         var result = await CliRunner.RunAsync(args);
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(sandbox.RecordedCommands());
+        Assert.Empty(sandbox.Tokens.RequestedScopes);
     }
 }

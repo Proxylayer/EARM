@@ -47,12 +47,7 @@ public sealed class ParameterSet
     public static ParameterSet FromFile(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        if (!File.Exists(path))
-        {
-            throw new TemplateLoadException(DiagnosticCodes.FileNotFound, $"Parameter file '{path}' was not found.", path);
-        }
-
-        byte[] bytes = File.ReadAllBytes(path);
+        byte[] bytes = InputFiles.ReadAllBytes(path, "Parameter");
         return Parse(bytes, path);
     }
 
@@ -80,7 +75,15 @@ public sealed class ParameterSet
         JsonNode? node;
         try
         {
-            (element, node) = TemplateJson.Parse(utf8);
+            (element, node) = TemplateJson.Parse(utf8, DuplicateKeys.ParameterFileNameMaps);
+        }
+        catch (DuplicateJsonKeyException ex)
+        {
+            throw new TemplateLoadException(DiagnosticCodes.DuplicateJsonKey, ex.Message, sourcePath, ex.First.Location, ex.First.Path, inner: ex);
+        }
+        catch (InputTooLargeException ex)
+        {
+            throw new TemplateLoadException(DiagnosticCodes.InputTooLarge, $"Parameter file is too large: {ex.Message}", sourcePath, inner: ex);
         }
         catch (JsonException ex)
         {
@@ -93,7 +96,7 @@ public sealed class ParameterSet
         }
 
         // ARM shape: { "$schema", "contentVersion", "parameters": { name: { value | reference } } }.
-        // The bare shape { name: { value } } (accepted by az) is tolerated when there is no "parameters" key.
+        // The bare shape { name: { value } } (accepted by the Azure CLI) is tolerated when there is no "parameters" key.
         JsonObject map;
         JsonPath mapPath;
         if (root.TryGetPropertyValue("parameters", out var parametersNode))
@@ -157,6 +160,9 @@ public sealed class ParameterSet
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         ArgumentNullException.ThrowIfNull(rawText);
+
+        // A command-line value is UTF-16 and may hold an unpaired surrogate (Windows allows it); stored as it is, the first write or schema pass over it throws.
+        rawText = LoneSurrogates.Scrub(rawText);
 
         var values = new Dictionary<string, ParameterValue>(_values, StringComparer.OrdinalIgnoreCase)
         {

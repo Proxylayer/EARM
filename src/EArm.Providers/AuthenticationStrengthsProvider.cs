@@ -5,19 +5,19 @@ using System.Net;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Core;
 using EArm.Core.Types;
 using EArm.Engine;
 using EArm.Engine.Providers;
 using EArm.Engine.State;
 using EArm.Expressions.Values;
-using GraphApi = EArm.Az.GraphApi;
+using GraphApi = EArm.Graph.GraphApi;
 
 namespace EArm.Providers;
 
 /// <summary>
-/// <c>Microsoft.Entra/conditionalAccess/authenticationStrengths</c> (plan sections 1.3, 3.2; work item WI-20). The
+/// <c>Microsoft.Entra/conditionalAccess/authenticationStrengths</c>. The
 /// resource name is the <c>displayName</c>; the Graph id is pinned in the state after the first run. Only custom
 /// strengths (<c>policyType: custom</c>) are managed; the built-in ones (<c>Multifactor authentication</c>,
 /// <c>Passwordless MFA</c>, <c>Phishing-resistant MFA</c>) are read-only and can be referenced with
@@ -46,10 +46,10 @@ public sealed class AuthenticationStrengthsProvider : ProviderBase
     public const string ResourceType = "Microsoft.Entra/conditionalAccess/authenticationStrengths";
 
     /// <summary><see cref="ProviderException.Code"/> when Graph refuses to delete a strength that a policy still references.</summary>
-    public const string Referenced = "AuthenticationStrengthReferenced";
+    public const string Referenced = EngineDiagnosticCodes.AuthenticationStrengthReferenced;
 
     /// <summary><see cref="ProviderException.Code"/> when a write is attempted against a built-in strength outside the planner.</summary>
-    public const string BuiltInRejected = "AuthenticationStrengthBuiltIn";
+    public const string BuiltInRejected = EngineDiagnosticCodes.AuthenticationStrengthBuiltIn;
 
     private const string KeyProperty = AuthenticationStrengthsRules.DisplayNameProperty;
 
@@ -82,10 +82,7 @@ public sealed class AuthenticationStrengthsProvider : ProviderBase
             return ToExisting(pinned);
         }
 
-        if (!key.TryGet(KeyProperty, out var name))
-        {
-            throw new ProviderException(EngineDiagnosticCodes.ResourceKeyUnresolved, $"{TypeName}: the key {key.Describe()} carries no displayName.");
-        }
+        string name = ProviderSupport.SingleKey(key, KeyProperty);
 
         var (custom, builtIn) = await FindByDisplayNameAsync(graph, name, key.Api, cancellationToken).ConfigureAwait(false);
         if (custom.Count > 1)
@@ -221,7 +218,7 @@ public sealed class AuthenticationStrengthsProvider : ProviderBase
         }
         catch (GraphException ex) when (ex.Status == HttpStatusCode.BadRequest)
         {
-            // Graph refuses to delete a strength a Conditional Access policy still references (plan section 3.2).
+            // Graph refuses to delete a strength a Conditional Access policy still references.
             throw new ProviderException(
                 Referenced,
                 $"{entry.Id.Id}: Graph refused to delete authentication strength {entry.GraphId} ({ex.Code}: {ex.GraphMessage}). A custom authentication strength cannot be deleted while a Conditional Access policy references it; remove it from the policies' grantControls.authenticationStrength first (built-in strengths can never be deleted).",

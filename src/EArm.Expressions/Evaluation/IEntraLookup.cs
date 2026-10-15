@@ -5,10 +5,9 @@ using System.Threading.Tasks;
 namespace EArm.Expressions.Evaluation;
 
 /// <summary>
-/// Resolves the tenant-dependent ids behind <c>appRole()</c>, <c>permissionScope()</c> and <c>roleTemplate()</c>
-/// (plan section 1.5). The embedded <see cref="EArm.Core.WellKnownIds"/> tables are consulted first by the
-/// functions themselves; this interface answers everything else: app roles and scopes of any resource application by
-/// appId, and custom (or unlisted built-in) role definitions by display name. Implemented live by the engine over
+/// Resolves the tenant-dependent ids behind <c>appRole()</c>, <c>permissionScope()</c> and <c>roleTemplate()</c>. The tenant answer wins: the embedded <see cref="EArm.Core.WellKnownIds"/> Microsoft Graph tables are only
+/// the offline fallback (no tenant, or the tenant could not be asked). This interface answers app roles and scopes of any
+/// resource application by appId, and custom (or unlisted built-in) role definitions by display name. Implemented live by the engine over
 /// <c>IGraphClient</c>; <see cref="PlaceholderEntraLookup"/> is the offline implementation (validation, what-if
 /// without a session) and <see cref="InMemoryEntraLookup"/> a dictionary-backed one for tests.
 /// <para>

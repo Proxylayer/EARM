@@ -1,48 +1,44 @@
 # EArm.Integration.Tests
 
-Real-tenant tests for EARM (work item WI-19). They drive the production stack (`pwsh` -> `az rest` -> Microsoft Graph) against a
+Real-tenant tests for EARM. They drive the production stack (Azure.Identity -> `HttpClient` -> Microsoft Graph) against a
 **dev tenant** and are **skipped cleanly** unless `EARM_IT_TENANT` is set. `test.ps1` leaves this project out of a plain run
-(`SKIP EArm.Integration.Tests (EARM_IT_TENANT is not set)`); naming it with `-Target` always runs it, and every test then skips
-with the reason when the variable is unset.
+(`GATED      EArm.Integration.Tests (not run: EARM_IT_TENANT is not set ...)`: not a pass); naming it with `-Target` always runs
+it, and every test then skips with the reason when the variable is unset (reported as `SKIPPED ... gated by EARM_IT_TENANT`, again not a pass).
 
 Two kinds of tests live here:
 
 | Kind | Classes | Purpose |
 |---|---|---|
 | Scenarios | `ApplicationScenarioTests`, `DirectoryScenarioTests`, `ConditionalAccessScenarioTests`, `RoleScenarioTests`, `AdoptScenarioTests`, `CleanupScenarioTests` | Create, what-if (NoChange), drift, Complete-mode delete, secure outputs, edges and adopt, run through the real CLI in-process (`Program.BuildRootCommand`). |
-| Verification probes (`[Trait("Category","Verify")]`) | `GraphBehaviourProbes` | One test per open verification TODO. Each exercises one real Graph / Azure CLI behaviour the code assumes and asserts the assumption. |
+| Verification probes (`[Trait("Category","Verify")]`) | `GraphBehaviourProbes` | One test per open verification TODO. Each exercises one real Graph behaviour the code assumes and asserts the assumption. |
 
 ## Prerequisites
 
-1. **Azure CLI and PowerShell 7.4+**
-
-   ```powershell
-   winget install Microsoft.AzureCLI
-   winget install Microsoft.PowerShell      # if pwsh is missing
-   ```
+1. **The .NET 10 SDK** (and PowerShell 7.4+ for `build.ps1` / `test.ps1`). No Azure CLI is needed or used.
 
 2. **A dev tenant you can throw objects away in.** Never a production tenant. It needs a **verified domain** (the default
    `*.onmicrosoft.com` domain is fine) and Microsoft Entra ID P1 (or a trial) for the Conditional Access, authentication strength,
    custom role and role-assignable group scenarios. No Azure subscription is needed.
 
-3. **A signed-in Azure CLI session for that tenant**
+3. **A sign-in for that tenant.** The fixture builds the same stack as the CLI: `EARM_AUTH` / `EARM_TENANT_ID` / `EARM_CLIENT_ID` / `EARM_CLOUD` and the `AZURE_*`
+   variables apply (see [docs/cli.md](../../docs/cli.md#signing-in)). Either set a service principal in the environment
 
    ```powershell
-   az login --allow-no-subscriptions --tenant <tenant-id>
+   $env:AZURE_TENANT_ID = '<tenant-id>'; $env:AZURE_CLIENT_ID = '<appId>'; $env:AZURE_CLIENT_SECRET = '<secret>'
    ```
 
-   The preflight (`az version`, `az account show`, `GET /organization`) runs once per test run; when you are not logged in, or logged in
-   to another tenant than `EARM_IT_TENANT`, every test skips with a message saying so.
+   or sign in once with `earm auth login --tenant <tenant-id>`. The preflight (token claims, `GET /organization`) runs once per test run; when nothing signs in, or the
+   token belongs to another tenant than `EARM_IT_TENANT`, every test skips with a message saying so.
 
-4. **Permissions.** What the identity behind `az login` needs is the union of the groups you run (`earm permissions` computes the
+4. **Permissions.** What the signed-in identity needs is the union of the groups you run (`earm permissions` computes the
    same lists from a template; see [docs/permissions.md](../../docs/permissions.md) for the manifest and the privilege-escalation warning).
    Two ways to get them:
 
-   * a **user** who holds Global Administrator (simplest; the Azure CLI's own token is delegated, and it does not carry every granular
-     Graph scope, Conditional Access in particular, so some scenarios may fail with a 403 that names the missing scope), or
-   * a **service principal** with the application permissions below, admin consent granted, then
-     `az login --service-principal -u <appId> -p <secret> --tenant <tenant-id> --allow-no-subscriptions`. This is the better choice for
-     the Conditional Access, role and grant scenarios.
+   * a **user** who holds Global Administrator (simplest; the default public client of `earm auth login` is delegated and does not carry every granular
+     Graph scope, Conditional Access in particular, so some scenarios may fail with a 403 that names the missing scope; register your own public-client
+     app with the delegated permissions and pass `--client-id`), or
+   * a **service principal** with the application permissions below, admin consent granted, signed in through the `AZURE_*` variables above. This is the
+     better choice for the Conditional Access, role and grant scenarios.
 
    | Test group | Graph application permissions |
    |---|---|
@@ -53,7 +49,6 @@ Two kinds of tests live here:
    | `RoleScenarioTests`, adopt (administrative unit) | `RoleManagement.ReadWrite.Directory`, `AdministrativeUnit.ReadWrite.All`, `Group.ReadWrite.All`, `AppRoleAssignment.ReadWrite.All`, `DelegatedPermissionGrant.ReadWrite.All`, `Application.Read.All`, `Application.ReadWrite.All` |
    | Probes | the union of the above; `B4` (user restore) additionally documents whether `User.DeleteRestore.All` is needed |
    | Purging soft-deleted objects (cleanup) | the type's `*.ReadWrite.All`; users may need `User.DeleteRestore.All` |
-
 5. **Test users and guests.** Users are created and deleted by the tests; they need only the verified domain
    (`EARM_IT_DOMAIN`), get no licenses, and are never signed in. `It_Users_GuestWithExtSuffixIsReadByReference` reads an existing guest
    (a user whose UPN contains `#EXT#`): invite one external address by hand (B2B invitation) once; without a guest that test skips.
@@ -62,10 +57,9 @@ Two kinds of tests live here:
 
 | Variable | Required | Meaning |
 |---|---|---|
-| `EARM_IT_TENANT` | yes | Tenant id (GUID) the tests may write to. Unset: everything skips. Must equal the tenant of the `az` session. |
+| `EARM_IT_TENANT` | yes | Tenant id (GUID) the tests may write to. Unset: everything skips. Must equal the tenant of the sign-in. |
 | `EARM_IT_PREFIX` | no | Name prefix of every object the run creates, 10-40 chars of `a-z0-9-` starting with a letter. Default `earm-it-<6 hex>`, new for every run. The cleanup guard only ever touches objects whose name starts with it. |
 | `EARM_IT_DOMAIN` | for user tests | A verified domain for user principal names, for example `contoso.onmicrosoft.com`. Tests that create users skip without it. |
-| `EARM_IT_AZ` | no | `az` command override (path to `az`, `az.cmd` or a script), passed as `--az-command` and used by the fixture's own client. |
 | `EARM_IT_ALLOW_CA` | `=1` | Required for every Conditional Access **policy**, authentication **strength** and **context** test, and for the orders variant. Named locations do not need it. |
 | `EARM_IT_ALLOW_ROLES` | `=1` | Required for the tests that write directory roles, administrative units, role assignments, app role assignments and consent grants (all of `RoleScenarioTests`, the administrative-unit adopt test, the orders variant). |
 | `EARM_IT_SWEEP` | `=1` | Enables `It_Cleanup_ManualSweepOfTheConfiguredPrefix` (see Manual cleanup). |
@@ -86,7 +80,7 @@ pwsh -File test.ps1 -Target EArm.Integration.Tests -Filter "FullyQualifiedName~I
 ```
 
 With `EARM_IT_TENANT` set, `pwsh -File test.ps1` (no `-Target`) also includes this project. All classes share one xUnit collection
-and run sequentially: they share the `az` session and the cleanup guard, and the in-process CLI has static global options.
+and run sequentially: they share the sign-in and the cleanup guard, and the in-process CLI has static global options.
 
 | Test | Needs besides the tenant |
 |---|---|
@@ -149,15 +143,13 @@ $env:EARM_IT_SWEEP  = '1'
 pwsh -File test.ps1 -Target EArm.Integration.Tests -Filter "FullyQualifiedName~It_Cleanup_ManualSweep"
 ```
 
-or with `az` alone (one object type shown; repeat for groups, users, servicePrincipals, `directory/administrativeUnits`):
+or with plain Graph calls (any HTTP client with a Graph token; one object type shown, repeat for groups, users, servicePrincipals, `directory/administrativeUnits`):
 
-```powershell
-$p = 'earm-it-1a2b3c'
-az rest --method GET --url 'https://graph.microsoft.com/v1.0/applications' --url-parameters "`$filter=startswith(displayName,'$p')" --query 'value[].{id:id,name:displayName}' -o table
-az rest --method DELETE --url 'https://graph.microsoft.com/v1.0/applications/<id>'
-az rest --method DELETE --url 'https://graph.microsoft.com/v1.0/directory/deletedItems/<id>'     # purge the soft-deleted copy
 ```
-
+GET    https://graph.microsoft.com/v1.0/applications?$filter=startswith(displayName,'earm-it-1a2b3c')&$select=id,displayName
+DELETE https://graph.microsoft.com/v1.0/applications/<id>
+DELETE https://graph.microsoft.com/v1.0/directory/deletedItems/<id>      # purge the soft-deleted copy
+```
 or with the tool itself, from the kept state directory: `earm deployment delete -n <deployment> --state-dir "%TEMP%\earm-it\<prefix>\state" --delete-resources -y`.
 Conditional Access policies, strengths and named locations are under *Entra ID > Security > Conditional Access* in the portal.
 
@@ -168,7 +160,7 @@ A probe asserts an assumption the code makes and names the file to change; the o
 
 | Probe | Asserts | A red test means |
 |---|---|---|
-| `A` launcher | `%` and `&` in a `--url-parameters` value, spaces, and the Graph token without `--resource` work through the real `az` under `pwsh`; a 3-page `@odata.nextLink` walk returns every item | Fix `src/EArm.Az/Scripts/Invoke-AzRest.ps1`, `AzRequest.cs`, `GraphRequest.ForNextLink` |
+| `A` transport | `%` and `&` and spaces in a `$filter` value survive the percent-encoding, the token is issued for the right tenant and audience, and a 3-page `@odata.nextLink` walk returns every item | Fix `src/EArm.Graph/GraphUrl.cs` (`BuildQuery`) or the paging loop in `HttpGraphClient.cs` |
 | `B1` alternate key + action | `POST /applications/{id}/addPassword` returns `keyId` + `secretText`; the `applications(uniqueName=...)/addPassword` form is **recorded** (works or not), the provider does not depend on it | `PasswordCredentialsProvider.cs`; when the alternate-key form works, the object-id lookup is optional |
 | `B2` role assignment filter | `?$filter=principalId eq '...'` works (what the provider uses); `... and roleDefinitionId eq ...` is **recorded** | `RoleAssignmentsLookup.cs` (only if the single filter fails) |
 | `B3` scope ids | every `WellKnownIds.GraphScopes` / `GraphAppRoles` id equals the live Microsoft Graph service principal's; lists the `Verified: false` entries now confirmed | `src/EArm.Core/WellKnownIds.cs` |
@@ -183,5 +175,5 @@ A probe asserts an assumption the code makes and names the file to change; the o
 | `F4` app role value change | disable PATCH then re-enable-and-change-value PATCH works (a single-PATCH attempt is **recorded**) | `ApplicationsRules.cs` / `ApplicationsProvider.UpdateAsync` |
 | `G` nested nulls | per sub-property of `web`, `api`, `info`, `spa`, `publicClient`: an explicit `null` clears scalars and collections, but not `web.implicitGrantSettings` / `api.requestedAccessTokenVersion`; prints the whole table | the `nullable` map of the applications overlay |
 
-When all probes of a letter are green the matching scribe TODO (WI-01 verification items) can be closed; paste the diagnostic output of
+When all probes of a letter are green the matching verification item can be closed; paste the diagnostic output of
 the **recorded** items into the TODO or into [docs/providers.md](../../docs/providers.md).

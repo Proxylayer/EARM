@@ -5,7 +5,7 @@ using System.Linq;
 using System.Net;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Core;
 using EArm.Core.Secrets;
 using EArm.Engine;
@@ -234,7 +234,13 @@ public sealed class PasswordCredentialFailureTests
         Check.Succeeded(await host.CreateAsync(host.Resources(Template())));
         host.ClearRequests();
 
-        var result = await host.DeleteAllAsync();
+        // The credentials existed before the deployment managed them, so the state records them as adopted; deleting them is explicit (review finding E-02).
+        var kept = await host.DeleteAllAsync();
+        Assert.Equal(0, kept.FailedCount);
+        Assert.Equal(2, kept.RefusedCount); // the application and its credential
+        Assert.DoesNotContain(host.Fake.Writes, w => w.Path.EndsWith("/removePassword", StringComparison.Ordinal));
+
+        var result = await host.DeleteAllAsync(deleteAdopted: true);
 
         Assert.Equal(0, result.FailedCount);
         var removed = host.Fake.Writes.Where(w => w.Path.EndsWith("/removePassword", StringComparison.Ordinal)).Select(w => Check.Body(w)["keyId"]!.GetValue<string>()).ToList();

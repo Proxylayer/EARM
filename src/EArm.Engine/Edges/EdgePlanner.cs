@@ -4,7 +4,7 @@ using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Core.Diagnostics;
 using EArm.Core.Json;
 using EArm.Core.Types;
@@ -13,12 +13,12 @@ using EArm.Engine.Providers;
 using EArm.Engine.State;
 using EArm.Expressions;
 using EArm.Expressions.Values;
-using GraphApi = EArm.Az.GraphApi;
+using GraphApi = EArm.Graph.GraphApi;
 
 namespace EArm.Engine.Edges;
 
 /// <summary>
-/// The edge pass, planning half (plan sections 1.4, 2.4 step 4): re-evaluates the relationship properties of the
+/// The edge pass, planning half: re-evaluates the relationship properties of the
 /// declaring resources against the live resolver (so <c>reference()</c> yields real ids), normalises every entry to
 /// an <see cref="Edge"/>, de-duplicates declarations made from both sides, reads the live state and decides the
 /// adds and removes:
@@ -40,13 +40,19 @@ public sealed class EdgePlanner
     private readonly StateFile? _state;
     private readonly PlanMode _mode;
     private readonly IReadOnlySet<string> _createdGraphIds;
+    private readonly IReadOnlyList<ResourceInstance> _unreliableDeclarers;
     private readonly Dictionary<string, EdgeTargetState> _targets = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, EdgePrincipalState> _principals = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, EdgeOperation> _operations = new(StringComparer.Ordinal);
     private readonly Dictionary<ResourceInstance, EdgeRow> _rows = [];
     private readonly List<Diagnostic> _diagnostics = [];
 
-    public EdgePlanner(DeploymentPlan plan, EdgeGraphContext context, StateFile? state, PlanMode mode, IReadOnlySet<string>? createdGraphIds = null)
+    /// <param name="unreliableDeclarers">
+    /// Resources that are declared (not ignored) but are not part of this pass because they failed, were skipped or could not be planned: their principal-side
+    /// declarations (<c>memberOf</c>, <c>ownerOf</c>, <c>administrativeUnits</c>) are unknown, so a target-side set such a resource could belong to is never pruned
+    /// (adds still happen). Without this, one failed principal under <c>--continue-on-error</c> would have its live memberships and ownerships removed.
+    /// </param>
+    public EdgePlanner(DeploymentPlan plan, EdgeGraphContext context, StateFile? state, PlanMode mode, IReadOnlySet<string>? createdGraphIds = null, IReadOnlyList<ResourceInstance>? unreliableDeclarers = null)
     {
         ArgumentNullException.ThrowIfNull(plan);
         ArgumentNullException.ThrowIfNull(context);
@@ -56,6 +62,7 @@ public sealed class EdgePlanner
         _state = state;
         _mode = mode;
         _createdGraphIds = createdGraphIds ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        _unreliableDeclarers = unreliableDeclarers ?? [];
     }
 
     /// <summary>
@@ -471,9 +478,17 @@ public sealed class EdgePlanner
             set.Property.Children.Add(EdgeRow.CreateChild(declaration));
         }
 
+        string? unsure = UnreliableContributor(set);
+        if (unsure is not null && live.Keys.Any(k => !set.Desired.ContainsKey(k)))
+        {
+            string message = $"{set.Row.Declarer.Describe()}: properties.{set.Property.Name} was not pruned: {unsure} did not apply in this run and may declare entries of this set from the other side, so no live entry was removed. Run the deployment again once it applies.";
+            set.Row.Warnings.Add(message);
+            _diagnostics.Add(Diagnostic.Warning(EngineDiagnosticCodes.EdgePassSkipped, message, set.Row.Declarer.Declaration.Path.Append("properties").Append(set.Property.Name)));
+        }
+
         foreach (var (key, extra) in live)
         {
-            if (set.Desired.ContainsKey(key))
+            if (set.Desired.ContainsKey(key) || unsure is not null)
             {
                 continue;
             }
@@ -486,6 +501,28 @@ public sealed class EdgePlanner
                 await WarnIfSignedInPrincipalAsync(operation, set.Row, api, cancellationToken).ConfigureAwait(false);
             }
         }
+    }
+
+    /// <summary>The description of a declared resource that did not apply and that has a principal-side property of the set's kind in its declaration; <c>null</c> when none could contribute.</summary>
+    private string? UnreliableContributor(AuthoritativeSet set)
+    {
+        foreach (var instance in _unreliableDeclarers)
+        {
+            if (instance.Declaration.Properties is not JsonObject declared)
+            {
+                continue;
+            }
+
+            foreach (var spec in instance.Definition.Relationships)
+            {
+                if (spec.Side == RelationshipSide.Principal && EdgeKinds.TryFromRelationship(spec.Kind, out var kind) && kind == set.Handler.Kind && JsonObjects.TryGetIgnoreCase(declared, spec.Property, out _))
+                {
+                    return instance.Describe();
+                }
+            }
+        }
+
+        return null;
     }
 
     private EdgeRow RowOf(EdgeDeclaration declaration)
@@ -504,6 +541,13 @@ public sealed class EdgePlanner
     {
         var handler = property.Handler;
         var api = row.Declarer.Api;
+        if (_context.AppOnlyToken && handler.UnsupportedWithAppOnlyToken(row.Declarer.Type) is { } unsupported)
+        {
+            // An application token cannot read this side of the relationship (Learn: user-list-ownedobjects): report it and leave the property alone.
+            SkipProperty(row, property, EngineDiagnosticCodes.EdgeUnsupportedInAppMode, $"{row.Declarer.Describe()}: {unsupported}");
+            return;
+        }
+
         if (row.SelfId is null)
         {
             // The principal does not exist yet (what-if create): every declared edge is an add; nothing is recorded yet.
@@ -573,7 +617,8 @@ public sealed class EdgePlanner
             principal ??= await ReadPrincipalAsync(handler, row.SelfId, row.Declarer.Type, api, cancellationToken).ConfigureAwait(false);
             if (!principal.Edges.TryGetValue(targetKey, out var liveExtra))
             {
-                // Already gone: nothing to remove.
+                // Already gone: nothing to remove, nothing left to record.
+                property.GoneRecorded.Add(handler.IdentityOf(recorded));
                 continue;
             }
 
@@ -618,6 +663,12 @@ public sealed class EdgePlanner
         }
 
         var principal = await ReadPrincipalAsync(handler, row.SelfId, row.Declarer.Type, api, cancellationToken).ConfigureAwait(false);
+        if (principal.SkipReason is not null)
+        {
+            SkipProperty(row, property, EngineDiagnosticCodes.ManagerReadForbidden, $"{row.Declarer.Describe()}: {principal.SkipReason}");
+            return;
+        }
+
         string? live = principal.Edges.Keys.FirstOrDefault();
         if (declaration.IsClear)
         {
@@ -650,6 +701,16 @@ public sealed class EdgePlanner
 
         AddOperation(declaration.Edge!, EdgeAction.Add, handler, api, null, [row]);
         property.SingleDelta = new PropertyDelta(path, live is null ? PropertyChangeType.Create : PropertyChangeType.Modify, live is null ? null : JsonValue.Create(live), AfterOf(declaration));
+    }
+
+    /// <summary>Leaves a relationship property alone: no operations, no deltas, the state keeps its record; the reason is a row warning and a diagnostic.</summary>
+    private void SkipProperty(EdgeRow row, EdgePropertyPlan property, string code, string message)
+    {
+        property.IsSkipped = true;
+        property.Children.Clear();
+        property.SingleDelta = null;
+        row.Warnings.Add(message);
+        _diagnostics.Add(Diagnostic.Warning(code, message, row.Declarer.Declaration.Path.Append("properties").Append(property.Name)));
     }
 
     private static JsonNode AfterOf(EdgeDeclaration declaration)

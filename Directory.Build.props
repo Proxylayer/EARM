@@ -8,6 +8,10 @@
     <!-- Code rule: no implicit usings anywhere; every file carries explicit using directives. -->
     <ImplicitUsings>disable</ImplicitUsings>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- .editorconfig style rules (file-scoped namespaces, using placement, braces, accessibility, naming) are enforced by the compiler build, as errors with
+         TreatWarningsAsErrors. AnalysisMode stays Default: Recommended adds ~2,600 CA warnings (mostly CA1707 on xunit test names, then CA1859/CA1861 perf hints). -->
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <AnalysisMode>Default</AnalysisMode>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
     <RootNamespace>$(MSBuildProjectName)</RootNamespace>
     <AssemblyName>$(MSBuildProjectName)</AssemblyName>

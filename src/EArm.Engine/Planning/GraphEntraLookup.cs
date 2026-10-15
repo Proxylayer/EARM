@@ -5,14 +5,14 @@ using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Engine.Providers;
 using EArm.Expressions.Evaluation;
 
 namespace EArm.Engine.Planning;
 
 /// <summary>
-/// The engine's <see cref="IEntraLookup"/> over <see cref="IGraphClient"/> (WI-16): app roles and permission scopes
+/// The engine's <see cref="IEntraLookup"/> over <see cref="IGraphClient"/>: app roles and permission scopes
 /// are read from the resource application's service principal
 /// (<c>GET /servicePrincipals(appId='…')?$select=id,appId,appRoles,oauth2PermissionScopes</c>) or, when no principal
 /// exists yet (an application created in this run), from the application object itself

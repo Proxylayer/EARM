@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
   "contentVersion": "1.0.0.0",
-  "metadata": { "description": "WI-17 golden fixture: Modify rows (scalar, keyed array member, nested object, edge add/remove, manager replaced, deploy-time edge target, immutable change), a NoChange row and a Create row." },
+  "metadata": { "description": "Golden fixture: Modify rows (scalar, keyed array member, nested object, edge add/remove, manager replaced, deploy-time edge target, immutable change), a NoChange row and a Create row." },
   "parameters": {
     "env": { "type": "string", "allowedValues": ["dev", "prod"] },
     "initialPassword": { "type": "securestring" }

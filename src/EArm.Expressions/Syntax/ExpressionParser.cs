@@ -7,7 +7,7 @@ using EArm.Core.Diagnostics;
 namespace EArm.Expressions.Syntax;
 
 /// <summary>
-/// Hand-written recursive-descent parser for template expressions (plan section 2.3):
+/// Hand-written recursive-descent parser for template expressions:
 /// <code>
 /// expr    := primary postfix*
 /// primary := string | number | call

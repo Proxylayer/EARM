@@ -42,16 +42,16 @@
         "properties": {
           "uniqueName": "contoso-dev-retired",
           "displayName": "Retired",
-          "mailEnabled": false,
+          "mailEnabled": true,
           "mailNickname": "retired",
-          "securityEnabled": true,
+          "securityEnabled": false,
           "groupTypes": []
         }
       },
       "unsupportedReason": null,
       "reasons": [
         "not in template; Complete mode deletes it",
-        "this group is not a Microsoft 365 group and is deleted permanently (no 30-day recycle bin); its memberships, owners and role assignments are lost."
+        "this group is a distribution list or a mail-enabled security group and is deleted permanently (no 30-day recycle bin); its memberships, owners and role assignments are lost."
       ]
     }
   ],
@@ -60,7 +60,7 @@
       "level": "Warning",
       "code": "DestructiveDelete",
       "target": null,
-      "message": "'/providers/Microsoft.Entra/groups/contoso-dev-retired': this group is not a Microsoft 365 group and is deleted permanently (no 30-day recycle bin); its memberships, owners and role assignments are lost."
+      "message": "'/providers/Microsoft.Entra/groups/contoso-dev-retired': this group is a distribution list or a mail-enabled security group and is deleted permanently (no 30-day recycle bin); its memberships, owners and role assignments are lost."
     }
   ],
   "requiredPermissions": [

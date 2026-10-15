@@ -3,7 +3,7 @@ using System.Linq;
 using System.Net;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Core.Types;
 using EArm.Engine.Execution;
 using EArm.Engine.Planning;
@@ -14,7 +14,7 @@ using static EArm.Providers.Tests.Infrastructure.DirectoryTemplates;
 
 namespace EArm.Providers.Tests;
 
-/// <summary>The standalone <c>Microsoft.Entra/roleAssignments</c> provider (WI-15, S1–S10) and its what-if rows.</summary>
+/// <summary>The standalone <c>Microsoft.Entra/roleAssignments</c> provider and its what-if rows.</summary>
 public sealed class RoleAssignmentsProviderTests
 {
     private const string AssignmentType = "Microsoft.Entra/roleAssignments";
@@ -136,7 +136,7 @@ public sealed class RoleAssignmentsProviderTests
     }
 
     [Fact]
-    public async Task S5_ACompositeChangeUnderTheSameName_IsDeleteThenPost()
+    public async Task S5_ACompositeChangeUnderTheSameName_IsPostThenDelete()
     {
         var host = NewHost();
         var first = await host.CreateAsync(host.Resources(Join(Alice(), Standalone(AliceRef + ", \"role\": \"Global Reader\""))));
@@ -152,10 +152,11 @@ public sealed class RoleAssignmentsProviderTests
         Assert.Equal(ChangeMode.Recreate, op.Mode);
         var writes = run.Writes;
         Assert.Equal(2, writes.Count);
-        Assert.Equal("DELETE", writes[0].Method);
-        Assert.Equal($"{BuiltInRoles.AssignmentsPath}/{oldId}", writes[0].Path);
-        Assert.Equal("POST", writes[1].Method);
-        Assert.Equal(BuiltInRoles.SecurityReader, Check.Body(writes[1])["roleDefinitionId"]!.GetValue<string>());
+        // Review finding E-06: the replacement is created FIRST and the old assignment deleted second, so a failed create keeps the old one.
+        Assert.Equal("POST", writes[0].Method);
+        Assert.Equal(BuiltInRoles.SecurityReader, Check.Body(writes[0])["roleDefinitionId"]!.GetValue<string>());
+        Assert.Equal("DELETE", writes[1].Method);
+        Assert.Equal($"{BuiltInRoles.AssignmentsPath}/{oldId}", writes[1].Path);
         Assert.NotEqual(oldId, run.Entry(standaloneId).GraphId);
     }
 

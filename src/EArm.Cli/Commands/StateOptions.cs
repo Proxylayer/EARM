@@ -1,6 +1,7 @@
 using System;
 using System.CommandLine;
-using EArm.Az;
+using EArm.Graph;
+using EArm.Cli.Hosting;
 using EArm.Engine.State;
 using Microsoft.Extensions.Logging;
 
@@ -17,7 +18,7 @@ internal sealed record StateInvocation
 
     public required OutputFormat Output { get; init; }
 
-    public required AzOptions Az { get; init; }
+    public required ConnectionSettings Connection { get; init; }
 
     public LogLevel LogLevel { get; init; } = LogLevel.Information;
 
@@ -84,7 +85,7 @@ internal sealed class StateOptions
             TemplateFile = parseResult.GetValue(TemplateFile),
             StateDir = parseResult.GetValue(GlobalOptions.StateDir),
             Output = GlobalOptions.GetOutputFormat(parseResult),
-            Az = GlobalOptions.BuildAzOptions(parseResult, 4),
+            Connection = GlobalOptions.BuildConnection(parseResult, 4),
             LogLevel = GlobalOptions.GetLogLevel(parseResult),
             Yes = parseResult.GetValue(Yes),
         };

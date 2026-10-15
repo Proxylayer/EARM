@@ -49,9 +49,9 @@ public sealed record ReferenceScanResult(IReadOnlyList<ReferenceOccurrence> Occu
 }
 
 /// <summary>
-/// Static reference extraction (plan section 2.3): walks a JSON tree, parses every expression, and evaluates each
+/// Static reference extraction: walks a JSON tree, parses every expression, and evaluates each
 /// <c>reference()</c> / <c>resourceId()</c> call in the static context, plus every <c>appRole()</c> /
-/// <c>permissionScope()</c> whose first argument names a template resource (plan section 1.5, phase 4). A
+/// <c>permissionScope()</c> whose first argument names a template resource. A
 /// <c>reference()</c> whose target cannot be computed from literals, parameters and variables is reported as
 /// <c>ReferenceNotStaticallyResolvable</c> (copy-dependent targets are deferred instead).
 /// <para>
@@ -134,7 +134,7 @@ public static class ReferenceScanner
         {
             scan.Visit(root, evaluationContext.LambdaScope);
         }
-        catch (ExpressionEvaluationException ex) when (ex.Code == DiagnosticCodes.ExpressionTooDeep)
+        catch (ExpressionException ex)
         {
             diagnostics.Add(Diagnostic.Error(ex.Code, ex.MessageWithOffset, path, context.Document.LocationOf(path), context.Document.SourcePath));
         }
@@ -189,7 +189,7 @@ public static class ReferenceScanner
             {
                 result = evaluator.EvaluateCall(call, scoped);
             }
-            catch (ExpressionEvaluationException ex)
+            catch (ExpressionException ex)
             {
                 Report(Diagnostic.Error(ex.Code, ex.MessageWithOffset, path, context.Document.LocationOf(path), context.Document.SourcePath));
                 return;
@@ -270,7 +270,7 @@ public static class ReferenceScanner
             {
                 result = evaluator.EvaluateCall(call, scoped);
             }
-            catch (ExpressionEvaluationException)
+            catch (ExpressionException)
             {
                 // Reported by the validator's expression walk / by the enclosing reference() scan.
                 return;
@@ -326,7 +326,7 @@ public static class ReferenceScanner
             {
                 result = evaluator.EvaluateCall(call, scoped);
             }
-            catch (ExpressionEvaluationException ex)
+            catch (ExpressionException ex)
             {
                 Report(Diagnostic.Error(ex.Code, ex.MessageWithOffset, path, context.Document.LocationOf(path), context.Document.SourcePath));
                 return;

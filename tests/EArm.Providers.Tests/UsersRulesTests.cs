@@ -8,7 +8,7 @@ using Xunit;
 
 namespace EArm.Providers.Tests;
 
-/// <summary>Pure rules of the users provider (WI-13): UPN shape, mailNickname, secret tainting, password generation, defaults, body clean-ups and licensing views.</summary>
+/// <summary>Pure rules of the users provider: UPN shape, mailNickname, secret tainting, password generation, defaults, body clean-ups and licensing views.</summary>
 public sealed class UsersRulesTests
 {
     private const string Sku = "6fd2c87f-b296-42f0-b197-1e91e994b900";

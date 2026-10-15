@@ -10,7 +10,7 @@ using Xunit;
 
 namespace EArm.Tests;
 
-/// <summary>Group 7 (WI-16): user-defined functions (the template's <c>functions</c> section) following the ARM rules.</summary>
+/// <summary>Group 7: user-defined functions (the template's <c>functions</c> section) following the ARM rules.</summary>
 public sealed class UserFunctionTests
 {
     private const string Functions = """

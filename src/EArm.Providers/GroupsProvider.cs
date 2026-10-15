@@ -1,22 +1,24 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Core.Json;
+using EArm.Core.Secrets;
 using EArm.Core.Types;
 using EArm.Engine;
 using EArm.Engine.Providers;
 using EArm.Engine.State;
 using EArm.Expressions.Values;
-using GraphApi = EArm.Az.GraphApi;
+using GraphApi = EArm.Graph.GraphApi;
 
 namespace EArm.Providers;
 
 /// <summary>
-/// <c>Microsoft.Entra/groups</c> (plan section 3.2). The resource name is the Graph <c>uniqueName</c>:
+/// <c>Microsoft.Entra/groups</c>. The resource name is the Graph <c>uniqueName</c>:
 /// read <c>GET /groups(uniqueName='…')</c> (pinned id first), upsert <c>PATCH /groups(uniqueName='…')</c> with
 /// <c>Prefer: create-if-missing</c>, update <c>PATCH /groups/{id}</c>, delete <c>DELETE /groups/{id}</c>.
 /// Kinds: security (<c>groupTypes: []</c>, <c>mailEnabled: false</c>, <c>securityEnabled: true</c>), Microsoft 365
@@ -27,8 +29,9 @@ namespace EArm.Providers;
 /// <c>Unified</c> presence in <c>groupTypes</c>, <c>visibility: HiddenMembership</c>. A dynamic toggle or rule
 /// change pauses membership processing first. <c>assignedLicenses</c> (group-based licensing) is applied as an
 /// action after the object write; <c>members</c>, <c>owners</c>, <c>memberOf</c>, <c>administrativeUnits</c> are
-/// applied by the edge pass. Security groups are deleted permanently (Microsoft 365 groups are soft-deleted);
-/// the delete warns.
+/// applied by the edge pass. Security (dynamic ones included) and Microsoft 365 groups are soft-deleted and keep their keys for
+/// 30 days (Learn group-delete): a create probes the recycle bin and conflicts, or restores with <c>--on-soft-deleted-conflict restore</c>;
+/// only distribution lists and mail-enabled security groups (adopt-only) are deleted permanently, and that delete warns.
 /// </summary>
 [EntraProvider("Microsoft.Entra/groups")]
 public sealed class GroupsProvider : ProviderBase, IDeleteWarningSource
@@ -39,7 +42,7 @@ public sealed class GroupsProvider : ProviderBase, IDeleteWarningSource
     private static readonly string[] ManagedSelect =
     [
         "id", "uniqueName", "displayName", "description", "mailEnabled", "mailNickname", "securityEnabled", "groupTypes",
-        "isAssignableToRole", "visibility", "membershipRule", "membershipRuleProcessingState", "mail", "assignedLicenses",
+        "isAssignableToRole", "visibility", "membershipRule", "membershipRuleProcessingState", "mail", "assignedLicenses", "createdDateTime",
     ];
 
     private static readonly JsonPath GroupTypesPath = JsonPath.Of("properties", "groupTypes");
@@ -48,6 +51,9 @@ public sealed class GroupsProvider : ProviderBase, IDeleteWarningSource
     private static readonly JsonPath LicensesPath = JsonPath.Of("properties", "assignedLicenses");
 
     private readonly GroupsLicensing _licensing = new();
+
+    /// <summary>The top-level properties each template declares, selected next to <see cref="ManagedSelect"/> on its reads (G-08).</summary>
+    private readonly DeclaredSelects _selects = new();
 
     // Deployment-wide knob captured from PlanOptions in Plan(); CreateAsync has no access to the options otherwise.
     private SoftDeletedConflict _onSoftDeletedConflict = SoftDeletedConflict.Error;
@@ -101,7 +107,10 @@ public sealed class GroupsProvider : ProviderBase, IDeleteWarningSource
 
         if (Declares(edges, "assignedLicenses"))
         {
-            permissions.Add("Organization.Read.All");
+            // Learn (group-assignlicense, subscribedsku-list): assignLicense needs LicenseAssignment.ReadWrite.All, resolving skuPartNumber reads
+            // GET /subscribedSkus (LicenseAssignment.Read.All); Organization.Read.All is not needed.
+            permissions.Add("LicenseAssignment.ReadWrite.All");
+            permissions.Add("LicenseAssignment.Read.All");
         }
 
         return permissions;
@@ -112,6 +121,13 @@ public sealed class GroupsProvider : ProviderBase, IDeleteWarningSource
         return JsonObjects.TryGetIgnoreCase(properties, name, out var value) && !JsonObjects.IsAbsent(value);
     }
 
+    public override ResourceKey ResolveKey(ResourceInstance desired)
+    {
+        var key = base.ResolveKey(desired);
+        _selects.Register(key, Definition, desired);
+        return key;
+    }
+
     // ---- read ----
 
     public override async Task<ExistingResource?> ReadAsync(ResourceKey key, string? stateId, IGraphClient graph, CancellationToken cancellationToken)
@@ -120,12 +136,13 @@ public sealed class GroupsProvider : ProviderBase, IDeleteWarningSource
         ArgumentNullException.ThrowIfNull(graph);
 
         JsonObject? live = null;
+        var select = _selects.For(key, ManagedSelect);
         if (stateId is not null)
         {
-            live = await graph.GetAsync(new GraphRequest(Collection + "/" + GraphPath.Segment(stateId), key.Api).WithSelect(ManagedSelect), cancellationToken).ConfigureAwait(false) as JsonObject;
+            live = await graph.GetAsync(new GraphRequest(Collection + "/" + GraphPath.Segment(stateId), key.Api).WithSelect(select), cancellationToken).ConfigureAwait(false) as JsonObject;
         }
 
-        live ??= await graph.GetAsync(new GraphRequest(AlternateKeyPath(key), key.Api).WithSelect(ManagedSelect), cancellationToken).ConfigureAwait(false) as JsonObject;
+        live ??= await GetByUniqueNameAsync(graph, key, select, cancellationToken).ConfigureAwait(false);
         if (live is null)
         {
             return null;
@@ -176,7 +193,8 @@ public sealed class GroupsProvider : ProviderBase, IDeleteWarningSource
 
             if (!change.HasError && IsDynamicChange(change, liveTypes, desiredTypes))
             {
-                if (analysis.IsDynamic && !analysis.HasMembershipRule && !JsonObjects.TryGetIgnoreCase(existing.Properties, "membershipRule", out _))
+                // A live group without a rule reads back membershipRule: null (Graph returns nulls for selected properties), which is no rule.
+                if (analysis.IsDynamic && !analysis.HasMembershipRule && !(JsonObjects.TryGetIgnoreCase(existing.Properties, "membershipRule", out var liveRule) && !JsonObjects.IsAbsent(liveRule)))
                 {
                     change = Unsupported(change, $"{desired.Describe()}: a dynamic group (groupTypes contains 'DynamicMembership') requires 'membershipRule'.");
                 }
@@ -202,7 +220,7 @@ public sealed class GroupsProvider : ProviderBase, IDeleteWarningSource
         return ruleChange || (typesChange && GroupsShape.DynamicPresenceDiffers(liveTypes, desiredTypes));
     }
 
-    /// <summary>Adds the <c>properties.assignedLicenses</c> array delta (plan section 1.4: action-backed, applied after the object write).</summary>
+    /// <summary>Adds the <c>properties.assignedLicenses</c> array delta (action-backed, applied after the object write).</summary>
     private ResourceChange WithLicenseDelta(ResourceChange change, ResourceInstance desired, ExistingResource? existing)
     {
         if (!JsonObjects.TryGetIgnoreCase(desired.EdgeProperties, "assignedLicenses", out var declared) || declared is null)
@@ -259,30 +277,128 @@ public sealed class GroupsProvider : ProviderBase, IDeleteWarningSource
         }
 
         var body = BuildCreateBody(desired);
-        GroupsShape.ApplyCreateDefaults(body, key.Single, analysis);
-
-        if (analysis.IsUnified)
+        string uniqueName = ProviderSupport.SingleKey(key, "uniqueName");
+        GroupsShape.ApplyCreateDefaults(body, uniqueName, analysis);
+        RemoveUniqueName(body);
+        var warnings = new List<ProviderWarning>();
+        if (analysis.IsUnified && !AddOwnersAtCreate(body, desired))
         {
-            // Plan section 3.1: a soft-deleted Microsoft 365 group keeps its keys for 30 days.
-            var deleted = await FindSoftDeletedAsync(key.Single, JsonObjects.GetString(body, "mailNickname"), desired.Api, graph, cancellationToken).ConfigureAwait(false);
-            if (deleted is not null)
-            {
-                return await RestoreOrFailAsync(desired, key, body, deleted, graph, cancellationToken).ConfigureAwait(false);
-            }
+            warnings.Add(new ProviderWarning(ProviderWarnings.GroupHasNoOwnerAtCreate, $"{desired.Describe()} is a Microsoft 365 group created without owners: with an application token Graph creates it anonymously (no owner, and the SharePoint site may not be provisioned until an owner exists). Declare properties.owners."));
+        }
+        else if (!analysis.IsUnified)
+        {
+            AddOwnersAtCreate(body, desired);
+        }
+
+        // Security and Microsoft 365 groups both sit in the recycle bin for 30 days and keep their keys there (Learn group-delete).
+        var deleted = analysis.IsUnified
+            ? await FindSoftDeletedAsync(uniqueName, JsonObjects.GetString(body, "mailNickname"), desired.Api, graph, warnings, cancellationToken).ConfigureAwait(false)
+            : await DeletedItemsProbe.FindAsync(graph, DeletedGroups, "group", "uniqueName", uniqueName, ["id", "displayName", "uniqueName", "mailNickname", "deletedDateTime"], desired.Api, advanced: false, warnings, cancellationToken).ConfigureAwait(false);
+        if (deleted is not null)
+        {
+            return await RestoreOrFailAsync(desired, key, body, deleted, analysis, graph, warnings, cancellationToken).ConfigureAwait(false);
         }
 
         string path = AlternateKeyPath(key);
         var response = await graph.PatchAsync(new GraphRequest(path, desired.Api, hint: desired.RetryHint).WithPrefer("create-if-missing"), body, cancellationToken).ConfigureAwait(false);
         var live = response.Body as JsonObject
-            ?? await graph.GetAsync(new GraphRequest(path, desired.Api, hint: RetryHint.ExpectReplicationLag).WithSelect(ManagedSelect), cancellationToken).ConfigureAwait(false) as JsonObject
+            ?? await graph.GetAsync(new GraphRequest(path, desired.Api, hint: RetryHint.ExpectReplicationLag).WithSelect(_selects.For(key, ManagedSelect)), cancellationToken).ConfigureAwait(false) as JsonObject
             ?? throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{TypeName}: the upsert of '{desired.Name}' returned no object.", desired.Id);
         string id = RequireId(live, desired);
 
-        await ApplyLicensesAsync(desired, id, null, graph, cancellationToken).ConfigureAwait(false);
-        return new AppliedResource(desired.Id, id, live, key, Extra(analysis));
+        // A failure here leaves a group that exists: the partial result goes with the exception so the executor records the object instead of losing it.
+        var created = new AppliedResource(desired.Id, id, live, key, Extra(analysis)) { Warnings = warnings };
+        await ApplyLicensesOrPartialAsync(desired, id, null, created, "created", graph, cancellationToken).ConfigureAwait(false);
+        return created;
     }
 
-    private async Task<JsonObject?> FindSoftDeletedAsync(string uniqueName, string? mailNickname, GraphApi api, IGraphClient graph, CancellationToken cancellationToken)
+    /// <summary>
+    /// Applies the declared licenses after the object write; a failure is rethrown carrying <paramref name="written"/> (<see cref="ProviderException.Partial"/>),
+    /// because the group exists whatever happened to its licenses (review round 3).
+    /// </summary>
+    private async Task ApplyLicensesOrPartialAsync(ResourceInstance desired, string graphId, JsonObject? live, AppliedResource written, string verb, IGraphClient graph, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await ApplyLicensesAsync(desired, graphId, live, graph, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is GraphException or GraphTransportException or ProviderException { Partial: null })
+        {
+            throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{desired.Describe()}: the group was {verb} (id {graphId}) but assigning its licenses failed: {ex.Message}", desired.Id, ex) { Partial = written };
+        }
+    }
+
+    /// <summary>
+    /// Learn (group-upsert / group-post-groups): a group created with an application token and without owners is created
+    /// anonymously. When the template declares <c>owners</c> they are bound in the create body (<c>owners@odata.bind</c>, at most 20,
+    /// object ids only); the edge pass stays authoritative afterwards. True when at least one owner was bound.
+    /// </summary>
+    private static bool AddOwnersAtCreate(JsonObject body, ResourceInstance desired)
+    {
+        if (!JsonObjects.TryGetIgnoreCase(desired.EdgeProperties, "owners", out var declared) || declared is not JsonArray owners)
+        {
+            return false;
+        }
+
+        string prefix = desired.Api.BaseUrl() + "/directoryObjects/";
+        var bound = new JsonArray();
+        foreach (var owner in owners)
+        {
+            if (owner is not null && !SecretJson.IsSecret(owner) && !UnknownJson.IsUnknown(owner) && JsonValues.TryGetString(owner, out var id) && Guid.TryParse(id, out _) && bound.Count < 20)
+            {
+                bound.Add(prefix + id);
+            }
+        }
+
+        if (bound.Count == 0)
+        {
+            return false;
+        }
+
+        body["owners@odata.bind"] = bound;
+        return true;
+    }
+
+    /// <summary>The upsert addresses the group by its <c>uniqueName</c> (the URL key); Graph documents it as read-only, so it is never sent in the body.</summary>
+    private static void RemoveUniqueName(JsonObject body)
+    {
+        if (JsonObjects.FindKey(body, "uniqueName") is { } key)
+        {
+            body.Remove(key);
+        }
+    }
+
+    /// <summary>
+    /// <c>GET /groups(uniqueName='…')</c>. <c>uniqueName</c> is documented as an alternate key for the upsert only, so a tenant that
+    /// rejects the key form (400) is asked with <c>$filter=uniqueName eq '…'</c> (advanced query). A 404 stays "does not exist".
+    /// </summary>
+    private static async Task<JsonObject?> GetByUniqueNameAsync(IGraphClient graph, ResourceKey key, string[] select, CancellationToken cancellationToken)
+    {
+        string uniqueName = ProviderSupport.SingleKey(key, "uniqueName");
+        try
+        {
+            return await graph.GetAsync(new GraphRequest(AlternateKeyPath(key), key.Api).WithSelect(select), cancellationToken).ConfigureAwait(false) as JsonObject;
+        }
+        catch (GraphException ex) when (ex.Status == HttpStatusCode.BadRequest)
+        {
+            var request = new GraphRequest(Collection, key.Api)
+                .WithFilter("uniqueName eq '" + ProviderSupport.EscapeLiteral(uniqueName) + "'")
+                .WithCount()
+                .WithConsistencyLevelEventual()
+                .WithSelect(select);
+            await foreach (var item in graph.GetAllPagesAsync(request, cancellationToken).ConfigureAwait(false))
+            {
+                if (item is JsonObject match && string.Equals(JsonObjects.GetString(match, "uniqueName"), uniqueName, StringComparison.OrdinalIgnoreCase))
+                {
+                    return match;
+                }
+            }
+
+            return null;
+        }
+    }
+
+    private async Task<JsonObject?> FindSoftDeletedAsync(string uniqueName, string? mailNickname, GraphApi api, IGraphClient graph, List<ProviderWarning> warnings, CancellationToken cancellationToken)
     {
         if (string.IsNullOrEmpty(mailNickname))
         {
@@ -293,13 +409,14 @@ public sealed class GroupsProvider : ProviderBase, IDeleteWarningSource
         try
         {
             var request = new GraphRequest(DeletedGroups, api)
-                .WithFilter($"mailNickname eq '{mailNickname.Replace("'", "''", StringComparison.Ordinal)}'")
+                .WithFilter($"mailNickname eq '{ProviderSupport.EscapeLiteral(mailNickname)}'")
                 .WithSelect("id", "displayName", "uniqueName", "mailNickname", "deletedDateTime");
             page = await graph.GetAsync(request, cancellationToken).ConfigureAwait(false);
         }
-        catch (GraphException)
+        catch (GraphException ex)
         {
-            // The probe is best effort: a tenant that refuses the query must not block creates.
+            // The probe is best effort: a tenant (or an identity without Group.Read.All) that refuses the query must not block creates.
+            warnings.Add(ProviderSupport.ProbeSkipped("group", mailNickname, ex));
             return null;
         }
 
@@ -319,10 +436,11 @@ public sealed class GroupsProvider : ProviderBase, IDeleteWarningSource
         return null;
     }
 
-    private async Task<AppliedResource> RestoreOrFailAsync(ResourceInstance desired, ResourceKey key, JsonObject body, JsonObject deleted, IGraphClient graph, CancellationToken cancellationToken)
+    private async Task<AppliedResource> RestoreOrFailAsync(ResourceInstance desired, ResourceKey key, JsonObject body, JsonObject deleted, GroupsShape.Analysis analysis, IGraphClient graph, List<ProviderWarning> warnings, CancellationToken cancellationToken)
     {
         string deletedId = JsonObjects.GetId(deleted) ?? "?";
-        string description = $"a soft-deleted Microsoft 365 group '{JsonObjects.GetString(deleted, "displayName")}' ({deletedId}, deleted {JsonObjects.GetString(deleted, "deletedDateTime") ?? "recently"}) still holds mailNickname '{JsonObjects.GetString(deleted, "mailNickname")}'";
+        string held = analysis.IsUnified ? $"mailNickname '{JsonObjects.GetString(deleted, "mailNickname")}'" : $"uniqueName '{JsonObjects.GetString(deleted, "uniqueName")}'";
+        string description = $"a soft-deleted {(analysis.IsUnified ? "Microsoft 365" : "security")} group '{JsonObjects.GetString(deleted, "displayName")}' ({deletedId}, deleted {JsonObjects.GetString(deleted, "deletedDateTime") ?? "recently"}) still holds {held}";
         if (_onSoftDeletedConflict != SoftDeletedConflict.Restore)
         {
             throw new ProviderException(ProviderException.SoftDeletedConflict, $"{desired.Describe()} cannot be created: {description}. Restore it with --on-soft-deleted-conflict restore, or purge it from the recycle bin (DELETE /directory/deletedItems/{deletedId}).", desired.Id);
@@ -333,11 +451,13 @@ public sealed class GroupsProvider : ProviderBase, IDeleteWarningSource
         string path = Collection + "/" + GraphPath.Segment(id);
         var patch = (JsonObject)body.DeepClone();
         patch.Remove(JsonObjects.FindKey(patch, "mailNickname") ?? "mailNickname");
+        patch.Remove("owners@odata.bind");
         await graph.PatchAsync(new GraphRequest(path, desired.Api, hint: RetryHint.ExpectReplicationLag), patch, cancellationToken).ConfigureAwait(false);
-        var live = await graph.GetAsync(new GraphRequest(path, desired.Api, hint: RetryHint.ExpectReplicationLag).WithSelect(ManagedSelect), cancellationToken).ConfigureAwait(false) as JsonObject
+        var live = await graph.GetAsync(new GraphRequest(path, desired.Api, hint: RetryHint.ExpectReplicationLag).WithSelect(_selects.For(key, ManagedSelect)), cancellationToken).ConfigureAwait(false) as JsonObject
             ?? throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{TypeName}: '{desired.Name}' vanished after being restored.", desired.Id);
-        await ApplyLicensesAsync(desired, id, live, graph, cancellationToken).ConfigureAwait(false);
-        return new AppliedResource(desired.Id, id, live, key, Extra(GroupsShape.Analyze(live)));
+        var restoredResult = new AppliedResource(desired.Id, id, live, key, Extra(GroupsShape.Analyze(live))) { Warnings = warnings };
+        await ApplyLicensesOrPartialAsync(desired, id, live, restoredResult, "restored", graph, cancellationToken).ConfigureAwait(false);
+        return restoredResult;
     }
 
     // ---- update ----
@@ -364,7 +484,7 @@ public sealed class GroupsProvider : ProviderBase, IDeleteWarningSource
         {
             if (GroupsShape.GroupTypesContain(liveTypes, GroupsShape.DynamicMembership))
             {
-                // Plan section 3.2: pause processing before the rule or the dynamic flag changes.
+                // Pause processing before the rule or the dynamic flag changes.
                 await graph.PatchAsync(new GraphRequest(path, desired.Api, hint: desired.RetryHint), new JsonObject { ["membershipRuleProcessingState"] = GroupsShape.ProcessingPaused }, cancellationToken).ConfigureAwait(false);
             }
 
@@ -379,7 +499,7 @@ public sealed class GroupsProvider : ProviderBase, IDeleteWarningSource
             await graph.PatchAsync(new GraphRequest(path, desired.Api, hint: desired.RetryHint), body, cancellationToken).ConfigureAwait(false);
         }
 
-        var live = await graph.GetAsync(new GraphRequest(path, desired.Api).WithSelect(ManagedSelect), cancellationToken).ConfigureAwait(false) as JsonObject
+        var live = await graph.GetAsync(new GraphRequest(path, desired.Api).WithSelect(_selects.For(key, ManagedSelect)), cancellationToken).ConfigureAwait(false) as JsonObject
             ?? throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{TypeName}: '{desired.Name}' vanished after the update.", desired.Id);
 
         await ApplyLicensesAsync(desired, existing.GraphId, existing.Raw, graph, cancellationToken).ConfigureAwait(false);
@@ -396,7 +516,10 @@ public sealed class GroupsProvider : ProviderBase, IDeleteWarningSource
         return graph.DeleteAsync(new GraphRequest(Collection + "/" + GraphPath.Segment(entry.GraphId), api), cancellationToken);
     }
 
-    /// <summary>Plan section 3.2: security groups (and every non-Microsoft 365 kind) are deleted permanently.</summary>
+    /// <summary>
+    /// Only the kinds Learn (group-delete) does not list as restorable are deleted permanently: distribution lists, and mail-enabled security groups
+    /// (adopt-only, Exchange-backed). Security and Microsoft 365 groups wait 30 days in the recycle bin, so they carry no warning.
+    /// </summary>
     public string? DescribeDeleteRisk(StateEntry entry, ExistingResource? existing)
     {
         ArgumentNullException.ThrowIfNull(entry);
@@ -407,18 +530,18 @@ public sealed class GroupsProvider : ProviderBase, IDeleteWarningSource
         }
         else if (JsonObjects.GetString(entry.Extra, "kind") is { } kind)
         {
-            permanent = !kind.Equals("microsoft365", StringComparison.OrdinalIgnoreCase);
+            permanent = kind.Equals("distribution", StringComparison.OrdinalIgnoreCase) || kind.Equals("mailEnabledSecurity", StringComparison.OrdinalIgnoreCase);
         }
         else
         {
-            permanent = true;
+            // Nothing says which kind it was: it was created by EARM (security or Microsoft 365), both recoverable for 30 days.
+            permanent = false;
         }
 
         return permanent
-            ? "this group is not a Microsoft 365 group and is deleted permanently (no 30-day recycle bin); its memberships, owners and role assignments are lost."
+            ? "this group is a distribution list or a mail-enabled security group and is deleted permanently (no 30-day recycle bin); its memberships, owners and role assignments are lost."
             : null;
     }
-
     // ---- helpers ----
 
     private async Task ApplyLicensesAsync(ResourceInstance desired, string graphId, JsonObject? live, IGraphClient graph, CancellationToken cancellationToken)
@@ -444,7 +567,7 @@ public sealed class GroupsProvider : ProviderBase, IDeleteWarningSource
 
     private static string AlternateKeyPath(ResourceKey key)
     {
-        return GraphPath.AlternateKey(Collection, "uniqueName", key.Single);
+        return GraphPath.AlternateKey(Collection, "uniqueName", ProviderSupport.SingleKey(key, "uniqueName"));
     }
 
     private string RequireId(JsonObject live, ResourceInstance desired)

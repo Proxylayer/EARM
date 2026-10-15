@@ -6,17 +6,24 @@
     dotnet test runs in Microsoft.Testing.Platform mode (opted in via global.json "test.runner"; xunit.v3 4.x no
     longer supports the VSTest path on the .NET 10 SDK). The script builds once (solution, or the single -Target
     project), then runs each selected test project with dotnet test --project ... --no-build.
-    Simple mode (default) prints one PASS / FAIL / NO TESTS line per project plus the names of failing tests;
+    Simple mode (default) prints one PASS / FAIL / NO TESTS / SKIPPED / GATED line per project plus the names of failing tests;
+    GATED means a project was not run (the integration project without EARM_IT_TENANT), SKIPPED that it ran but every test skipped
+    (for example the integration project named explicitly without a tenant): neither is a pass;
     -Detailed streams the full dotnet test output (--output Detailed) instead.
     -Target runs one test project: a project name such as EArm.Tests, or a path to a .csproj.
     -Filter is passed through as the VSTest-syntax filter expression supported by xunit.v3
-    (for example "FullyQualifiedName~CliSmokeTests").
+    (for example "FullyQualifiedName~CliSmokeTests"). Test namespaces do not follow the folders (EArm.Tests.Core is not the Core folder), so
+    filter on class names (FullyQualifiedName~Review1C_BudgetTests) or traits (Category=Timing).
     EArm.Integration.Tests (real tenant) is skipped unless the EARM_IT_TENANT environment variable is
     set, or it is named explicitly via -Target.
     -Coverage adds Microsoft.Testing.Extensions.CodeCoverage collection and writes one Cobertura XML per project to
     artifacts/test-results/<project>.cobertura.xml (dev-time measurement; see tests/COVERAGE.md).
-    A project with zero tests is reported as NO TESTS and does not fail the run (MTP exit code 8 is ignored).
-    Exit code is non-zero when the build fails or any selected project has failing tests.
+    A project with zero tests is reported as NO TESTS and does not fail the run (MTP exit code 8 is ignored); but a -Filter that matches no test in any
+    selected project exits 3 with a message (a silent green run for a typo is worse than a failure).
+    Tests that assert wall-clock bounds carry [Trait("Category", "Timing")]. Without -Filter, each project runs everything else in parallel first,
+    then the Timing tests alone and serially (reported as "<project> [timing, serial]"), so the rest of the suite cannot distort them.
+    -SkipTiming skips that second pass (useful on an overloaded machine or while iterating). With -Filter the expression is used as is, in one pass.
+    Exit code is non-zero (3 for an empty -Filter match) when the build fails or any selected project has failing tests.
 .EXAMPLE
     pwsh -File test.ps1
 .EXAMPLE
@@ -30,6 +37,7 @@ param(
     [string]$Target,
     [string]$Filter,
     [switch]$Coverage,
+    [switch]$SkipTiming,
     [ValidateSet('Debug', 'Release')]
     [string]$Configuration = 'Debug'
 )
@@ -119,7 +127,7 @@ else {
     $gateValue = [System.Environment]::GetEnvironmentVariable($integrationGateVariable)
     if ([string]::IsNullOrWhiteSpace($gateValue)) {
         $projects = @($projects | Where-Object { [System.IO.Path]::GetFileNameWithoutExtension($_) -ne $integrationProjectName })
-        Write-Host "SKIP       $integrationProjectName ($integrationGateVariable is not set)"
+        Write-Host "GATED      $integrationProjectName (not run: $integrationGateVariable is not set; it writes to a real dev tenant, see tests/EArm.Integration.Tests/README.md)"
     }
 
     $buildTarget = Join-Path $repoRoot 'EArm.slnx'
@@ -138,25 +146,46 @@ if ($Detailed) {
     $buildArgs += @('--verbosity', 'normal')
 }
 else {
-    $buildArgs += @('--verbosity', 'quiet', '-clp:ErrorsOnly')
+    $buildArgs += @('--verbosity', 'quiet', '-tl:off', '-clp:ErrorsOnly')
 }
 
-& dotnet @buildArgs
+# Simple mode captures the build output (the dotnet CLI always appends a 'Build succeeded. 0 Warning(s)' banner) and shows it only on failure.
+if ($Detailed) {
+    & dotnet @buildArgs
+}
+else {
+    $buildOutput = @(& dotnet @buildArgs 2>&1 | ForEach-Object { "$_" })
+}
 if ($LASTEXITCODE -ne 0) {
+    if (-not $Detailed) {
+        $buildOutput | ForEach-Object { Write-Host $_ }
+    }
     Write-Host "TEST FAIL  build of $([System.IO.Path]::GetFileName($buildTarget)) exited with code $LASTEXITCODE"
     exit $LASTEXITCODE
 }
 
 # ---- Run each project ---------------------------------------------------------------------------------------
-$overallExitCode = 0
+# One "pass" is one dotnet test invocation of one project. Without -Filter every project runs two passes: everything except the
+# tests tagged [Trait("Category", "Timing")] in parallel, then the Timing tests alone and serially (--parallel none), so a wall-clock
+# bound is not distorted by the rest of the suite. -SkipTiming drops the second pass. With -Filter the expression is passed through
+# as is, in one pass (a VSTest filter cannot be combined with the trait filters).
+$timingTrait = 'Category=Timing'
 
-foreach ($project in $projects) {
-    $projectName = [System.IO.Path]::GetFileNameWithoutExtension($project)
+function Invoke-TestPass {
+    param(
+        [Parameter(Mandatory)][string]$Project,
+        [Parameter(Mandatory)][string]$Label,
+        [Parameter(Mandatory)][string[]]$Selection,
+        [Parameter(Mandatory)][string]$ArtifactName,
+        [switch]$QuietWhenEmpty
+    )
+
+    $projectName = [System.IO.Path]::GetFileNameWithoutExtension($Project)
 
     # dotnet test options first, then "--", then options forwarded to the test application (MTP + xunit.v3).
     $testArgs = @(
         'test',
-        '--project', $project,
+        '--project', $Project,
         '--configuration', $Configuration,
         '--no-build',
         '--results-directory', $resultsDir
@@ -171,27 +200,21 @@ foreach ($project in $projects) {
     $testArgs += @(
         '--',
         '--report-xunit-trx',
-        '--report-xunit-trx-filename', "$projectName.trx",
+        '--report-xunit-trx-filename', "$ArtifactName.trx",
         '--ignore-exit-code', "$zeroTestsExitCode"
     )
-    if ($Filter) {
-        $testArgs += @('--filter', $Filter)
-    }
+    $testArgs += $Selection
     if ($Coverage) {
-        $testArgs += @('--coverage', '--coverage-output-format', 'cobertura', '--coverage-output', "$projectName.cobertura.xml")
+        $testArgs += @('--coverage', '--coverage-output-format', 'cobertura', '--coverage-output', "$ArtifactName.cobertura.xml")
     }
 
     if ($Detailed) {
-        Write-Host "---- $projectName ----"
-        & dotnet @testArgs
-        $exitCode = $LASTEXITCODE
-        if ($exitCode -ne 0) {
-            $overallExitCode = $exitCode
-        }
-        continue
+        Write-Host "---- $Label ----"
+        $lines = @(& dotnet @testArgs 2>&1 | ForEach-Object { Write-Host "$_"; "$_" })
     }
-
-    $lines = @(& dotnet @testArgs 2>&1 | ForEach-Object { "$_" })
+    else {
+        $lines = @(& dotnet @testArgs 2>&1 | ForEach-Object { "$_" })
+    }
     $exitCode = $LASTEXITCODE
     $text = $lines -join "`n"
 
@@ -201,20 +224,40 @@ foreach ($project in $projects) {
     $skipped = Get-SummaryCount -Text $text -Label 'skipped'
 
     if ($total -lt 0) {
-        Write-Host "FAIL       $projectName produced no test summary (exit $exitCode)"
-        $lines | Select-Object -Last 20 | ForEach-Object { Write-Host "           $_" }
+        if (-not $Detailed) {
+            Write-Host "FAIL       $Label produced no test summary (exit $exitCode)"
+            $lines | Select-Object -Last 20 | ForEach-Object { Write-Host "           $_" }
+        }
         if ($exitCode -eq 0) {
             $exitCode = 1
         }
     }
     elseif ($total -eq 0) {
-        Write-Host "NO TESTS   $projectName"
+        if (-not $QuietWhenEmpty -and -not $Detailed) {
+            Write-Host "NO TESTS   $Label"
+        }
+    }
+    elseif ($Detailed) {
+        # The full output was streamed above; only the exit code and the counts matter here.
+        if ($failed -gt 0 -and $exitCode -eq 0) {
+            $exitCode = 1
+        }
+    }
+    elseif ($failed -eq 0 -and $exitCode -eq 0 -and $skipped -ge $total) {
+        # Every test skipped: nothing was verified, so this must not look like a pass.
+        $reason = if ($projectName -eq $integrationProjectName -and [string]::IsNullOrWhiteSpace([System.Environment]::GetEnvironmentVariable($integrationGateVariable))) {
+            "gated by $integrationGateVariable (not set): $skipped test(s) skipped, nothing was verified against a tenant"
+        }
+        else {
+            "all $skipped test(s) skipped, nothing was verified"
+        }
+        Write-Host "SKIPPED    $Label $reason"
     }
     elseif ($failed -eq 0 -and $exitCode -eq 0) {
-        Write-Host "PASS       $projectName $succeeded/$total ($skipped skipped)"
+        Write-Host "PASS       $Label $succeeded/$total ($skipped skipped)"
     }
     else {
-        Write-Host "FAIL       $projectName $failed failed, $succeeded passed, $skipped skipped of $total (exit $exitCode)"
+        Write-Host "FAIL       $Label $failed failed, $succeeded passed, $skipped skipped of $total (exit $exitCode)"
         $lines | Select-String -Pattern '^\s*failed\s+\S+' | ForEach-Object { Write-Host "           $($_.Line.Trim())" }
         $lines | Select-String -Pattern 'Assert\.|Expected:|Actual:|Exception|error' | Select-Object -First 20 |
             ForEach-Object { Write-Host "           $($_.Line.Trim())" }
@@ -223,10 +266,45 @@ foreach ($project in $projects) {
         }
     }
 
-    if ($exitCode -ne 0) {
-        $overallExitCode = $exitCode
+    return [pscustomobject]@{ ExitCode = $exitCode; Total = [Math]::Max($total, 0) }
+}
+
+$overallExitCode = 0
+$selectedTests = 0
+
+foreach ($project in $projects) {
+    $projectName = [System.IO.Path]::GetFileNameWithoutExtension($project)
+
+    if ($Filter) {
+        $passes = @(
+            @{ Label = $projectName; Selection = @('--filter', $Filter); Artifact = $projectName; Quiet = $false }
+        )
+    }
+    else {
+        $passes = @(
+            @{ Label = $projectName; Selection = @('--filter-not-trait', $timingTrait); Artifact = $projectName; Quiet = $false }
+        )
+        if (-not $SkipTiming) {
+            $passes += @{ Label = "$projectName [timing, serial]"; Selection = @('--filter-trait', $timingTrait, '--parallel', 'none'); Artifact = "$projectName.timing"; Quiet = $true }
+        }
+    }
+
+    foreach ($pass in $passes) {
+        $outcome = Invoke-TestPass -Project $project -Label $pass.Label -Selection $pass.Selection -ArtifactName $pass.Artifact -QuietWhenEmpty:$pass.Quiet
+        $selectedTests += $outcome.Total
+        if ($outcome.ExitCode -ne 0) {
+            $overallExitCode = $outcome.ExitCode
+        }
     }
 }
 
 Write-Host "TRX        $resultsDir"
+
+# A -Filter that matches no test in any selected project is a mistake (a typo, or a namespace filter: test namespaces do not follow the folders, see
+# docs/testing.md), not a green run.
+if ($Filter -and $selectedTests -eq 0 -and $overallExitCode -eq 0) {
+    Write-Host "NO TESTS MATCHED the filter '$Filter' in any selected project: nothing was run. Check the expression (FullyQualifiedName~Part, DisplayName~Part, Category=Timing) and see docs/testing.md."
+    exit 3
+}
+
 exit $overallExitCode

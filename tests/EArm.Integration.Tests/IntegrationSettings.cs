@@ -9,7 +9,7 @@ namespace EArm.Integration.Tests;
 [Flags]
 internal enum Needs
 {
-    /// <summary>A reachable tenant (<c>EARM_IT_TENANT</c>, a usable <c>az</c> session for that tenant).</summary>
+    /// <summary>A reachable tenant (<c>EARM_IT_TENANT</c>, a working sign-in for that tenant).</summary>
     Tenant = 0,
 
     /// <summary>A verified domain for user principal names (<c>EARM_IT_DOMAIN</c>).</summary>
@@ -31,7 +31,6 @@ internal sealed record IntegrationSettings
     public const string TenantVariable = "EARM_IT_TENANT";
     public const string PrefixVariable = "EARM_IT_PREFIX";
     public const string DomainVariable = "EARM_IT_DOMAIN";
-    public const string AzVariable = "EARM_IT_AZ";
     public const string AllowCaVariable = "EARM_IT_ALLOW_CA";
     public const string AllowRolesVariable = "EARM_IT_ALLOW_ROLES";
     public const string SweepVariable = "EARM_IT_SWEEP";
@@ -49,9 +48,6 @@ internal sealed record IntegrationSettings
 
     /// <summary>A verified domain for user principal names, or null.</summary>
     public string? Domain { get; init; }
-
-    /// <summary>The <c>az</c> command override (a path to az, az.cmd or a script), or null.</summary>
-    public string? AzCommand { get; init; }
 
     public bool AllowConditionalAccess { get; init; }
 
@@ -84,7 +80,6 @@ internal sealed record IntegrationSettings
             TenantId = tenant,
             Prefix = prefix,
             Domain = Read(DomainVariable),
-            AzCommand = Read(AzVariable),
             AllowConditionalAccess = IsOn(AllowCaVariable),
             AllowRoles = IsOn(AllowRolesVariable),
             SweepRequested = IsOn(SweepVariable),

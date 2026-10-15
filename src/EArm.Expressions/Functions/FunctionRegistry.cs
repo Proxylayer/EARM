@@ -20,8 +20,8 @@ public enum FunctionKind
 
     /// <summary>
     /// Registered but not implemented: evaluates to an unknown value and validation warns. No function of the
-    /// default registry has this kind any more (lambdas, the Entra functions and user-defined functions landed with
-    /// WI-16); it remains for registries that stage a function before implementing it.
+    /// default registry has this kind any more (lambdas, the Entra functions and user-defined functions are implemented);
+    /// it remains for registries that stage a function before implementing it.
     /// </summary>
     NotImplementedYet,
 }
@@ -56,7 +56,7 @@ public sealed record FunctionDescriptor
     /// </summary>
     public bool HandlesUnknown { get; init; }
 
-    /// <summary>For <see cref="FunctionKind.Rejected"/>: the Entra alternative; for <see cref="FunctionKind.NotImplementedYet"/>: the work item.</summary>
+    /// <summary>For <see cref="FunctionKind.Rejected"/>: the Entra alternative; for <see cref="FunctionKind.NotImplementedYet"/>: what is missing.</summary>
     public string? Note { get; init; }
 
     public FunctionImplementation? Implementation { get; init; }
@@ -317,6 +317,7 @@ public sealed class FunctionCall
     {
         ArgumentNullException.ThrowIfNull(lambda);
         ArgumentNullException.ThrowIfNull(values);
+        Context.Budget.Step(lambda.Offset);
         var scope = Context.LambdaScope;
         for (int i = 0; i < lambda.Parameters.Count && i < values.Length; i++)
         {

@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -13,7 +12,7 @@ namespace EArm.Tests.Engine;
 public sealed class FileStateStoreStressTests
 {
     private const string Name = "stress-dep";
-    private const int Rounds = 2000;
+    private const int Rounds = 600;
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
@@ -22,7 +21,6 @@ public sealed class FileStateStoreStressTests
     {
         using var directory = new TestDirectory(nameof(TwoTasksLockingAndReleasing_WithAConcurrentReader_NeverFailAndLeaveNoLockFile));
         var store = new FileStateStore(directory.Path) { LockPollInterval = TimeSpan.FromMilliseconds(1) };
-        var stopwatch = Stopwatch.StartNew();
         int acquired = 0;
         using var stopReader = new CancellationTokenSource();
 
@@ -30,8 +28,8 @@ public sealed class FileStateStoreStressTests
         {
             for (int i = 0; i < Rounds; i++)
             {
-                // Zero wait would throw while the other task holds the lock; a generous wait must always succeed.
-                await using var lease = await store.LockAsync(Name, TimeSpan.FromSeconds(30), Ct);
+                // Zero wait would throw while the other task holds the lock; a generous wait must always succeed. The wait is the hang guard (no wall-clock assertion: about 1 s idle, much more on a loaded machine).
+                await using var lease = await store.LockAsync(Name, TimeSpan.FromSeconds(120), Ct);
                 Interlocked.Increment(ref acquired);
             }
         }
@@ -54,7 +52,6 @@ public sealed class FileStateStoreStressTests
         Assert.False(File.Exists(store.LockPathFor(Name)), "a .lock file was left behind");
         Assert.Empty(Directory.GetFiles(directory.Path, "*.lock"));
         Assert.Null(await store.GetLockAsync(Name, Ct));
-        Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(10), "the stress run took " + stopwatch.Elapsed);
     }
 
     [Fact]

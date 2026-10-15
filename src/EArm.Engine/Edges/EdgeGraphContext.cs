@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Core;
 using EArm.Engine.Planning;
 using EArm.Engine.Providers;
@@ -51,6 +51,12 @@ public sealed class EdgeGraphContext
 
     public LiveReferenceResolver Resolver { get; }
 
+    /// <summary>
+    /// True when the signed-in token is an application (app-only) token, i.e. it has no <c>scp</c> claim (<c>TokenClaims.IsApplication</c>,
+    /// reported by preflight). Reads Graph does not support for such tokens are reported as <c>EdgeUnsupportedInAppMode</c> instead of attempted.
+    /// </summary>
+    public bool AppOnlyToken { get; init; }
+
     public ILogger Logger { get; }
 
     public IGraphClient Graph => _graph;
@@ -74,10 +80,15 @@ public sealed class EdgeGraphContext
         return null;
     }
 
-    public Task<T> WithRetryAsync<T>(Func<CancellationToken, Task<T>> operation, RetryHint hint, CancellationToken cancellationToken)
+    /// <param name="idempotent">
+    /// <c>false</c> for a write that must not be repeated blindly after a failure that may have followed a commit (a 5xx, a timeout): the outer retry then only
+    /// handles throttling and replication lag (review round 2, S2-07). Edge adds, removes and PUTs are idempotent (repeating them is answered with
+    /// "already exists" / "not found", which the edge pass treats as success), reads are too.
+    /// </param>
+    public Task<T> WithRetryAsync<T>(Func<CancellationToken, Task<T>> operation, RetryHint hint, CancellationToken cancellationToken, bool idempotent = true)
     {
         ArgumentNullException.ThrowIfNull(operation);
-        return _retry is null ? operation(cancellationToken) : _retry.ExecuteAsync(operation, hint, null, cancellationToken);
+        return _retry is null ? operation(cancellationToken) : _retry.ExecuteAsync(operation, hint, null, cancellationToken, idempotent);
     }
 
     /// <summary>GET inside the retry policy; <c>null</c> for a 404.</summary>
@@ -133,6 +144,12 @@ public sealed class EdgeGraphContext
         return items;
     }
 
+    /// <summary>Forgets the cached memberOf reads: an edge was written (or its answer was lost), so what was read before is stale.</summary>
+    public void InvalidateReads()
+    {
+        _memberOf.Clear();
+    }
+
     /// <summary>
     /// The Graph collection an object lives in (<c>applications</c>, <c>servicePrincipals</c>, <c>groups</c>,
     /// <c>users</c>, <c>directory/administrativeUnits</c>): from the template when the id is a published template
@@ -180,7 +197,7 @@ public sealed class EdgeGraphContext
         {
             _signedInPrincipalId = null;
         }
-        catch (AzCliException)
+        catch (GraphTransportException)
         {
             _signedInPrincipalId = null;
         }

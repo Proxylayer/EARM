@@ -217,7 +217,7 @@ public sealed class TemplateValidatorTests
     [InlineData("\"resources\": [ { \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"g\", \"copy\": { \"name\": \"c\", \"count\": 1, \"batchSize\": 0 } } ]", DiagnosticCodes.InvalidCopy, "resources[0].copy.batchSize", DiagnosticSeverity.Error)]
     [InlineData("\"resources\": [ { \"type\": \"Microsoft.Entra/users\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"no-at-sign\" } ]", DiagnosticCodes.InvalidResourceName, "resources[0].name", DiagnosticSeverity.Error)]
     [InlineData("\"resources\": [ { \"type\": \"Microsoft.Entra/servicePrincipals\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"not-a-guid\" } ]", DiagnosticCodes.InvalidResourceName, "resources[0].name", DiagnosticSeverity.Error)]
-    [InlineData("\"resources\": [ { \"type\": \"Microsoft.Entra/applications/federatedIdentityCredentials\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"app/1bad\" } ]", DiagnosticCodes.InvalidResourceName, "resources[0].name", DiagnosticSeverity.Error)]
+    [InlineData("\"resources\": [ { \"type\": \"Microsoft.Entra/applications/federatedIdentityCredentials\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"app/_bad\" } ]", DiagnosticCodes.InvalidResourceName, "resources[0].name", DiagnosticSeverity.Error)]
     [InlineData("\"resources\": [ { \"type\": \"Microsoft.Entra/applications\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"a/\" } ]", DiagnosticCodes.InvalidResourceName, "resources[0].name", DiagnosticSeverity.Error)]
     [InlineData("\"resources\": [ { \"type\": \"Microsoft.Entra/administrativeUnits\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"au\", \"properties\": { \"membershipType\": \"Dynamic\", \"members\": [] } } ]", DiagnosticCodes.DynamicMembershipConflict, "resources[0].properties.members", DiagnosticSeverity.Error)]
     [InlineData("\"resources\": [ { \"type\": \"Microsoft.Entra/users\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"u@contoso.com\", \"properties\": { \"userPrincipalName\": \"other@contoso.com\" } } ]", DiagnosticCodes.NameMappedPropertyConflict, "resources[0].properties.userPrincipalName", DiagnosticSeverity.Error)]
@@ -315,7 +315,7 @@ public sealed class TemplateValidatorTests
     }
 
     [Fact]
-    public void DuplicateResourceId_ComparesTypesCaseInsensitivelyAndNamesCaseSensitively()
+    public void DuplicateResourceId_ComparesTypesAndNamesCaseInsensitively()
     {
         var duplicate = ValidateText(Envelope(
             """
@@ -327,11 +327,21 @@ public sealed class TemplateValidatorTests
         var error = Assert.Single(duplicate, d => d.Code == DiagnosticCodes.DuplicateResourceId);
         Assert.Equal("resources[1].name", error.Path?.ToString());
 
-        var distinct = ValidateText(Envelope(
+        // Review finding E-01: names that differ only by case address the same Graph object, so they are duplicates too.
+        var caseOnly = ValidateText(Envelope(
             """
             "resources": [
               { "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01-preview", "name": "g" },
               { "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01-preview", "name": "G" }
+            ]
+            """));
+        Assert.Single(caseOnly, d => d.Code == DiagnosticCodes.DuplicateResourceId);
+
+        var distinct = ValidateText(Envelope(
+            """
+            "resources": [
+              { "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01-preview", "name": "g" },
+              { "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01-preview", "name": "g2" }
             ]
             """));
         Assert.DoesNotContain(distinct, d => d.Code == DiagnosticCodes.DuplicateResourceId);

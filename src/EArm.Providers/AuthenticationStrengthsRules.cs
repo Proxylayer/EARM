@@ -8,7 +8,7 @@ using EArm.Expressions.Values;
 namespace EArm.Providers;
 
 /// <summary>
-/// The pure rules of <see cref="AuthenticationStrengthsProvider"/> (plan sections 1.3, 3.2): the built-in /
+/// The pure rules of <see cref="AuthenticationStrengthsProvider"/>: the built-in /
 /// custom split on <c>policyType</c>, the set comparison of <c>allowedCombinations</c> (each combination is
 /// compared trimmed, lower-cased and with its comma-separated parts sorted, so <c>"Password, microsoftAuthenticatorPush"</c>
 /// equals <c>"microsoftauthenticatorpush,password"</c>; the array is compared as a set), the shape checks, and the

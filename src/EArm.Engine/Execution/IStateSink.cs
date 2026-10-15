@@ -7,10 +7,10 @@ using EArm.Engine.State;
 namespace EArm.Engine.Execution;
 
 /// <summary>
-/// Hook for state persistence (plan section 1.7): the executor reports every resource outcome as it happens so a
+/// Hook for state persistence: the executor reports every resource outcome as it happens so a
 /// failed run leaves an accurate partial record. <see cref="FileStateSink"/> implements it on top of an
 /// <see cref="IStateStore"/>; <see cref="NullStateSink"/> discards everything. The members with default bodies were
-/// added with the state store (WI-06) and are optional for implementers.
+/// added with the state store and are optional for implementers.
 /// </summary>
 public interface IStateSink
 {
@@ -60,7 +60,7 @@ public interface IStateSink
     }
 
     /// <summary>
-    /// Edge pass (WI-09): the resource's relationships were reconciled; <paramref name="relationships"/> is what the
+    /// Edge pass: the resource's relationships were reconciled; <paramref name="relationships"/> is what the
     /// entry must now record (the principal-side edges this deployment created), or <c>null</c> for none.
     /// </summary>
     Task ResourceEdgesAppliedAsync(ResourceInstance instance, JsonObject? relationships, CancellationToken cancellationToken)

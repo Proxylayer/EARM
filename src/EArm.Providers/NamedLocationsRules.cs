@@ -10,7 +10,7 @@ using EArm.Expressions.Values;
 namespace EArm.Providers;
 
 /// <summary>
-/// The pure rules of <see cref="NamedLocationsProvider"/> (plan sections 1.3, 3.2): the two kinds selected by
+/// The pure rules of <see cref="NamedLocationsProvider"/>: the two kinds selected by
 /// <c>@odata.type</c>, the per-kind defaults, and the normalisation of <c>ipRanges</c> (the IPv4/IPv6 range type
 /// is inferred from the address when omitted; CIDR text is canonicalised so that reordered or differently spelt
 /// ranges compare equal; host bits set in a range are refused, as Graph would with a 400) and of

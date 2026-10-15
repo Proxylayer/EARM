@@ -8,7 +8,11 @@ namespace EArm.Core;
 /// <summary>
 /// The ARM-style identity of a resource: full type plus one name segment per type level.
 /// <see cref="Id"/> renders as <c>/providers/Microsoft.Entra/&lt;type&gt;/&lt;name&gt;[/&lt;childType&gt;/&lt;childName&gt;]</c>.
-/// Types compare case-insensitively (ARM rule), names case-sensitively.
+/// Types compare case-insensitively (ARM rule). Names compare case-insensitively too (review finding E-01): every Graph
+/// key an id maps to (uniqueName, userPrincipalName, appId, displayName filters, GUIDs, <c>c10</c> ids) is matched
+/// case-insensitively by Graph, so two ids that differ only by case address the SAME object and must never be treated as
+/// two resources (a case-only rename would otherwise delete the live object as an "orphan"). A name segment that is a
+/// GUID is normalised to lower case at construction, so the rendered id and the state key are stable.
 /// </summary>
 /// <remarks>
 /// Type segments after the namespace are matched to name segments from the right: a type with more segments than
@@ -45,12 +49,14 @@ public sealed class ResourceIdentifier : IEquatable<ResourceIdentifier>
         }
 
         _nameSegments = [.. nameSegments];
-        foreach (var segment in _nameSegments)
+        for (int i = 0; i < _nameSegments.Length; i++)
         {
-            if (string.IsNullOrEmpty(segment))
+            if (string.IsNullOrEmpty(_nameSegments[i]))
             {
                 throw new ArgumentException("Name segments must not be empty.", nameof(nameSegments));
             }
+
+            _nameSegments[i] = NormalizeSegment(_nameSegments[i]);
         }
     }
 
@@ -133,6 +139,13 @@ public sealed class ResourceIdentifier : IEquatable<ResourceIdentifier>
         return trimmed;
     }
 
+    /// <summary>A GUID-shaped name segment in canonical form (lower case, dashes); anything else is returned unchanged.</summary>
+    public static string NormalizeSegment(string segment)
+    {
+        ArgumentNullException.ThrowIfNull(segment);
+        return segment.Length == 36 && Guid.TryParseExact(segment, "D", out var guid) ? guid.ToString("D") : segment;
+    }
+
     /// <summary>True when the two type strings denote the same type (case-insensitive).</summary>
     public static bool TypeEquals(string? left, string? right)
     {
@@ -174,7 +187,7 @@ public sealed class ResourceIdentifier : IEquatable<ResourceIdentifier>
 
         for (int i = 0; i < _nameSegments.Length; i++)
         {
-            if (!string.Equals(_nameSegments[i], other._nameSegments[i], StringComparison.Ordinal))
+            if (!string.Equals(_nameSegments[i], other._nameSegments[i], StringComparison.OrdinalIgnoreCase))
             {
                 return false;
             }
@@ -194,7 +207,7 @@ public sealed class ResourceIdentifier : IEquatable<ResourceIdentifier>
         hash.Add(Type, StringComparer.OrdinalIgnoreCase);
         foreach (var segment in _nameSegments)
         {
-            hash.Add(segment, StringComparer.Ordinal);
+            hash.Add(segment, StringComparer.OrdinalIgnoreCase);
         }
 
         return hash.ToHashCode();

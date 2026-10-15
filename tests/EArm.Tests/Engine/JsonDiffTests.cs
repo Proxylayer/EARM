@@ -11,7 +11,7 @@ using Xunit;
 
 namespace EArm.Tests.Engine;
 
-/// <summary>The shared diff of plan section 1.3 (<see cref="JsonDiff"/>): comparison rules, PATCH bodies, immutability.</summary>
+/// <summary>The shared diff (<see cref="JsonDiff"/>): comparison rules, PATCH bodies, immutability.</summary>
 public sealed class JsonDiffTests
 {
     private const string GuidLower = "6d2f1c0e-2b7a-4c1e-9a1b-4f3f1f6a0002";

@@ -17,7 +17,7 @@ internal static class DeploymentResultWriter
         switch (format)
         {
             case OutputFormat.Json:
-                stdout.WriteLine(ToJson(result).ToJsonString(new JsonSerializerOptions { WriteIndented = prettyPrint }));
+                stdout.WriteLine(ToJson(result).ToJsonString(JsonOutput.Options(prettyPrint)));
                 break;
             case OutputFormat.None:
                 break;

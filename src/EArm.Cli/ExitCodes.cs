@@ -1,6 +1,6 @@
 namespace EArm.Cli;
 
-/// <summary>Process exit codes of <c>earm</c> (plan section 1.9).</summary>
+/// <summary>Process exit codes of <c>earm</c>.</summary>
 internal static class ExitCodes
 {
     public const int Ok = 0;

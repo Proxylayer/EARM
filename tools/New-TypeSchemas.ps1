@@ -3,7 +3,7 @@
 .SYNOPSIS
     Regenerates the property schemas of schemas/2026-10-01/types/Microsoft.Entra/*.json.
 .DESCRIPTION
-    The per-type schema files are hand-maintained in v1 (plan section 1.10) but their property vocabularies are
+    The per-type schema files are hand-maintained in v1 but their property vocabularies are
     long and repetitive, so this script holds them in one compact DSL and rewrites every file: the header, the
     "properties" and the "$defs" are generated; the "x-earm" overlay (everything from that key to the end of the
     file) is carried over verbatim, except for "namePattern", which is set from the table below.
@@ -148,7 +148,7 @@ function Guid([string]$d, [switch]$Nullable) {
 function Props { param([System.Collections.IDictionary]$Map) return $Map }
 
 # ---------------------------------------------------------------------------------------------------------------
-# Edge properties (plan section 1.4). Ids are plain strings: object ids, or expressions that evaluate to them.
+# Edge properties. Ids are plain strings: object ids, or expressions that evaluate to them.
 # ---------------------------------------------------------------------------------------------------------------
 
 function EdgeIds([string]$d) { return StrArr $d -Unique }
@@ -277,7 +277,8 @@ $specs['applications'] = [ordered]@{
 
 # --- applications/federatedIdentityCredentials --------------------------------------------------------------------
 $specs['applications.federatedIdentityCredentials'] = [ordered]@{
-    Description = 'A federated identity credential of an application. The child name is the credential''s Graph name (3-120 characters, letters, digits and ''-'', starting with a letter). Upsert via PATCH /applications(uniqueName=''parent'')/federatedIdentityCredentials(name=''child'') with Prefer: create-if-missing.'
+    NamePattern = '^[A-Za-z0-9][A-Za-z0-9_-]{2,119}$'
+    Description = 'A federated identity credential of an application. The child name is the credential''s Graph name (3-120 characters: letters, digits, ''-'' and ''_'', starting with a letter or digit). Upsert via PATCH /applications(uniqueName=''parent'')/federatedIdentityCredentials(name=''child'') with Prefer: create-if-missing.'
     Props       = [ordered]@{
         name        = Str 'Set from the resource name; declaring it is only allowed when it equals the name.'
         issuer      = Str 'Required: the https issuer URL of the external identity provider.' -Min 1
@@ -345,7 +346,7 @@ $specs['groups'] = [ordered]@{
         mailNickname                  = Str 'Mail alias (up to 64 characters; none of @ ( ) \ [ ] " ; : . < > , or space). Derived from the name when omitted; immutable.' -Pattern '^[^@()\\\[\]";:.<>, ]+$' -Max 64
         securityEnabled               = Bool 'Required on create. True for security groups.'
         groupTypes                    = StrArr '[] security group, ["Unified"] Microsoft 365 group, plus "DynamicMembership" for dynamic groups. Immutable except for DynamicMembership.' -Enum 'Unified', 'DynamicMembership' -Unique
-        isAssignableToRole            = Bool 'Role-assignable group (immutable; never dynamic; required for directoryRoles; up to 500 per tenant).' -Nullable
+        isAssignableToRole            = Bool 'Role-assignable group (immutable; never dynamic; securityEnabled must be true, and a Microsoft 365 group visibility Private - both defaulted on create; required for directoryRoles; up to 500 per tenant).' -Nullable
         visibility                    = Str 'Public, Private or HiddenMembership (immutable once HiddenMembership).' -Nullable -Enum 'Public', 'Private', 'HiddenMembership'
         membershipRule                = Str 'Dynamic membership rule (requires groupTypes to contain DynamicMembership; Entra ID P1).' -Nullable
         membershipRuleProcessingState = Str 'On (default for dynamic groups) or Paused.' -Enum 'On', 'Paused'
@@ -540,7 +541,7 @@ $specs['conditionalAccess.policies'] = [ordered]@{
         }))
         grantControls = Obj -d 'Required unless sessionControls is set. operator defaults to OR; block must be alone; mfa and authenticationStrength are mutually exclusive. null removes the control.' -Nullable -Props (Props ([ordered]@{
             operator                      = Str 'AND or OR (default OR).' -Enum 'AND', 'OR'
-            builtInControls               = StrArr 'Built-in controls to require.' -Enum 'block', 'mfa', 'compliantDevice', 'domainJoinedDevice', 'approvedApplication', 'compliantApplication', 'passwordChange', 'unknownFutureValue' -Unique
+            builtInControls               = StrArr 'Built-in controls to require. riskRemediation is an evolvable-enum member that Graph returns only to a read sent with Prefer: include-unknown-enum-members (EARM sends it).' -Enum 'block', 'mfa', 'compliantDevice', 'domainJoinedDevice', 'approvedApplication', 'compliantApplication', 'passwordChange', 'unknownFutureValue', 'riskRemediation' -Unique
             customAuthenticationFactors   = StrArr 'Custom controls (ids).' -Unique
             termsOfUse                    = StrArr 'Terms of use ids.' -Unique
             authenticationStrength        = Obj -d 'Authentication strength policy: reference a declared one with { "id": "[reference(''name'').id]" } or a built-in id (00000000-0000-0000-0000-000000000002 MFA, ...0003 passwordless, ...0004 phishing-resistant).' -Required 'id' -Props (Props ([ordered]@{

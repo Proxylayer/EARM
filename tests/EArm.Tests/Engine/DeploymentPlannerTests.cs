@@ -13,7 +13,7 @@ using Xunit;
 
 namespace EArm.Tests.Engine;
 
-/// <summary>What-if planning (plan sections 1.8 and 2.4) against <see cref="FakeGraphClient"/>: reads only, placeholders, promotions, permissions, parallelism.</summary>
+/// <summary>What-if planning against <see cref="FakeGraphClient"/>: reads only, placeholders, promotions, permissions, parallelism.</summary>
 public sealed class DeploymentPlannerTests
 {
     private static ResourceChange Row(DeploymentPlan plan, string resourceId)
@@ -259,11 +259,12 @@ public sealed class DeploymentPlannerTests
             "Application.Read.All",
             "Application.ReadWrite.All",
             "Application.ReadWrite.OwnedBy",
+            "AuthenticationContext.ReadWrite.All",
             "DelegatedPermissionGrant.ReadWrite.All",
+            "Directory.Read.All",
             "Group.ReadWrite.All",
             "GroupMember.ReadWrite.All",
             "Policy.Read.All",
-            "Policy.ReadWrite.AuthenticationMethod",
             "Policy.ReadWrite.ConditionalAccess",
             "RoleManagement.ReadWrite.Directory",
             "User.ReadWrite.All",
@@ -272,17 +273,18 @@ public sealed class DeploymentPlannerTests
     }
 
     [Fact]
+    [Trait("Category", "Timing")]
     public async Task Parallelism_BoundsConcurrentGraphCalls()
     {
         string resources = string.Join(", ", Enumerable.Range(0, 8).Select(i => "{ \"type\": \"Microsoft.Entra/users\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"u" + i + "@contoso.com\", \"properties\": { \"displayName\": \"U\" } }"));
         var document = Templates.Resources(resources);
 
         ConcurrencyGate? gate = null;
-        var bounded = new EngineHost(inner => gate = new ConcurrencyGate(inner, TimeSpan.FromMilliseconds(80)));
+        var bounded = new EngineHost(inner => gate = new ConcurrencyGate(inner, TimeSpan.FromMilliseconds(300)));
         var boundedPlan = await bounded.WhatIfAsync(document, options: bounded.Options(parallelism: 2));
         int boundedMax = gate!.MaxObserved;
 
-        var wide = new EngineHost(inner => gate = new ConcurrencyGate(inner, TimeSpan.FromMilliseconds(80)));
+        var wide = new EngineHost(inner => gate = new ConcurrencyGate(inner, TimeSpan.FromMilliseconds(300)));
         var widePlan = await wide.WhatIfAsync(document, options: wide.Options(parallelism: 4));
         int wideMax = gate!.MaxObserved;
 
@@ -393,7 +395,7 @@ public sealed class DeploymentPlannerTests
         var user = Assert.Single(changes, c => c!["resourceId"]!.GetValue<string>() == Fixture.User);
         Assert.Equal("Create", user!["changeType"]!.GetValue<string>());
 
-        // ARM shape (WI-17 renderer): a Create carries the payload under "after" and no delta; secrets are ***.
+        // ARM shape (what-if renderer): a Create carries the payload under "after" and no delta; secrets are ***.
         var after = user["after"]!.AsObject();
         var payload = after.ContainsKey("properties") ? after["properties"]!.AsObject() : after;
         Assert.Equal("***", payload["passwordProfile"]!["password"]!.GetValue<string>());
@@ -429,7 +431,7 @@ public sealed class DeploymentPlannerTests
         Assert.DoesNotContain(Templates.DefaultPassword, text, StringComparison.Ordinal);
     }
 
-    // ---- WI-16: tenant(), environment() and the Entra lookups during planning ----
+    // ---- Tenant(), environment() and the Entra lookups during planning ----
 
     [Fact]
     public async Task WhatIf_TenantAndEnvironment_AreConcreteOnlyWhenThePlannerIsGivenThem()
@@ -440,7 +442,7 @@ public sealed class DeploymentPlannerTests
         var options = online.Options() with
         {
             Tenant = new JsonObject { ["tenantId"] = EngineHost.Tenant, ["defaultDomain"] = "contoso.com", ["displayName"] = "Contoso" },
-            Environment = DeploymentEnvironment.Environment("AzureCloud"),
+            Environment = DeploymentEnvironment.Environment(EArm.Graph.GraphCloud.Public),
         };
 
         var unknown = Assert.Single((await offline.WhatIfAsync(document)).Changes);
@@ -469,7 +471,9 @@ public sealed class DeploymentPlannerTests
         Assert.Equal("\"e1fe6dd8-ba31-4d61-89e7-88639da4683d\"", row.After["theme"]!.ToJsonString());
         Assert.Equal("\"f2ef992c-3afb-46b9-b7cf-a126ee74c451\"", row.After["classification"]!.ToJsonString());
         Assert.Single(host.Fake.Requests, r => r.Path == "/servicePrincipals(appId='" + appId + "')");
-        Assert.DoesNotContain(host.Fake.Requests, r => r.Path.Contains("00000003-0000-0000-c000-000000000000", StringComparison.OrdinalIgnoreCase));
+        // Review 1D / G-01: the tenant is asked first even for Microsoft Graph (the embedded table is only the offline fallback); this fake
+        // tenant has no Graph service principal, so the (verified) table answers.
+        Assert.Contains(host.Fake.Requests, r => r.Path.Contains("00000003-0000-0000-c000-000000000000", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain(host.Fake.Requests, r => r.Path.Contains("roleDefinitions", StringComparison.Ordinal));
         Assert.Empty(host.Fake.Writes);
     }
@@ -487,7 +491,7 @@ public sealed class DeploymentPlannerTests
         Assert.Contains("no service principal or application with appId", row.UnsupportedReason);
     }
 
-    /// <summary>True when the delta sits under a relationship property (edge-pass rows merged into the object row, WI-09).</summary>
+    /// <summary>True when the delta sits under a relationship property (edge-pass rows merged into the object row).</summary>
     private static bool IsRelationshipDelta(EngineHost host, string type, PropertyDelta delta)
     {
         return delta.Path.Depth > 1 && host.Catalog.Find(type)!.IsRelationshipProperty(delta.Path.Segments[1].Name ?? string.Empty);

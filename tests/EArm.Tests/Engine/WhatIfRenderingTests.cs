@@ -3,7 +3,7 @@ using System.IO;
 using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Cli;
 using EArm.Cli.Commands;
 using EArm.Cli.Output;
@@ -44,7 +44,7 @@ public sealed class WhatIfRenderingTests
             ResultFormat = format,
             NoPrettyPrint = noPrettyPrint,
             LogLevel = level,
-            Az = new AzOptions(),
+            Connection = new EArm.Cli.Hosting.ConnectionSettings(),
             WhatIf = true,
         };
     }
@@ -238,7 +238,7 @@ public sealed class WhatIfRenderingTests
         Assert.Equal(1, summary["unsupported"]!.GetValue<int>());
         Assert.Equal(3, summary["edges"]!["add"]!.GetValue<int>());
         Assert.Equal(1, summary["edges"]!["remove"]!.GetValue<int>());
-        Assert.Equal(["Application.ReadWrite.All", "Group.ReadWrite.All", "GroupMember.ReadWrite.All", "User.ReadWrite.All"], json["requiredPermissions"]!.AsArray().Select(p => p!.GetValue<string>()).ToList());
+        Assert.Equal(["Application.ReadWrite.All", "Directory.Read.All", "Group.ReadWrite.All", "GroupMember.ReadWrite.All", "User.ReadWrite.All"], json["requiredPermissions"]!.AsArray().Select(p => p!.GetValue<string>()).ToList());
     }
 
     [Fact]

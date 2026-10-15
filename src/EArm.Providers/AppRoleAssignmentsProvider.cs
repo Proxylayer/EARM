@@ -4,19 +4,19 @@ using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Core;
 using EArm.Core.Types;
 using EArm.Engine;
 using EArm.Engine.Providers;
 using EArm.Engine.State;
 using EArm.Expressions.Values;
-using GraphApi = EArm.Az.GraphApi;
+using GraphApi = EArm.Graph.GraphApi;
 
 namespace EArm.Providers;
 
 /// <summary>
-/// <c>Microsoft.Entra/appRoleAssignments</c> (plan sections 1.3, 1.4, 3.2; work item WI-12). The resource name is a
+/// <c>Microsoft.Entra/appRoleAssignments</c>. The resource name is a
 /// deterministic GUID the author picks with <c>guid(...)</c>; the Graph object is found by the composite key
 /// (<c>principalId</c>, <c>resourceId</c>, <c>appRoleId</c>) and its id pinned in the state. Sugar accepted in
 /// <c>properties</c>: <c>resourceAppId</c> (the resource application's id, resolved to the service principal object
@@ -29,7 +29,7 @@ namespace EArm.Providers;
 /// <list type="bullet">
 /// <item><b>Prepare</b> (before the key): <c>GET /servicePrincipals(appId='…')</c> (sugar) or <c>GET /servicePrincipals/{resourceId}</c>, both <c>$select=id,appId,displayName,appRoles,oauth2PermissionScopes</c>, under the instance's retry hint; plus <c>GET /directoryObjects/{principalId}?$select=id</c> when the role restricts <c>allowedMemberTypes</c>. A disabled role, a role the principal's kind may not hold, or an unknown role value is a <see cref="ProviderException"/> (<see cref="InvalidAssignment"/>): an unsupported what-if row, a failed create.</item>
 /// <item><b>Read</b>: <c>GET /servicePrincipals/{resourceId}/appRoleAssignedTo/{pinnedId}</c> (state id, when known) → <c>GET /servicePrincipals/{resourceId}/appRoleAssignedTo?$top=999</c> (every page) matched on <c>principalId</c> + <c>appRoleId</c>; a 404 of the resource principal is "does not exist".</item>
-/// <item><b>Create</b>: <c>POST /servicePrincipals/{resourceId}/appRoleAssignedTo { principalId, resourceId, appRoleId }</c> under the instance's retry hint (<see cref="RetryHint.ExpectReplicationLag"/> when the principal or the resource was created in this run: the Az layer retries 404 / <c>PrincipalNotFound</c> for up to 90 s). A 400 "Permission being assigned already exists" is idempotent success: the assignment is re-read by composite and adopted.</item>
+/// <item><b>Create</b>: <c>POST /servicePrincipals/{resourceId}/appRoleAssignedTo { principalId, resourceId, appRoleId }</c> under the instance's retry hint (<see cref="RetryHint.ExpectReplicationLag"/> when the principal or the resource was created in this run: the Graph transport retries 404 / <c>PrincipalNotFound</c> for up to 90 s). A 400 "Permission being assigned already exists" is idempotent success: the assignment is re-read by composite and adopted.</item>
 /// <item><b>Update</b>: never (every property is immutable; the planner asks for a recreate).</item>
 /// <item><b>Delete</b>: <c>DELETE /servicePrincipals/{resourceId}/appRoleAssignedTo/{id}</c>; a 404 is "already gone".</item>
 /// </list>
@@ -45,7 +45,7 @@ public sealed class AppRoleAssignmentsProvider : ProviderBase
     public const string ResourceType = "Microsoft.Entra/appRoleAssignments";
 
     /// <summary><see cref="ProviderException"/> code: the declared assignment cannot be made (unknown role, disabled role, wrong principal kind, bad shape).</summary>
-    public const string InvalidAssignment = "AppRoleAssignmentInvalid";
+    public const string InvalidAssignment = EngineDiagnosticCodes.AppRoleAssignmentInvalid;
 
     public AppRoleAssignmentsProvider(ResourceTypeDefinition definition, ResourceTypeCatalog? catalog = null)
         : base(definition, catalog)

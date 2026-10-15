@@ -8,6 +8,7 @@
 
   <!-- Runtime dependencies. -->
   <ItemGroup>
+    <PackageVersion Include="Azure.Identity" Version="1.21.0" />
     <PackageVersion Include="System.CommandLine" Version="2.0.13" />
     <PackageVersion Include="JsonSchema.Net" Version="9.4.1" />
     <PackageVersion Include="Microsoft.Extensions.Logging" Version="10.0.13" />

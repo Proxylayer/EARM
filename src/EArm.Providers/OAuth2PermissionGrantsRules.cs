@@ -8,7 +8,7 @@ using EArm.Expressions.Values;
 namespace EArm.Providers;
 
 /// <summary>
-/// The pure rules of delegated permission grants (plan section 3.2): consent types, the <c>scope</c> string as a
+/// The pure rules of delegated permission grants: consent types, the <c>scope</c> string as a
 /// whitespace-separated set of permission values (order-insensitive, duplicates collapsed), the <c>scopes</c>
 /// array sugar, and the check of scope values against the resource principal's <c>oauth2PermissionScopes</c>.
 /// </summary>

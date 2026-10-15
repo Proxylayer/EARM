@@ -12,7 +12,7 @@ using EArm.Expressions.Values;
 namespace EArm.Expressions.Functions;
 
 /// <summary>
-/// Group 5: <c>map filter reduce sort toObject groupBy lambdaVariables</c> (plan section 1.5). A lambda is a
+/// Group 5: <c>map filter reduce sort toObject groupBy lambdaVariables</c>. A lambda is a
 /// <see cref="LambdaExpression"/> argument, so these functions are lazy: they evaluate the array argument, then the
 /// lambda body once per element with the parameters bound in <see cref="EvaluationContext.LambdaScope"/>
 /// (<see cref="FunctionCall.InvokeLambda"/>); <c>lambdaVariables('x')</c> reads a binding.
@@ -161,13 +161,15 @@ internal static class LambdaFunctions
         }
 
         var array = RequireArray(call, source);
+        bool sourceTainted = array.Count == 0 && SecretJson.IsTaintedEmpty(array);
         var current = Own(initial);
         for (int i = 0; i < array.Count; i++)
         {
             current = Own(call.InvokeLambda(lambda, current, array[i], JsonValue.Create((long)i)));
         }
 
-        return current;
+        // A source that is empty because of a secret leaves the initial value as the result: tainted, or it would reveal the emptiness.
+        return sourceTainted ? TaintHelper.Taint(current) : current;
     }
 
     /// <summary>
@@ -367,7 +369,21 @@ internal static class LambdaFunctions
 
         array = RequireArray(call, source);
         unknown = null;
+        if (array.Count == 0 && SecretJson.IsTaintedEmpty(array))
+        {
+            // The source is empty BECAUSE of a secret: there is nothing to run the lambda on, but the result must still say so (an untainted empty result would be an oracle).
+            unknown = MarkedEmptyResult(call);
+            return false;
+        }
+
         return true;
+    }
+
+    /// <summary>The result of a lambda function over a source that is empty because of a secret: an empty object for the functions that build one, else an empty array; tainted either way.</summary>
+    private static JsonNode MarkedEmptyResult(FunctionCall call)
+    {
+        bool objectResult = call.Name.Equals("toObject", StringComparison.OrdinalIgnoreCase) || call.Name.Equals("groupBy", StringComparison.OrdinalIgnoreCase);
+        return SecretJson.MarkTaintedEmpty(objectResult ? new JsonObject() : new JsonArray());
     }
 
     private static JsonArray RequireArray(FunctionCall call, JsonNode? source)

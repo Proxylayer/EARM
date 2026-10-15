@@ -2,7 +2,7 @@
   "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
   "contentVersion": "1.0.0.0",
   "metadata": {
-    "description": "WI-19: an application role assignment and a delegated consent grant for a test service principal against the Microsoft Graph service principal."
+    "description": "An application role assignment and a delegated consent grant for a test service principal against the Microsoft Graph service principal."
   },
   "parameters": {
     "prefix": { "type": "string" },

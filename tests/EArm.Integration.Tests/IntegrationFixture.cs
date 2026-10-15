@@ -6,7 +6,9 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using EArm.Az;
+using System.Net.Http;
+using EArm.Graph;
+using EArm.Graph.Auth;
 using EArm.Core.Types;
 using EArm.Engine.Edges;
 using EArm.Engine.Providers;
@@ -22,9 +24,9 @@ namespace EArm.Integration.Tests;
 /// <para>
 /// Construction never touches the network: when <c>EARM_IT_TENANT</c> is unset the fixture only records why the
 /// tests skip. When it is set, <see cref="InitializeAsync"/> builds the stack the CLI uses
-/// (<see cref="PwshLocator"/> → <see cref="PwshAzRunner"/> → <see cref="AzGraphClient"/> + <see cref="RetryPolicy"/>,
+/// (<see cref="GraphAuthFactory"/> → <see cref="IGraphTokenProvider"/> → <see cref="HttpGraphClient"/> + <see cref="RetryPolicy"/>,
 /// <see cref="ProviderDiscovery"/>, a <see cref="FileStateStore"/> in a temp directory; compare
-/// <c>src/EArm.Cli/Hosting/EngineServices.cs</c>) and runs the real <see cref="AzPreflight"/>; a missing session or
+/// <c>src/EArm.Cli/Hosting/EngineServices.cs</c>) and runs the real <see cref="GraphPreflight"/>; a missing sign-in or
 /// a tenant other than <c>EARM_IT_TENANT</c> turns every test into a skip with that reason.
 /// </para>
 /// <para>
@@ -41,8 +43,9 @@ public sealed class IntegrationFixture : IAsyncLifetime
     private readonly ConcurrentDictionary<string, byte> _reservedContextIds = new(StringComparer.OrdinalIgnoreCase);
     private readonly CapturingLoggerProvider _logCapture = new();
     private ILoggerFactory? _loggerFactory;
-    private PwshAzRunner? _runner;
-    private AzGraphClient? _graph;
+    private HttpClient? _http;
+    private IGraphTokenProvider? _tokens;
+    private HttpGraphClient? _graph;
     private FileStateStore? _store;
     private string _unavailableReason = string.Empty;
 
@@ -68,17 +71,17 @@ public sealed class IntegrationFixture : IAsyncLifetime
     /// <summary>Where the tests write secure-output files and template variants; kept apart from <see cref="StateDirectory"/> because every <c>*.json</c> there is taken for a deployment state.</summary>
     public string ScratchDirectory { get; }
 
-    /// <summary>True when the tenant is configured and the Azure CLI session is usable for it.</summary>
+    /// <summary>True when the tenant is configured and the sign-in works for it.</summary>
     public bool IsAvailable => _unavailableReason.Length == 0;
 
     /// <summary>Why the tests skip, empty when <see cref="IsAvailable"/>.</summary>
     public string UnavailableReason => _unavailableReason;
 
-    /// <summary>What the preflight learned (tenant, signed-in user); null until a session was verified.</summary>
-    public AzPreflightResult? Session { get; private set; }
+    /// <summary>What the preflight learned (tenant, signed-in principal); null until a sign-in was verified.</summary>
+    public GraphPreflightResult? Session { get; private set; }
 
-    /// <summary>The production Graph client (az rest through pwsh, with the retry policy).</summary>
-    internal AzGraphClient Graph => _graph ?? throw NotAvailable();
+    /// <summary>The production Graph client (HTTP with the retry policy).</summary>
+    internal HttpGraphClient Graph => _graph ?? throw NotAvailable();
 
     internal ProviderRegistry Providers { get; private set; } = ProviderRegistry.Empty;
 
@@ -89,7 +92,7 @@ public sealed class IntegrationFixture : IAsyncLifetime
     /// <summary>Live objects the last sweep could not remove (empty when the cleanup was complete).</summary>
     internal IReadOnlyList<string> Leftovers => _leftovers;
 
-    internal CliDriver Cli { get; private set; } = new CliDriver(Path.GetTempPath(), null);
+    internal CliDriver Cli { get; private set; } = new CliDriver(Path.GetTempPath());
 
     /// <summary>What the cleanup guard did (filled by <see cref="DisposeAsync"/> or <see cref="SweepNowAsync"/>).</summary>
     public IReadOnlyList<string> CleanupLog { get; private set; } = [];
@@ -183,30 +186,30 @@ public sealed class IntegrationFixture : IAsyncLifetime
             builder.AddProvider(_logCapture);
         });
 
-        var azOptions = new AzOptions { AzCommand = Settings.AzCommand };
-        var locator = new PwshLocator(azOptions, _loggerFactory.CreateLogger<PwshLocator>());
-        _runner = new PwshAzRunner(azOptions, locator, _loggerFactory.CreateLogger<PwshAzRunner>());
+        var cloud = GraphCloud.FromEnvironment();
+        var auth = GraphAuthOptions.Resolve(null, null, null, cloud);
+        _tokens = new GraphAuthFactory(null, _loggerFactory.CreateLogger<GraphAuthFactory>()).Create(auth);
+        _http = HttpGraphClient.CreateHttpClient();
         var retryPolicy = new RetryPolicy(_loggerFactory.CreateLogger<RetryPolicy>());
-        _graph = new AzGraphClient(_runner, retryPolicy, _loggerFactory.CreateLogger<AzGraphClient>());
-        var preflight = new AzPreflight(_runner, _graph, _loggerFactory.CreateLogger<AzPreflight>());
-        Providers = ProviderDiscovery.CreateRegistry(ResourceTypeCatalog.Default);
+        _graph = new HttpGraphClient(_http, _tokens, retryPolicy, new GraphOptions { Cloud = cloud }, _loggerFactory.CreateLogger<HttpGraphClient>());
+        var preflight = new GraphPreflight(_tokens, _graph, cloud, auth.Mode, _loggerFactory.CreateLogger<GraphPreflight>());        Providers = ProviderDiscovery.CreateRegistry(ResourceTypeCatalog.Default);
         EdgeKinds = ProviderDiscovery.CreateEdgeKinds(ResourceTypeCatalog.Default);
         _store = new FileStateStore(StateDirectory, logger: _loggerFactory.CreateLogger<FileStateStore>());
-        Cli = new CliDriver(StateDirectory, Settings.AzCommand);
+        Cli = new CliDriver(StateDirectory);
 
         try
         {
             Session = await preflight.RunAsync(cancellationToken);
         }
-        catch (Exception ex) when (ex is AzCliException or ToolchainException or GraphException)
+        catch (Exception ex) when (ex is GraphTransportException or GraphException)
         {
-            _unavailableReason = $"The Azure CLI preflight failed, so the real-tenant tests are skipped: {ex.Message}";
+            _unavailableReason = $"The sign-in preflight failed, so the real-tenant tests are skipped: {ex.Message}";
             return;
         }
 
         if (!string.Equals(Session.TenantId, Settings.TenantId, StringComparison.OrdinalIgnoreCase))
         {
-            _unavailableReason = $"The Azure CLI is logged in to tenant {Session.TenantId}, but {IntegrationSettings.TenantVariable} is {Settings.TenantId}; run 'az login --allow-no-subscriptions --tenant {Settings.TenantId}'. The real-tenant tests are skipped.";
+            _unavailableReason = $"EARM is signed in to tenant {Session.TenantId}, but {IntegrationSettings.TenantVariable} is {Settings.TenantId}; sign in to that tenant (AZURE_TENANT_ID, or 'earm auth login --tenant {Settings.TenantId}'). The real-tenant tests are skipped.";
             Session = null;
         }
     }
@@ -228,7 +231,8 @@ public sealed class IntegrationFixture : IAsyncLifetime
         }
         finally
         {
-            _runner?.Dispose();
+            _http?.Dispose();
+            (_tokens as IDisposable)?.Dispose();
             _loggerFactory?.Dispose();
             _logCapture.Dispose();
             TryDeleteStateDirectory();
@@ -289,7 +293,7 @@ public sealed class IntegrationFixture : IAsyncLifetime
         {
             await cleanup.SweepAsync(_trackedPaths.ToArray(), cancellationToken);
         }
-        catch (Exception ex) when (ex is GraphException or AzCliException or ToolchainException)
+        catch (Exception ex) when (ex is GraphException or GraphTransportException)
         {
             log.Add($"prefix sweep aborted: {ex.GetType().Name}: {ex.Message}");
             _leftovers.Add("the prefix sweep was aborted before it finished: " + ex.Message);
@@ -352,7 +356,7 @@ public sealed class IntegrationFixture : IAsyncLifetime
 }
 
 /// <summary>
-/// One collection for every real-tenant test class: the classes share the fixture (one az session, one cleanup guard)
+/// One collection for every real-tenant test class: the classes share the fixture (one sign-in, one cleanup guard)
 /// and run sequentially, which the in-process CLI requires (its global options are static).
 /// </summary>
 [CollectionDefinition(Name)]

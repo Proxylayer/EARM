@@ -4,20 +4,19 @@ using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Core;
 using EArm.Core.Types;
 using EArm.Engine;
 using EArm.Engine.Providers;
 using EArm.Engine.State;
 using EArm.Expressions.Values;
-using GraphApi = EArm.Az.GraphApi;
+using GraphApi = EArm.Graph.GraphApi;
 
 namespace EArm.Providers;
 
 /// <summary>
-/// <c>Microsoft.Entra/roleAssignments</c>, permanent active directory role assignments (plan sections 1.3, 1.4, 3.2;
-/// work item WI-15). The resource name is a deterministic GUID the author picks with <c>guid(...)</c>; the Graph
+/// <c>Microsoft.Entra/roleAssignments</c>, permanent active directory role assignments. The resource name is a deterministic GUID the author picks with <c>guid(...)</c>; the Graph
 /// object is found by the composite key (<c>roleDefinitionId</c>, <c>principalId</c>, <c>directoryScopeId</c>) and
 /// its id pinned in the state. Sugar accepted in <c>properties</c>: <c>role</c> (a role template id, a built-in
 /// display name resolved from <see cref="WellKnownIds.RoleTemplates"/>, a custom role's display name looked up in
@@ -48,7 +47,7 @@ public sealed class RoleAssignmentsProvider : ProviderBase
     public const string ResourceType = "Microsoft.Entra/roleAssignments";
 
     /// <summary><see cref="ProviderException"/> code: the declared assignment cannot be made (unknown role or unit name, wrong principal kind, bad shape).</summary>
-    public const string InvalidAssignment = "RoleAssignmentInvalid";
+    public const string InvalidAssignment = EngineDiagnosticCodes.RoleAssignmentInvalid;
 
     public RoleAssignmentsProvider(ResourceTypeDefinition definition, ResourceTypeCatalog? catalog = null)
         : base(definition, catalog)

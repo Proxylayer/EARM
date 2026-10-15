@@ -3,17 +3,17 @@ using System.Collections.Generic;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Core;
 using EArm.Engine.Edges;
 using EArm.Engine.Providers;
 using EArm.Expressions.Values;
-using GraphApi = EArm.Az.GraphApi;
+using GraphApi = EArm.Graph.GraphApi;
 
 namespace EArm.Providers.Edges;
 
 /// <summary>
-/// App role assignments as an edge kind (plan section 1.4, part B): the principal-side <c>appRoleAssignments</c>
+/// App role assignments as an edge kind (part B): the principal-side <c>appRoleAssignments</c>
 /// property of users, groups and service principals, <c>[{ resourceId | resourceAppId, appRole | appRoleId }]</c>.
 /// Each item resolves to (principal = the declarer, resource service principal, app role id); the edge's
 /// <see cref="Edge.TargetId"/> is the composite <c>{resourceId}/{appRoleId}</c> (a principal may hold several roles
@@ -340,6 +340,34 @@ public sealed class AppRoleAssignmentEdgeKind : IEdgeKindHandler
             ["id"] = id,
         };
         return new Edge(Kind, AppRoleAssignmentsRules.TargetKey(resourceId, appRoleId), principalId, Collection, recorded);
+    }
+
+    /// <summary>GET the recorded assignment by id: it must be the assignment of this principal to the recorded resource and app role (a tampered state could name anybody's assignment).</summary>
+    public async Task<bool> VerifyRecordedAsync(Edge edge, string principalId, GraphApi api, EdgeGraphContext context, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(edge);
+        ArgumentNullException.ThrowIfNull(context);
+        string? id = JsonObjects.GetId(edge.Extra);
+        if (id is null)
+        {
+            return false;
+        }
+
+        var (resourceId, appRoleId) = Composite(edge);
+        JsonNode? live;
+        try
+        {
+            live = await context.GetAsync(new GraphRequest(AppRoleAssignmentsLookup.AssignedToPath(resourceId) + "/" + GraphPath.Segment(id), api), cancellationToken).ConfigureAwait(false);
+        }
+        catch (GraphException ex) when (ex.IsNotFound)
+        {
+            return false;
+        }
+
+        return live is JsonObject assignment
+            && Edge.IdEquals(JsonObjects.GetString(assignment, "principalId"), principalId)
+            && Edge.IdEquals(JsonObjects.GetString(assignment, "appRoleId"), appRoleId)
+            && (JsonObjects.GetString(assignment, "resourceId") is not { } liveResource || Edge.IdEquals(liveResource, resourceId));
     }
 
     // ---- identity ----

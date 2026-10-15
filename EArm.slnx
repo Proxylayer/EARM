@@ -13,7 +13,7 @@
   </Folder>
   <Folder Name="/src/">
     <File Path="src/Directory.Build.props" />
-    <Project Path="src/EArm.Az/EArm.Az.csproj" />
+    <Project Path="src/EArm.Graph/EArm.Graph.csproj" />
     <Project Path="src/EArm.Cli/EArm.Cli.csproj" />
     <Project Path="src/EArm.Core/EArm.Core.csproj" />
     <Project Path="src/EArm.Engine/EArm.Engine.csproj" />
@@ -22,7 +22,7 @@
   </Folder>
   <Folder Name="/tests/">
     <File Path="tests/Directory.Build.props" />
-    <Project Path="tests/EArm.Az.Tests/EArm.Az.Tests.csproj" />
+    <Project Path="tests/EArm.Graph.Tests/EArm.Graph.Tests.csproj" />
     <Project Path="tests/EArm.Integration.Tests/EArm.Integration.Tests.csproj" />
     <Project Path="tests/EArm.Providers.Tests/EArm.Providers.Tests.csproj" />
     <Project Path="tests/EArm.TestSupport/EArm.TestSupport.csproj" />

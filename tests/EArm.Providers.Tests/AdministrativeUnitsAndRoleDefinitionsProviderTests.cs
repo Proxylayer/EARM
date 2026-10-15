@@ -2,7 +2,7 @@ using System;
 using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Core.Types;
 using EArm.Engine;
 using EArm.Engine.Execution;
@@ -14,7 +14,7 @@ using static EArm.Providers.Tests.Infrastructure.DirectoryTemplates;
 
 namespace EArm.Providers.Tests;
 
-/// <summary>The administrative units provider (WI-15, U1–U8) end to end.</summary>
+/// <summary>The administrative units provider end to end.</summary>
 public sealed class AdministrativeUnitsProviderTests
 {
     private const string AuType = "Microsoft.Entra/administrativeUnits";
@@ -198,7 +198,7 @@ public sealed class AdministrativeUnitsProviderTests
     }
 }
 
-/// <summary>The custom role definitions provider (WI-15, R1–R6) end to end.</summary>
+/// <summary>The custom role definitions provider end to end.</summary>
 public sealed class RoleDefinitionsProviderTests
 {
     private const string RoleType = "Microsoft.Entra/roleDefinitions";

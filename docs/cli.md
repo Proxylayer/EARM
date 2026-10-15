@@ -1,7 +1,6 @@
 # Command line reference
 
-`earm` mirrors `az deployment group …`. Online verbs talk to Microsoft Graph through the **Azure CLI session** (`az rest`, launched
-through PowerShell 7); offline verbs need neither a session nor a tenant.
+`earm` mirrors `az deployment group …`. Online verbs talk to Microsoft Graph over HTTPS with a token of the identity EARM is signed in as (see [Signing in](#signing-in)); offline verbs need neither a sign-in nor a tenant. EARM starts no external process: no Azure CLI, no PowerShell.
 
 ```
 earm
@@ -13,6 +12,10 @@ earm
 │   ├── list            deployments recorded in the state directory
 │   ├── delete          remove a deployment's state (and --delete-resources: its objects)
 │   └── operation list  per-resource operations of the last run
+├── auth
+│   ├── login           sign in interactively (browser or device code)
+│   ├── logout          forget the interactive sign-in
+│   └── status          who EARM is signed in as
 ├── permissions         Graph permissions and Entra roles a template needs (offline)
 ├── schema
 │   ├── print           write a JSON Schema to stdout
@@ -20,6 +23,7 @@ earm
 └── state
     ├── unlock          break a stale state lock
     ├── forget          drop one resource from a state
+    ├── set-provenance  mark one state entry created or adopted
     └── adopt           pin an existing object's id, or set uniqueName on it
 ```
 
@@ -32,14 +36,15 @@ Valid on every verb (recursive).
 | Option | Meaning |
 |---|---|
 | `-o`, `--output table\|json\|none` | Output format. Default `table`. `none` prints nothing (useful with `--exit-code-on-changes`). |
-| `--pwsh-path <path>` | PowerShell 7.4+ executable. Default: `EARM_PWSH_PATH`, then `pwsh` on `PATH`. EARM launches `pwsh` and nothing else (never `cmd.exe`). |
-| `--az-command <path>` | Azure CLI command or script to run instead of `az` (a test double). Default: `EARM_AZ_COMMAND`, then `az` on `PATH`. |
-| `--temp-dir <dir>` | Directory for the short-lived request and body files (owner-only, zeroed and deleted after each call). Default: `EARM_TEMP_DIR`, then `%LOCALAPPDATA%\EArm\tmp`. |
+| `--auth auto\|default\|interactive` | How tokens are obtained. Default: `EARM_AUTH`, then `auto` (a cached `earm auth login` sign-in when there is one, else the default credential chain). |
+| `--tenant <id\|domain>` | Tenant to sign in to. Default: `EARM_TENANT_ID`. |
+| `--client-id <guid>` | App registration (public client) used by `earm auth login`. Default: `EARM_CLIENT_ID`, then the Azure.Identity developer client. |
 | `--state-dir <dir>` | Directory of the state files. Default: `EARM_STATE_DIR`, then `.earm/state` next to the template (or under the current directory). |
-| `--verbose` | Debug logging on stderr: every `az` call with URL parameters and headers redacted; bodies are never logged. |
-| `--debug` | Trace logging on stderr: as `--verbose` plus the `az` argument vector and redacted stderr. |
+| `--verbose` | Debug logging on stderr: every Graph call (method, path, status, timing, request id; secret-looking query values masked); tokens, Authorization headers and bodies are never logged. |
+| `--debug` | Trace logging on stderr: as `--verbose` plus token acquisition and retry details (never the tokens). Also prints the full exception (with stack trace) of an unexpected error; `EARM_DEBUG=1` does the same. |
+| `--evaluation-timeout <seconds>` | Wall-clock budget of one evaluation (a variable, the properties of a resource, an output; the time between evaluations, such as network calls, never counts). Default: `EARM_EVALUATION_TIMEOUT`, then 60. `0` disables the time limit (the step limit of [format.md](format.md#evaluation-limits) still applies); the largest value, for the flag and the variable alike, is 86,400 (24 hours). A value that is not a number of seconds in that range (`abc`, `NaN`, `Infinity`, a negative or larger number) is a one-line usage error (exit 1), never an "Unexpected error"; an invalid `EARM_EVALUATION_TIMEOUT` is ignored. An exceeded budget is the diagnostic `EvaluationBudgetExceeded`. |
 
-Environment: `EARM_STATE_DIR`, `EARM_PWSH_PATH`, `EARM_AZ_COMMAND`, `EARM_TEMP_DIR`; colours (what-if) are off when
+Environment: `EARM_STATE_DIR`, `EARM_AUTH`, `EARM_TENANT_ID`, `EARM_CLIENT_ID`, `EARM_EVALUATION_TIMEOUT`, `EARM_DEBUG`, `EARM_KEYVAULT_ALLOWED` (comma-separated vault names, case-insensitive: when set, a Key Vault parameter reference to any other vault is refused before a token is requested), `EARM_CLOUD` (`public` (default), `usgov`, `usgovdod` or `china`: selects the Graph host, the Entra authority and the Key Vault suffix from a fixed table; there is no way to name another endpoint), plus the `AZURE_*` variables of Azure.Identity (see [Signing in](#signing-in)); colours (what-if) are off when
 `NO_COLOR` (any non-empty value) or `AZURE_CORE_NO_COLOR` (`true`, `1`, `yes`, `on`) is set or the output is redirected.
 
 ## Exit codes
@@ -47,12 +52,72 @@ Environment: `EARM_STATE_DIR`, `EARM_PWSH_PATH`, `EARM_AZ_COMMAND`, `EARM_TEMP_D
 | Code | Meaning |
 |---|---|
 | 0 | Success (for `what-if`: no changes, or changes without `--exit-code-on-changes`). |
-| 1 | Deployment or operation failure; a template, parameter file or state file that cannot be loaded; a malformed argument; a type without a provider; a refusal (confirmation declined, non-interactive without `--yes`). |
+| 1 | Deployment or operation failure; a template, parameter file or state file that cannot be loaded; a malformed argument or a usage error; a type without a provider; a refusal (confirmation declined, non-interactive without `--yes`); an **unexpected error**, printed as one line `Unexpected error (<type>): <message>` (the full exception only with `--debug` / `EARM_DEBUG=1`), a file access problem (`Access denied: ...`, `A file operation failed ...`) or running out of memory. |
 | 2 | Validation failure: the template has errors (offline validation, expansion or the dependency graph). |
-| 3 | Azure CLI, authentication, preflight or tenant failure: no usable `az` session, a Graph token that is rejected, a state or Key Vault reference for another tenant. |
+| 3 | Authentication, preflight or tenant failure: no credential signs in, a Graph token that is rejected, a state for another tenant, an unreadable Key Vault reference. |
 | 4 | The deployment's state is locked by another run (`--lock-timeout` elapsed). |
 | 5 | `what-if --exit-code-on-changes` found a Create, Modify or Delete (or an edge add or remove). |
 
+## Output, errors and prompts
+
+- **Standard output** carries the result of the verb (`-o json` is one JSON document); **standard error** carries messages, logs, usage errors
+  **and the help that follows a usage error**, and the confirmation prompts (`Are you sure ...? (y/n):`), so `-o json` output can always be parsed.
+  `--help` and a bare `earm` print help on standard output with exit 0.
+- With `-o json` **every verb prints exactly one JSON document on standard output, on success and on failure**: the report of the verb, or for a failure that has
+  no report of its own (`auth login`, `logout`, `status`, `schema print`, `schema install`, and a command line that does not parse) `{ "status": "Failed",
+  "diagnostics": [ { "severity": "Error", "code": ..., "message": ... } ] }` next to the message on standard error (codes `AuthenticationFailed`, `InvalidArgument`).
+  A message of several lines (the credentials an unsuccessful `auth status` tried) keeps them: `message` joins them with a line feed and `lines` lists them.
+- **Untrusted text is made safe.** Names, property keys and values come from templates and tenants and are echoed into messages. Everything written
+  to either stream passes one filter: control characters (line breaks inside a value, ESC and the terminal sequences built on it, BEL, DEL, the C1
+  controls), the line and paragraph separators and the bidirectional overrides are written as visible escapes (a backslash and `n`, `u001b`,
+  `u202e`); text a CI log parser would run as a command is broken so it cannot: the second `#` of `##vso[` and `##[` is written as `\u0023` wherever the
+  token appears in a line (`#\u0023vso[`; an Azure Pipelines agent finds it mid-line, and in `-o json` it is an ordinary JSON escape that decodes back to `#`), and a `::` that is
+  the first thing on a line, after any whitespace (a GitHub Actions runner trims it), gets an apostrophe in front. Only the colour codes of the what-if text pass through (and only on a terminal). JSON output is unaffected (JSON escapes control
+  characters itself), but messages inside it are escaped the same way.
+- **Unexpected errors** never print a stack trace: the line is `Unexpected error (<exception type>): <message>`, with secrets scrubbed, control
+  characters escaped and the message cut to 500 characters, exit code 1. `--debug` (or `EARM_DEBUG=1`) adds the full exception. File and permission
+  problems get a plain sentence (`Access denied: ...`, `A file operation failed (...): ...`), and running out of memory is a one-line message; both exit 1.
+
+## Signing in
+
+EARM obtains tokens with Azure.Identity; nothing is delegated to a command-line tool. `--auth` (or `EARM_AUTH`) chooses:
+
+| Mode | Behaviour |
+|---|---|
+| `auto` (default) | The cached sign-in of `earm auth login` when one exists, otherwise `default`. There is **no fallback**: when a cached sign-in exists but cannot produce a token silently (expired or revoked refresh token), the run fails with "your interactive sign-in expired: run `earm auth login`, or pass `--auth default`" instead of quietly acting as a different identity. A record that belongs to another cloud is ignored (logged). |
+| `default` | `DefaultAzureCredential` restricted to credentials that start no process: **environment** (`AZURE_TENANT_ID` + `AZURE_CLIENT_ID` + `AZURE_CLIENT_SECRET`, or `AZURE_CLIENT_CERTIFICATE_PATH`, or `AZURE_USERNAME`/`AZURE_PASSWORD`), **workload identity** (`AZURE_FEDERATED_TOKEN_FILE`) and **managed identity** (`AZURE_CLIENT_ID` selects a user-assigned one). The Azure CLI, Azure Developer CLI, Azure PowerShell, Visual Studio and Visual Studio Code credentials are excluded. `AZURE_TOKEN_CREDENTIALS` is refused unless it is `prod` or one of the three credentials above. |
+| `interactive` | Only the cached sign-in; fails with "run `earm auth login`" when there is none. |
+
+The identity of the first token (tenant id, object id, app id, user principal name or app id) is logged once at Information level (shown by `--verbose`); the token itself never is.
+An unknown `--auth`, `--tenant`, `--client-id` or `EARM_CLOUD` value is a plain failure (exit 1) whose message names the setting and lists the valid values.
+
+### `earm auth login [--device-code] [--tenant <id>] [--client-id <guid>]`
+
+Signs in as a user: a browser window by default, `--device-code` on a machine without one. The tokens go to a persistent **encrypted** token cache named
+`earm` (DPAPI on Windows, Keychain on macOS, the secret service on Linux); unencrypted storage is never enabled, and when the platform cannot protect the cache the login
+fails with a message that says so. The non-secret account record is stored owner-only at `%LOCALAPPDATA%\EArm\auth\record.json` (`$XDG_DATA_HOME/earm/auth/record.json`
+elsewhere). The default app registration is the Azure.Identity developer client, whose tokens only carry the Graph permissions it is pre-authorized for; to use the
+administrative scopes EARM needs (see [permissions.md](permissions.md)), register your own public-client application with the needed **delegated** permissions, a
+`http://localhost` redirect URI (and "allow public client flows" for `--device-code`), and pass its id with `--client-id` / `EARM_CLIENT_ID`. Exit 0; 3 when the sign-in fails.
+`login` never waits for a browser that nobody can use: with **standard input and output both redirected** (a script, a pipeline) and no `--device-code` it fails at once
+(exit 1) and says to add `--device-code`; with `--auth default` (or `EARM_AUTH=default`) it fails at once too, because the default credential chain (environment variables,
+workload identity, managed identity) signs nobody in: `login` is only for interactive sign-in.
+
+### `earm auth logout`
+
+Deletes the sign-in record and the files of the `earm` token cache. Service principal, workload identity and managed identity sign-ins come from the environment and are not affected.
+
+### `earm auth status`
+
+Acquires a token the way an online verb would and prints the mode, cloud, tenant, principal (user principal name, or app id for an app-only token), object id, delegated scopes or
+application roles and the expiry, read from the token's claims **without validating** them (display only; the token is never printed). Exit 3 with the sign-in guidance
+(the credentials that were tried and how to configure one) when nothing signs in.
+
+### Migrating from the Azure CLI transport
+
+Earlier previews ran `az rest` through PowerShell. That is gone: `--az-command`, `--pwsh-path`, `--temp-dir` and the environment variables `EARM_AZ_COMMAND`,
+`EARM_PWSH_PATH` and `EARM_TEMP_DIR` were removed, and an existing `az login` session is **no longer used**. Sign in with `earm auth login` or the `AZURE_*` variables instead; Azure CLI and
+PowerShell are no longer prerequisites (PowerShell remains only for the repository's own `build.ps1`, `test.ps1`, `deploy.ps1` and `tools/*.ps1`).
 ## `deployment`
 
 ### Shared inputs of `validate`, `what-if`, `create`
@@ -60,14 +125,14 @@ Environment: `EARM_STATE_DIR`, `EARM_PWSH_PATH`, `EARM_AZ_COMMAND`, `EARM_TEMP_D
 | Option | Meaning |
 |---|---|
 | `-f`, `--template-file <path>` | The template (`*.entra.json`). Required. |
-| `-p`, `--parameters <…>` | Repeatable. `@file.json` loads a parameter file ([format.md](format.md#parameters-and-parameter-files)); `name=value` sets one value. Later values win. Precedence: `-p name=value` > parameter file > `defaultValue`. |
+| `-p`, `--parameters <…>` | Repeatable, **one value per `-p`** (on every command that takes it, and `--key` of `state adopt` likewise: a stray token such as `-p @f.json -n x` is a usage error naming the unknown option instead of being swallowed as another value). `@file.json` loads a parameter file ([format.md](format.md#parameters-and-parameter-files)); `name=value` sets one value. In PowerShell write the file form in single quotes, `-p '@file.json'`: a bare `@` there is the splatting operator and a parse error. Later values win. Precedence: `-p name=value` > parameter file > `defaultValue`. |
 | `-o`, `--output table\|json\|none` | Output format (a global option, valid on every verb). Default `table`. `none` prints nothing. |
 
 ### `deployment validate`
 
 `earm deployment validate -f <template> [-p …] [-o table|json]`. There is no `-n`: validate is offline and has no deployment name. Offline: JSON Schema (envelope and per-type property schemas), the type
-catalog, semantic checks, expression syntax and static evaluation (names, `dependsOn`, references, outputs). No tenant access. Exit 0 with
-no errors (warnings allowed), 2 with errors, 1 when a file cannot be loaded. Every code is in [diagnostics.md](diagnostics.md).
+catalog, semantic checks, expression syntax and static evaluation (names, `dependsOn`, references, outputs, and every expression inside `properties`, which is evaluated far enough to report an undefined variable or parameter and an unknown function). No tenant access. Exit 0 with
+no errors (warnings allowed), 2 with errors, 1 when a file cannot be loaded. Every code is in [diagnostics.md](diagnostics.md). At most 50 diagnostics of one code and severity are listed; the rest are summarised in one line (`suppressedCount` and `suppressed[]` in JSON, the counts stay exact).
 
 ### `deployment what-if` and `deployment create`
 
@@ -78,7 +143,8 @@ dependency order, recording every resource in the state after each operation.
 |---|---|---|
 | `-n`, `--name <name>` | both | Deployment name (the state file name). Default: the template file name without `.entra.json`. Letters, digits, `.`, `_`, `-`; up to 128 characters. `validate` is offline, has no deployment name and does not accept `-n`. |
 | `--mode Incremental\|Complete` | both | Incremental (default): create or update the declared resources; resources that vanished from the template are detached from the state with a warning. Complete: additionally **delete** the state-managed objects the template no longer declares, in reverse dependency order (security groups are deleted permanently, with a warning). |
-| `--parallelism <n>` | both | Resources read or applied concurrently inside a dependency batch. Default 4. |
+| `--delete-adopted` | both | Complete mode: also delete state entries that were *adopted* (the object existed before the deployment managed it: found by key without a state entry, or pinned with `state adopt`). Default: adopted objects are never deleted; the run keeps their entries and warns `AdoptedObjectNotDeleted`. |
+| `--parallelism <n>` | both | Resources read or applied concurrently inside a dependency batch. Default 4. At least 1: a smaller value is a usage error (exit 1). |
 | `--allow-ca-enforce` | both | Allow Conditional Access policies with `state: enabled` (default: report-only or disabled only). |
 | `--on-soft-deleted-conflict error\|restore` | both | What to do when a key to create is held by a soft-deleted object: fail with a hint (default), or restore it and continue. Nothing is ever purged. |
 | `--result-format FullResourcePayloads\|ResourceIdOnly` | both | What-if detail. |
@@ -86,26 +152,38 @@ dependency order, recording every resource in the state after each operation.
 | `--no-pretty-print` | both | Compact JSON for `-o json`. |
 | `--what-if` | `create` | Alias of `deployment what-if`. |
 | `-c`, `--confirm-with-what-if` | `create` | Print the what-if, ask `Are you sure you want to execute the deployment? (y/n):`, then apply the same plan. |
-| `-y`, `--yes` | `create` | Do not prompt. **Required when standard input is not interactive.** |
+| `-y`, `--yes` | `create` | Skip the confirmation that `--confirm-with-what-if` asks (the deployment is applied right after the what-if). Plain `create` never prompts. With `-c` and no `-y`, standard input must be interactive: the question is read from it. |
 | `--continue-on-error` | `create` | Keep deploying resources that do not depend on a failed one (default: stop at the batch boundary). |
 | `--reveal-secure-outputs` | `create` | Print `securestring` / `secureObject` outputs in clear text instead of `***`. |
-| `--secure-outputs-file <path>` | `create` | Write the secure outputs in clear text to a file with owner-only permissions. |
+| `--secure-outputs-file <path>` | `create` | Write the secure outputs in clear text to a file with owner-only permissions. The file is checked **before** anything is deployed (a directory, a missing folder, a read-only file or a symbolic link stops the run: exit 1, "Deployment not started."). One-time secrets (a password credential's `secretText`, a generated user password) are written to it **immediately** after the apply that produced them, under the reserved top-level key `oneTimeSecrets` (by resource id), so a crash, Ctrl+C or failed state save cannot lose them. A rerun **merges** into an existing file (keys that are not superseded stay) and never replaces it with a smaller one; a run with no secure values does not touch the file at all. |
+| `--allow-delete-all` | `create` | Complete mode: confirm a deployment whose template declares **no resources** while the state manages some, or that would delete more than `--max-deletes` objects. Required even with `-y`. |
+| `--max-deletes <n>` | `create` | The most objects a run deletes without `--allow-delete-all` (default 25; zero or more, a negative value is a usage error): Complete-mode orphans (adopted entries do not count unless `--delete-adopted`), entries of types whose resource names are only known at deployment time (counted as possible deletions: the refusal says "may include"), and the old objects of **recreates** (an immutable property changed on a type that is deleted and created again; the what-if row says so, and with `-c` they count against the limit). The estimate is made before the run; the same number is also enforced **during** the run as a hard limit (`DeleteLimitExceeded`), so a mode pass can never delete more than was confirmed. |
 | `--force-unlock` | `create` | Break the deployment's state lock first. |
-| `--lock-timeout <seconds>` | `create` | Wait for another run's lock this long (default 10), then exit 4. |
+| `--lock-timeout <seconds>` | `create` | Wait for another run's lock this long (default 10; zero or more, a negative value is a usage error), then exit 4. |
 
-Before anything is planned, the CLI runs offline validation (exit 2), loads the state (exit 1 when unreadable), runs the preflight
-(`az version`, `az account show`, `GET /organization`; exit 3), checks the state's tenant (exit 3 on a mismatch), resolves Key Vault parameter
-references (exit 3) and, for `create`, takes the state lock (exit 4). Rendering is described in [whatif.md](whatif.md), the pipeline in
-[engine.md](engine.md).
+Before anything is planned, the CLI runs offline validation (exit 2) and, for `create`, checks `--secure-outputs-file` (exit 1), then takes the state
+lock (exit 4), **then** loads the state (exit 1 when unreadable: a symbolic link or junction as state directory, as **any folder above it** or as state file, a state file that is not valid or over 16 MiB, a
+Graph id that is not a GUID, an entry whose `key` is not the key its resource id implies or whose recorded relationship ids are malformed: `StateEntryInvalid`, repair with `state forget`), runs the preflight (acquires a token, reads its tenant and principal, one `GET /organization`; exit 3), checks the state's tenant
+(exit 3 on a mismatch) and resolves Key Vault parameter references (exit 3). `what-if` never locks: it reads the state as an unlocked snapshot and says so on
+stderr. Rendering is described in [whatif.md](whatif.md), the pipeline in [engine.md](engine.md).
+
+A Complete-mode `create` that would delete objects lists them (resource id, type, live `displayName` when it can be read, `[adopted]`) and asks
+`Delete them as part of this deployment? (y/n):` unless `-y` (with `-c` the what-if rows are the list and its prompt is the confirmation); on a
+non-interactive standard input without `-y` it stops with exit 1 and "Deployment not started.". A template that declares no resources while the state
+manages some, and a run that would delete more than `--max-deletes` objects, are refused unless `--allow-delete-all` is passed, with or without `-y`. The list also shows the entries of types whose resource names are only known at deployment time as `[may be deleted]`, and with `-c` the objects a recreate replaces (`[replaced: deleted and created again]`); a recreate of an object this deployment did not create is refused without `--delete-adopted`.
+
+With `-o json` the standard output of a verb that fails **before** it has anything else to report (a preflight failure, exit 3; an unreadable state; a state lock, exit 4; a delete-limit refusal of a plain `create`) is **one JSON document** `{ "status": "Failed", "diagnostics": [ { "severity": "Error", "code": "...", "message": "..." } ] }` instead of prose on stderr; a multi-line message uses `\n` line breaks. A decline of a confirmation prompt, and a refusal after the what-if document of `-c` was written, stay on stderr (the document already on stdout is the one document).
 
 ### `deployment show`, `list`, `delete`, `operation list`
 
 | Verb | Syntax | Notes |
 |---|---|---|
-| `show` | `-n <name> [-f <template>] [--refresh]` | The state summary: last run, tenant, resources with their Graph ids. `--refresh` re-reads every object through its provider and reports drift (`InSync`, `Missing`, `Replaced`) without changing the state; needs a session (exit 3 on a tenant mismatch). |
-| `list` | `[-f <template>]` | Every deployment with a state file in the state directory. |
-| `delete` | `-n <name> [-f <template>] [-y] [--delete-resources] [--force-unlock] [--continue-on-error]` | Removes the state file; the objects stay in the tenant. `--delete-resources` first deletes every state-managed object in reverse dependency order (needs a session; a failure keeps the entry and exits 1). Asks for confirmation unless `-y`. |
+| `show` | `-n <name> [-f <template>] [--refresh]` | The state summary: last run, tenant, resources with their Graph ids and their provenance (`created` or `adopted`; JSON: `resources.<id>.provenance`). `--refresh` re-reads every object through its provider and reports drift (`InSync`, `Missing`, `Replaced`) without changing the state; needs a session (exit 3 on a tenant mismatch). |
+| `list` | `[-n <name>] [-f <template>]` | Every deployment with a state file in the state directory. `-n` keeps only the deployment of that name (case-insensitive exact match); an unknown name lists nothing (an empty `deployments` array with `-o json`), prints `No deployment named '<name>' ...` on stderr and still exits 0. A state file that cannot be read shows its error on its own row. |
+| `delete` | `-n <name> [-f <template>] [-y] [--delete-resources] [--delete-adopted] [--force-unlock] [--continue-on-error]` | Removes the state file; the objects stay in the tenant. `--delete-resources` first deletes every state-managed object **that the deployment created** in reverse dependency order (adopted objects stay, and with them their entries and the state file, unless `--delete-adopted`; every object is re-read by its key and must be the pinned one, and the signed-in principal and first-party service principals are never deleted) (needs a session; a failure keeps the entry and exits 1). Asks for confirmation unless `-y`. |
 | `operation list` | `-n <name> [-f <template>]` | The per-resource operations of the last run, from the state. |
+
+With `-o json` every one of these verbs (and the `state` verbs below) writes **exactly one JSON document**, on success and on failure: a failure (unknown deployment `DeploymentNotFound`, an unreadable state, a tenant mismatch, a failed preflight) is `{ "status": "Failed", "diagnostics": [ { "severity", "code", "message" } ] }` with the same exit code as the table output. `delete` reports `{ "status", "deployment", "message", "deleted", "alreadyGone", "kept", "failed", "skipped", "stateRemoved", "remainingEntries", "outcomes": [ { "resourceId", "type", "graphId", "status", "error", "errorCode" } ] }`; deleting only the state reports `{ "status", "deployment", "stateRemoved": true, "objectsLeftInTenant" }`. Deleting only the state reads the file leniently, so an entry that fails the integrity rules never keeps a state file from being removed; deleting the objects reads it strictly.
 
 `-f` only **locates** the state directory (`.earm/state` next to the template); `--state-dir` overrides it.
 
@@ -115,10 +193,15 @@ State files record each resource's `apiVersion`. The `apiVersion` relabel (`2026
 
 ## `permissions`
 
-`earm permissions -f <template> [-p …] [--mode app|delegated] [-o table|json]`. Offline. Lists the Graph permissions (and, for
+`earm permissions -f <template> [-p …] [--mode app|delegated] [-n <deployment>] [-o table|json]`. Offline. Lists the Graph permissions (and, for
 `--mode delegated`, the Entra roles of which the user needs one per group) the template needs, grouped by permission with the resources that
 need it and why. Exit 0; 2 when the template has validation errors; 1 when it cannot be loaded. Details and the manifest tables:
 [permissions.md](permissions.md).
+
+A `deployment create --mode Complete` run also deletes the objects the state records but the template no longer declares, which needs the delete
+permissions of their types. `-n <deployment>` (with `--state-dir`, default `.earm/state` next to the template) reads that state, adds those delete
+permissions (reason `Complete mode`) and says in a note how many objects it found; no sign-in is needed. Without `-n` a note says that the
+list is incomplete for Complete mode.
 
 ## `schema`
 
@@ -126,7 +209,7 @@ need it and why. Exit 0; 2 when the template has validation errors; 1 when it ca
 
 `earm schema print [template|parameters|<type>]` writes an embedded JSON Schema to standard output (default `template`). `<type>` is
 `Microsoft.Entra/applications`, the short form `applications`, a child type `applications/passwordCredentials`, or the file spelling
-`conditionalAccess.policies`; case-insensitive. An unknown name lists the known types and exits 1.
+`conditionalAccess.policies`; case-insensitive. An unknown name lists the known types and exits 1 (with `-o json`: a failure document on standard output).
 
 ```powershell
 earm schema print template > deploymentTemplate.json
@@ -136,6 +219,8 @@ earm schema print Microsoft.Entra/conditionalAccess/policies
 ### `schema install`
 
 `earm schema install [--global] [--workspace <dir>] [--settings-file <path>] [--schema-dir <dir>]`
+
+With `-o json` the text is replaced by one document: `{ "status": "Succeeded", "schemaDirectory", "files", "written", "source": "embedded"|"checkout", "checkout", "settingsFile", "settings": "created"|"updated"|"unchanged", "settingsBackup", "url", "fileMatch" }` (on failure the failure document described under [Output, errors and prompts](#output-errors-and-prompts)).
 
 1. **Extracts the schemas** to `--schema-dir` (default `%LOCALAPPDATA%\EArm\schemas\2026-10-01`; `~/.local/share/EArm/schemas/2026-10-01` on
    Linux and macOS). The source is the `schemas/2026-10-01` directory of the checkout when the workspace is inside the EARM repository
@@ -163,13 +248,14 @@ Exit 0, or 1 when a file cannot be read or written, the settings are not valid J
 
 | Verb | Syntax | Notes |
 |---|---|---|
-| `unlock` | `-n <name> [-f <template>]` | Breaks a stale lock (`<state-dir>/<name>.lock`) left by a run that died. Locks older than one hour are also taken over automatically. |
-| `forget` | `-n <name> --resource-id <id> [-f <template>] [-y]` | Drops one resource from the state; the object stays in the tenant and is adopted again by the next deployment. Exit 4 when locked. |
+| `unlock` | `-n <name> [-f <template>]` | Breaks a stale lock (`<state-dir>/<name>.lock`) left by a run that died. A lock whose holder is a process of this host that no longer runs is taken over automatically **at once** (no waiting); any other lock older than one hour without a heartbeat is also taken over automatically. A lock is only ever released or refreshed by the run that took it: after `unlock` the old run does not delete or rewrite the lock of whoever took the lock next. |
+| `forget` | `-n <name> --resource-id <id> [-f <template>] [-y]` | Drops one resource from the state; the object stays in the tenant and is adopted again by the next deployment. Exit 4 when locked. It reads the state **leniently**, so it also removes an entry that fails the integrity rules (`StateEntryInvalid`), which every other verb refuses to load. |
+| `set-provenance` | `-n <name> --resource-id <id> --provenance created\|adopted [-f <template>] [-y]` | Marks one entry of the state as `created` (this deployment created the object: Complete mode and `deployment delete --delete-resources` may delete it) or `adopted` (never deleted without `--delete-adopted`). The resource id must already be in the state (an unknown id is refused, exit 1; the verb never invents an entry). Asks for confirmation unless `-y`. Exit 4 when locked. This is the fix for a state file written before provenance was recorded: its entries have no `provenance`, read as adopted, and a Complete-mode run keeps them with `AdoptedObjectNotDeleted` ("no provenance record (an older state file)"); mark the ones EARM created: `earm state set-provenance -n orders-prod --resource-id /providers/Microsoft.Entra/groups/orders-admins --provenance created`. |
 | `adopt` | see below | Brings an existing object under a template. |
 
 ### `state adopt`
 
-Two forms (exactly one per call). In this verb `-n` / `--deployment` is the deployment, and `--name` is the uniqueName.
+Two forms (exactly one per call). In this verb `-n` / `--deployment` is the deployment, and `--unique-name` is the uniqueName (the older spelling `--name` still works, is hidden from `--help` and prints a deprecation note: every other state verb uses `--name` for the deployment).
 
 **Pin an id (offline)**: `earm state adopt -n <deployment> --resource-id <id> --object-id <guid> [-f <template>] [--parent-object-id <guid>] [--key name=value …] [-y]`
 
@@ -178,16 +264,17 @@ Records the Graph object id under a resource id in the deployment's state (creat
 deployment reads it by that id and falls back to the key only if the id is gone. The state key follows the type's name kind; for a child type the parent must already be
 in the state or be given with `--parent-object-id`; a GUID-named type (`appRoleAssignments`, `oauth2PermissionGrants`, `roleAssignments`) needs its
 key properties as `--key principalId=<guid> --key …` so deletes and lookups can find the object. An id that is already pinned to another object asks for
-confirmation (`-y` skips it). Exit 0; 1 on bad input or a refusal; 4 when the state is locked. Needs no Azure CLI.
+confirmation (`-y` skips it). Exit 0; 1 on bad input or a refusal; 4 when the state is locked. Needs no sign-in.
 
 ```powershell
 earm state adopt -n orders-prod --resource-id /providers/Microsoft.Entra/conditionalAccess/policies/CA-Orders-Admins-MFA --object-id 6f1b…
 ```
 
-**Set a uniqueName (online)**: `earm state adopt --type Microsoft.Entra/applications|groups --id <objectId|appId> --name <uniqueName> [-y]`
+**Set a uniqueName (online)**: `earm state adopt --type Microsoft.Entra/applications|groups --id <objectId|appId> --unique-name <uniqueName> [-y]`
 
 `PATCH /applications/{id}` or `/groups/{id}` with `{ "uniqueName": … }` on a brownfield object, so a template can address it by that name
 (`Prefer: create-if-missing` upserts then update it instead of creating a duplicate). The order is: argument checks, **preflight** (exit 3 without a
-usable Azure CLI session), read the object (an application by object id, then by application id), **refuse** when a `uniqueName` is already
+working sign-in), read the object (an application by object id, then by application id), **refuse** when a `uniqueName` is already
 set and differs (it is immutable; an identical one is "nothing to do", exit 0), confirm (`-y` skips), PATCH. Exit 0; 1 on a refusal, a missing object or a Graph error
-(a 403 names the permission); 3 on the preflight. Needs `Application.ReadWrite.All` (`.OwnedBy` for an owned application) or `Group.ReadWrite.All`, or a role that manages them.
+(a 403 names the permission); 3 on the preflight. For an application the PATCH goes through the applications provider: when Graph rejects it (uniqueName is documented as immutable and read-only) the
+error is one line starting `UniqueNameNotSettable:` that explains the alternatives, exit 1. Needs `Application.ReadWrite.All` (`.OwnedBy` for an owned application) or `Group.ReadWrite.All`, or a role that manages them.

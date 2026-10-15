@@ -17,7 +17,7 @@ internal static class WhatIfWriter
     /// <summary>Set to any non-empty value to disable colours (https://no-color.org).</summary>
     public const string NoColorVariable = "NO_COLOR";
 
-    /// <summary>The Azure CLI's own switch (<c>true</c> / <c>1</c> / <c>yes</c> / <c>on</c>), honoured so both tools behave alike.</summary>
+    /// <summary>The switch of the Azure CLI's what-if (<c>true</c> / <c>1</c> / <c>yes</c> / <c>on</c>), honoured so both tools behave alike.</summary>
     public const string AzureNoColorVariable = "AZURE_CORE_NO_COLOR";
 
     public static WhatIfReport Write(DeploymentPlan plan, DeploymentInvocation invocation, TextWriter stdout)
@@ -52,7 +52,7 @@ internal static class WhatIfWriter
     /// <summary>ANSI colours only when writing to a real terminal and neither <c>NO_COLOR</c> nor <c>AZURE_CORE_NO_COLOR</c> switches them off.</summary>
     internal static bool UseColors(TextWriter stdout)
     {
-        if (!ReferenceEquals(stdout, Console.Out) || Console.IsOutputRedirected)
+        if (!ReferenceEquals(ConsoleSanitizer.Unwrap(stdout), Console.Out) || Console.IsOutputRedirected)
         {
             return false;
         }

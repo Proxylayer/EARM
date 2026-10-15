@@ -2,10 +2,10 @@ using System;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Engine.Providers;
 using EArm.Expressions.Values;
-using GraphApi = EArm.Az.GraphApi;
+using GraphApi = EArm.Graph.GraphApi;
 
 namespace EArm.Providers;
 
@@ -44,7 +44,7 @@ public sealed record ServicePrincipalSummary(string Id, string AppId, string? Di
 
 /// <summary>
 /// Reads a service principal by application id for callers outside the provider: <c>appRole()</c> /
-/// <c>permissionScope()</c> (WI-16), app role assignments and permission grants (WI-12), and existing-resource
+/// <c>permissionScope()</c>, app role assignments and permission grants, and existing-resource
 /// lookups. One request: <c>GET /servicePrincipals(appId='…')?$select=id,appId,displayName,appRoles,oauth2PermissionScopes</c>.
 /// Never cached: a principal's roles and scopes mirror its application's and lag an application PATCH by seconds, so
 /// resolve ids right before you need them, after the application's own apply completed. Pass

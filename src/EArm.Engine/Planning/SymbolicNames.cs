@@ -8,7 +8,7 @@ using Microsoft.Extensions.Logging;
 namespace EArm.Engine.Planning;
 
 /// <summary>
-/// Re-evaluates the names of symbolic instances right before their batch runs (plan section 1.5: a resource whose
+/// Re-evaluates the names of symbolic instances right before their batch runs (a resource whose
 /// name is <c>[reference('app').appId]</c> gets its real name once <c>app</c> is live). Runs sequentially between
 /// batches so the resource index is never mutated while a batch evaluates expressions in parallel. A resolved
 /// instance keeps its planned (symbolic) id as an alias: dependents reference it by symbol.

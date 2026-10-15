@@ -4,7 +4,7 @@ using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Core.Secrets;
 using EArm.Core.Types;
 using EArm.Engine;
@@ -17,7 +17,7 @@ namespace EArm.TestSupport;
 /// A generic, catalog-driven provider for tests: reads by the overlay's key kind (alternate key, UPN, id,
 /// displayName filter, composite filter, parent/child path), creates with POST (or an alternate-key PATCH with
 /// <c>Prefer: create-if-missing</c> for <c>uniqueName</c> types), updates with PATCH, deletes with DELETE, all
-/// against the overlay's Graph path. It has none of the per-type pitfalls the real providers (WI-07+) handle; it
+/// against the overlay's Graph path. It has none of the per-type pitfalls the real providers handle; it
 /// exists so planner/executor tests and harnesses can run end-to-end against <see cref="FakeGraphClient"/>.
 /// </summary>
 public sealed class EchoProvider : ProviderBase
@@ -49,6 +49,12 @@ public sealed class EchoProvider : ProviderBase
         ArgumentNullException.ThrowIfNull(key);
         ArgumentNullException.ThrowIfNull(graph);
 
+        if (await WithParentIdAsync(key, graph, cancellationToken).ConfigureAwait(false) is not { } resolved)
+        {
+            return null;
+        }
+
+        key = resolved;
         if (IsPasswordCredential)
         {
             return await ReadPasswordCredentialAsync(key, graph, cancellationToken).ConfigureAwait(false);
@@ -59,7 +65,7 @@ public sealed class EchoProvider : ProviderBase
             // The pinned Graph id from the state goes first (authoritative for displayName/GUID-named types); a 404
             // means drift and falls back to the key lookup below.
             string byId = EntityPath(key, stateId);
-            if (await graph.GetAsync(new GraphRequest(byId, key.Api), cancellationToken).ConfigureAwait(false) is JsonObject pinned)
+            if (await graph.GetAsync(new GraphRequest(byId, key.Api).WithSelect(AllProperties), cancellationToken).ConfigureAwait(false) is JsonObject pinned)
             {
                 return ToExisting(pinned);
             }
@@ -72,20 +78,20 @@ public sealed class EchoProvider : ProviderBase
             case ResourceNameKind.ChildName:
                 {
                     string path = GraphPath.AlternateKey(CollectionPathFor(key), key.SingleName, key.Single);
-                    return await graph.GetAsync(new GraphRequest(path, key.Api), cancellationToken).ConfigureAwait(false) is JsonObject found ? ToExisting(found) : null;
+                    return await graph.GetAsync(new GraphRequest(path, key.Api).WithSelect(AllProperties), cancellationToken).ConfigureAwait(false) is JsonObject found ? ToExisting(found) : null;
                 }
 
             case ResourceNameKind.UserPrincipalName:
             case ResourceNameKind.Id:
                 {
                     string path = CollectionPathFor(key) + "/" + GraphPath.Segment(key.Single);
-                    return await graph.GetAsync(new GraphRequest(path, key.Api), cancellationToken).ConfigureAwait(false) is JsonObject found ? ToExisting(found) : null;
+                    return await graph.GetAsync(new GraphRequest(path, key.Api).WithSelect(AllProperties), cancellationToken).ConfigureAwait(false) is JsonObject found ? ToExisting(found) : null;
                 }
 
             case ResourceNameKind.DisplayName:
                 {
                     string filter = $"{key.SingleName} eq '{key.Single.Replace("'", "''", StringComparison.Ordinal)}'";
-                    var request = new GraphRequest(CollectionPathFor(key), key.Api).WithFilter(filter);
+                    var request = new GraphRequest(CollectionPathFor(key), key.Api).WithFilter(filter).WithSelect(AllProperties);
                     var matches = new List<JsonObject>();
                     await foreach (var item in graph.GetAllPagesAsync(request, cancellationToken).ConfigureAwait(false))
                     {
@@ -105,7 +111,7 @@ public sealed class EchoProvider : ProviderBase
 
             case ResourceNameKind.Guid:
                 {
-                    var request = new GraphRequest(CollectionPathFor(key), key.Api);
+                    var request = new GraphRequest(CollectionPathFor(key), key.Api).WithSelect(AllProperties);
                     await foreach (var item in graph.GetAllPagesAsync(request, cancellationToken).ConfigureAwait(false))
                     {
                         if (item is JsonObject obj && key.Values.All(pair => JsonObjects.KeyEquals(JsonObjects.GetString(obj, pair.Key), pair.Value)))
@@ -150,8 +156,10 @@ public sealed class EchoProvider : ProviderBase
         ArgumentNullException.ThrowIfNull(desired);
         ArgumentNullException.ThrowIfNull(graph);
 
-        var key = ResolveKey(desired);
+        var key = await WithParentIdAsync(ResolveKey(desired), graph, cancellationToken).ConfigureAwait(false)
+            ?? throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{TypeName}: the parent of '{desired.Name}' does not exist.", desired.Id);
         var body = BuildCreateBody(desired);
+        ApplyRequiredDefaults(body, key);
 
         if (IsPasswordCredential)
         {
@@ -175,7 +183,7 @@ public sealed class EchoProvider : ProviderBase
             var request = new GraphRequest(path, desired.Api, hint: desired.RetryHint).WithPrefer("create-if-missing");
             var response = await graph.PatchAsync(request, body, cancellationToken).ConfigureAwait(false);
             var live = response.Body as JsonObject
-                ?? await graph.GetAsync(new GraphRequest(path, desired.Api, hint: RetryHint.ExpectReplicationLag), cancellationToken).ConfigureAwait(false) as JsonObject
+                ?? await graph.GetAsync(new GraphRequest(path, desired.Api, hint: RetryHint.ExpectReplicationLag).WithSelect(AllProperties), cancellationToken).ConfigureAwait(false) as JsonObject
                 ?? throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{TypeName}: the upsert of '{desired.Name}' returned no object.", desired.Id);
             return new AppliedResource(desired.Id, RequireId(live, desired), live, key);
         }
@@ -187,7 +195,7 @@ public sealed class EchoProvider : ProviderBase
             var request = new GraphRequest(path, desired.Api, hint: desired.RetryHint).WithPrefer("create-if-missing");
             var response = await graph.PatchAsync(request, body, cancellationToken).ConfigureAwait(false);
             var live = response.Body as JsonObject
-                ?? await graph.GetAsync(new GraphRequest(path, desired.Api), cancellationToken).ConfigureAwait(false) as JsonObject
+                ?? await graph.GetAsync(new GraphRequest(path, desired.Api).WithSelect(AllProperties), cancellationToken).ConfigureAwait(false) as JsonObject
                 ?? throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{TypeName}: the upsert of '{desired.Name}' returned no object.", desired.Id);
             return new AppliedResource(desired.Id, RequireId(live, desired), live, key);
         }
@@ -205,7 +213,8 @@ public sealed class EchoProvider : ProviderBase
         ArgumentNullException.ThrowIfNull(change);
         ArgumentNullException.ThrowIfNull(graph);
 
-        var key = ResolveKey(desired);
+        var key = await WithParentIdAsync(ResolveKey(desired), graph, cancellationToken).ConfigureAwait(false)
+            ?? throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{TypeName}: the parent of '{desired.Name}' does not exist.", desired.Id);
         if (IsPasswordCredential)
         {
             throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{TypeName}: password credentials are never edited; the planner should have asked for a recreate.", desired.Id);
@@ -214,7 +223,7 @@ public sealed class EchoProvider : ProviderBase
         var body = BuildPatchBody(desired, existing, change);
         string path = EntityPath(key, existing.GraphId);
         await graph.PatchAsync(new GraphRequest(path, desired.Api, hint: desired.RetryHint), body, cancellationToken).ConfigureAwait(false);
-        var live = await graph.GetAsync(new GraphRequest(path, desired.Api), cancellationToken).ConfigureAwait(false) as JsonObject
+        var live = await graph.GetAsync(new GraphRequest(path, desired.Api).WithSelect(AllProperties), cancellationToken).ConfigureAwait(false) as JsonObject
             ?? throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{TypeName}: '{desired.Name}' vanished after the update.", desired.Id);
         return new AppliedResource(desired.Id, existing.GraphId, live, key);
     }
@@ -237,6 +246,85 @@ public sealed class EchoProvider : ProviderBase
         await graph.DeleteAsync(new GraphRequest(EntityPath(key, entry.GraphId)), cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>What a read selects: everything the fake object holds (the echo provider compares whole objects, not a managed subset).</summary>
+    private const string AllProperties = "*";
+
+    /// <summary>
+    /// Like the real providers, a child whose parent is known only by its alternate key (<c>uniqueName</c>, <c>appId</c>) addresses the parent by object id:
+    /// Learn documents navigations and actions under <c>/{collection}/{id}</c> only, and the fake directory refuses them below a <c>uniqueName</c> key.
+    /// The key with <see cref="ResourceKey.ParentGraphId"/> set, or null when the parent does not exist.
+    /// </summary>
+    private async Task<ResourceKey?> WithParentIdAsync(ResourceKey key, IGraphClient graph, CancellationToken cancellationToken)
+    {
+        if (!Definition.IsChildType || key.ParentGraphId is not null || key.ParentKey is not { } parentKey)
+        {
+            return key;
+        }
+
+        var parentDefinition = Catalog.Find(parentKey.Type);
+        if (parentDefinition is null || parentDefinition.NameKind is ResourceNameKind.UserPrincipalName or ResourceNameKind.Id)
+        {
+            return key;
+        }
+
+        string path = GraphPath.AlternateKey(parentDefinition.GraphPath, parentKey.SingleName, parentKey.Single);
+        var parent = await graph.GetAsync(new GraphRequest(path, key.Api).WithSelect("id"), cancellationToken).ConfigureAwait(false) as JsonObject;
+        return JsonObjects.GetId(parent) is { } id ? key with { ParentGraphId = id } : null;
+    }
+
+    /// <summary>
+    /// The properties Graph requires on create that a template of the echo provider does not have to declare (the real providers default them): the fake directory refuses
+    /// a group without <c>mailNickname</c>, a user without a password profile and so on, so the echo provider fills the gaps the way the real providers do.
+    /// </summary>
+    private void ApplyRequiredDefaults(JsonObject body, ResourceKey key)
+    {
+        string name = key.Values.Count == 1 ? key.Single : string.Empty;
+        switch (Definition.GraphPath.ToLowerInvariant())
+        {
+            case "/groups":
+                JsonObjects.SetDefault(body, "displayName", JsonValue.Create(name));
+                JsonObjects.SetDefault(body, "mailNickname", JsonValue.Create(NicknameOf(name)));
+                JsonObjects.SetDefault(body, "mailEnabled", JsonValue.Create(false));
+                JsonObjects.SetDefault(body, "securityEnabled", JsonValue.Create(true));
+                break;
+            case "/users":
+                string local = NicknameOf(name.Split('@')[0]);
+                JsonObjects.SetDefault(body, "accountEnabled", JsonValue.Create(true));
+                JsonObjects.SetDefault(body, "displayName", JsonValue.Create(local));
+                JsonObjects.SetDefault(body, "mailNickname", JsonValue.Create(local));
+                // The overlay may already default a password profile without a password (the real provider generates one).
+                JsonObjects.SetDefault(body, "passwordProfile", new JsonObject { ["forceChangePasswordNextSignIn"] = false });
+                if (JsonObjects.TryGetIgnoreCase(body, "passwordProfile", out var profile) && profile is JsonObject profileObject && JsonObjects.FindKey(profileObject, "password") is null)
+                {
+                    profileObject["password"] = "Echo-Pa55w0rd!-" + Guid.NewGuid().ToString("N");
+                }
+
+                break;
+            case "/applications":
+            case "/directory/administrativeunits":
+            case "/rolemanagement/directory/roledefinitions":
+                JsonObjects.SetDefault(body, "displayName", JsonValue.Create(name));
+                break;
+            case "/identity/conditionalaccess/policies":
+                JsonObjects.SetDefault(body, "displayName", JsonValue.Create(name));
+                JsonObjects.SetDefault(body, "state", JsonValue.Create("disabled"));
+                break;
+            case "/identity/conditionalaccess/namedlocations":
+                JsonObjects.SetDefault(body, "displayName", JsonValue.Create(name));
+                if (JsonObjects.FindKey(body, "@odata.type") is null)
+                {
+                    body["@odata.type"] = JsonObjects.FindKey(body, "countriesAndRegions") is not null ? "#microsoft.graph.countryNamedLocation" : "#microsoft.graph.ipNamedLocation";
+                }
+
+                break;
+        }
+    }
+
+    private static string NicknameOf(string text)
+    {
+        var chars = text.Where(char.IsAsciiLetterOrDigit).ToArray();
+        return chars.Length == 0 ? "echo" : new string(chars).ToLowerInvariant();
+    }
     // ---- paths ----
 
     /// <summary>The collection the object lives in: the overlay path with <c>{parentId}</c> / composite placeholders substituted.</summary>

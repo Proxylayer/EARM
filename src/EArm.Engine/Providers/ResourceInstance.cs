@@ -1,20 +1,20 @@
 using System;
 using System.Collections.Generic;
 using System.Text.Json.Nodes;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Core;
 using EArm.Core.Types;
 using EArm.Engine.Planning;
 using EArm.Expressions.Evaluation;
 using EArm.Expressions.Static;
-using GraphApi = EArm.Az.GraphApi;
+using GraphApi = EArm.Graph.GraphApi;
 
 namespace EArm.Engine.Providers;
 
 /// <summary>
-/// One resource to deploy after expansion (plan section 2.4, step 3): a declaration bound to a concrete copy
+/// One resource to deploy after expansion: a declaration bound to a concrete copy
 /// iteration, with its identity, its evaluation context and, once evaluated, its properties split into the object
-/// properties a provider writes and the edge properties the edge pass (WI-09) applies.
+/// properties a provider writes and the edge properties the edge pass applies.
 /// <para>
 /// The instance is mutated by the engine as it learns more (a symbolic name resolved, properties evaluated, the
 /// parent's Graph id discovered); each instance is handled by one task at a time.
@@ -67,7 +67,7 @@ public sealed class ResourceInstance
     /// <summary>Position of the declaration in the flattened template (document order).</summary>
     public int DeclarationIndex { get; }
 
-    /// <summary>Apply phase (plan section 3.3), used as a tie-breaker inside a batch.</summary>
+    /// <summary>Apply phase, used as a tie-breaker inside a batch.</summary>
     public int Phase { get; }
 
     /// <summary>
@@ -108,7 +108,7 @@ public sealed class ResourceInstance
     /// <summary>Evaluated properties minus edge properties; <c>null</c> until evaluated.</summary>
     public JsonObject? Properties { get; internal set; }
 
-    /// <summary>Evaluated relationship/assignment properties (plan section 1.4), for the edge pass; <c>null</c> until evaluated.</summary>
+    /// <summary>Evaluated relationship/assignment properties, for the edge pass; <c>null</c> until evaluated.</summary>
     public JsonObject? EdgeProperties { get; internal set; }
 
     public bool IsEvaluated => Properties is not null;
@@ -119,7 +119,7 @@ public sealed class ResourceInstance
     /// <summary>Same-template <c>reference()</c>/<c>resourceId()</c> occurrences outside edge properties (implicit dependencies).</summary>
     public IReadOnlyList<ReferenceOccurrence> ObjectReferences { get; internal set; } = [];
 
-    /// <summary>Same-template occurrences inside edge properties (no object-pass dependency; consumed by WI-09).</summary>
+    /// <summary>Same-template occurrences inside edge properties (no object-pass dependency; consumed by the edge pass).</summary>
     public IReadOnlyList<ReferenceOccurrence> EdgeReferences { get; internal set; } = [];
 
     /// <summary>Occurrences inside the <c>name</c> expression (what a symbolic name waits for).</summary>

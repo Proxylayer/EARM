@@ -15,6 +15,19 @@ public sealed record Diagnostic(
     SourceLocation? Location = null,
     string? Source = null)
 {
+    private readonly string _message = SafeText.Escape(Message);
+
+    /// <summary>
+    /// The text of the finding. Messages echo names and values from the template, so control characters (line breaks, escape sequences),
+    /// DEL and bidirectional overrides are replaced by visible escapes (<see cref="SafeText.Escape"/>) however the diagnostic was created:
+    /// a message is always a single printable line and cannot smuggle a CI log command onto a line of its own.
+    /// </summary>
+    public string Message
+    {
+        get => _message;
+        init => _message = SafeText.Escape(value);
+    }
+
     public bool IsError => Severity == DiagnosticSeverity.Error;
 
     public static Diagnostic Error(string code, string message, JsonPath? path = null, SourceLocation? location = null, string? source = null)
@@ -48,6 +61,6 @@ public sealed record Diagnostic(
         }
 
         sb.Append(": ").Append(Message);
-        return sb.ToString();
+        return SafeText.Escape(sb.ToString());
     }
 }

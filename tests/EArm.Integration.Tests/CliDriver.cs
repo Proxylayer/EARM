@@ -89,30 +89,21 @@ internal sealed record DeploymentRun(string Name, string TemplateFile, IReadOnly
 
 /// <summary>
 /// Drives the real command line in-process (<see cref="Program.BuildRootCommand"/> with the production parser
-/// configuration) against the tenant. Every call carries <c>--state-dir</c> (the run's private state directory) and,
-/// when <c>EARM_IT_AZ</c> is set, <c>--az-command</c>. Calls must not overlap: the global <c>-o</c> option is
+/// configuration) against the tenant. Every call carries <c>--state-dir</c> (the run's private state directory); sign-in comes from
+/// the environment (<c>AZURE_*</c>, <c>EARM_AUTH</c>) or <c>earm auth login</c>. Calls must not overlap: the global <c>-o</c> option is
 /// static, so every test class shares one xUnit collection.
 /// </summary>
 internal sealed class CliDriver
 {
     private readonly string _stateDirectory;
-    private readonly string? _azCommand;
-
-    public CliDriver(string stateDirectory, string? azCommand)
+    public CliDriver(string stateDirectory)
     {
         _stateDirectory = stateDirectory;
-        _azCommand = azCommand;
     }
 
     public async Task<CliResult> RunAsync(IReadOnlyList<string> args, CancellationToken cancellationToken)
     {
         var argv = new List<string>(args) { "--state-dir", _stateDirectory };
-        if (_azCommand is not null)
-        {
-            argv.Add("--az-command");
-            argv.Add(_azCommand);
-        }
-
         using var stdout = new StringWriter();
         using var stderr = new StringWriter();
         var configuration = new InvocationConfiguration { Output = stdout, Error = stderr };

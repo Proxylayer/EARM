@@ -4,19 +4,19 @@ using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Core;
 using EArm.Core.Types;
 using EArm.Engine;
 using EArm.Engine.Providers;
 using EArm.Engine.State;
 using EArm.Expressions.Values;
-using GraphApi = EArm.Az.GraphApi;
+using GraphApi = EArm.Graph.GraphApi;
 
 namespace EArm.Providers;
 
 /// <summary>
-/// <c>Microsoft.Entra/conditionalAccess/policies</c> (plan sections 1.3, 3.2; work item WI-14). The resource name is
+/// <c>Microsoft.Entra/conditionalAccess/policies</c>. The resource name is
 /// the <c>displayName</c>; the Graph id is pinned in the state after the first run.
 /// <para>
 /// Requests per operation:
@@ -44,9 +44,15 @@ public sealed class ConditionalAccessPoliciesProvider : ProviderBase
     public const string ResourceType = "Microsoft.Entra/conditionalAccess/policies";
 
     /// <summary><see cref="ProviderException.Code"/> when a write is attempted for an unsupported policy (guard or lint) outside the planner.</summary>
-    public const string PolicyRejected = "ConditionalAccessPolicyRejected";
+    public const string PolicyRejected = EngineDiagnosticCodes.ConditionalAccessPolicyRejected;
 
     private const string KeyProperty = "displayName";
+
+    /// <summary>
+    /// Learn (conditionalaccessgrantcontrols): <c>riskRemediation</c> is an evolvable-enum member of <c>builtInControls</c> that Graph returns only
+    /// when the request carries <c>Prefer: include-unknown-enum-members</c>; without it a policy using it reads back as <c>unknownFutureValue</c>.
+    /// </summary>
+    private const string IncludeUnknownEnumMembers = "include-unknown-enum-members";
 
     private volatile PlanOptions _planOptions = PlanOptions.Default;
 
@@ -81,15 +87,12 @@ public sealed class ConditionalAccessPoliciesProvider : ProviderBase
         ArgumentNullException.ThrowIfNull(key);
         ArgumentNullException.ThrowIfNull(graph);
 
-        if (stateId is not null && await graph.GetAsync(new GraphRequest(EntityPath(stateId), key.Api), cancellationToken).ConfigureAwait(false) is JsonObject pinned)
+        if (stateId is not null && await graph.GetAsync(new GraphRequest(EntityPath(stateId), key.Api).WithPrefer(IncludeUnknownEnumMembers), cancellationToken).ConfigureAwait(false) is JsonObject pinned)
         {
             return Existing(pinned);
         }
 
-        if (!key.TryGet(KeyProperty, out var name))
-        {
-            throw new ProviderException(EngineDiagnosticCodes.ResourceKeyUnresolved, $"{TypeName}: the key {key.Describe()} carries no displayName.");
-        }
+        string name = ProviderSupport.SingleKey(key, KeyProperty);
 
         var matches = await FindByDisplayNameAsync(graph, name, key.Api, cancellationToken).ConfigureAwait(false);
         if (matches.Count == 0)
@@ -131,7 +134,10 @@ public sealed class ConditionalAccessPoliciesProvider : ProviderBase
             return Unsupported(desired, existing, $"{desired.Describe()}: {string.Join("; ", problems)}.");
         }
 
-        return base.Plan(desired, existing, options);
+        var change = base.Plan(desired, existing is null ? null : ProviderSupport.PruneLiveOnly(Definition, properties, existing), options);
+        return change.Before is not null && existing is not null
+            ? change with { Before = RenderBefore(existing.Properties, properties) }
+            : change;
     }
 
     // ---- create ----
@@ -146,8 +152,9 @@ public sealed class ConditionalAccessPoliciesProvider : ProviderBase
         RequireValid(desired, properties);
         var body = BuildCreateBody(desired);
         ConditionalAccessPoliciesRules.FinishCreateBody(body, properties);
+        RequireValidBody(desired, body, isCreate: true);
 
-        var request = new GraphRequest(CollectionPath, desired.Api, hint: desired.RetryHint);
+        var request = new GraphRequest(CollectionPath, desired.Api, hint: desired.RetryHint).WithPrefer(IncludeUnknownEnumMembers);
         var response = await graph.PostAsync(request, body, cancellationToken).ConfigureAwait(false);
         var live = response.Body as JsonObject
             ?? throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{desired.Describe()}: Graph returned no object for the created policy.", desired.Id);
@@ -168,8 +175,10 @@ public sealed class ConditionalAccessPoliciesProvider : ProviderBase
 
         ConditionalAccessPoliciesRules.MarkRemovedControls(properties, existing.Properties);
         RequireValid(desired, properties);
+        existing = ProviderSupport.PruneLiveOnly(Definition, properties, existing);
         var body = BuildPatchBody(desired, existing, change);
         ConditionalAccessPoliciesRules.FinishPatchBody(body, existing.Properties);
+        RequireValidBody(desired, body, isCreate: false);
 
         string path = EntityPath(existing.GraphId);
         JsonObject live;
@@ -180,7 +189,7 @@ public sealed class ConditionalAccessPoliciesProvider : ProviderBase
         else
         {
             await graph.PatchAsync(new GraphRequest(path, desired.Api, hint: desired.RetryHint), body, cancellationToken).ConfigureAwait(false);
-            live = await graph.GetAsync(new GraphRequest(path, desired.Api, hint: desired.RetryHint), cancellationToken).ConfigureAwait(false) as JsonObject
+            live = await graph.GetAsync(new GraphRequest(path, desired.Api, hint: desired.RetryHint).WithPrefer(IncludeUnknownEnumMembers), cancellationToken).ConfigureAwait(false) as JsonObject
                 ?? throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{desired.Describe()}: the policy ({existing.GraphId}) vanished after the update.", desired.Id);
         }
 
@@ -210,7 +219,7 @@ public sealed class ConditionalAccessPoliciesProvider : ProviderBase
     private async Task<IReadOnlyList<JsonObject>> FindByDisplayNameAsync(IGraphClient graph, string displayName, GraphApi api, CancellationToken cancellationToken)
     {
         string filter = KeyProperty + " eq '" + displayName.Replace("'", "''", StringComparison.Ordinal) + "'";
-        var request = new GraphRequest(CollectionPath, api).WithFilter(filter);
+        var request = new GraphRequest(CollectionPath, api).WithFilter(filter).WithPrefer(IncludeUnknownEnumMembers);
         var matches = new List<JsonObject>();
         await foreach (var item in graph.GetAllPagesAsync(request, cancellationToken).ConfigureAwait(false))
         {
@@ -249,6 +258,16 @@ public sealed class ConditionalAccessPoliciesProvider : ProviderBase
     {
         ConditionalAccessPoliciesRules.NormalizeDesired(properties);
         var problems = ConditionalAccessPoliciesRules.Problems(properties, desired.Api, _planOptions.AllowCaEnforce);
+        if (problems.Count > 0)
+        {
+            throw new ProviderException(PolicyRejected, $"{desired.Describe()}: {string.Join("; ", problems)}.", desired.Id);
+        }
+    }
+
+    /// <summary>Defence in depth (I-01): the guard runs once more on the FINAL request body, which carries the revealed secret values.</summary>
+    private void RequireValidBody(ResourceInstance desired, JsonObject body, bool isCreate)
+    {
+        var problems = ConditionalAccessPoliciesRules.FinalBodyProblems(body, desired.Api, _planOptions.AllowCaEnforce, isCreate);
         if (problems.Count > 0)
         {
             throw new ProviderException(PolicyRejected, $"{desired.Describe()}: {string.Join("; ", problems)}.", desired.Id);

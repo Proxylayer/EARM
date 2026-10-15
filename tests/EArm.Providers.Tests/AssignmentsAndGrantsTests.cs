@@ -8,7 +8,7 @@ using Xunit;
 
 namespace EArm.Providers.Tests;
 
-/// <summary>App role assignments and OAuth2 permission grants (WI-12): pure rules and end-to-end scenarios.</summary>
+/// <summary>App role assignments and OAuth2 permission grants: pure rules and end-to-end scenarios.</summary>
 public sealed class AssignmentsAndGrantsTests
 {
     private const string AssignmentType = AppRoleAssignmentsProvider.ResourceType;

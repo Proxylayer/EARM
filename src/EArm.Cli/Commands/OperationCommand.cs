@@ -35,8 +35,7 @@ internal static class OperationCommand
         }
         catch (ArgumentException ex)
         {
-            stderr.WriteLine(ex.Message);
-            return ExitCodes.Failure;
+            return VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.Failure, "InvalidArgument", ex.Message);
         }
 
         using var loggerFactory = GlobalOptions.CreateLoggerFactory(invocation.LogLevel);
@@ -48,14 +47,16 @@ internal static class OperationCommand
         }
         catch (StateException ex)
         {
-            stderr.WriteLine(ex.Message);
-            return ExitCodes.Failure;
+            return VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.Failure, ex.Code, ex.Message);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.Failure, "StateIoFailed", $"The state of deployment '{name}' could not be read: {ex.Message}");
         }
 
         if (state is null)
         {
-            stderr.WriteLine($"No deployment named '{name}' in {store.Directory}.");
-            return ExitCodes.Failure;
+            return VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.Failure, "DeploymentNotFound", $"No deployment named '{name}' in {store.Directory}.");
         }
 
         StateWriter.WriteOperations(state, invocation.Output, prettyPrint: true, stdout);

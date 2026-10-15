@@ -2,7 +2,7 @@
   "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
   "contentVersion": "1.0.0.0",
   "metadata": {
-    "description": "WI-19: application + service principal + federated credential + client secret. Every name starts with the run prefix."
+    "description": "Application + service principal + federated credential + client secret. Every name starts with the run prefix."
   },
   "parameters": {
     "prefix":      { "type": "string" },

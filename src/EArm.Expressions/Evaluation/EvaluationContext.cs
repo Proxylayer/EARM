@@ -8,7 +8,7 @@ using EArm.Expressions.Functions;
 
 namespace EArm.Expressions.Evaluation;
 
-/// <summary>Where an expression sits in the template; decides which functions are legal (plan section 1.5 phases).</summary>
+/// <summary>Where an expression sits in the template; decides which functions are legal (the evaluation phases).</summary>
 public enum EvaluationScope
 {
     /// <summary>A parameter <c>defaultValue</c>: <c>utcNow()</c>/<c>newGuid()</c> allowed; <c>variables()</c> and <c>reference()</c> not.</summary>
@@ -89,6 +89,12 @@ public sealed record EvaluationContext
     public ResourceTypeCatalog Catalog { get; init; } = ResourceTypeCatalog.Default;
 
     public EvaluationScope Scope { get; init; } = EvaluationScope.Resource;
+
+    /// <summary>
+    /// The work and size budget of the run this context belongs to: shared by every context derived from it and, while a run is
+    /// active (<see cref="EvaluationBudget.BeginRun"/>), by every context created in it.
+    /// </summary>
+    public EvaluationBudget Budget { get; init; } = EvaluationBudget.Current;
 
     /// <summary><c>utcNow()</c> and <c>newGuid()</c> are only legal in parameter defaults.</summary>
     public bool AllowNonDeterministic => Scope == EvaluationScope.ParameterDefault;

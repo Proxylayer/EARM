@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Core;
 using EArm.Core.Types;
 using EArm.Engine;
@@ -16,7 +16,7 @@ using Xunit;
 
 namespace EArm.Providers.Tests;
 
-/// <summary>The applications provider (WI-07) end to end: request sequences, bodies, hints, adoption, soft delete, drift, deletes and permissions.</summary>
+/// <summary>The applications provider end to end: request sequences, bodies, hints, adoption, soft delete, drift, deletes and permissions.</summary>
 public sealed class ApplicationsProviderTests
 {
     private const string Type = ApplicationsProvider.ResourceType;
@@ -90,7 +90,7 @@ public sealed class ApplicationsProviderTests
         Assert.False(body.ContainsKey("identifierUris"), "deferred identifierUris are not in the upsert body");
         Assert.False(body.ContainsKey("owners"), "edge properties are not in the body");
         Assert.False(body.ContainsKey("appId"));
-        Assert.Equal(Name, body["uniqueName"]!.GetValue<string>());
+        Assert.False(body.ContainsKey("uniqueName"), "uniqueName is the URL key of the upsert; Graph documents it as read-only, so it is not in the body (Review 1D / G-07)");
         Assert.Equal("AzureADMyOrg", body["signInAudience"]!.GetValue<string>());
 
         var app = host.Directory.Find("/applications", "uniqueName", Name)!;

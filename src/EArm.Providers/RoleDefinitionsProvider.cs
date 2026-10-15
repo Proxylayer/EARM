@@ -5,19 +5,19 @@ using System.Net;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Core;
 using EArm.Core.Types;
 using EArm.Engine;
 using EArm.Engine.Providers;
 using EArm.Engine.State;
 using EArm.Expressions.Values;
-using GraphApi = EArm.Az.GraphApi;
+using GraphApi = EArm.Graph.GraphApi;
 
 namespace EArm.Providers;
 
 /// <summary>
-/// <c>Microsoft.Entra/roleDefinitions</c>, custom directory roles (plan sections 1.3, 3.2; work item WI-15). The
+/// <c>Microsoft.Entra/roleDefinitions</c>, custom directory roles. The
 /// resource name is the <c>displayName</c>; the Graph id is pinned in the state after the first run. Built-in roles
 /// are never managed: a name that matches one is an unsupported row (<see cref="BuiltInRole"/>) pointing at
 /// <c>roleTemplate()</c>.
@@ -46,10 +46,10 @@ public sealed class RoleDefinitionsProvider : ProviderBase
     public const string ResourceType = "Microsoft.Entra/roleDefinitions";
 
     /// <summary><see cref="ProviderException.Code"/> when the name matches a built-in role, which cannot be managed.</summary>
-    public const string BuiltInRole = "RoleDefinitionBuiltIn";
+    public const string BuiltInRole = EngineDiagnosticCodes.RoleDefinitionBuiltIn;
 
     /// <summary><see cref="ProviderException.Code"/> when Graph refuses to delete a role that assignments still reference.</summary>
-    public const string RoleDefinitionInUse = "RoleDefinitionInUse";
+    public const string RoleDefinitionInUse = EngineDiagnosticCodes.RoleDefinitionInUse;
 
     private const string KeyProperty = "displayName";
 
@@ -67,6 +67,16 @@ public sealed class RoleDefinitionsProvider : ProviderBase
     {
     }
 
+    /// <summary>The top-level properties each template declares, selected next to <see cref="RoleDefinitionsRules.ManagedProperties"/> on its reads (G-08).</summary>
+    private readonly DeclaredSelects _selects = new();
+
+    public override ResourceKey ResolveKey(ResourceInstance desired)
+    {
+        var key = base.ResolveKey(desired);
+        _selects.Register(key, Definition, desired, RoleDefinitionsRules.ServerManagedProperties);
+        return key;
+    }
+
     // ---- read ----
 
     public override async Task<ExistingResource?> ReadAsync(ResourceKey key, string? stateId, IGraphClient graph, CancellationToken cancellationToken)
@@ -74,23 +84,20 @@ public sealed class RoleDefinitionsProvider : ProviderBase
         ArgumentNullException.ThrowIfNull(key);
         ArgumentNullException.ThrowIfNull(graph);
 
-        if (stateId is not null && await graph.GetAsync(Select(new GraphRequest(EntityPath(stateId), key.Api)), cancellationToken).ConfigureAwait(false) is JsonObject pinned)
+        if (stateId is not null && await graph.GetAsync(Select(new GraphRequest(EntityPath(stateId), key.Api), key), cancellationToken).ConfigureAwait(false) is JsonObject pinned)
         {
             return Existing(pinned);
         }
 
-        if (!key.TryGet(KeyProperty, out var name))
-        {
-            throw new ProviderException(EngineDiagnosticCodes.ResourceKeyUnresolved, $"{TypeName}: the key {key.Describe()} carries no displayName.");
-        }
+        string name = ProviderSupport.SingleKey(key, KeyProperty);
 
-        return await FindCustomAsync(graph, name, key.Api, cancellationToken).ConfigureAwait(false);
+        return await FindCustomAsync(graph, name, key, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>The custom role named <paramref name="name"/>: <c>null</c> when none exists, <see cref="BuiltInRole"/> when only a built-in carries the name.</summary>
-    private async Task<ExistingResource?> FindCustomAsync(IGraphClient graph, string name, GraphApi api, CancellationToken cancellationToken)
+    private async Task<ExistingResource?> FindCustomAsync(IGraphClient graph, string name, ResourceKey key, CancellationToken cancellationToken)
     {
-        var matches = await FindByDisplayNameAsync(graph, name, api, cancellationToken).ConfigureAwait(false);
+        var matches = await FindByDisplayNameAsync(graph, name, key, cancellationToken).ConfigureAwait(false);
         var custom = matches.Where(m => !RoleDefinitionsRules.IsBuiltIn(m)).ToList();
         var id = ResourceIdentifier.Create(ResourceType, name);
         if (custom.Count == 0)
@@ -186,7 +193,7 @@ public sealed class RoleDefinitionsProvider : ProviderBase
         else
         {
             await graph.PatchAsync(new GraphRequest(path, desired.Api, hint: desired.RetryHint), body, cancellationToken).ConfigureAwait(false);
-            live = await graph.GetAsync(Select(new GraphRequest(path, desired.Api, hint: desired.RetryHint)), cancellationToken).ConfigureAwait(false) as JsonObject
+            live = await graph.GetAsync(Select(new GraphRequest(path, desired.Api, hint: desired.RetryHint), ResolveKey(desired)), cancellationToken).ConfigureAwait(false) as JsonObject
                 ?? throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{desired.Describe()}: the role definition ({existing.GraphId}) vanished after the update.", desired.Id);
         }
 
@@ -210,7 +217,7 @@ public sealed class RoleDefinitionsProvider : ProviderBase
         }
         catch (GraphException ex) when (ex.Status == HttpStatusCode.BadRequest)
         {
-            // Graph refuses to delete a role definition while role assignments reference it (plan section 3.2).
+            // Graph refuses to delete a role definition while role assignments reference it.
             throw new ProviderException(
                 RoleDefinitionInUse,
                 $"{entry.Id.Id}: Graph refused to delete role definition {entry.GraphId} ({ex.Code}: {ex.GraphMessage}). A custom role cannot be deleted while role assignments reference it; remove the Microsoft.Entra/roleAssignments resources and the directoryRoles entries that name it first (Complete mode deletes assignments before role definitions), or remove the remaining assignments in the portal.",
@@ -222,10 +229,10 @@ public sealed class RoleDefinitionsProvider : ProviderBase
     // ---- Graph helpers ----
 
     /// <summary><c>GET /roleManagement/directory/roleDefinitions?$filter=displayName eq '…'</c> (quotes doubled), every page, matched client-side.</summary>
-    private async Task<IReadOnlyList<JsonObject>> FindByDisplayNameAsync(IGraphClient graph, string displayName, GraphApi api, CancellationToken cancellationToken)
+    private async Task<IReadOnlyList<JsonObject>> FindByDisplayNameAsync(IGraphClient graph, string displayName, ResourceKey key, CancellationToken cancellationToken)
     {
-        string filter = KeyProperty + " eq '" + displayName.Replace("'", "''", StringComparison.Ordinal) + "'";
-        var request = Select(new GraphRequest(CollectionPath, api).WithFilter(filter));
+        string filter = KeyProperty + " eq '" + ProviderSupport.EscapeLiteral(displayName) + "'";
+        var request = Select(new GraphRequest(CollectionPath, key.Api).WithFilter(filter), key);
         var matches = new List<JsonObject>();
         await foreach (var item in graph.GetAllPagesAsync(request, cancellationToken).ConfigureAwait(false))
         {
@@ -238,9 +245,9 @@ public sealed class RoleDefinitionsProvider : ProviderBase
         return matches;
     }
 
-    private static GraphRequest Select(GraphRequest request)
+    private GraphRequest Select(GraphRequest request, ResourceKey key)
     {
-        return request.WithSelect(RoleDefinitionsRules.ManagedProperties);
+        return request.WithSelect(_selects.For(key, RoleDefinitionsRules.ManagedProperties));
     }
 
     /// <summary>The live object wrapped for the planner, its diff view with canonical action sets.</summary>

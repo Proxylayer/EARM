@@ -101,7 +101,7 @@ internal sealed record WhatIfScenario(
 
             string reference = entry["ref"]!.GetValue<string>();
             var body = new JsonObject { ["@odata.id"] = "https://graph.microsoft.com/v1.0/directoryObjects/" + entry["id"]!.GetValue<string>() };
-            var request = new EArm.Az.GraphRequest(reference);
+            var request = new EArm.Graph.GraphRequest(reference);
             if (string.Equals(entry["method"]?.GetValue<string>(), "PUT", StringComparison.OrdinalIgnoreCase))
             {
                 await client.PutAsync(request, body, ct);

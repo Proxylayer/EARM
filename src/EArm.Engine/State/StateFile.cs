@@ -4,7 +4,7 @@ using System.Collections.Generic;
 namespace EArm.Engine.State;
 
 /// <summary>
-/// The per-deployment state (plan section 1.7), keyed by resource id: which Graph objects this deployment manages,
+/// The per-deployment state, keyed by resource id: which Graph objects this deployment manages,
 /// pinned by Graph id, plus the outcome of the last run. Persisted through <see cref="IStateStore"/> after every
 /// resource operation, so a failed run leaves an accurate partial record. Safe to commit: ids and hashes only,
 /// never secrets (<see cref="StateSerializer"/> refuses to write one).
@@ -19,6 +19,9 @@ public sealed class StateFile
     public const string StatusSucceeded = "Succeeded";
 
     public const string StatusFailed = "Failed";
+
+    /// <summary>The run was cancelled (Ctrl-C) after it had started; whatever was applied is recorded.</summary>
+    public const string StatusCancelled = "Cancelled";
 
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
 
@@ -39,8 +42,11 @@ public sealed class StateFile
 
     public string? LastTemplateHash { get; set; }
 
-    /// <summary>Entries keyed by ARM-style resource id (case-sensitive names, case-insensitive type casing already canonical).</summary>
-    public Dictionary<string, StateEntry> Resources { get; init; } = new(StringComparer.Ordinal);
+    /// <summary>
+    /// Entries keyed by ARM-style resource id. Keys compare case-insensitively: Graph matches every key an id maps to
+    /// case-insensitively, so ids that differ only by case are the same resource (review finding E-01).
+    /// </summary>
+    public Dictionary<string, StateEntry> Resources { get; init; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>The per-resource operations of the last run, in execution order (<c>deployment operation list</c>).</summary>
     public List<OperationRecord> Operations { get; init; } = [];
@@ -74,6 +80,9 @@ public sealed class StateFile
     public void Upsert(StateEntry entry)
     {
         ArgumentNullException.ThrowIfNull(entry);
+
+        // Remove first so a case-only rename replaces the key as well as the value (the dictionary keeps the old spelling otherwise).
+        Resources.Remove(entry.Id.Id);
         Resources[entry.Id.Id] = entry;
     }
 
@@ -116,8 +125,15 @@ public sealed class StateFile
     /// <summary>Records the outcome of a run.</summary>
     public void CompleteRun(bool succeeded, string mode, string templateHash, DateTimeOffset now)
     {
+        CompleteRun(succeeded ? StatusSucceeded : StatusFailed, mode, templateHash, now);
+    }
+
+    /// <summary>Records the outcome of a run as one of the <c>Status*</c> constants.</summary>
+    public void CompleteRun(string status, string mode, string templateHash, DateTimeOffset now)
+    {
+        ArgumentNullException.ThrowIfNull(status);
         ArgumentNullException.ThrowIfNull(mode);
-        LastStatus = succeeded ? StatusSucceeded : StatusFailed;
+        LastStatus = status;
         LastMode = mode;
         LastTemplateHash = templateHash;
         LastDeployedOn = now;

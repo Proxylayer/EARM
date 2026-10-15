@@ -4,7 +4,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Core;
 using EArm.Core.Types;
 using EArm.Engine.Execution;
@@ -17,7 +17,7 @@ using Xunit;
 
 namespace EArm.Providers.Tests;
 
-/// <summary>The users provider (WI-13, S1–S14) end to end: passwords sent once and masked everywhere else, licensing, UPN rules, guests, soft delete, deletes and permissions.</summary>
+/// <summary>The users provider end to end: passwords sent once and masked everywhere else, licensing, UPN rules, guests, soft delete, deletes and permissions.</summary>
 public sealed class UsersProviderTests
 {
     private const string Type = UsersProvider.ResourceType;
@@ -294,20 +294,28 @@ public sealed class UsersProviderTests
         Assert.False(empty.Change("gina@contoso.com").HasError);
     }
 
+    // The state file only accepts GUID Graph ids (strict validation), so the seeded users carry GUIDs.
+    private const string UserOldId = "0a0a0a0a-0000-4000-8000-0000000000a1";
+    private const string UserIvanId = "0a0a0a0a-0000-4000-8000-0000000000a2";
+    private const string UserGoneId = "0a0a0a0a-0000-4000-8000-0000000000a3";
+
     [Fact]
     public async Task S8_UpnChangeOfThePinnedUser_IsUnsupported()
     {
         var host = new ProviderHost();
-        var old = host.Directory.AddUser("old@contoso.com", "Renamed", u => u["id"] = "U-OLD");
+        var old = host.Directory.AddUser("old@contoso.com", "Renamed", u => u["id"] = UserOldId);
         await SeedStateAsync(host, UserEntry("new@contoso.com", old["id"]!.GetValue<string>()));
 
         var whatIf = await host.WhatIfAsync(host.Resources(User("new@contoso.com", "\"displayName\": \"Renamed\"")));
 
+        // Review finding S-01b: a pinned object whose key (the UPN) is not the desired one is never planned against (that would PATCH an object the key
+        // does not name). Review round 2 (S2-04): and when nothing has the desired key either, the pinned user was RENAMED outside the template: a create would duplicate
+        // the account and orphan the original, so the row is an error (StateEntryMismatch) that says so.
         var change = whatIf.Change("new@contoso.com");
         Assert.True(change.HasError);
-        Assert.Contains("immutable", change.UnsupportedReason, StringComparison.Ordinal);
-        Assert.Contains("old@contoso.com", change.UnsupportedReason, StringComparison.Ordinal);
-        Assert.Equal("/users/U-OLD", whatIf.Requests[0].Path);
+        Assert.Contains("renamed outside the template", change.UnsupportedReason, StringComparison.Ordinal);
+        Assert.Contains(whatIf.Plan.Diagnostics, d => d.Code == EArm.Engine.EngineDiagnosticCodes.StateEntryMismatch && d.IsError && d.Message.Contains("old@contoso.com", StringComparison.Ordinal));
+        Assert.Equal("/users/" + UserOldId, whatIf.Requests[0].Path);
     }
 
     [Fact]
@@ -368,14 +376,16 @@ public sealed class UsersProviderTests
     public async Task S11_CompleteMode_DeletesUsersById_AndToleratesNotFound()
     {
         var host = new ProviderHost();
-        host.Directory.AddUser("ivan@contoso.com", "Ivan", u => u["id"] = "U-IVAN");
-        await SeedStateAsync(host, UserEntry("ivan@contoso.com", "U-IVAN"), UserEntry("zed@contoso.com", "U-GONE"));
+        host.Directory.AddUser("ivan@contoso.com", "Ivan", u => u["id"] = UserIvanId);
+        await SeedStateAsync(host, UserEntry("ivan@contoso.com", UserIvanId), UserEntry("zed@contoso.com", UserGoneId));
 
         var run = await host.CreateAsync(host.Resources(string.Empty), DeploymentMode.Complete);
 
         Check.Succeeded(run);
-        Assert.Contains(run.Writes, w => w.Method == "DELETE" && w.Path == "/users/U-IVAN");
-        Assert.Contains(run.Writes, w => w.Method == "DELETE" && w.Path == "/users/U-GONE");
+        Assert.Contains(run.Writes, w => w.Method == "DELETE" && w.Path == "/users/" + UserIvanId);
+
+        // The object that is already gone is found gone by the key re-read (review finding S-01a): no DELETE is sent for it, the entry is dropped.
+        Assert.DoesNotContain(run.Writes, w => w.Method == "DELETE" && w.Path == "/users/" + UserGoneId);
         Assert.Null(host.Directory.Find("/users", "userPrincipalName", "ivan@contoso.com"));
         Assert.All(run.Executed.Operations.Where(o => o.ChangeType == ChangeType.Delete), o => Assert.Equal(OperationStatus.Succeeded, o.Status));
         Assert.Equal(2, run.Executed.Operations.Count(o => o.ChangeType == ChangeType.Delete));
@@ -384,11 +394,11 @@ public sealed class UsersProviderTests
     public static TheoryData<string, string[]> PermissionCases => new()
     {
         { "\"displayName\": \"P\"", new[] { "User.ReadWrite.All" } },
-        { "\"displayName\": \"P\", \"memberOf\": [\"11111111-1111-1111-1111-111111111111\"]", new[] { "User.ReadWrite.All", "GroupMember.ReadWrite.All" } },
+        { "\"displayName\": \"P\", \"memberOf\": [\"11111111-1111-1111-1111-111111111111\"]", new[] { "User.ReadWrite.All", "GroupMember.ReadWrite.All", "Directory.Read.All" } },
         { "\"displayName\": \"P\", \"administrativeUnits\": [\"11111111-1111-1111-1111-111111111111\"]", new[] { "User.ReadWrite.All", "AdministrativeUnit.ReadWrite.All" } },
-        { "\"displayName\": \"P\", \"usageLocation\": \"GB\", \"assignedLicenses\": [ { \"skuId\": \"6fd2c87f-b296-42f0-b197-1e91e994b900\" } ]", new[] { "User.ReadWrite.All", "Organization.Read.All" } },
-        { "\"displayName\": \"P\", \"appRoleAssignments\": [ { \"resourceAppId\": \"00000003-0000-0000-c000-000000000000\", \"appRole\": \"User.Read.All\" } ]", new[] { "User.ReadWrite.All", "AppRoleAssignment.ReadWrite.All", "Application.Read.All" } },
-        { "\"displayName\": \"P\", \"directoryRoles\": [ { \"role\": \"Directory Readers\" } ]", new[] { "User.ReadWrite.All", "RoleManagement.ReadWrite.Directory" } },
+        { "\"displayName\": \"P\", \"usageLocation\": \"GB\", \"assignedLicenses\": [ { \"skuId\": \"6fd2c87f-b296-42f0-b197-1e91e994b900\" } ]", new[] { "User.ReadWrite.All", "LicenseAssignment.ReadWrite.All", "LicenseAssignment.Read.All" } },
+        { "\"displayName\": \"P\", \"appRoleAssignments\": [ { \"resourceAppId\": \"00000003-0000-0000-c000-000000000000\", \"appRole\": \"User.Read.All\" } ]", new[] { "User.ReadWrite.All", "AppRoleAssignment.ReadWrite.All", "Application.Read.All", "Directory.Read.All" } },
+        { "\"displayName\": \"P\", \"directoryRoles\": [ { \"role\": \"Directory Readers\" } ]", new[] { "User.ReadWrite.All", "RoleManagement.ReadWrite.Directory", "Directory.Read.All" } },
         { "\"displayName\": \"P\", \"ownerOf\": [\"11111111-1111-1111-1111-111111111111\"], \"manager\": null", new[] { "User.ReadWrite.All" } },
         { "\"displayName\": \"P\", \"memberOf\": [], \"administrativeUnits\": []", new[] { "User.ReadWrite.All" } },
     };

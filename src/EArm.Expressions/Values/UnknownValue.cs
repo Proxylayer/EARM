@@ -23,7 +23,7 @@ public enum UnknownOrigins
     /// <summary>Depends on a parameter whose value is not available offline (missing, or a Key Vault reference).</summary>
     Parameter = 8,
 
-    /// <summary>Depends on a function registered as <c>FunctionKind.NotImplementedYet</c> (none in the default registry since WI-16).</summary>
+    /// <summary>Depends on a function registered as <c>FunctionKind.NotImplementedYet</c> (none in the default registry).</summary>
     NotImplemented = 16,
 }
 

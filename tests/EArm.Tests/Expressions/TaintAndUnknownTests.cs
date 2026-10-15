@@ -107,7 +107,7 @@ public sealed class TaintAndUnknownTests
     {
         // The target id is computed from a secure parameter (secrets are revealed for the implementation and the
         // result re-tainted). The "not a resource of this template" error embeds the revealed id, so the secret
-        // text reaches diagnostics and logs; secure values must never be printed (plan 1.5 "Secure taint").
+        // text reaches diagnostics and logs; secure values must never be printed ("secure taint").
         var exception = Expr.Fails("[reference(resourceId('Microsoft.Entra/applications', parameters('pw')))]", DiagnosticCodes.ReferenceTargetNotFound, TaintedContext());
 
         Assert.DoesNotContain(Secret, exception.Message);
@@ -124,7 +124,7 @@ public sealed class TaintAndUnknownTests
         Assert.True(SecretJson.IsSecret(array[0]));
         Assert.True(Expr.AssertUnknown(array[1]).Tainted);
 
-        // WI-16: a secure value that is not an application id is rejected (redacted); a secure appId that no table
+        // A secure value that is not an application id is rejected (redacted); a secure appId that no table
         // answers offline becomes a tainted deploy-time unknown whose symbol never shows the value.
         var rejected = Expr.Fails("[permissionScope(parameters('pw'), 'User.Read')]", DiagnosticCodes.InvalidFunctionArguments, TaintedContext());
         Assert.Contains("***", rejected.Message);
@@ -149,7 +149,11 @@ public sealed class TaintAndUnknownTests
         Assert.True(Expr.AssertUnknown(tainted["u"]).Tainted);
         Assert.Equal("sym", Expr.AssertUnknown(tainted["u"]).Symbol);
         Assert.Null(tainted["z"]);
-        Assert.Null(TaintHelper.Taint(null));
+
+        // A computation's null result is the (secret-dependent) absence of a value: it is a tainted null, which reveals as null (round 4: tainted emptiness carrier).
+        var taintedNull = TaintHelper.Taint(null);
+        Assert.True(SecretJson.IsSecret(taintedNull));
+        Assert.Null(TaintHelper.RevealSecrets(taintedNull));
 
         var revealed = Assert.IsType<JsonObject>(TaintHelper.RevealSecrets(tainted));
         Assert.Equal("x", Expr.AssertString(revealed["s"]));
@@ -202,7 +206,7 @@ public sealed class TaintAndUnknownTests
         Expr.AssertJson("[\"k\"]", Expr.Eval("[objectKeys(createObject('k', reference('app').x))]", context));
     }
 
-    // WI-16: the functions that used to be stubs evaluate concretely offline (tables and lambdas need no tenant).
+    // The functions that used to be stubs evaluate concretely offline (tables and lambdas need no tenant).
     [Theory]
     [InlineData("[wellKnownApp('MicrosoftGraph')]", "\"00000003-0000-0000-c000-000000000000\"")]
     [InlineData("[roleTemplate('Directory Readers')]", "\"88d8e3e3-8f55-4a1e-953a-9b9898b8876b\"")]
@@ -268,7 +272,7 @@ public sealed class TaintAndUnknownTests
             """);
         var context = Expr.Context(userFunctions: document.Functions);
 
-        // WI-16: user-defined functions run their body; names are case-insensitive.
+        // User-defined functions run their body; names are case-insensitive.
         Assert.Equal("x", Expr.AssertString(Expr.Eval("[c.slug('x')]", context)));
         Assert.Equal("x", Expr.AssertString(Expr.Eval("[C.SLUG('X')]", context)));
 

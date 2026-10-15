@@ -9,7 +9,7 @@ using Xunit;
 
 namespace EArm.Tests.Engine;
 
-/// <summary>The object-pass dependency graph (plan section 2.4, step 4): edge kinds, edge-property exclusion, cycles, layering.</summary>
+/// <summary>The object-pass dependency graph: edge kinds, edge-property exclusion, cycles, layering.</summary>
 public sealed class DependencyGraphTests
 {
     private const string GroupType = "Microsoft.Entra/groups";
@@ -253,7 +253,7 @@ public sealed class DependencyGraphTests
     [Fact]
     public async Task PhasesOnlyBreakTiesInsideABatch()
     {
-        // The group is declared first but users (phase 1) are applied before groups (phase 3) inside the same batch;
+        // The group is declared first but users are applied before groups inside the same batch;
         // a dependency moves the user after the group regardless of phases.
         var tie = await ExpandAsync(Group("g") + ", " + User("u@contoso.com"));
         var dependency = await ExpandAsync(Group("g") + ", " + User("u@contoso.com", null, "\"dependsOn\": [\"g\"]"));

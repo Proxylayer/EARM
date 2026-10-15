@@ -3,13 +3,13 @@ using System.Collections.Generic;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Engine.Providers;
 
 namespace EArm.Engine.Edges;
 
 /// <summary>
-/// Group membership (plan section 1.4): target side <c>groups.members</c> (authoritative set), principal side
+/// Group membership: target side <c>groups.members</c> (authoritative set), principal side
 /// <c>memberOf</c> on users, service principals and groups. Live reads: <c>GET /groups/{g}/members?$select=id</c>
 /// for the target, <c>GET /{users|servicePrincipals|groups}/{p}/memberOf?$select=id</c> (groups only) for the
 /// principal. Writes: <c>POST /groups/{g}/members/$ref</c>, <c>DELETE /groups/{g}/members/{p}/$ref</c>. Dynamic

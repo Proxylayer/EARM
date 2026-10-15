@@ -4,14 +4,15 @@ using System.Linq;
 
 namespace EArm.Core;
 
-/// <summary>A well-known resource application (plan section 3.5): the name <c>wellKnownApp()</c> accepts and its appId.</summary>
+/// <summary>A well-known resource application: the name <c>wellKnownApp()</c> accepts and its appId.</summary>
 public sealed record WellKnownApp(string Name, string AppId, string DisplayName);
 
 /// <summary>
 /// A Microsoft Graph permission: an application permission (app role) or a delegated permission (OAuth2 scope).
-/// <see cref="Verified"/> is <c>false</c> for ids taken from documentation that the integration tests (WI-19) still
-/// have to confirm against a tenant; they are kept so templates resolve offline, and a live lookup wins over the
-/// table whenever one is available.
+/// <see cref="Verified"/> is <c>false</c> for an id that is not confirmed against the Microsoft Graph permissions
+/// reference (https://learn.microsoft.com/graph/permissions-reference); such ids still resolve offline. The tables are
+/// the OFFLINE fallback: when a tenant lookup is available it wins (a wrong table id must never beat the tenant).
+/// Pinned by tests/EArm.Providers.Tests/Review1D_WellKnownIdsTests.cs.
 /// </summary>
 public sealed record WellKnownPermission(string Value, string Id, bool Verified = true);
 
@@ -22,7 +23,7 @@ public sealed record WellKnownRoleTemplate(string DisplayName, string Id);
 public sealed record WellKnownAuthenticationStrength(string Name, string DisplayName, string Id);
 
 /// <summary>
-/// The embedded id tables of plan section 3.5: resource application ids, Microsoft Graph app roles and delegated
+/// The embedded id tables: resource application ids, Microsoft Graph app roles and delegated
 /// scopes, directory role templates, built-in authentication strengths and the Conditional Access special values.
 /// Runtime resolution by <c>value</c> is preferred; the tables are the offline fallback and the lint source.
 /// Names and values are matched case-insensitively.
@@ -37,7 +38,7 @@ public static class WellKnownIds
     public const string AzureStorageAppId = "e406a681-f3d4-42a8-90b6-c2b029497af1";
     public const string AzureDevOpsAppId = "499b84ac-1321-427f-aa17-267ca6975798";
 
-    /// <summary>Resource applications by the name <c>wellKnownApp()</c> accepts (plan sections 1.5 and 3.5; the ARM management plane is listed under both of its names).</summary>
+    /// <summary>Resource applications by the name <c>wellKnownApp()</c> accepts (the ARM management plane is listed under both of its names).</summary>
     public static IReadOnlyList<WellKnownApp> Apps { get; } =
     [
         new("MicrosoftGraph", MicrosoftGraphAppId, "Microsoft Graph"),
@@ -60,7 +61,7 @@ public static class WellKnownIds
         new("Group.ReadWrite.All", "62a82d76-70ea-41e2-9197-370581804d09"),
         new("GroupMember.ReadWrite.All", "dbaae8cf-10b5-4b86-a4a1-f871c94c6695"),
         new("Application.Read.All", "9a5d68dd-52b0-4cc2-bd40-abcf44ac3a30"),
-        new("Application.ReadWrite.All", "1bfefb4e-c769-4b31-8f3a-ccd1d37f1e7f"),
+        new("Application.ReadWrite.All", "1bfefb4e-e0b5-418b-a88f-73c46d2cc8e9"),
         new("Application.ReadWrite.OwnedBy", "18a4783c-866b-4cc7-a460-3d5e5662c884"),
         new("AppRoleAssignment.ReadWrite.All", "06b708a9-e830-4db3-a914-8e69da51d44f"),
         new("DelegatedPermissionGrant.ReadWrite.All", "8e8e4742-1d95-4f68-9d56-6ee75648c72a"),
@@ -71,9 +72,8 @@ public static class WellKnownIds
     ];
 
     /// <summary>
-    /// Microsoft Graph delegated permissions (<c>oauth2PermissionScopes</c> of the Graph service principal). The
-    /// four OpenID Connect scopes are verified (plan section 3.5); the rest are documented values awaiting the
-    /// integration run (<see cref="WellKnownPermission.Verified"/> is <c>false</c>).
+    /// Microsoft Graph delegated permissions (<c>oauth2PermissionScopes</c> of the Graph service principal); every id
+    /// is confirmed against the Microsoft Graph permissions reference.
     /// </summary>
     public static IReadOnlyList<WellKnownPermission> GraphScopes { get; } =
     [
@@ -81,21 +81,21 @@ public static class WellKnownIds
         new("openid", "37f7f235-527c-4136-accd-4a02d197296e"),
         new("profile", "14dad69e-099b-42c9-810b-d002981feec1"),
         new("offline_access", "7427e0e9-2fba-42fe-b0c0-848c9e6a8182"),
-        new("email", "64a6cdd6-aab1-4aaf-94b8-3cc8405e90d0", Verified: false),
-        new("User.ReadBasic.All", "b340eb25-3456-403f-be2f-af7a0d370277", Verified: false),
-        new("User.Read.All", "a154be20-db9c-4678-8ab7-66f6cc099a59", Verified: false),
-        new("User.ReadWrite.All", "204e0828-b5ca-4ad8-b9f3-f32a958e7cc4", Verified: false),
-        new("Directory.Read.All", "06da0dbc-49e2-44d2-8312-53f166ab848a", Verified: false),
-        new("Directory.ReadWrite.All", "c5366453-9fb0-48a5-a156-24f0c49a4b84", Verified: false),
-        new("Group.Read.All", "5f8c59db-677d-491f-a6b8-5f174b11ec1d", Verified: false),
-        new("Group.ReadWrite.All", "4e46008b-f24c-477d-8fff-7bb4ec7aafe0", Verified: false),
-        new("Application.Read.All", "c79f8feb-a9db-4090-85f9-90d820caa0eb", Verified: false),
-        new("Application.ReadWrite.All", "bdfbf15f-ee85-4955-8675-146e8e5296b5", Verified: false),
-        new("Mail.Read", "570282fd-fa5c-430d-a7fd-fc8dc98a9dca", Verified: false),
-        new("Mail.Send", "e383f46e-2787-4529-855e-0e479a3ffac0", Verified: false),
+        new("email", "64a6cdd6-aab1-4aaf-94b8-3cc8405e90d0"),
+        new("User.ReadBasic.All", "b340eb25-3456-403f-be2f-af7a0d370277"),
+        new("User.Read.All", "a154be20-db9c-4678-8ab7-66f6cc099a59"),
+        new("User.ReadWrite.All", "204e0828-b5ca-4ad8-b9f3-f32a958e7cc4"),
+        new("Directory.Read.All", "06da0dbc-49e2-44d2-8312-53f166ab848a"),
+        new("Directory.ReadWrite.All", "c5366453-9fb0-48a5-a156-24f0c49a4b84"),
+        new("Group.Read.All", "5f8c59db-677d-491f-a6b8-5f174b11ec1d"),
+        new("Group.ReadWrite.All", "4e46008b-f24c-477d-8fff-7bb4ec7aafe0"),
+        new("Application.Read.All", "c79f8feb-a9db-4090-85f9-90d820caa0eb"),
+        new("Application.ReadWrite.All", "bdfbf15f-ee85-4955-8675-146e8e5296b5"),
+        new("Mail.Read", "570282fd-fa5c-430d-a7fd-fc8dc98a9dca"),
+        new("Mail.Send", "e383f46e-2787-4529-855e-0e479a3ffac0"),
     ];
 
-    /// <summary>Built-in directory roles (verified, plan section 3.5).</summary>
+    /// <summary>Built-in directory roles (verified).</summary>
     public static IReadOnlyList<WellKnownRoleTemplate> RoleTemplates { get; } =
     [
         new("Global Administrator", "62e90394-69f5-4237-9190-012177145e10"),

@@ -28,18 +28,39 @@ desktop.ini
 # but this repository holds no real deployments: anything a local run writes here is scratch.
 .earm/
 *.entrastate.json
-secure-outputs*.json
 **/state/*.lock
+**/state/*.previous
+*.earm.bak
+.earm.bak
+deployment.lock
+
+# The file `deployment create --secure-outputs-file` writes holds client secrets and generated passwords in clear text (owner-only
+# permissions, but a git add does not care). The docs and samples use ./secure-outputs.json; every plausible spelling is ignored.
+secrets.json
+secure-outputs*.json
+*secure*output*.json
+*.secrets.json
+# The rotated copy and the cross-process lock the secure-outputs writer keeps next to the file (secure-outputs.json.previous / .lock) hold the same secrets.
+secure-outputs*.json.previous
+secure-outputs*.json.lock
+secrets.json.previous
+secrets.json.lock
+*.previous
 
 # ---- Secrets hygiene ----
 *.pfx
 *.pem
 *.key
+*.snk
 .env
 .env.*
 !.env.example
-*.secrets.json
-appsettings.*.local.json
+appsettings.local.json
+appsettings*.local.json
+launchSettings.json
+
+# ---- Debug traces (a developer's scratch output, never part of the repository) ----
+trace*.txt
 
 # ---- Claude Code / agent tooling (local only, never committed) ----
 .claude/

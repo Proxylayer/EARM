@@ -9,8 +9,8 @@ namespace EArm.Expressions.Static;
 /// <summary>
 /// The result of <see cref="StaticEvaluator"/>: a template with its parameters bound, variables evaluated lazily,
 /// resource keys evaluated as far as possible offline, and the <see cref="EvaluationContext"/> to evaluate further
-/// expressions against (placeholder references, no copy iteration). Used by validation (WI-03) and as the
-/// starting point of expansion and dependency-graph construction (WI-05).
+/// expressions against (placeholder references, no copy iteration). Used by validation and as the
+/// starting point of expansion and dependency-graph construction.
 /// </summary>
 public sealed class StaticContext
 {

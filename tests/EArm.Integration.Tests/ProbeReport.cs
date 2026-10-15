@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Text;
-using EArm.Az;
+using EArm.Graph;
 using Xunit;
 
 namespace EArm.Integration.Tests;

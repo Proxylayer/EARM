@@ -4,7 +4,7 @@ namespace EArm.Cli.Commands;
 
 /// <summary>
 /// <c>earm deployment what-if -f &lt;file&gt; [-p ...] [-n name] [--mode ...] [--result-format ...] [--exit-code-on-changes]</c>:
-/// reads every declared resource through the Azure CLI session and reports the changes a <c>create</c> would make,
+/// reads every declared resource through Microsoft Graph with the signed-in identity and reports the changes a <c>create</c> would make,
 /// without writing anything (mirrors <c>az deployment group what-if</c>).
 /// </summary>
 internal static class WhatIfCommand

@@ -78,6 +78,12 @@ public static class InstanceEvaluator
             return new NameEvaluation(null, false, value, DiagnosticCodes.InvalidResourceName, $"Name '{name}' (evaluated) is not valid for type '{definition.Type}': expected {expected}.");
         }
 
+        // Names computed by an expression face the same rules as literal names (nameKind, namePattern, no control characters, ...).
+        if (ResourceNameRules.Validate(definition, name) is { } nameProblem)
+        {
+            return new NameEvaluation(null, false, value, DiagnosticCodes.InvalidResourceName, nameProblem);
+        }
+
         return new NameEvaluation(new ResourceIdentifier(definition.Type, segments), false, value, null, null);
     }
 
@@ -121,7 +127,7 @@ public static class InstanceEvaluator
 
     /// <summary>
     /// Evaluates <c>properties</c> in the instance's context and splits the result into object properties and the
-    /// relationship/assignment properties of the type (plan section 1.4), which the edge pass applies later and
+    /// relationship/assignment properties of the type, which the edge pass applies later and
     /// which may legitimately still hold unknown values here. Object properties are evaluated strictly; an edge
     /// property whose expression cannot be evaluated yet (a <c>reference()</c> by the concrete id of a resource whose
     /// symbolic name has not resolved) becomes a deploy-time placeholder instead of failing the object pass, since

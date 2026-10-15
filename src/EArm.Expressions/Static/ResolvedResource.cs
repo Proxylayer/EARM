@@ -18,7 +18,7 @@ public enum ResolvedNameKind
     /// </summary>
     Symbolic,
 
-    /// <summary>The name depends on <c>copyIndex()</c>; the engine expands the loop (WI-05). No id.</summary>
+    /// <summary>The name depends on <c>copyIndex()</c>; the engine expands the loop. No id.</summary>
     CopyDependent,
 
     /// <summary>The name could not be evaluated (a diagnostic was reported). No id.</summary>
@@ -44,7 +44,7 @@ public sealed record ResolvedDependency(string Text, DependencySource Source, Re
     public bool IsResolved => Target is not null || CopyName is not null;
 }
 
-/// <summary>A resource after static evaluation of its keys (plan section 1.5, phase 4).</summary>
+/// <summary>A resource after static evaluation of its keys.</summary>
 public sealed record ResolvedResource
 {
     public required ResourceDeclaration Declaration { get; init; }
@@ -75,7 +75,7 @@ public sealed record ResolvedResource
 
     /// <summary>
     /// <c>reference()</c>/<c>resourceId()</c> occurrences inside <c>properties</c> (statically resolved). The engine
-    /// turns same-template <c>reference()</c> occurrences outside the edge properties of plan section 1.4 into
+    /// turns same-template <c>reference()</c> occurrences outside the edge properties into
     /// implicit dependencies.
     /// </summary>
     public IReadOnlyList<ReferenceOccurrence> References { get; init; } = [];

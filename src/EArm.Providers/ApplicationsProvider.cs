@@ -5,7 +5,7 @@ using System.Net;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Core;
 using EArm.Core.Diagnostics;
 using EArm.Core.Json;
@@ -15,12 +15,12 @@ using EArm.Engine;
 using EArm.Engine.Providers;
 using EArm.Engine.State;
 using EArm.Expressions.Values;
-using GraphApi = EArm.Az.GraphApi;
+using GraphApi = EArm.Graph.GraphApi;
 
 namespace EArm.Providers;
 
 /// <summary>
-/// <c>Microsoft.Entra/applications</c> (plan sections 1.3, 3.2; work item WI-07). The resource name is the Graph
+/// <c>Microsoft.Entra/applications</c>. The resource name is the Graph
 /// <c>uniqueName</c>.
 /// <para>
 /// Requests per operation:
@@ -49,21 +49,27 @@ public sealed class ApplicationsProvider : ProviderBase
 
     public const string ReadWriteAllPermission = "Application.ReadWrite.All";
 
+    /// <summary><see cref="ProviderException.Code"/> when Graph refuses to set the uniqueName of an existing application.</summary>
+    public const string UniqueNameNotSettable = EngineDiagnosticCodes.UniqueNameNotSettable;
+
     public const string DeletedItemsPath = "/directory/deletedItems";
 
     public const string DeletedApplicationsPath = DeletedItemsPath + "/microsoft.graph.application";
 
-    /// <summary>The managed property set every read selects (plan section 3.2); properties outside it are not diffed.</summary>
+    /// <summary>The managed property set every read selects; properties outside it are not diffed.</summary>
     public static readonly string[] ManagedProperties =
     [
         "id", "appId", "uniqueName", "displayName", "signInAudience", "identifierUris", "appRoles", "api", "web", "spa",
         "publicClient", "requiredResourceAccess", "optionalClaims", "groupMembershipClaims", "tags", "notes", "info",
-        "isFallbackPublicClient", "keyCredentials",
+        "isFallbackPublicClient", "keyCredentials", "createdDateTime",
     ];
 
     private static readonly string[] DeletedItemProperties = ["id", "uniqueName", "displayName", "deletedDateTime"];
 
     private volatile PlanOptions _planOptions = PlanOptions.Default;
+
+    /// <summary>The top-level properties each template declares, selected next to <see cref="ManagedProperties"/> on its reads (G-08).</summary>
+    private readonly DeclaredSelects _selects = new();
 
     public ApplicationsProvider(ResourceTypeDefinition definition, ResourceTypeCatalog? catalog = null)
         : base(definition, catalog)
@@ -91,7 +97,7 @@ public sealed class ApplicationsProvider : ProviderBase
 
     /// <summary>
     /// <c>Application.ReadWrite.OwnedBy</c> suffices when the template declares <c>owners</c> (the caller keeps
-    /// managing the apps it owns); otherwise <c>Application.ReadWrite.All</c> (plan section 3.4). The planner asks
+    /// managing the apps it owns); otherwise <c>Application.ReadWrite.All</c>. The planner asks
     /// before the properties are evaluated, so the raw declaration is consulted when the edge properties are not
     /// split yet.
     /// </summary>
@@ -127,6 +133,7 @@ public sealed class ApplicationsProvider : ProviderBase
             key = key with { Values = values };
         }
 
+        _selects.Register(key, Definition, desired);
         return key;
     }
 
@@ -137,7 +144,8 @@ public sealed class ApplicationsProvider : ProviderBase
         ArgumentNullException.ThrowIfNull(key);
         ArgumentNullException.ThrowIfNull(graph);
 
-        if (stateId is not null && await GetApplicationAsync(graph, EntityPath(stateId), key.Api, RetryHint.Default, cancellationToken).ConfigureAwait(false) is { } pinned)
+        var select = _selects.For(key, ManagedProperties);
+        if (stateId is not null && await GetApplicationAsync(graph, EntityPath(stateId), key.Api, RetryHint.Default, select, cancellationToken).ConfigureAwait(false) is { } pinned)
         {
             return ToExisting(pinned);
         }
@@ -146,7 +154,7 @@ public sealed class ApplicationsProvider : ProviderBase
         if (key.TryGet("uniqueName", out var uniqueName))
         {
             hasKey = true;
-            if (await GetApplicationAsync(graph, GraphPath.AlternateKey(CollectionPath, "uniqueName", uniqueName), key.Api, RetryHint.Default, cancellationToken).ConfigureAwait(false) is { } byName)
+            if (await GetByUniqueNameAsync(graph, uniqueName, key.Api, RetryHint.Default, select, cancellationToken).ConfigureAwait(false) is { } byName)
             {
                 return ToExisting(byName);
             }
@@ -155,7 +163,7 @@ public sealed class ApplicationsProvider : ProviderBase
         if (key.TryGet("appId", out var appId))
         {
             hasKey = true;
-            if (await GetApplicationAsync(graph, GraphPath.AlternateKey(CollectionPath, "appId", appId), key.Api, RetryHint.Default, cancellationToken).ConfigureAwait(false) is { } byAppId)
+            if (await GetApplicationAsync(graph, GraphPath.AlternateKey(CollectionPath, "appId", appId), key.Api, RetryHint.Default, select, cancellationToken).ConfigureAwait(false) is { } byAppId)
             {
                 return ToExisting(byAppId);
             }
@@ -227,6 +235,12 @@ public sealed class ApplicationsProvider : ProviderBase
 
         var normalized = NormalizedExisting(existing, properties);
         var change = base.Plan(desired, normalized, options);
+        if (change.Before is not null)
+        {
+            // The diff ran on the view without the ignoreLiveOnly children; the what-if row still shows the whole live object.
+            change = change with { Before = RenderBefore(ApplicationsRules.NormalizeLive(existing, properties), properties) };
+        }
+
         if (change.HasError)
         {
             return change;
@@ -270,10 +284,13 @@ public sealed class ApplicationsProvider : ProviderBase
         var derived = ApplicationsRules.NormalizeDesired(properties, name);
         var body = BuildCreateBody(desired);
         RemoveServerAssigned(body);
+        RemoveUniqueName(body);
+        var warnings = new List<ProviderWarning>();
+        AppliedResource? restoredPartial = null;
         bool deferredUris = ApplicationsRules.RemoveDeferredIdentifierUris(body);
 
         // The key lookup was a 404, so the only other holder of the uniqueName is a soft-deleted object (30-day window).
-        if (await FindSoftDeletedAsync(name, desired.Api, graph, cancellationToken).ConfigureAwait(false) is { } deleted)
+        if (await FindSoftDeletedAsync(name, desired.Api, graph, warnings, cancellationToken).ConfigureAwait(false) is { } deleted)
         {
             string deletedId = JsonObjects.GetId(deleted) ?? "?";
             if (_planOptions.OnSoftDeletedConflict != SoftDeletedConflict.Restore)
@@ -286,41 +303,62 @@ public sealed class ApplicationsProvider : ProviderBase
             }
 
             var restore = new GraphRequest(DeletedItemsPath + "/" + GraphPath.Segment(deletedId) + "/restore", desired.Api, hint: desired.RetryHint);
-            await graph.PostAsync(restore, null, cancellationToken).ConfigureAwait(false);
+            var restoredResponse = await graph.PostAsync(restore, null, cancellationToken).ConfigureAwait(false);
+
+            // From here on the application exists again (it is out of the recycle bin): a failure of a later step must hand it over, or the run loses the object.
+            var restoredLive = (restoredResponse.Body as JsonObject is { } restoredBody ? (JsonObject)restoredBody.DeepClone() : (JsonObject)deleted.DeepClone());
+            restoredLive["id"] = deletedId;
+            restoredPartial = new AppliedResource(desired.Id, deletedId, restoredLive, key, derived.ToExtra()) { Warnings = warnings };
         }
 
-        string upsertPath = GraphPath.AlternateKey(CollectionPath, "uniqueName", name);
-        var upsert = new GraphRequest(upsertPath, desired.Api, hint: desired.RetryHint).WithPrefer("create-if-missing");
-        var response = await graph.PatchAsync(upsert, body, cancellationToken).ConfigureAwait(false);
-
-        JsonObject live;
-        if (response.IsCreated && response.Body is JsonObject created)
+        try
         {
-            live = created;
+            string upsertPath = GraphPath.AlternateKey(CollectionPath, "uniqueName", name);
+            var upsert = new GraphRequest(upsertPath, desired.Api, hint: desired.RetryHint).WithPrefer("create-if-missing");
+            var response = await graph.PatchAsync(upsert, body, cancellationToken).ConfigureAwait(false);
+
+            JsonObject live;
+            if (response.IsCreated && response.Body is JsonObject created)
+            {
+                live = created;
+            }
+            else
+            {
+                // 204: the object existed (or was just restored) and the body was merged into it; adopt it by re-reading.
+                live = await GetByUniqueNameAsync(graph, name, desired.Api, RetryHint.ExpectReplicationLag, _selects.For(key, ManagedProperties), cancellationToken).ConfigureAwait(false)
+                    ?? throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{desired.Describe()}: the upsert returned no object and '{name}' could not be read back.", desired.Id);
+            }
+
+            string id = RequireId(live, desired);
+            var written = new AppliedResource(desired.Id, id, live, key, derived.ToExtra()) { Warnings = warnings };
+            if (deferredUris)
+            {
+                // The object exists now: a failure of the second PATCH hands it over (ProviderException.Partial) so the executor records it.
+                try
+                {
+                    string appId = JsonObjects.GetString(live, "appId")
+                        ?? throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{desired.Describe()}: Graph returned no appId, so identifierUris containing '{ApplicationsRules.AppIdPlaceholder}' cannot be written.", desired.Id);
+                    ApplicationsRules.SubstituteAppId(properties, appId);
+                    JsonObjects.TryGetIgnoreCase(properties, "identifierUris", out var uris);
+                    var finalUris = SecretJson.Reveal(JsonValues.Clone(uris));
+
+                    // The object was created a moment ago: the PATCH by id may hit replication lag.
+                    var second = new GraphRequest(EntityPath(id), desired.Api, hint: RetryHint.ExpectReplicationLag);
+                    await graph.PatchAsync(second, new JsonObject { ["identifierUris"] = finalUris }, cancellationToken).ConfigureAwait(false);
+                    live[JsonObjects.FindKey(live, "identifierUris") ?? "identifierUris"] = JsonValues.Clone(finalUris);
+                }
+                catch (Exception ex) when (ex is GraphException or GraphTransportException or ProviderException { Partial: null })
+                {
+                    throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{desired.Describe()}: the application was created (id {id}) but writing its identifierUris failed: {ex.Message}", desired.Id, ex) { Partial = written };
+                }
+            }
+
+            return written;
         }
-        else
+        catch (Exception ex) when (restoredPartial is not null && (ex is GraphException or GraphTransportException || ex is ProviderException { Partial: null }))
         {
-            // 204: the object existed (or was just restored) and the body was merged into it; adopt it by re-reading.
-            live = await GetApplicationAsync(graph, upsertPath, desired.Api, RetryHint.ExpectReplicationLag, cancellationToken).ConfigureAwait(false)
-                ?? throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{desired.Describe()}: the upsert returned no object and '{name}' could not be read back.", desired.Id);
+            throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{desired.Describe()}: the soft-deleted application ({restoredPartial.GraphId}) was restored but bringing it to the declared state failed: {ex.Message}", desired.Id, ex) { Partial = restoredPartial };
         }
-
-        string id = RequireId(live, desired);
-        if (deferredUris)
-        {
-            string appId = JsonObjects.GetString(live, "appId")
-                ?? throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{desired.Describe()}: Graph returned no appId, so identifierUris containing '{ApplicationsRules.AppIdPlaceholder}' cannot be written.", desired.Id);
-            ApplicationsRules.SubstituteAppId(properties, appId);
-            JsonObjects.TryGetIgnoreCase(properties, "identifierUris", out var uris);
-            var finalUris = SecretJson.Reveal(JsonValues.Clone(uris));
-
-            // The object was created a moment ago: the PATCH by id may hit replication lag.
-            var second = new GraphRequest(EntityPath(id), desired.Api, hint: RetryHint.ExpectReplicationLag);
-            await graph.PatchAsync(second, new JsonObject { ["identifierUris"] = finalUris }, cancellationToken).ConfigureAwait(false);
-            live[JsonObjects.FindKey(live, "identifierUris") ?? "identifierUris"] = JsonValues.Clone(finalUris);
-        }
-
-        return new AppliedResource(desired.Id, id, live, key, derived.ToExtra());
     }
 
     // ---- update ----
@@ -345,13 +383,14 @@ public sealed class ApplicationsProvider : ProviderBase
         var normalized = NormalizedExisting(existing, properties);
         var body = BuildPatchBody(desired, normalized, change);
         RemoveServerAssigned(body);
-        if (JsonObjects.GetString(existing.Raw, "uniqueName") is null)
-        {
-            body["uniqueName"] = name;
-        }
+        RemoveUniqueName(body);
 
         string path = EntityPath(existing.GraphId);
         var request = new GraphRequest(path, desired.Api, hint: desired.RetryHint);
+        if (JsonObjects.GetString(existing.Raw, "uniqueName") is null)
+        {
+            await AdoptUniqueNameAsync(graph, existing.GraphId, name, desired.Api, desired.RetryHint, desired.Describe(), desired.Id, cancellationToken).ConfigureAwait(false);
+        }
 
         var disabledRoles = ApplicationsRules.DisableStep(ApplicationsRules.AppRolesOf(properties), ApplicationsRules.AppRolesOf(normalized.Properties), ApplicationsRules.AppRoleBreakingProperties);
         var disabledScopes = ApplicationsRules.DisableStep(ApplicationsRules.ScopesOf(properties), ApplicationsRules.ScopesOf(normalized.Properties), ApplicationsRules.ScopeBreakingProperties);
@@ -380,7 +419,7 @@ public sealed class ApplicationsProvider : ProviderBase
             await graph.PatchAsync(request, body, cancellationToken).ConfigureAwait(false);
         }
 
-        var live = await GetApplicationAsync(graph, path, desired.Api, desired.RetryHint, cancellationToken).ConfigureAwait(false)
+        var live = await GetApplicationAsync(graph, path, desired.Api, desired.RetryHint, _selects.For(key, ManagedProperties), cancellationToken).ConfigureAwait(false)
             ?? throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{desired.Describe()}: the application ({existing.GraphId}) vanished after the update.", desired.Id);
         return new AppliedResource(desired.Id, existing.GraphId, live, key, derived.ToExtra());
     }
@@ -416,52 +455,86 @@ public sealed class ApplicationsProvider : ProviderBase
         return CollectionPath + "/" + GraphPath.Segment(graphId);
     }
 
-    private static async Task<JsonObject?> GetApplicationAsync(IGraphClient graph, string path, GraphApi api, RetryHint hint, CancellationToken cancellationToken)
+    private static async Task<JsonObject?> GetApplicationAsync(IGraphClient graph, string path, GraphApi api, RetryHint hint, string[] select, CancellationToken cancellationToken)
     {
-        var request = new GraphRequest(path, api, hint: hint).WithSelect(ManagedProperties);
+        var request = new GraphRequest(path, api, hint: hint).WithSelect(select);
         return await graph.GetAsync(request, cancellationToken).ConfigureAwait(false) as JsonObject;
     }
 
     /// <summary>
-    /// The soft-deleted application holding <paramref name="uniqueName"/>, or <c>null</c>. Uses the filtered advanced
-    /// query of plan section 3.2; should Graph reject the filter on this endpoint (400), the deleted applications are
-    /// listed and matched client-side instead (a 30-day window, usually small).
+    /// <c>GET /applications(uniqueName='…')</c>. Graph documents <c>uniqueName</c> as an alternate key for the upsert only
+    /// (the application resource page calls it "Immutable. Read-only."), so a tenant that rejects the key form with a 400
+    /// is asked with <c>$filter=uniqueName eq '…'</c> (advanced query) instead. A 404 stays "does not exist".
     /// </summary>
-    private static async Task<JsonObject?> FindSoftDeletedAsync(string uniqueName, GraphApi api, IGraphClient graph, CancellationToken cancellationToken)
+    private async Task<JsonObject?> GetByUniqueNameAsync(IGraphClient graph, string uniqueName, GraphApi api, RetryHint hint, string[] select, CancellationToken cancellationToken)
     {
-        string filter = "uniqueName eq '" + uniqueName.Replace("'", "''", StringComparison.Ordinal) + "'";
-        var filtered = new GraphRequest(DeletedApplicationsPath, api)
-            .WithFilter(filter)
-            .WithCount()
-            .WithConsistencyLevelEventual()
-            .WithSelect(DeletedItemProperties);
         try
         {
-            return await FirstDeletedMatchAsync(graph, filtered, uniqueName, cancellationToken).ConfigureAwait(false);
+            return await GetApplicationAsync(graph, GraphPath.AlternateKey(CollectionPath, "uniqueName", uniqueName), api, hint, select, cancellationToken).ConfigureAwait(false);
         }
         catch (GraphException ex) when (ex.Status == HttpStatusCode.BadRequest)
         {
-            var scan = new GraphRequest(DeletedApplicationsPath, api).WithSelect(DeletedItemProperties).WithTop(999);
-            return await FirstDeletedMatchAsync(graph, scan, uniqueName, cancellationToken).ConfigureAwait(false);
-        }
-    }
-
-    private static async Task<JsonObject?> FirstDeletedMatchAsync(IGraphClient graph, GraphRequest request, string uniqueName, CancellationToken cancellationToken)
-    {
-        await foreach (var item in graph.GetAllPagesAsync(request, cancellationToken).ConfigureAwait(false))
-        {
-            if (item is JsonObject deleted && string.Equals(JsonObjects.GetString(deleted, "uniqueName"), uniqueName, StringComparison.OrdinalIgnoreCase))
+            var request = new GraphRequest(CollectionPath, api, hint: hint)
+                .WithFilter("uniqueName eq '" + ProviderSupport.EscapeLiteral(uniqueName) + "'")
+                .WithCount()
+                .WithConsistencyLevelEventual()
+                .WithSelect(select);
+            await foreach (var item in graph.GetAllPagesAsync(request, cancellationToken).ConfigureAwait(false))
             {
-                return deleted;
+                if (item is JsonObject match && string.Equals(JsonObjects.GetString(match, "uniqueName"), uniqueName, StringComparison.OrdinalIgnoreCase))
+                {
+                    return match;
+                }
             }
-        }
 
-        return null;
+            return null;
+        }
     }
 
+    /// <summary>
+    /// Sets the <c>uniqueName</c> of an application that has none (adoption by <c>appId</c>, <c>state adopt --unique-name</c>) with
+    /// its own PATCH. Graph documents the property as immutable, so a refusal (400) is reported as <see cref="UniqueNameNotSettable"/>
+    /// with an explanation instead of a bare Graph error.
+    /// </summary>
+    public async Task AdoptUniqueNameAsync(IGraphClient graph, string graphId, string uniqueName, GraphApi api, RetryHint hint, string describe, ResourceIdentifier? resourceId, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(graph);
+        ArgumentException.ThrowIfNullOrWhiteSpace(graphId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(uniqueName);
+        try
+        {
+            await graph.PatchAsync(new GraphRequest(EntityPath(graphId), api, hint: hint), new JsonObject { ["uniqueName"] = uniqueName }, cancellationToken).ConfigureAwait(false);
+        }
+        catch (GraphException ex) when (ex.Status == HttpStatusCode.BadRequest)
+        {
+            throw new ProviderException(
+                UniqueNameNotSettable,
+                $"{describe}: Graph refused to set uniqueName '{uniqueName}' on the existing application {graphId} ({ex.GraphMessage}). uniqueName is documented as immutable and read-only (it can be assigned by the upsert PATCH /applications(uniqueName='…') that creates the application), so an application created without it cannot be adopted by name; recreate it through EARM, or adopt it into the state without a uniqueName.",
+                resourceId,
+                ex);
+        }
+    }
+
+    /// <summary>
+    /// The soft-deleted application holding <paramref name="uniqueName"/>, or <c>null</c> (see <see cref="DeletedItemsProbe"/>).
+    /// Listing deleted applications needs <c>Application.Read.All</c> (Learn: directory-deleteditems-list), which an
+    /// <c>Application.ReadWrite.OwnedBy</c>-only identity lacks: a 403 skips the probe with <see cref="ProviderWarnings.SoftDeleteProbeSkipped"/>.
+    /// </summary>
+    private static Task<JsonObject?> FindSoftDeletedAsync(string uniqueName, GraphApi api, IGraphClient graph, List<ProviderWarning> warnings, CancellationToken cancellationToken)
+    {
+        return DeletedItemsProbe.FindAsync(graph, DeletedApplicationsPath, "application", "uniqueName", uniqueName, DeletedItemProperties, api, advanced: true, warnings, cancellationToken);
+    }
+    /// <summary>The upsert addresses the object by its <c>uniqueName</c> (the URL key); Graph documents the property as read-only, so it is never sent in the body.</summary>
+    private static void RemoveUniqueName(JsonObject body)
+    {
+        if (JsonObjects.FindKey(body, "uniqueName") is { } key)
+        {
+            body.Remove(key);
+        }
+    }
     private ExistingResource NormalizedExisting(ExistingResource existing, JsonObject desired)
     {
-        return existing with { Properties = ApplicationsRules.NormalizeLive(existing, desired) };
+        return ProviderSupport.PruneLiveOnly(Definition, desired, existing with { Properties = ApplicationsRules.NormalizeLive(existing, desired) });
     }
 
     /// <summary><c>appId</c> and <c>id</c> are assigned by Graph and rejected in bodies; a declared <c>appId</c> is only a lookup key.</summary>

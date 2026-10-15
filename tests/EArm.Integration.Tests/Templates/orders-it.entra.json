@@ -2,7 +2,7 @@
   "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
   "contentVersion": "1.0.0.0",
   "metadata": {
-    "description": "WI-19: samples/orders-api.entra.json under the run prefix, with the parts that need tenant-specific inputs removed (Key Vault password, manager, licenses, the all-staff group). Every resource type of the sample, edges from both sides, nested children, standalone assignments and grants."
+    "description": "Samples/orders-api.entra.json under the run prefix, with the parts that need tenant-specific inputs removed (Key Vault password, manager, licenses, the all-staff group). Every resource type of the sample, edges from both sides, nested children, standalone assignments and grants."
   },
   "parameters": {
     "prefix":          { "type": "string" },

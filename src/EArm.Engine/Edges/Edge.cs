@@ -8,7 +8,7 @@ using EArm.Engine.Providers;
 namespace EArm.Engine.Edges;
 
 /// <summary>
-/// One normalised relationship: <c>(kind, target, principal[, extra])</c> (plan section 1.4). Ids are Graph object
+/// One normalised relationship: <c>(kind, target, principal[, extra])</c>. Ids are Graph object
 /// ids; <see cref="TargetCollection"/> is the Graph collection of the target when the kind needs it to build the
 /// path (<c>applications</c> / <c>servicePrincipals</c> / <c>groups</c> for ownership); <see cref="Extra"/> carries
 /// the kind-specific payload of part B edges (app role id, directory scope...).
@@ -125,9 +125,16 @@ public sealed record EdgeTargetState(bool Exists, bool IsDynamic, string? Collec
 }
 
 /// <summary>The targets a principal is attached to, read from the principal's side (target id → live extra).</summary>
-public sealed record EdgePrincipalState(bool Exists, IReadOnlyDictionary<string, JsonObject?> Edges)
+/// <param name="SkipReason">Set when the read was refused (403): the planner reports it as a warning and leaves the property alone.</param>
+public sealed record EdgePrincipalState(bool Exists, IReadOnlyDictionary<string, JsonObject?> Edges, string? SkipReason = null)
 {
     public static EdgePrincipalState Missing { get; } = new(false, new Dictionary<string, JsonObject?>(StringComparer.OrdinalIgnoreCase));
+
+    /// <summary>A principal whose edges could not be read; <paramref name="reason"/> goes into the warning.</summary>
+    public static EdgePrincipalState Skipped(string reason)
+    {
+        return new EdgePrincipalState(true, new Dictionary<string, JsonObject?>(StringComparer.OrdinalIgnoreCase), reason);
+    }
 }
 
 /// <summary>The outcome of normalising one declared item (see <see cref="IEdgeKindHandler.ResolveItemAsync"/>).</summary>

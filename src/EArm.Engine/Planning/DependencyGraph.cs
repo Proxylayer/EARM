@@ -49,11 +49,11 @@ public sealed record DeploymentBatch(int Index, IReadOnlyList<ResourceInstance> 
 }
 
 /// <summary>
-/// The object-pass dependency graph (plan section 2.4, step 4): explicit <c>dependsOn</c> ∪ inferred parent ∪
-/// implicit <c>reference()</c>/<c>resourceId()</c> occurrences outside the edge properties of section 1.4 ∪ the
+/// The object-pass dependency graph: explicit <c>dependsOn</c> ∪ inferred parent ∪
+/// implicit <c>reference()</c>/<c>resourceId()</c> occurrences outside the edge properties ∪ the
 /// inputs of symbolic names ∪ serial copy chaining. Cycles are reported with their path; the acyclic graph is
 /// layered Kahn-style into <see cref="Batches"/> (level = 1 + the highest level among the dependencies), each
-/// batch ordered by apply phase (section 3.3) then declaration order as a tie-breaker.
+/// batch ordered by apply phase (see <see cref="ApplyPhases"/>) then declaration order as a tie-breaker.
 /// </summary>
 public sealed class DependencyGraph
 {

@@ -1,9 +1,56 @@
 using System;
+using System.Collections.Generic;
+using System.Buffers;
+using System.Linq;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.Unicode;
 using EArm.Core.Diagnostics;
 
 namespace EArm.Core.Json;
+
+/// <summary>
+/// Raised by <see cref="TemplateJson.Parse"/> when an object repeats a property name (<c>DuplicateJsonKey</c>). The first repeated key is the
+/// primary one; <see cref="Duplicates"/> lists all of them.
+/// </summary>
+public sealed class DuplicateJsonKeyException : JsonException
+{
+    public DuplicateJsonKeyException(IReadOnlyList<DuplicateKey> duplicates)
+        : base(Format(duplicates))
+    {
+        Duplicates = duplicates;
+    }
+
+    public IReadOnlyList<DuplicateKey> Duplicates { get; }
+
+    public DuplicateKey First => Duplicates[0];
+
+    private static string Format(IReadOnlyList<DuplicateKey> duplicates)
+    {
+        string message = duplicates[0].Describe();
+        if (duplicates.Count == 1)
+        {
+            return message;
+        }
+
+        // Every repeat, so one run of the validator shows them all (the scan stops at the limit of DuplicateKeys.Find).
+        string others = string.Join("; ", duplicates.Skip(1).Select(d => $"{d.Path} (line {d.Location.Line}, column {d.Location.Column})"));
+        return $"{message} {duplicates.Count - 1} more repeated key(s): {others}.";
+    }
+}
+
+/// <summary>
+/// Raised by <see cref="TemplateJson.Parse"/> when a document is larger than <see cref="TemplateJson.MaxInputBytes"/> or holds more than
+/// <see cref="DuplicateKeys.MaxNodes"/> JSON values (<c>InputTooLarge</c>), before anything is built from it.
+/// </summary>
+public sealed class InputTooLargeException : JsonException
+{
+    public InputTooLargeException(string message)
+        : base(message)
+    {
+    }
+}
 
 /// <summary>
 /// Shared JSON reader settings for template and parameter files: <c>//</c> and <c>/* */</c> comments are skipped
@@ -24,6 +71,9 @@ public static class TemplateJson
         AllowTrailingCommas = true,
     };
 
+    /// <summary>The largest template or parameter file that is read: 8 MiB. Larger input is refused with <c>InputTooLarge</c> before it is parsed.</summary>
+    public const int MaxInputBytes = 8 * 1024 * 1024;
+
     private static ReadOnlySpan<byte> Utf8Bom => [0xEF, 0xBB, 0xBF];
 
     /// <summary>Removes a leading UTF-8 byte-order mark.</summary>
@@ -36,11 +86,99 @@ public static class TemplateJson
     /// Parses UTF-8 JSON text. The returned element is a standalone clone; the node is built from it.
     /// </summary>
     /// <exception cref="JsonException">The text is not valid JSON.</exception>
-    public static (JsonElement Element, JsonNode? Node) Parse(ReadOnlyMemory<byte> utf8)
+    /// <exception cref="DuplicateJsonKeyException">An object repeats a property name.</exception>
+    public static (JsonElement Element, JsonNode? Node) Parse(ReadOnlyMemory<byte> utf8, IReadOnlySet<string>? nameMaps = null)
     {
-        using var document = JsonDocument.Parse(StripBom(utf8), DocumentOptions);
+        var bytes = StripBom(utf8);
+        if (bytes.Length > MaxInputBytes)
+        {
+            throw new InputTooLargeException($"The document is {bytes.Length:N0} bytes; the limit is {MaxInputBytes:N0} bytes (8 MiB).");
+        }
+
+        RejectOtherEncodings(bytes.Span);
+        RejectInvalidUtf8(bytes.Span);
+
+        // One cheap pass first: it counts the values (so a document of millions of tiny nodes is refused before a parser builds them) and finds the repeated keys.
+        var scan = DuplicateKeys.Scan(utf8, 50, nameMaps, DuplicateKeys.MaxNodes);
+        if (scan.TooManyNodes)
+        {
+            throw new InputTooLargeException($"The document holds more than {DuplicateKeys.MaxNodes:N0} JSON values; the limit keeps the load within memory.");
+        }
+
+        using var document = JsonDocument.Parse(bytes, DocumentOptions);
+        var duplicates = scan.Duplicates;
+        if (duplicates.Count > 0)
+        {
+            throw new DuplicateJsonKeyException(duplicates);
+        }
+
         var element = document.RootElement.Clone();
         return (element, ToNode(element));
+    }
+
+    /// <summary>
+    /// A UTF-16 or UTF-32 file (byte-order mark, or NUL bytes next to ASCII) is reported as such instead of as <c>'0xFF' is an invalid start of a value</c>.
+    /// </summary>
+    private static void RejectOtherEncodings(ReadOnlySpan<byte> bytes)
+    {
+        string? encoding = null;
+        if (bytes.Length >= 4 && bytes[0] == 0xFF && bytes[1] == 0xFE && bytes[2] == 0 && bytes[3] == 0)
+        {
+            encoding = "UTF-32";
+        }
+        else if (bytes.Length >= 2 && ((bytes[0] == 0xFF && bytes[1] == 0xFE) || (bytes[0] == 0xFE && bytes[1] == 0xFF) || (bytes[0] == 0 && bytes[1] != 0) || (bytes[0] != 0 && bytes[1] == 0)))
+        {
+            encoding = "UTF-16";
+        }
+
+        if (encoding is not null)
+        {
+            throw new JsonException($"The file must be UTF-8 ({encoding} detected); save it as UTF-8.");
+        }
+    }
+
+    /// <summary>
+    /// Strict UTF-8: the JSON reader accepts malformed bytes inside a string (<c>0xC3 0x28</c>) and only throws when the string is read as text, which
+    /// surfaced as an unhandled <see cref="InvalidOperationException"/> in whichever stage read it first. The document is refused here instead, with the
+    /// byte offset (and, as the exception's line and column, the position) of the first malformed sequence.
+    /// </summary>
+    private static void RejectInvalidUtf8(ReadOnlySpan<byte> bytes)
+    {
+        if (Utf8.IsValid(bytes))
+        {
+            return;
+        }
+
+        int offset = 0;
+        while (offset < bytes.Length)
+        {
+            var status = Rune.DecodeFromUtf8(bytes[offset..], out _, out int consumed);
+            if (status != OperationStatus.Done)
+            {
+                break;
+            }
+
+            offset += consumed;
+        }
+
+        long line = 0;
+        int lineStart = 0;
+        for (int i = 0; i < offset && i < bytes.Length; i++)
+        {
+            if (bytes[i] == (byte)'\n')
+            {
+                line++;
+                lineStart = i + 1;
+            }
+        }
+
+        int end = Math.Min(offset + 4, bytes.Length);
+        string sample = string.Join(' ', bytes[offset..end].ToArray().Select(b => "0x" + b.ToString("X2", System.Globalization.CultureInfo.InvariantCulture)));
+        throw new JsonException(
+            $"The file must be valid UTF-8; an invalid byte sequence starts at byte offset {offset.ToString(System.Globalization.CultureInfo.InvariantCulture)} ({sample}).",
+            path: null,
+            lineNumber: line,
+            bytePositionInLine: offset - lineStart);
     }
 
     /// <summary>Builds a node tree from an element (the element's own kind decides the node type).</summary>

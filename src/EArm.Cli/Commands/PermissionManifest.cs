@@ -12,10 +12,10 @@ namespace EArm.Cli.Commands;
 /// <summary>Which credentials the permissions are computed for (<c>permissions --mode</c>).</summary>
 internal enum PermissionMode
 {
-    /// <summary><c>az login --service-principal</c>: Microsoft Graph application permissions (app roles) on the service principal.</summary>
+    /// <summary>A service principal, workload identity or managed identity (<c>AZURE_*</c> environment): Microsoft Graph application permissions (app roles) on the service principal.</summary>
     App,
 
-    /// <summary><c>az login</c> as a user: delegated scopes plus the Entra roles the user must hold.</summary>
+    /// <summary>An interactive sign-in (<c>earm auth login</c>): delegated scopes plus the Entra roles the user must hold.</summary>
     Delegated,
 }
 
@@ -43,12 +43,12 @@ internal sealed record PermissionReport(
     IReadOnlyList<string> Notes);
 
 /// <summary>
-/// The pure part of <c>earm permissions</c> (plan section 3.4): the union of what every expanded resource
+/// The pure part of <c>earm permissions</c>: the union of what every expanded resource
 /// needs (<c>IResourceProvider.RequiredPermissions</c>, the conditional rules inside the providers), what the
-/// relationship properties it declares need (the edge kinds of plan section 1.4: group and administrative unit
+/// relationship properties it declares need (the edge kinds: group and administrative unit
 /// membership, ownership, manager, app role assignments, directory roles, licenses), what the expression functions
 /// that read the tenant need (<c>appRole()</c>, <c>permissionScope()</c>, <c>roleTemplate()</c>,
-/// <c>reference(id, apiVersion)</c>) and what the Azure CLI identity needs for Key Vault parameter references.
+/// <c>reference(id, apiVersion)</c>) and what the signed-in identity needs for Key Vault parameter references.
 /// No Graph access: the instances are the offline expansion of the template.
 /// </summary>
 internal static class PermissionManifest
@@ -66,23 +66,29 @@ internal static class PermissionManifest
     private static readonly Regex ApiVersionLiteral = new(@"'\d{4}-\d{2}-\d{2}(-preview(\.beta)?)?'", RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
     private static readonly Regex TypeLiteral = new(@"'(Microsoft\.Entra/[A-Za-z/]+)'", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
 
-    /// <summary>The application permissions of a relationship kind (plan section 1.4 "Graph apply" and 3.4).</summary>
+    /// <summary>
+    /// The application permissions of a relationship kind (Review 1D, checked against Learn:
+    /// group-post-members, group-post-owners, application-post-owners, directoryobject-get, user-list-memberof, approleassignedto,
+    /// user-assignlicense, group-assignlicense). The edge pass resolves principal kinds with <c>GET /directoryObjects/{id}</c>, which needs
+    /// <c>Directory.Read.All</c> even when the write permission is <c>.All</c> (Learn: application-post-owners lists
+    /// <c>Application.ReadWrite.OwnedBy</c> AND <c>Directory.Read.All</c>).
+    /// </summary>
     public static IReadOnlyList<string> EdgeApplicationPermissions(RelationshipKind kind)
     {
         return kind switch
         {
-            RelationshipKind.GroupMembership => ["GroupMember.ReadWrite.All"],
-            RelationshipKind.Ownership => [],
+            RelationshipKind.GroupMembership => ["GroupMember.ReadWrite.All", "Directory.Read.All"],
+            RelationshipKind.Ownership => ["Directory.Read.All"],
             RelationshipKind.AdministrativeUnitMembership => ["AdministrativeUnit.ReadWrite.All"],
             RelationshipKind.Manager => ["User.ReadWrite.All"],
-            RelationshipKind.AppRoleAssignment => ["AppRoleAssignment.ReadWrite.All", "Application.Read.All"],
-            RelationshipKind.DirectoryRoleAssignment => ["RoleManagement.ReadWrite.Directory"],
-            RelationshipKind.License => ["Organization.Read.All"],
+            RelationshipKind.AppRoleAssignment => ["AppRoleAssignment.ReadWrite.All", "Application.Read.All", "Directory.Read.All"],
+            RelationshipKind.DirectoryRoleAssignment => ["RoleManagement.ReadWrite.Directory", "Directory.Read.All"],
+            RelationshipKind.License => ["LicenseAssignment.ReadWrite.All", "LicenseAssignment.Read.All"],
             _ => [],
         };
     }
 
-    /// <summary>The Entra roles of which the user needs one for a relationship kind (plan section 3.4).</summary>
+    /// <summary>The Entra roles of which the user needs one for a relationship kind.</summary>
     public static IReadOnlyList<string> EdgeRoles(RelationshipKind kind)
     {
         return kind switch
@@ -126,6 +132,10 @@ internal static class PermissionManifest
 
         int symbolic = 0;
         int unprovided = 0;
+        bool ownersOnApplications = false;
+        bool ownerOfOnUsers = false;
+        bool managerDeclared = false;
+        bool users = false;
         foreach (var instance in instances.OrderBy(i => i.PlannedId.Id, StringComparer.Ordinal))
         {
             string resource = instance.PlannedId.Id;
@@ -164,8 +174,25 @@ internal static class PermissionManifest
                     graph.Add(ForMode(permission, mode), resource, "edge: " + spec.Property);
                 }
 
+                if (spec.Kind == RelationshipKind.GroupMembership && spec.Side == RelationshipSide.Target)
+                {
+                    // Learn (group-post-members): a service principal member needs GroupMember.ReadWrite.All AND Application.ReadWrite.All;
+                    // the member kinds are only known at deployment.
+                    graph.Add(ForMode("Application.ReadWrite.All", mode), resource, "edge: " + spec.Property + " (when a member is a service principal)");
+                }
+
+                if (spec.Kind == RelationshipKind.Ownership && spec.Side == RelationshipSide.Target && IsApplicationOrServicePrincipal(instance.Type))
+                {
+                    ownersOnApplications = true;
+                }
+
                 if (spec.Kind == RelationshipKind.Ownership && spec.Side == RelationshipSide.Principal)
                 {
+                    if (instance.Type.EndsWith("/users", StringComparison.OrdinalIgnoreCase))
+                    {
+                        ownerOfOnUsers = true;
+                    }
+
                     // ownerOf: the target's kind is only known at deployment (applications, service principals, groups).
                     graph.Add(ForMode("Application.ReadWrite.All", mode), resource, "edge: ownerOf (when a target is an application or service principal)");
                     graph.Add(ForMode("Group.ReadWrite.All", mode), resource, "edge: ownerOf (when a target is a group)");
@@ -181,6 +208,15 @@ internal static class PermissionManifest
             {
                 AddRoles(instance, resource, roles);
             }
+
+            if (instance.Type.EndsWith("/roleAssignments", StringComparison.OrdinalIgnoreCase))
+            {
+                // A role assignment's principal may be a role-assignable group: GET /groups/{id}?$select=isAssignableToRole (Learn: group-get).
+                graph.Add(ForMode("Group.Read.All", mode), resource, "lookup: role-assignable group check");
+            }
+
+            users |= instance.Type.EndsWith("/users", StringComparison.OrdinalIgnoreCase);
+            managerDeclared |= instance.Definition.Relationships.Any(r => r.Kind == RelationshipKind.Manager && Declares(instance, r.Property));
         }
 
         AddLookups(templateStrings, mode, graph);
@@ -193,7 +229,7 @@ internal static class PermissionManifest
 
         foreach (var (parameter, reference) in keyVaultReferences.OrderBy(r => r.Parameter, StringComparer.OrdinalIgnoreCase))
         {
-            azure.Add($"Key Vault secret read ('Key Vault Secrets User' or the get-secret access policy) on vault '{reference.VaultName}'", $"parameter '{parameter}'", $"az keyvault secret show --vault-name {reference.VaultName} --name {reference.SecretName}");
+            azure.Add($"Key Vault secret read ('Key Vault Secrets User' or the get-secret access policy) on vault '{reference.VaultName}'", $"parameter '{parameter}'", $"GET https://{reference.VaultName}.vault.azure.net/secrets/{reference.SecretName}");
         }
 
         var permissions = new List<PermissionEntry>();
@@ -203,8 +239,8 @@ internal static class PermissionManifest
         var roleRequirements = roles.BuildGroups();
 
         notes.Add(mode == PermissionMode.App
-            ? "Application permissions are Microsoft Graph app roles granted (with admin consent) to the service principal the Azure CLI is logged in with (az login --service-principal). Application.ReadWrite.OwnedBy replaces Application.ReadWrite.All for applications the service principal owns."
-            : "Delegated scopes must be present on the token the Azure CLI obtains; the signed-in user must additionally hold at least one role of every 'Entra roles' group (the roles are alternatives).");
+            ? "Application permissions are Microsoft Graph app roles granted (with admin consent) to the service principal EARM signs in with (AZURE_CLIENT_ID, or the managed identity). Application.ReadWrite.OwnedBy replaces Application.ReadWrite.All for applications the service principal owns."
+            : "Delegated scopes must be present on the token that earm auth login obtains (the app registration of --client-id needs them as delegated permissions); the signed-in user must additionally hold at least one role of every 'Entra roles' group (the roles are alternatives).");
         if (symbolic > 0)
         {
             notes.Add($"{symbolic} resource(s) have a name that depends on another resource (for example a service principal named after reference(...).appId); their permissions are computed from the declaration and the references it contains.");
@@ -220,7 +256,27 @@ internal static class PermissionManifest
             notes.Add($"{ignoredCount} resource(s) with a condition that evaluates to false offline are not included.");
         }
 
-        notes.Add("Edge permissions are listed for every relationship property the template declares (including an empty array, which removes edges). Key Vault access is an Azure RBAC / access-policy requirement of the Azure CLI identity, not a Graph permission.");
+        if (ownersOnApplications)
+        {
+            notes.Add("Learn (application-post-owners, serviceprincipal-post-owners): adding an owner needs Application.ReadWrite.OwnedBy AND Directory.Read.All, and \"Application.ReadWrite.OwnedBy isn't sufficient to add another owner\": when the declared owners include anyone besides the principal that owns the application, grant Application.ReadWrite.All as well.");
+        }
+
+        if (mode == PermissionMode.App && ownerOfOnUsers)
+        {
+            notes.Add("`ownerOf` on a user reads GET /users/{id}/ownedObjects, which Microsoft Graph does not support with application permissions (Learn: user-list-ownedobjects, Application: Not supported); the owner set of a user principal can only be reconciled with a signed-in (delegated) token. Declare `owners` on the application, service principal or group instead.");
+        }
+
+        if (mode == PermissionMode.App && managerDeclared)
+        {
+            notes.Add("`manager` is written with PUT /users/{id}/manager/$ref (User.ReadWrite.All) but read with GET /users/{id}/manager, for which Learn lists no application permission (user-list-manager, Application: Not supported); with an application token that read can be refused (403), so reconcile `manager` with a signed-in (delegated) token.");
+        }
+
+        if (users)
+        {
+            notes.Add("Restoring soft-deleted objects (--on-soft-deleted-conflict restore): users need User.DeleteRestore.All, groups Group.ReadWrite.All, administrative units AdministrativeUnit.ReadWrite.All, applications and service principals Application.ReadWrite.OwnedBy (Learn: directory-deleteditems-restore). Probing /directory/deletedItems before a create needs the type's read permission (for applications Application.Read.All, which Application.ReadWrite.OwnedBy does not carry: the probe is then skipped with a SoftDeleteProbeSkipped warning).");
+        }
+
+        notes.Add("Edge permissions are listed for every relationship property the template declares (including an empty array, which removes edges). Key Vault access is an Azure RBAC / access-policy requirement of the signed-in identity, not a Graph permission.");
         return new PermissionReport(template, mode, instances.Count, permissions, roleRequirements, notes);
     }
 
@@ -244,6 +300,11 @@ internal static class PermissionManifest
         }
 
         return permission.Replace(".ReadWrite.", ".Read.", StringComparison.Ordinal);
+    }
+
+    private static bool IsApplicationOrServicePrincipal(string type)
+    {
+        return type.EndsWith("/applications", StringComparison.OrdinalIgnoreCase) || type.EndsWith("/servicePrincipals", StringComparison.OrdinalIgnoreCase);
     }
 
     private static IReadOnlyList<string> SafeRequiredPermissions(IResourceProvider provider, ResourceInstance instance)

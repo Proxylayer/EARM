@@ -27,11 +27,12 @@ internal sealed class TemplateSchemas
         "format", "multipleOf", "minProperties", "maxProperties", "dependentRequired",
     };
 
-    private TemplateSchemas(JsonSchema template, JsonSchema parameters, IReadOnlyList<JsonSchema> types)
+    private TemplateSchemas(JsonSchema template, JsonSchema parameters, IReadOnlyList<JsonSchema> types, IReadOnlyDictionary<string, JsonSchema> typesByName)
     {
         Template = template;
         Parameters = parameters;
         Types = types;
+        TypesByName = typesByName;
     }
 
     public static TemplateSchemas Default => Embedded.Value;
@@ -42,17 +43,27 @@ internal sealed class TemplateSchemas
 
     public IReadOnlyList<JsonSchema> Types { get; }
 
+    /// <summary>The per-type property schemas keyed by resource type (the schema's <c>title</c>, for example <c>Microsoft.Entra/groups</c>), case-insensitive.</summary>
+    public IReadOnlyDictionary<string, JsonSchema> TypesByName { get; }
+
     private static TemplateSchemas Load()
     {
         var types = new List<JsonSchema>();
+        var typesByName = new Dictionary<string, JsonSchema>(StringComparer.OrdinalIgnoreCase);
         foreach (var name in EmbeddedSchemas.NamesUnder(EmbeddedSchemas.TypeSchemaPrefix))
         {
-            types.Add(JsonSchema.FromText(EmbeddedSchemas.ReadText(name)));
+            string text = EmbeddedSchemas.ReadText(name);
+            var schema = JsonSchema.FromText(text);
+            types.Add(schema);
+            if (JsonNode.Parse(text) is JsonObject root && TemplateJson.AsString(root["title"]) is { } title)
+            {
+                typesByName[title] = schema;
+            }
         }
 
         var template = JsonSchema.FromText(EmbeddedSchemas.ReadText(EmbeddedSchemas.TemplateSchemaResource));
         var parameters = JsonSchema.FromText(EmbeddedSchemas.ReadText(EmbeddedSchemas.ParametersSchemaResource));
-        return new TemplateSchemas(template, parameters, types);
+        return new TemplateSchemas(template, parameters, types, typesByName);
     }
 
     /// <summary>

@@ -11,7 +11,7 @@
   <ItemGroup>
     <ProjectReference Include="../EArm.Core/EArm.Core.csproj" />
     <ProjectReference Include="../EArm.Expressions/EArm.Expressions.csproj" />
-    <ProjectReference Include="../EArm.Az/EArm.Az.csproj" />
+    <ProjectReference Include="../EArm.Graph/EArm.Graph.csproj" />
   </ItemGroup>
 
 </Project>

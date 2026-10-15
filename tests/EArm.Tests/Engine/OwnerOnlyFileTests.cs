@@ -6,6 +6,7 @@ using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Text;
 using EArm.Engine.Execution;
+using EArm.Graph;
 using Xunit;
 
 namespace EArm.Tests.Engine;

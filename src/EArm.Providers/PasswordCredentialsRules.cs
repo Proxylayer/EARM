@@ -4,7 +4,7 @@ using System.Globalization;
 using System.Net;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Core.Secrets;
 using EArm.Engine.Providers;
 using EArm.Expressions.Values;
@@ -17,17 +17,20 @@ public sealed record PasswordCredentialSummary(string KeyId, string? DisplayName
 /// <summary>What the template asks of a credential, parsed from the evaluated properties.</summary>
 public sealed record DesiredPasswordCredential(DateTimeOffset? EndDateTime, DateTimeOffset? StartDateTime, string? RotationTag, int RotateBeforeDays);
 
-/// <summary>What the state remembers about the credential the deployment last wrote (plan section 1.7, <c>extra</c>).</summary>
+/// <summary>What the state remembers about the credential the deployment last wrote (<c>extra</c>).</summary>
 public sealed record RecordedPasswordCredential(string? KeyId, DateTimeOffset? EndDateTime, string? RotationTag)
 {
     public static RecordedPasswordCredential Empty { get; } = new(null, null, null);
 }
 
+/// <summary>The outcome of <see cref="PasswordCredentialsRules.AssessRotation"/>: why the credential is replaced, and what the user should know when it is not.</summary>
+public sealed record RotationAssessment(IReadOnlyList<RotationTrigger> Triggers, IReadOnlyList<string> Warnings);
+
 /// <summary>One reason a credential is rotated: the property that differs, both sides (rendering values) and the text for the what-if row.</summary>
 public sealed record RotationTrigger(string Property, JsonNode? Before, JsonNode? After, string Reason);
 
 /// <summary>
-/// The pure rules of the password credentials provider (plan sections 1.3, 1.5 and 3.2; work item WI-11), free of
+/// The pure rules of the password credentials provider, free of
 /// Graph I/O so they can be tested on their own: how a credential is matched among the application's
 /// <c>passwordCredentials</c>, what the template may declare, when the secret is rotated (<c>rotationTag</c> or
 /// <c>endDateTime</c>/<c>startDateTime</c> changed, expiry within <c>rotateBeforeDays</c>, expired), the
@@ -278,15 +281,29 @@ public static class PasswordCredentialsRules
     /// <summary>
     /// Why the live credential is replaced, or empty for <c>NoChange</c>: the <c>rotationTag</c> differs from the
     /// recorded one (absent ≡ absent), a declared <c>endDateTime</c> / <c>startDateTime</c> differs from the live
-    /// value, the credential expired, or it expires within <c>rotateBeforeDays</c>. A credential created without
-    /// <c>endDateTime</c> keeps the expiry it was given (reruns do not drift towards "now + 180 days").
+    /// value, the credential expired, or it expires within <c>rotateBeforeDays</c> and a replacement would live longer.
+    /// A credential created without <c>endDateTime</c> keeps the expiry it was given (reruns do not drift towards "now + 180 days").
+    /// See <see cref="AssessRotation"/> for the warnings.
     /// </summary>
     public static IReadOnlyList<RotationTrigger> RotationTriggers(DesiredPasswordCredential desired, PasswordCredentialSummary live, RecordedPasswordCredential recorded, DateTimeOffset now)
+    {
+        return AssessRotation(desired, live, recorded, now).Triggers;
+    }
+
+    /// <summary>
+    /// <see cref="RotationTriggers"/> plus the <see cref="ProviderWarnings.SecretExpiresSoon"/> text for a credential that is expired or in its
+    /// rotation window but would not get a later expiry from a replacement (Review 1D / E-07): a declared fixed <c>endDateTime</c> inside the
+    /// window, or a <c>rotateBeforeDays</c> longer than the default lifetime, used to rotate the secret on every run because the
+    /// replacement ends no later than the credential it replaces. The credential is rotated only when
+    /// <c>liveEnd &lt; now + rotateBeforeDays</c> AND the replacement's end (the declared one, else now + 180 days) is later than the live end.
+    /// </summary>
+    public static RotationAssessment AssessRotation(DesiredPasswordCredential desired, PasswordCredentialSummary live, RecordedPasswordCredential recorded, DateTimeOffset now)
     {
         ArgumentNullException.ThrowIfNull(desired);
         ArgumentNullException.ThrowIfNull(live);
         ArgumentNullException.ThrowIfNull(recorded);
         var triggers = new List<RotationTrigger>();
+        var warnings = new List<string>();
 
         if (!string.Equals(desired.RotationTag, recorded.RotationTag, StringComparison.Ordinal))
         {
@@ -318,20 +335,30 @@ public static class PasswordCredentialsRules
         if (live.EndDateTime is { } liveEnd)
         {
             var replacement = desired.EndDateTime ?? DefaultEndDateTime(now);
-            if (liveEnd <= now)
+            bool expired = liveEnd <= now;
+            bool inWindow = !expired && liveEnd - now < TimeSpan.FromDays(desired.RotateBeforeDays);
+            if (expired || inWindow)
             {
-                triggers.Add(new RotationTrigger(EndDateTimeProperty, Leaf(liveEnd), Leaf(replacement), $"the credential expired on {Format(liveEnd)}"));
-            }
-            else if (liveEnd - now < TimeSpan.FromDays(desired.RotateBeforeDays))
-            {
-                double daysLeft = (liveEnd - now).TotalDays;
-                triggers.Add(new RotationTrigger(EndDateTimeProperty, Leaf(liveEnd), Leaf(replacement), string.Create(CultureInfo.InvariantCulture, $"the credential expires on {Format(liveEnd)}, in {daysLeft:0.#} days, fewer than {RotateBeforeDaysProperty} ({desired.RotateBeforeDays})")));
+                bool alreadyReplacedByEndChange = triggers.Exists(t => t.Property == EndDateTimeProperty);
+                string when = expired
+                    ? $"the credential expired on {Format(liveEnd)}"
+                    : string.Create(CultureInfo.InvariantCulture, $"the credential expires on {Format(liveEnd)}, in {(liveEnd - now).TotalDays:0.#} days, fewer than {RotateBeforeDaysProperty} ({desired.RotateBeforeDays})");
+                if (replacement > liveEnd)
+                {
+                    if (!alreadyReplacedByEndChange)
+                    {
+                        triggers.Add(new RotationTrigger(EndDateTimeProperty, Leaf(liveEnd), Leaf(replacement), when));
+                    }
+                }
+                else if (!alreadyReplacedByEndChange)
+                {
+                    warnings.Add($"{when}, but a replacement would not live longer (its end date would be {Format(replacement)}); the secret is NOT rotated. Declare a later {EndDateTimeProperty}, lower {RotateBeforeDaysProperty}, or change {RotationTagProperty} to rotate it anyway.");
+                }
             }
         }
 
-        return triggers;
+        return new RotationAssessment(triggers, warnings);
     }
-
     // ---- Graph bodies ----
 
     /// <summary><c>{ "passwordCredential": { "displayName", "endDateTime"[, "startDateTime"] } }</c>: the <c>addPassword</c> body.</summary>

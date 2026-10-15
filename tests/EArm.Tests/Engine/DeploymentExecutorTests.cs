@@ -7,7 +7,7 @@ using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Core;
 using EArm.Core.Secrets;
 using EArm.Engine;
@@ -19,7 +19,7 @@ using Xunit;
 
 namespace EArm.Tests.Engine;
 
-/// <summary>Execution (plan section 2.4, steps 6-7) of the engine fixture against <see cref="FakeGraphClient"/> through <see cref="EchoProvider"/>.</summary>
+/// <summary>Execution of the engine fixture against <see cref="FakeGraphClient"/> through <see cref="EchoProvider"/>.</summary>
 public sealed class DeploymentExecutorTests
 {
     private static ResourceOperation Operation(DeploymentResult result, string resourceId)
@@ -348,7 +348,7 @@ public sealed class DeploymentExecutorTests
         Assert.All(second.Operations.Where(o => o.Status == OperationStatus.Succeeded), o => Assert.Equal(ChangeType.NoChange, o.ChangeType));
         Assert.Equal(Value(first.Outputs, "apiAppId"), Value(second.Outputs, "apiAppId"));
 
-        // secretText only exists in the creating run (plan section 1.5); the output is reported, not invented.
+        // secretText only exists in the creating run; the output is reported, not invented.
         Assert.False(second.Outputs.ContainsKey("ciSecret"));
         var diagnostic = Assert.Single(second.Diagnostics, d => d.IsError);
         Assert.Equal(EngineDiagnosticCodes.OutputEvaluationFailed, diagnostic.Code);
@@ -478,7 +478,9 @@ public sealed class DeploymentExecutorTests
             });
         });
 
-        var (_, result) = await host.CreateAsync(await Templates.FixtureAsync());
+        // Review round 2 (S2-03): the credential was not created by this deployment (no state entry), so replacing it - which deletes it - needs --delete-adopted
+        // (Review3H_RecreateTests covers the refusal).
+        var (_, result) = await host.CreateAsync(await Templates.FixtureAsync(), new ExecuteOptions { DeleteAdopted = true });
 
         var password = Operation(result, Fixture.Password);
         Assert.Equal(OperationStatus.Succeeded, password.Status);

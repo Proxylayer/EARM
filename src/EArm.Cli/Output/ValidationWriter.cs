@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using EArm.Core.Diagnostics;
 
@@ -26,7 +27,12 @@ internal static class ValidationWriter
                     report.WarningCount++;
                     break;
             }
+        }
 
+        // The counts above are totals; the listing is capped per code so one repeated finding cannot flood the output.
+        var listed = DiagnosticCap.Apply(diagnostics, out var suppressed);
+        foreach (var diagnostic in listed)
+        {
             report.Diagnostics.Add(new DiagnosticReport
             {
                 Severity = diagnostic.Severity.ToString(),
@@ -39,6 +45,10 @@ internal static class ValidationWriter
             });
         }
 
+        report.SuppressedCount = suppressed.Sum(s => s.Count);
+        report.Suppressed = suppressed.Count == 0
+            ? null
+            : [.. suppressed.Select(s => new SuppressedReport { Severity = s.Severity.ToString(), Code = s.Code, Count = s.Count })];
         report.Status = report.ErrorCount > 0 ? "Failed" : "Succeeded";
     }
 
@@ -61,7 +71,8 @@ internal static class ValidationWriter
 
     private static void WriteTable(ValidationReport report, IReadOnlyList<Diagnostic> diagnostics, string templateFile, TextWriter stdout, TextWriter stderr)
     {
-        foreach (var diagnostic in diagnostics)
+        var listed = DiagnosticCap.Apply(diagnostics, out var suppressed);
+        foreach (var diagnostic in listed)
         {
             string line = diagnostic.ToString();
             if (diagnostic.Source is not null && !string.Equals(diagnostic.Source, templateFile, StringComparison.OrdinalIgnoreCase))
@@ -70,6 +81,11 @@ internal static class ValidationWriter
             }
 
             (diagnostic.IsError ? stderr : stdout).WriteLine(line);
+        }
+
+        foreach (var capped in suppressed)
+        {
+            (capped.Severity == DiagnosticSeverity.Error ? stderr : stdout).WriteLine(DiagnosticCap.Describe(capped));
         }
 
         var culture = CultureInfo.InvariantCulture;

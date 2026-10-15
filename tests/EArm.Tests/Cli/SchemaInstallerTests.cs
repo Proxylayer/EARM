@@ -93,10 +93,11 @@ public sealed class SchemaInstallerTests
             .ToDictionary(f => Path.GetRelativePath(directory, f).Replace('\\', '/'), f => File.ReadAllText(f), StringComparer.Ordinal);
     }
 
-    private static Dictionary<string, DateTime> Stamps(string directory)
+    /// <summary>SHA-256 of every file under a directory, by relative path.</summary>
+    private static Dictionary<string, string> Hashes(string directory)
     {
         return Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories)
-            .ToDictionary(f => f, f => File.GetLastWriteTimeUtc(f), StringComparer.Ordinal);
+            .ToDictionary(f => Path.GetRelativePath(directory, f).Replace('\\', '/'), f => Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(f))), StringComparer.Ordinal);
     }
 
     private static JsonObject EArmEntry(JsonObject settings)
@@ -180,14 +181,20 @@ public sealed class SchemaInstallerTests
     }
 
     [Fact]
-    public async Task SecondRun_RewritesNothing()
+    public void SecondRun_RewritesNothing()
     {
         using var layout = new Layout(nameof(SecondRun_RewritesNothing));
         Assert.Equal(0, Run(layout.Request()).ExitCode);
-        var schemaStamps = Stamps(layout.SchemaDir);
-        var settingsStamp = File.GetLastWriteTimeUtc(layout.Settings);
-        string settingsText = File.ReadAllText(layout.Settings);
-        await Task.Delay(80, TestContext.Current.CancellationToken);
+
+        // Content hashes say the bytes are identical; back-dated timestamps (far from "now", so no clock resolution or sleep is
+        // involved) say no file was even touched: any rewrite would stamp it with the current time.
+        var schemaHashes = Hashes(layout.SchemaDir);
+        var settingsHash = Hashes(Path.GetDirectoryName(layout.Settings)!);
+        var longAgo = new DateTime(2001, 2, 3, 4, 5, 6, DateTimeKind.Utc);
+        foreach (string file in Directory.EnumerateFiles(layout.SchemaDir, "*", SearchOption.AllDirectories).Append(layout.Settings))
+        {
+            File.SetLastWriteTimeUtc(file, longAgo);
+        }
 
         var (exit, stdout, stderr) = Run(layout.Request());
 
@@ -195,9 +202,11 @@ public sealed class SchemaInstallerTests
         Assert.Equal(string.Empty, stderr);
         Assert.Contains("up to date", stdout, StringComparison.Ordinal);
         Assert.Contains("nothing to change", stdout, StringComparison.Ordinal);
-        Assert.Equal(schemaStamps, Stamps(layout.SchemaDir));
-        Assert.Equal(settingsStamp, File.GetLastWriteTimeUtc(layout.Settings));
-        Assert.Equal(settingsText, File.ReadAllText(layout.Settings));
+        Assert.Equal(schemaHashes, Hashes(layout.SchemaDir));
+        Assert.Equal(settingsHash, Hashes(Path.GetDirectoryName(layout.Settings)!));
+        Assert.All(
+            Directory.EnumerateFiles(layout.SchemaDir, "*", SearchOption.AllDirectories).Append(layout.Settings),
+            file => Assert.True(File.GetLastWriteTimeUtc(file) == longAgo, file + " was rewritten by the second run"));
     }
 
     [Fact]

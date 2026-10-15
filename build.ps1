@@ -71,11 +71,21 @@ if ($Detailed) {
     $dotnetArgs += @('--verbosity', 'normal')
 }
 else {
-    $dotnetArgs += @('--verbosity', 'quiet', '-clp:ErrorsOnly')
+    $dotnetArgs += @('--verbosity', 'quiet', '-tl:off', '-clp:ErrorsOnly')
 }
 
-& dotnet @dotnetArgs
+# Simple mode captures the output: the dotnet CLI always appends its own 'Build succeeded. 0 Warning(s)' banner (it forces -clp:Summary after
+# user arguments), so it is shown only when the build fails and the one-line result below is the only line on success.
+if ($Detailed) {
+    & dotnet @dotnetArgs
+}
+else {
+    $buildOutput = @(& dotnet @dotnetArgs 2>&1 | ForEach-Object { "$_" })
+}
 $exitCode = $LASTEXITCODE
+if (-not $Detailed -and $exitCode -ne 0) {
+    $buildOutput | ForEach-Object { Write-Host $_ }
+}
 
 if ($exitCode -eq 0) {
     Write-Host "BUILD OK   $label ($Configuration)"

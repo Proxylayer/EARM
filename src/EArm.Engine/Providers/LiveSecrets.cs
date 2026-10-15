@@ -7,7 +7,7 @@ namespace EArm.Engine.Providers;
 
 /// <summary>
 /// The contract between a provider whose live object carries a <b>one-time</b> secret and the executor's output
-/// evaluation (plan section 1.5; WI-11). Graph returns the <c>secretText</c> of a password credential exactly once,
+/// evaluation. Graph returns the <c>secretText</c> of a password credential exactly once,
 /// from <c>addPassword</c>; it cannot be read back. So:
 /// <list type="bullet">
 /// <item>in the run that creates (or rotates) the credential the provider publishes the secret under

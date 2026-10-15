@@ -41,7 +41,7 @@ public sealed record JsonDiffOptions
 }
 
 /// <summary>
-/// The shared diff of plan section 1.3: scalars replace; scalar arrays are order-insensitive sets; object arrays
+/// The shared diff: scalars replace; scalar arrays are order-insensitive sets; object arrays
 /// compare by stable member key when the overlay names one, else by canonical JSON order-insensitively; nested
 /// objects compare whole, generating an explicit <c>null</c> (<see cref="PropertyChangeType.Delete"/>) for every
 /// live-only sub-property unless the overlay marks it <c>nullable: false</c>; GUIDs compare case-insensitively;

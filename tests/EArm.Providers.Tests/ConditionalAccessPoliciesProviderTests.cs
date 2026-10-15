@@ -2,7 +2,7 @@ using System;
 using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Engine.Execution;
 using EArm.Engine.Planning;
 using EArm.Engine.Providers;
@@ -11,7 +11,7 @@ using Xunit;
 
 namespace EArm.Providers.Tests;
 
-/// <summary>The Conditional Access policies provider (WI-14) end to end, including the location dependency, the enforce guard and delete ordering.</summary>
+/// <summary>The Conditional Access policies provider end to end, including the location dependency, the enforce guard and delete ordering.</summary>
 public sealed class ConditionalAccessPoliciesProviderTests
 {
     private const string LocType = NamedLocationsProvider.ResourceType;

@@ -5,7 +5,7 @@ using System.Net;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Core;
 using EArm.Core.Json;
 using EArm.Core.Secrets;
@@ -14,12 +14,12 @@ using EArm.Engine;
 using EArm.Engine.Providers;
 using EArm.Engine.State;
 using EArm.Expressions.Values;
-using GraphApi = EArm.Az.GraphApi;
+using GraphApi = EArm.Graph.GraphApi;
 
 namespace EArm.Providers;
 
 /// <summary>
-/// <c>Microsoft.Entra/users</c> (plan sections 1.3, 1.4, 3.2, 3.4; work item WI-13). The resource name is the
+/// <c>Microsoft.Entra/users</c>. The resource name is the
 /// <c>userPrincipalName</c> (<c>local@domain</c>; a guest's <c>#EXT#</c> is percent-encoded on the path).
 /// <para>
 /// Requests per operation (every read selects <see cref="ManagedProperties"/>):
@@ -48,14 +48,14 @@ namespace EArm.Providers;
 /// <para>
 /// <c>userPrincipalName</c> is immutable: a live user whose UPN differs from the name (a pinned id that was renamed
 /// outside EARM) is an unsupported change. A <c>userType</c> change is allowed but reported as a reason.
-/// <c>assignedLicenses</c> (action-backed, plan section 1.4) is reconciled against the <b>direct</b> assignments only
+/// <c>assignedLicenses</c> (action-backed) is reconciled against the <b>direct</b> assignments only
 /// (<see cref="UsersLicensing.DirectAssignments"/>: <c>licenseAssignmentStates[].assignedByGroup == null</c>), so
 /// group-inherited licenses are never removed from the user side; a non-empty declaration requires
 /// <c>usageLocation</c> (declared or live). <c>manager</c>, <c>memberOf</c>, <c>ownerOf</c>, <c>administrativeUnits</c>,
 /// <c>appRoleAssignments</c> and <c>directoryRoles</c> are edge properties the engine keeps out of <c>Properties</c>;
 /// the edge pass applies them. Permissions: <c>User.ReadWrite.All</c> plus the overlay's conditional entries for the
 /// edge/action properties the template declares (<c>GroupMember.ReadWrite.All</c> for <c>memberOf</c>,
-/// <c>AdministrativeUnit.ReadWrite.All</c> for <c>administrativeUnits</c>, <c>Organization.Read.All</c> for
+/// <c>AdministrativeUnit.ReadWrite.All</c> for <c>administrativeUnits</c>, <c>LicenseAssignment.ReadWrite.All</c> / <c>LicenseAssignment.Read.All</c> for
 /// <c>assignedLicenses</c>, …); <c>ownerOf</c> needs the target type's permission, which that provider reports.
 /// </para>
 /// </summary>
@@ -74,7 +74,7 @@ public sealed class UsersProvider : ProviderBase
     public const string GeneratedPasswordExtra = "generatedPassword";
 
     /// <summary>
-    /// The managed property set every read selects (plan section 3.2: users return a tiny default set). The two
+    /// The managed property set every read selects (users return a tiny default set). The two
     /// licensing properties are selected for the direct-assignment diff and stripped from the compared view by the
     /// overlay's <c>stripOnRead</c>.
     /// </summary>
@@ -83,7 +83,7 @@ public sealed class UsersProvider : ProviderBase
         "id", "userPrincipalName", "displayName", "accountEnabled", "mailNickname", "givenName", "surname", "jobTitle",
         "department", "companyName", "officeLocation", "usageLocation", "userType", "mail", "otherMails", "businessPhones",
         "mobilePhone", "employeeId", "employeeType", "preferredLanguage", "city", "state", "country", "postalCode",
-        "streetAddress", "assignedLicenses", "licenseAssignmentStates",
+        "streetAddress", "assignedLicenses", "licenseAssignmentStates", "createdDateTime",
     ];
 
     private static readonly string[] DeletedItemProperties = ["id", "userPrincipalName", "displayName", "deletedDateTime"];
@@ -92,6 +92,9 @@ public sealed class UsersProvider : ProviderBase
     private static readonly JsonPath LicensesPath = JsonPath.Of("properties", UsersLicensing.AssignedLicenses);
 
     private readonly GroupsLicensing _licensing = new();
+
+    /// <summary>The top-level properties each template declares, selected next to <see cref="ManagedProperties"/> on its reads (G-08).</summary>
+    private readonly DeclaredSelects _selects = new();
 
     private volatile PlanOptions _planOptions = PlanOptions.Default;
 
@@ -126,7 +129,7 @@ public sealed class UsersProvider : ProviderBase
 
     /// <summary>
     /// <c>User.ReadWrite.All</c> plus, for every edge/action property the template declares, the application
-    /// permissions of the overlay's <c>permissions.conditional</c> entry (plan section 3.4). The planner asks before
+    /// permissions of the overlay's <c>permissions.conditional</c> entry. The planner asks before
     /// the properties are evaluated, so the raw declaration is consulted when they are not split yet.
     /// </summary>
     public override IReadOnlyList<string> RequiredPermissions(ResourceInstance? desired)
@@ -176,6 +179,13 @@ public sealed class UsersProvider : ProviderBase
         return JsonObjects.TryGetIgnoreCase(properties, name, out var value) && !JsonObjects.IsAbsent(value);
     }
 
+    public override ResourceKey ResolveKey(ResourceInstance desired)
+    {
+        var key = base.ResolveKey(desired);
+        _selects.Register(key, Definition, desired, [UsersRules.PasswordProfile]);
+        return key;
+    }
+
     // ---- read ----
 
     public override async Task<ExistingResource?> ReadAsync(ResourceKey key, string? stateId, IGraphClient graph, CancellationToken cancellationToken)
@@ -184,19 +194,17 @@ public sealed class UsersProvider : ProviderBase
         ArgumentNullException.ThrowIfNull(graph);
 
         JsonObject? live = null;
+        var select = _selects.For(key, ManagedProperties);
         if (stateId is not null)
         {
-            live = await GetUserAsync(graph, EntityPath(stateId), key.Api, RetryHint.Default, cancellationToken).ConfigureAwait(false);
+            live = await GetUserAsync(graph, EntityPath(stateId), key.Api, RetryHint.Default, select, cancellationToken).ConfigureAwait(false);
         }
 
         if (live is null)
         {
-            if (!key.TryGet(UsersRules.UserPrincipalName, out var upn))
-            {
-                throw new ProviderException(EngineDiagnosticCodes.ResourceKeyUnresolved, $"{TypeName}: the key {key.Describe()} carries no userPrincipalName.");
-            }
+            string upn = ProviderSupport.SingleKey(key, UsersRules.UserPrincipalName);
 
-            live = await GetUserAsync(graph, EntityPath(upn), key.Api, RetryHint.Default, cancellationToken).ConfigureAwait(false);
+            live = await GetUserAsync(graph, EntityPath(upn), key.Api, RetryHint.Default, select, cancellationToken).ConfigureAwait(false);
         }
 
         if (live is null)
@@ -274,7 +282,7 @@ public sealed class UsersProvider : ProviderBase
     }
 
     /// <summary>
-    /// Adds the <c>properties.assignedLicenses</c> array delta (plan section 1.4: action-backed, applied after the
+    /// Adds the <c>properties.assignedLicenses</c> array delta (action-backed, applied after the
     /// object write) against the user's <b>direct</b> assignments; a non-empty declaration without a
     /// <c>usageLocation</c> is unsupported.
     /// </summary>
@@ -343,7 +351,7 @@ public sealed class UsersProvider : ProviderBase
         UsersRules.ApplyCreateDefaults(properties, name);
         var key = ResolveKey(desired);
 
-        // The only place the password is plain text: the request body (the Az layer never logs bodies).
+        // The only place the password is plain text: the request body (the Graph transport never logs bodies).
         var body = BuildCreateBody(desired);
         UsersRules.RemoveServerAssigned(body);
         if (JsonObjects.TryGetIgnoreCase(body, UsersRules.PasswordProfile, out var profileNode) && profileNode is not JsonObject)
@@ -356,18 +364,23 @@ public sealed class UsersProvider : ProviderBase
         bool generated = !UsersRules.HasPassword(body);
         if (generated)
         {
-            profile[JsonObjects.FindKey(profile, UsersRules.Password) ?? UsersRules.Password] = UsersRules.GeneratePassword();
+            string generatedPassword = UsersRules.GeneratePassword();
+
+            // Masked from every message from this moment on (an error text that echoes the request body must not carry it), before anything is sent.
+            SecretScrubber.Register(generatedPassword, secureDeclared: true);
+            profile[JsonObjects.FindKey(profile, UsersRules.Password) ?? UsersRules.Password] = generatedPassword;
         }
 
         // The key lookup was a 404, so the only other holder of the UPN is a soft-deleted user (30-day window).
-        if (await FindSoftDeletedAsync(name, desired.Api, graph, cancellationToken).ConfigureAwait(false) is { } deleted)
+        var warnings = new List<ProviderWarning>();
+        if (await FindSoftDeletedAsync(name, desired.Api, graph, warnings, cancellationToken).ConfigureAwait(false) is { } deleted)
         {
-            return await RestoreOrFailAsync(desired, key, body, deleted, graph, cancellationToken).ConfigureAwait(false);
+            return await RestoreOrFailAsync(desired, key, body, deleted, graph, warnings, cancellationToken).ConfigureAwait(false);
         }
 
         var response = await graph.PostAsync(new GraphRequest(CollectionPath, desired.Api, hint: desired.RetryHint), body, cancellationToken).ConfigureAwait(false);
         var live = response.Body as JsonObject
-            ?? await GetUserAsync(graph, EntityPath(name), desired.Api, RetryHint.ExpectReplicationLag, cancellationToken).ConfigureAwait(false)
+            ?? await GetUserAsync(graph, EntityPath(name), desired.Api, RetryHint.ExpectReplicationLag, _selects.For(key, ManagedProperties), cancellationToken).ConfigureAwait(false)
             ?? throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{desired.Describe()}: the create returned no object and '{name}' could not be read back.", desired.Id);
         string id = RequireId(live, desired);
 
@@ -377,55 +390,37 @@ public sealed class UsersProvider : ProviderBase
         JsonObjects.TryGetIgnoreCase(properties, UsersRules.PasswordProfile, out var declaredProfile);
         PublishInitialPassword(live, declaredProfile as JsonObject, JsonObjects.GetString(profile, UsersRules.Password));
 
-        // The object was created a moment ago: the license action by id may hit replication lag.
-        await ApplyLicensesAsync(desired, id, null, RetryHint.ExpectReplicationLag, graph, cancellationToken).ConfigureAwait(false);
-        return new AppliedResource(desired.Id, id, live, key, Extra(generated));
+        // The object was created a moment ago: the license action by id may hit replication lag. A failure here leaves a user that exists (with a generated password that Graph
+        // never returns again): the partial result goes with the exception so the executor records the object and the one-time secret instead of losing both.
+        var created = new AppliedResource(desired.Id, id, live, key, Extra(generated)) { Warnings = warnings };
+        try
+        {
+            await ApplyLicensesAsync(desired, id, null, RetryHint.ExpectReplicationLag, graph, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is GraphException or GraphTransportException or ProviderException)
+        {
+            throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{desired.Describe()}: the user was created (id {id}) but assigning its licenses failed: {ex.Message}", desired.Id, ex) { Partial = created };
+        }
+
+        return created;
     }
 
     /// <summary>
-    /// The soft-deleted user holding <paramref name="userPrincipalName"/>, or <c>null</c>. Uses the filtered advanced
-    /// query of plan section 3.2; should Graph reject the filter on this endpoint (400), the deleted users are listed
-    /// and matched client-side instead (a 30-day window).
+    /// The soft-deleted user holding <paramref name="userPrincipalName"/>, or <c>null</c> (see <see cref="DeletedItemsProbe"/>:
+    /// filtered advanced query, a 400 falls back to listing, a 403 skips the probe with a warning). Listing deleted users needs
+    /// <c>User.Read.All</c> (Learn: directory-deleteditems-list), which <c>User.ReadWrite.All</c> covers.
     /// </summary>
-    private static async Task<JsonObject?> FindSoftDeletedAsync(string userPrincipalName, GraphApi api, IGraphClient graph, CancellationToken cancellationToken)
+    private static Task<JsonObject?> FindSoftDeletedAsync(string userPrincipalName, GraphApi api, IGraphClient graph, List<ProviderWarning> warnings, CancellationToken cancellationToken)
     {
-        string filter = "userPrincipalName eq '" + userPrincipalName.Replace("'", "''", StringComparison.Ordinal) + "'";
-        var filtered = new GraphRequest(DeletedUsersPath, api)
-            .WithFilter(filter)
-            .WithCount()
-            .WithConsistencyLevelEventual()
-            .WithSelect(DeletedItemProperties);
-        try
-        {
-            return await FirstDeletedMatchAsync(graph, filtered, userPrincipalName, cancellationToken).ConfigureAwait(false);
-        }
-        catch (GraphException ex) when (ex.Status == HttpStatusCode.BadRequest)
-        {
-            var scan = new GraphRequest(DeletedUsersPath, api).WithSelect(DeletedItemProperties).WithTop(999);
-            return await FirstDeletedMatchAsync(graph, scan, userPrincipalName, cancellationToken).ConfigureAwait(false);
-        }
+        return DeletedItemsProbe.FindAsync(graph, DeletedUsersPath, "user", UsersRules.UserPrincipalName, userPrincipalName, DeletedItemProperties, api, advanced: true, warnings, cancellationToken);
     }
-
-    private static async Task<JsonObject?> FirstDeletedMatchAsync(IGraphClient graph, GraphRequest request, string userPrincipalName, CancellationToken cancellationToken)
-    {
-        await foreach (var item in graph.GetAllPagesAsync(request, cancellationToken).ConfigureAwait(false))
-        {
-            if (item is JsonObject deleted && string.Equals(JsonObjects.GetString(deleted, UsersRules.UserPrincipalName), userPrincipalName, StringComparison.OrdinalIgnoreCase))
-            {
-                return deleted;
-            }
-        }
-
-        return null;
-    }
-
     /// <summary>
     /// Restores the soft-deleted holder of the UPN and brings it to the declared state: the declared properties are
     /// PATCHed (never <c>passwordProfile</c>: a password reset is a separate permission, so the restored user keeps
     /// its old password and <c>extra.generatedPassword</c> is <c>false</c>), then the user is re-read and its direct
     /// licenses reconciled.
     /// </summary>
-    private async Task<AppliedResource> RestoreOrFailAsync(ResourceInstance desired, ResourceKey key, JsonObject body, JsonObject deleted, IGraphClient graph, CancellationToken cancellationToken)
+    private async Task<AppliedResource> RestoreOrFailAsync(ResourceInstance desired, ResourceKey key, JsonObject body, JsonObject deleted, IGraphClient graph, List<ProviderWarning> warnings, CancellationToken cancellationToken)
     {
         string deletedId = JsonObjects.GetId(deleted) ?? "?";
         if (_planOptions.OnSoftDeletedConflict != SoftDeletedConflict.Restore)
@@ -449,11 +444,20 @@ public sealed class UsersProvider : ProviderBase
             await graph.PatchAsync(new GraphRequest(path, desired.Api, hint: RetryHint.ExpectReplicationLag), patch, cancellationToken).ConfigureAwait(false);
         }
 
-        var live = await GetUserAsync(graph, path, desired.Api, RetryHint.ExpectReplicationLag, cancellationToken).ConfigureAwait(false)
+        var live = await GetUserAsync(graph, path, desired.Api, RetryHint.ExpectReplicationLag, _selects.For(key, ManagedProperties), cancellationToken).ConfigureAwait(false)
             ?? throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{desired.Describe()}: the user ({id}) vanished after being restored.", desired.Id);
         await _licensing.EnrichAsync(live, graph, desired.Api, cancellationToken).ConfigureAwait(false);
-        await ApplyLicensesAsync(desired, id, live, RetryHint.ExpectReplicationLag, graph, cancellationToken).ConfigureAwait(false);
-        return new AppliedResource(desired.Id, id, live, key, Extra(generated: false));
+        var restoredResult = new AppliedResource(desired.Id, id, live, key, Extra(generated: false)) { Warnings = warnings };
+        try
+        {
+            await ApplyLicensesAsync(desired, id, live, RetryHint.ExpectReplicationLag, graph, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is GraphException or GraphTransportException or ProviderException)
+        {
+            throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{desired.Describe()}: the user was restored (id {id}) but assigning its licenses failed: {ex.Message}", desired.Id, ex) { Partial = restoredResult };
+        }
+
+        return restoredResult;
     }
 
     // ---- update ----
@@ -481,7 +485,7 @@ public sealed class UsersProvider : ProviderBase
             await graph.PatchAsync(new GraphRequest(path, desired.Api, hint: desired.RetryHint), body, cancellationToken).ConfigureAwait(false);
         }
 
-        var live = await GetUserAsync(graph, path, desired.Api, desired.RetryHint, cancellationToken).ConfigureAwait(false)
+        var live = await GetUserAsync(graph, path, desired.Api, desired.RetryHint, _selects.For(key, ManagedProperties), cancellationToken).ConfigureAwait(false)
             ?? throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{desired.Describe()}: the user ({existing.GraphId}) vanished after the update.", desired.Id);
         await _licensing.EnrichAsync(live, graph, desired.Api, cancellationToken).ConfigureAwait(false);
 
@@ -521,9 +525,9 @@ public sealed class UsersProvider : ProviderBase
         return CollectionPath + "/" + GraphPath.Segment(idOrUpn);
     }
 
-    private static async Task<JsonObject?> GetUserAsync(IGraphClient graph, string path, GraphApi api, RetryHint hint, CancellationToken cancellationToken)
+    private static async Task<JsonObject?> GetUserAsync(IGraphClient graph, string path, GraphApi api, RetryHint hint, string[] select, CancellationToken cancellationToken)
     {
-        var request = new GraphRequest(path, api, hint: hint).WithSelect(ManagedProperties);
+        var request = new GraphRequest(path, api, hint: hint).WithSelect(select);
         return await graph.GetAsync(request, cancellationToken).ConfigureAwait(false) as JsonObject;
     }
 

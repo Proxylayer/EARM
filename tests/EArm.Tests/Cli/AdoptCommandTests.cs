@@ -5,17 +5,18 @@ using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Cli;
 using EArm.Cli.Commands;
 using EArm.Core;
 using EArm.Core.Types;
 using EArm.Engine.State;
+using EArm.TestSupport;
 using Xunit;
 
 namespace EArm.Tests.Cli;
 
-/// <summary><c>earm state adopt</c>: the offline pin form and the online uniqueName form (against the fake Azure CLI).</summary>
+/// <summary><c>earm state adopt</c>: the offline pin form and the online uniqueName form (against a fake Microsoft Graph).</summary>
 [Collection(CliCollection.Name)]
 public sealed class AdoptCommandTests
 {
@@ -27,14 +28,13 @@ public sealed class AdoptCommandTests
     private const string ResourceGuid = "bbbbbbbb-0000-4000-8000-000000000002";
     private const string AppRole = "cccccccc-0000-4000-8000-000000000003";
     private const string NameGuid = "dddddddd-0000-4000-8000-000000000004";
-    private const string NonexistentAz = "C:\\nonexistent\\earm-no-such-az.ps1";
     private static readonly DateTimeOffset Start = new(2026, 10, 14, 10, 0, 0, TimeSpan.Zero);
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     private static Task<CliResult> Pin(CliSandbox sandbox, string resourceId, string objectId, params string[] extra)
     {
-        string[] args = ["state", "adopt", "-n", Dep, "--resource-id", resourceId, "--object-id", objectId, "-y", "--state-dir", sandbox.StateDir, "--az-command", NonexistentAz, .. extra];
+        string[] args = ["state", "adopt", "-n", Dep, "--resource-id", resourceId, "--object-id", objectId, "-y", "--state-dir", sandbox.StateDir, .. extra];
         return CliRunner.RunAsync(args);
     }
 
@@ -45,7 +45,7 @@ public sealed class AdoptCommandTests
             Name = Dep,
             StateDir = sandbox.StateDir,
             Output = OutputFormat.Table,
-            Az = new AzOptions { AzCommand = NonexistentAz, TempDirectory = sandbox.TempDir },
+            Connection = sandbox.Connection,
             Yes = yes,
         };
     }
@@ -112,7 +112,7 @@ public sealed class AdoptCommandTests
     {
         using var sandbox = new CliSandbox(nameof(Pin_AddsToAnExistingState_AndKeepsTheOtherEntries));
         var existing = StateFile.CreateNew(Dep, CliSandbox.Tenant, Start);
-        existing.Upsert(Entry(Provider + "groups/other", "G1", "Microsoft.Entra/groups", "uniqueName", "other"));
+        existing.Upsert(Entry(Provider + "groups/other", "61000000-0000-4000-8000-000000000001", "Microsoft.Entra/groups", "uniqueName", "other"));
         await sandbox.WriteStateAsync(existing);
 
         var result = await Pin(sandbox, Provider + "applications/orders-api", Obj1);
@@ -121,7 +121,7 @@ public sealed class AdoptCommandTests
         Assert.DoesNotContain("the state file was created", result.StandardOutput, StringComparison.Ordinal);
         var state = (await sandbox.Store.LoadAsync(Dep, Ct))!;
         Assert.Equal(2, state.Resources.Count);
-        Assert.Equal("G1", state.GraphIdOf(Provider + "groups/other"));
+        Assert.Equal("61000000-0000-4000-8000-000000000001", state.GraphIdOf(Provider + "groups/other"));
         Assert.Equal(Obj1, state.GraphIdOf(Provider + "applications/orders-api"));
         Assert.Equal(CliSandbox.Tenant, state.TenantId);
     }
@@ -135,7 +135,7 @@ public sealed class AdoptCommandTests
 
         Assert.Equal(0, result.ExitCode);
         var json = result.Json;
-        Assert.Equal(["deployment", "stateFile", "resourceId", "type", "objectId", "previousObjectId", "stateCreated"], json.Select(p => p.Key).ToArray());
+        Assert.Equal(["status", "deployment", "stateFile", "resourceId", "type", "objectId", "previousObjectId", "stateCreated"], json.Select(p => p.Key).ToArray());
         Assert.Equal(Dep, json["deployment"]!.GetValue<string>());
         Assert.Equal(sandbox.StatePath(Dep), json["stateFile"]!.GetValue<string>());
         Assert.Equal(Obj1, json["objectId"]!.GetValue<string>());
@@ -177,7 +177,7 @@ public sealed class AdoptCommandTests
     {
         using var sandbox = new CliSandbox(nameof(Pin_ChildWithTheParentInTheState_TakesItsParentGraphId));
         var existing = StateFile.CreateNew(Dep, CliSandbox.Tenant, Start);
-        existing.Upsert(Entry(Provider + "applications/orders-api", "APP-1", "Microsoft.Entra/applications", "uniqueName", "orders-api"));
+        existing.Upsert(Entry(Provider + "applications/orders-api", "a9000000-0000-4000-8000-000000000001", "Microsoft.Entra/applications", "uniqueName", "orders-api"));
         await sandbox.WriteStateAsync(existing);
 
         var fic = await Pin(sandbox, Provider + "applications/orders-api/federatedIdentityCredentials/github", Obj1);
@@ -187,11 +187,11 @@ public sealed class AdoptCommandTests
         Assert.Equal(0, secret.ExitCode);
         var state = (await sandbox.Store.LoadAsync(Dep, Ct))!;
         var ficEntry = state.Find(Provider + "applications/orders-api/federatedIdentityCredentials/github")!;
-        Assert.Equal("APP-1", ficEntry.ParentGraphId);
+        Assert.Equal("a9000000-0000-4000-8000-000000000001", ficEntry.ParentGraphId);
         Assert.Equal("name", ficEntry.Key.Single().Key);
         Assert.Equal("github", ficEntry.Key.Single().Value);
         var secretEntry = state.Find(Provider + "applications/orders-api/passwordCredentials/ci-secret")!;
-        Assert.Equal("APP-1", secretEntry.ParentGraphId);
+        Assert.Equal("a9000000-0000-4000-8000-000000000001", secretEntry.ParentGraphId);
         Assert.Equal("displayName", secretEntry.Key.Single().Key);
         Assert.Equal(3, state.Resources.Count);
     }
@@ -361,7 +361,7 @@ public sealed class AdoptCommandTests
         int exit = await AdoptCommand.PinAsync(Invocation(sandbox), new AdoptRequest { ResourceId = resourceId, ObjectId = Obj2 }, stdout, stderr, () => "n", Ct);
 
         Assert.Equal(1, exit);
-        Assert.Contains($"{resourceId} is pinned to {Obj1} in deployment '{Dep}'. Re-pin it to {Obj2}? (y/n): ", stdout.ToString(), StringComparison.Ordinal);
+        Assert.Contains($"{resourceId} is pinned to {Obj1} in deployment '{Dep}'. Re-pin it to {Obj2}? (y/n): ", stderr.ToString(), StringComparison.Ordinal);
         Assert.Contains("Nothing changed.", stderr.ToString(), StringComparison.Ordinal);
         Assert.Equal(Obj1, (await sandbox.Store.LoadAsync(Dep, Ct))!.GraphIdOf(resourceId));
         Assert.False(File.Exists(sandbox.LockPath(Dep)));
@@ -387,7 +387,7 @@ public sealed class AdoptCommandTests
     {
         using var sandbox = new CliSandbox(nameof(Pin_Repin_KeepsTheExistingEntrysDependenciesAndApiVersion));
         var existing = StateFile.CreateNew(Dep, CliSandbox.Tenant, Start);
-        var entry = Entry(Provider + "groups/contoso-admins", "G-OLD", "Microsoft.Entra/groups", "uniqueName", "contoso-admins");
+        var entry = Entry(Provider + "groups/contoso-admins", "c0de0000-0000-4000-8000-0000000000d1", "Microsoft.Entra/groups", "uniqueName", "contoso-admins");
         existing.Upsert(new StateEntry
         {
             Id = entry.Id,
@@ -497,8 +497,8 @@ public sealed class AdoptCommandTests
         using var sandbox = new CliSandbox(nameof(BothFormsOrNoForm_ExitOne));
 
         var both = await CliRunner.RunAsync("state", "adopt", "-n", Dep, "--resource-id", Provider + "applications/a", "--object-id", Obj1,
-            "--type", "Microsoft.Entra/applications", "--id", Obj2, "--name", "a", "-y", "--state-dir", sandbox.StateDir, "--az-command", NonexistentAz);
-        var none = await CliRunner.RunAsync("state", "adopt", "-n", Dep, "--state-dir", sandbox.StateDir, "--az-command", NonexistentAz);
+            "--type", "Microsoft.Entra/applications", "--id", Obj2, "--unique-name", "a", "-y", "--state-dir", sandbox.StateDir);
+        var none = await CliRunner.RunAsync("state", "adopt", "-n", Dep, "--state-dir", sandbox.StateDir);
         var bare = await CliRunner.RunAsync("state", "adopt");
 
         Assert.Equal(1, both.ExitCode);
@@ -511,17 +511,17 @@ public sealed class AdoptCommandTests
     }
 
     [Fact]
-    public async Task UniqueNameForm_MissingPieces_ExitOne_BeforeAnyAzCall()
+    public async Task UniqueNameForm_MissingPieces_ExitOne_BeforeAnyRequest()
     {
-        using var sandbox = new CliSandbox(nameof(UniqueNameForm_MissingPieces_ExitOne_BeforeAnyAzCall));
+        using var sandbox = new CliSandbox(nameof(UniqueNameForm_MissingPieces_ExitOne_BeforeAnyRequest));
         sandbox.UsePreflightOk();
 
-        var noId = await CliRunner.RunAsync(["state", "adopt", "--type", "Microsoft.Entra/applications", "--name", "orders-api", "-y", .. sandbox.AzArgs]);
-        var noName = await CliRunner.RunAsync(["state", "adopt", "--type", "Microsoft.Entra/applications", "--id", Obj1, "-y", .. sandbox.AzArgs]);
-        var noType = await CliRunner.RunAsync(["state", "adopt", "--id", Obj1, "--name", "orders-api", "-y", .. sandbox.AzArgs]);
+        var noId = await CliRunner.RunAsync(["state", "adopt", "--type", "Microsoft.Entra/applications", "--unique-name", "orders-api", "-y", .. sandbox.StateArgs]);
+        var noName = await CliRunner.RunAsync(["state", "adopt", "--type", "Microsoft.Entra/applications", "--id", Obj1, "-y", .. sandbox.StateArgs]);
+        var noType = await CliRunner.RunAsync(["state", "adopt", "--id", Obj1, "--unique-name", "orders-api", "-y", .. sandbox.StateArgs]);
 
         Assert.All(new[] { noId, noName, noType }, r => Assert.Equal(1, r.ExitCode));
-        Assert.All(new[] { noId, noName, noType }, r => Assert.Contains("Setting a uniqueName needs --type, --id and --name.", r.StandardError, StringComparison.Ordinal));
+        Assert.All(new[] { noId, noName, noType }, r => Assert.Contains("Setting a uniqueName needs --type, --id and --unique-name.", r.StandardError, StringComparison.Ordinal));
         Assert.Empty(sandbox.RecordedCommands());
     }
 
@@ -531,12 +531,12 @@ public sealed class AdoptCommandTests
     [InlineData("conditionalAccess/policies", "6f1b0000-0000-4000-8000-000000000001", "x", "has no uniqueName")]
     [InlineData("applications", "not-a-guid", "orders-api", "is not a GUID")]
     [InlineData("groups", "not-a-guid", "contoso-admins", "is not a GUID")]
-    public async Task UniqueNameForm_BadTypeOrId_ExitsOne_BeforeAnyAzCall(string type, string id, string name, string message)
+    public async Task UniqueNameForm_BadTypeOrId_ExitsOne_BeforeAnyRequest(string type, string id, string name, string message)
     {
-        using var sandbox = new CliSandbox(nameof(UniqueNameForm_BadTypeOrId_ExitsOne_BeforeAnyAzCall));
+        using var sandbox = new CliSandbox(nameof(UniqueNameForm_BadTypeOrId_ExitsOne_BeforeAnyRequest));
         sandbox.UsePreflightOk();
 
-        var result = await CliRunner.RunAsync(["state", "adopt", "--type", type, "--id", id, "--name", name, "-y", .. sandbox.AzArgs]);
+        var result = await CliRunner.RunAsync(["state", "adopt", "--type", type, "--id", id, "--unique-name", name, "-y", .. sandbox.StateArgs]);
 
         Assert.Equal(1, result.ExitCode);
         Assert.Contains(message, result.StandardError, StringComparison.Ordinal);
@@ -552,36 +552,29 @@ public sealed class AdoptCommandTests
     private static string GetApp(string urlPart, string? uniqueName)
     {
         string unique = uniqueName is null ? string.Empty : ", \"uniqueName\": \"" + uniqueName + "\"";
-        return "{ \"match\": { \"method\": \"GET\", \"urlContains\": \"" + urlPart + "\" }, \"exitCode\": 0, \"stdoutJson\": { \"id\": \"" + AppObjectId + "\", \"appId\": \"" + AppClientId + "\", \"displayName\": \"Orders API\"" + unique + " } }";
+        return "{ \"match\": { \"method\": \"GET\", \"urlContains\": \"" + urlPart + "\" }, \"status\": 200, \"body\": { \"id\": \"" + AppObjectId + "\", \"appId\": \"" + AppClientId + "\", \"displayName\": \"Orders API\"" + unique + " } }";
     }
 
-    private const string PatchOk = "{ \"match\": { \"method\": \"PATCH\" }, \"exitCode\": 0 }";
+    private const string PatchOk = "{ \"match\": { \"method\": \"PATCH\" }, \"status\": 204 }";
 
+    private static string GraphError(string method, string urlPart, int status, string code, string message)
+    {
+        return "{ \"match\": { \"method\": \"" + method + "\", \"urlContains\": \"" + urlPart + "\" }, \"status\": " + status + ", \"body\": { \"error\": { \"code\": \"" + code + "\", \"message\": \"" + message + "\" } } }";
+    }
     private static Task<CliResult> SetUniqueName(CliSandbox sandbox, string type, string id, string name, params string[] extra)
     {
-        string[] args = ["state", "adopt", "--type", type, "--id", id, "--name", name, .. sandbox.AzArgs, .. extra];
+        string[] args = ["state", "adopt", "--type", type, "--id", id, "--unique-name", name, .. sandbox.StateArgs, .. extra];
         return CliRunner.RunAsync(args);
     }
 
-    private static List<JsonObject> Calls(CliSandbox sandbox)
+    private static List<RecordedHttpRequest> Patches(CliSandbox sandbox)
     {
-        return sandbox.ReadArgvLines().Select(l => JsonNode.Parse(l)!.AsObject()).ToList();
+        return sandbox.RecordedRequests().Where(r => r.Method == "PATCH").ToList();
     }
-
-    private static string ArgvText(JsonObject call)
-    {
-        return string.Join(' ', call["argv"]!.AsArray().Select(a => a!.GetValue<string>()));
-    }
-
-    private static List<JsonObject> Patches(CliSandbox sandbox)
-    {
-        return Calls(sandbox).Where(c => ArgvText(c).Contains("--method PATCH", StringComparison.Ordinal)).ToList();
-    }
-
     [Fact]
-    public async Task UniqueName_WithoutASession_ExitsThree_AndReadsNothing()
+    public async Task UniqueName_WithoutASignIn_ExitsThree_AndReadsNothing()
     {
-        using var sandbox = new CliSandbox(nameof(UniqueName_WithoutASession_ExitsThree_AndReadsNothing));
+        using var sandbox = new CliSandbox(nameof(UniqueName_WithoutASignIn_ExitsThree_AndReadsNothing));
         sandbox.UseNotLoggedIn();
 
         var result = await SetUniqueName(sandbox, "Microsoft.Entra/applications", AppObjectId, "orders-api", "-y");
@@ -606,18 +599,17 @@ public sealed class AdoptCommandTests
         Assert.Contains("Set uniqueName 'orders-api' on application 'Orders API' (" + AppObjectId + ").", result.StandardOutput, StringComparison.Ordinal);
         Assert.Contains("/providers/Microsoft.Entra/applications/orders-api", result.StandardOutput, StringComparison.Ordinal);
         var patch = Assert.Single(Patches(sandbox));
-        string argv = ArgvText(patch);
-        Assert.Contains("/applications/" + AppObjectId, argv, StringComparison.Ordinal);
-        Assert.Equal("{\"uniqueName\":\"orders-api\"}", patch["body"]!.GetValue<string>().Trim());
-        Assert.Equal("orders-api", JsonNode.Parse(patch["body"]!.GetValue<string>())!["uniqueName"]!.GetValue<string>());
-        Assert.Single(JsonNode.Parse(patch["body"]!.GetValue<string>())!.AsObject());
+        Assert.Contains("/applications/" + AppObjectId, patch.Command, StringComparison.Ordinal);
+        Assert.Equal("{\"uniqueName\":\"orders-api\"}", patch.Body!.Trim());
+        Assert.Equal("orders-api", JsonNode.Parse(patch.Body!)!["uniqueName"]!.GetValue<string>());
+        Assert.Single(JsonNode.Parse(patch.Body!)!.AsObject());
     }
 
     [Fact]
     public async Task UniqueName_ByApplicationClientId_FallsBackToTheAppIdAlternateKey()
     {
         using var sandbox = new CliSandbox(nameof(UniqueName_ByApplicationClientId_FallsBackToTheAppIdAlternateKey));
-        string notFound = "{ \"match\": { \"method\": \"GET\", \"urlContains\": \"/applications/" + AppClientId + "\" }, \"exitCode\": 1, \"stderr\": \"ERROR: Not Found({\\\"error\\\":{\\\"code\\\":\\\"Request_ResourceNotFound\\\",\\\"message\\\":\\\"not found\\\"}})\" }";
+        string notFound = GraphError("GET", "/applications/" + AppClientId, 404, "Request_ResourceNotFound", "not found");
         sandbox.UsePreflightOk(extraResponses: notFound + "," + GetApp("appId='" + AppClientId + "'", null) + "," + PatchOk);
 
         var result = await SetUniqueName(sandbox, "applications", AppClientId, "orders-api", "-y", "-o", "json");
@@ -629,7 +621,7 @@ public sealed class AdoptCommandTests
         Assert.Equal("/providers/Microsoft.Entra/applications/orders-api", result.Json["resourceId"]!.GetValue<string>());
         Assert.Equal(CliSandbox.Tenant, result.Json["tenantId"]!.GetValue<string>());
         var patch = Assert.Single(Patches(sandbox));
-        Assert.Contains("/applications/" + AppObjectId, ArgvText(patch), StringComparison.Ordinal);
+        Assert.Contains("/applications/" + AppObjectId, patch.Command, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -663,7 +655,7 @@ public sealed class AdoptCommandTests
     public async Task UniqueName_ObjectNotFound_ExitsOne()
     {
         using var sandbox = new CliSandbox(nameof(UniqueName_ObjectNotFound_ExitsOne));
-        string notFound = "{ \"exitCode\": 1, \"match\": { \"method\": \"GET\", \"urlContains\": \"/groups/\" }, \"stderr\": \"ERROR: Not Found({\\\"error\\\":{\\\"code\\\":\\\"Request_ResourceNotFound\\\",\\\"message\\\":\\\"not found\\\"}})\" }";
+        string notFound = GraphError("GET", "/groups/", 404, "Request_ResourceNotFound", "not found");
         sandbox.UsePreflightOk(extraResponses: notFound);
 
         var result = await SetUniqueName(sandbox, "Microsoft.Entra/groups", GroupObjectId, "contoso-admins", "-y");
@@ -677,7 +669,7 @@ public sealed class AdoptCommandTests
     public async Task UniqueName_OnAGroup_PatchesTheGroupsCollection()
     {
         using var sandbox = new CliSandbox(nameof(UniqueName_OnAGroup_PatchesTheGroupsCollection));
-        string group = "{ \"match\": { \"method\": \"GET\", \"urlContains\": \"/groups/" + GroupObjectId + "\" }, \"exitCode\": 0, \"stdoutJson\": { \"id\": \"" + GroupObjectId + "\", \"displayName\": \"Admins\" } }";
+        string group = "{ \"match\": { \"method\": \"GET\", \"urlContains\": \"/groups/" + GroupObjectId + "\" }, \"status\": 200, \"body\": { \"id\": \"" + GroupObjectId + "\", \"displayName\": \"Admins\" } }";
         sandbox.UsePreflightOk(extraResponses: group + "," + PatchOk);
 
         var result = await SetUniqueName(sandbox, "groups", GroupObjectId, "contoso-admins", "-y");
@@ -685,8 +677,8 @@ public sealed class AdoptCommandTests
         Assert.Equal(0, result.ExitCode);
         Assert.Contains("Set uniqueName 'contoso-admins' on group 'Admins' (" + GroupObjectId + ").", result.StandardOutput, StringComparison.Ordinal);
         var patch = Assert.Single(Patches(sandbox));
-        Assert.Contains("/groups/" + GroupObjectId, ArgvText(patch), StringComparison.Ordinal);
-        Assert.Equal("contoso-admins", JsonNode.Parse(patch["body"]!.GetValue<string>())!["uniqueName"]!.GetValue<string>());
+        Assert.Contains("/groups/" + GroupObjectId, patch.Command, StringComparison.Ordinal);
+        Assert.Equal("contoso-admins", JsonNode.Parse(patch.Body!)!["uniqueName"]!.GetValue<string>());
     }
 
     [Theory]
@@ -697,8 +689,8 @@ public sealed class AdoptCommandTests
         using var sandbox = new CliSandbox(nameof(UniqueName_Forbidden_NamesThePermissionToGrant));
         bool isApp = type.EndsWith("applications", StringComparison.Ordinal);
         string objectId = isApp ? AppObjectId : GroupObjectId;
-        string live = isApp ? GetApp("/applications/" + AppObjectId, null) : "{ \"match\": { \"method\": \"GET\", \"urlContains\": \"/groups/" + GroupObjectId + "\" }, \"exitCode\": 0, \"stdoutJson\": { \"id\": \"" + GroupObjectId + "\", \"displayName\": \"Admins\" } }";
-        string forbidden = "{ \"match\": { \"method\": \"PATCH\" }, \"exitCode\": 1, \"stderr\": \"ERROR: Forbidden({\\\"error\\\":{\\\"code\\\":\\\"Authorization_RequestDenied\\\",\\\"message\\\":\\\"Insufficient privileges to complete the operation.\\\"}})\" }";
+        string live = isApp ? GetApp("/applications/" + AppObjectId, null) : "{ \"match\": { \"method\": \"GET\", \"urlContains\": \"/groups/" + GroupObjectId + "\" }, \"status\": 200, \"body\": { \"id\": \"" + GroupObjectId + "\", \"displayName\": \"Admins\" } }";
+        string forbidden = GraphError("PATCH", "", 403, "Authorization_RequestDenied", "Insufficient privileges to complete the operation.");
         sandbox.UsePreflightOk(extraResponses: live + "," + forbidden);
 
         var result = await SetUniqueName(sandbox, type, objectId, "orders-api", "-y");
@@ -720,13 +712,13 @@ public sealed class AdoptCommandTests
         {
             StateDir = sandbox.StateDir,
             Output = OutputFormat.Table,
-            Az = new AzOptions { AzCommand = CliSandbox.FakeAzPath, TempDirectory = sandbox.TempDir },
+            Connection = sandbox.Connection,
         };
 
         int exit = await AdoptCommand.SetUniqueNameAsync(invocation, new AdoptRequest { Type = "Microsoft.Entra/applications", Id = AppObjectId, UniqueName = "orders-api" }, stdout, stderr, () => "n", Ct);
 
         Assert.Equal(1, exit);
-        Assert.Contains("uniqueName is immutable once set. (y/n): ", stdout.ToString(), StringComparison.Ordinal);
+        Assert.Contains("uniqueName is immutable once set. (y/n): ", stderr.ToString(), StringComparison.Ordinal);
         Assert.Contains("Nothing changed.", stderr.ToString(), StringComparison.Ordinal);
         Assert.Empty(Patches(sandbox));
     }

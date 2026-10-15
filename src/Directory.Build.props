@@ -5,7 +5,7 @@
   <!-- Every production assembly exposes its internals to the test assemblies. -->
   <ItemGroup>
     <InternalsVisibleTo Include="EArm.Tests" />
-    <InternalsVisibleTo Include="EArm.Az.Tests" />
+    <InternalsVisibleTo Include="EArm.Graph.Tests" />
     <InternalsVisibleTo Include="EArm.Providers.Tests" />
     <InternalsVisibleTo Include="EArm.Integration.Tests" />
   </ItemGroup>

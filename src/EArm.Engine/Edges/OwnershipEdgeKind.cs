@@ -3,14 +3,14 @@ using System.Collections.Generic;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Engine.Providers;
 using EArm.Expressions.Values;
 
 namespace EArm.Engine.Edges;
 
 /// <summary>
-/// Ownership (plan section 1.4): target side <c>owners</c> on applications, service principals and groups
+/// Ownership: target side <c>owners</c> on applications, service principals and groups
 /// (authoritative set), principal side <c>ownerOf</c> on users and service principals. The target's Graph
 /// collection comes from the template resource when the target is declared in it, else from
 /// <c>GET /directoryObjects/{id}?$select=id</c> (<c>@odata.type</c>). Live reads: <c>GET /{collection}/{t}/owners</c>
@@ -27,6 +27,16 @@ public sealed class OwnershipEdgeKind : IEdgeKindHandler
     public EdgePhase Phase => EdgePhase.A;
 
     public bool WarnOnSignedInPrincipalRemoval => true;
+
+    public string? UnsupportedWithAppOnlyToken(string principalType)
+    {
+        ArgumentNullException.ThrowIfNull(principalType);
+
+        // Learn: user-list-ownedobjects lists no application permission that works for GET /users/{id}/ownedObjects; service principals can be read.
+        return string.Equals(EdgeGraphContext.CollectionOf(principalType), "users", StringComparison.Ordinal)
+            ? "properties.ownerOf on a user needs GET /users/{id}/ownedObjects, which Microsoft Graph does not support with an application (app-only) token; the property was not applied. Declare the user in properties.owners of the application, service principal or group instead, or sign in as a user."
+            : null;
+    }
 
     public async Task<EdgeItem> ResolveItemAsync(JsonNode? item, EdgeSide side, ResourceInstance declarer, GraphApi api, EdgeGraphContext context, CancellationToken cancellationToken)
     {

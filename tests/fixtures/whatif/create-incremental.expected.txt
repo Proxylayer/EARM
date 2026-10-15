@@ -81,4 +81,4 @@ The deployment would make the following changes:
 
 Resource changes: 4 to create, 0 to modify, 0 to delete, 0 unchanged, 1 ignored.
 Edges: 3 to add, 0 to remove.
-Required permissions: Application.ReadWrite.All, Application.ReadWrite.OwnedBy, Group.ReadWrite.All, GroupMember.ReadWrite.All, Policy.Read.All, Policy.ReadWrite.ConditionalAccess, User.ReadWrite.All.
+Required permissions: Application.ReadWrite.All, Application.ReadWrite.OwnedBy, Directory.Read.All, Group.ReadWrite.All, GroupMember.ReadWrite.All, Policy.Read.All, Policy.ReadWrite.ConditionalAccess, User.ReadWrite.All.

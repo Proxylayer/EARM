@@ -5,7 +5,7 @@ using System.Net;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Core.Secrets;
 using EArm.Engine;
 using EArm.Engine.Execution;
@@ -158,7 +158,7 @@ public sealed class FileStateSinkTests
             Type = Fixture.UserType,
             ApiVersion = "2026-10-01-preview",
             Key = new Dictionary<string, string> { ["userPrincipalName"] = "bg-orders@contoso.com" },
-            GraphId = "OLD-ID",
+            GraphId = "d0000000-0000-4000-8000-000000000011",
             ContentHash = "sha256:old",
             LastWriteOn = Start.AddDays(-1),
         });
@@ -168,7 +168,7 @@ public sealed class FileStateSinkTests
 
         Assert.False(run.Result.Succeeded);
         var kept = run.State.Resources[Fixture.User];
-        Assert.Equal("OLD-ID", kept.GraphId);
+        Assert.Equal("d0000000-0000-4000-8000-000000000011", kept.GraphId);
         Assert.Equal("sha256:old", kept.ContentHash);
         Assert.Equal(Start.AddDays(-1), kept.LastWriteOn);
         Assert.Equal(StateFile.StatusFailed, run.State.LastStatus);
@@ -176,7 +176,7 @@ public sealed class FileStateSinkTests
         var operation = Assert.Single(run.State.Operations, o => o.ResourceId == Fixture.User);
         Assert.Equal(OperationStatus.Failed, operation.Status);
         Assert.Equal(EngineDiagnosticCodes.ResourceApplyFailed, operation.ErrorCode);
-        Assert.Equal("OLD-ID", operation.GraphId);
+        Assert.Equal("d0000000-0000-4000-8000-000000000011", operation.GraphId);
         Assert.Contains("Authorization_RequestDenied", operation.Error);
         Assert.DoesNotContain("hunter2", operation.Error, StringComparison.Ordinal);
         Assert.DoesNotContain("eyJhbGciOiJSUzI1NiJ9", operation.Error, StringComparison.Ordinal);
@@ -201,7 +201,7 @@ public sealed class FileStateSinkTests
             Type = Fixture.UserType,
             ApiVersion = "2026-10-01-preview",
             Key = new Dictionary<string, string> { ["userPrincipalName"] = "bg-orders@contoso.com" },
-            GraphId = "STALE",
+            GraphId = "5a1e0000-0000-4000-8000-000000000012",
         });
         JsonObject? live = null;
 
@@ -214,7 +214,7 @@ public sealed class FileStateSinkTests
         Assert.True(run.Result.Succeeded);
         Assert.Equal(live!["id"]!.GetValue<string>(), run.State.GraphIdOf(Fixture.User));
         Assert.Equal(ChangeType.NoChange, Assert.Single(run.Result.Operations, o => o.Id.Id == Fixture.User).ChangeType);
-        Assert.Contains(run.Host.Fake.Requests, r => r.Method == "GET" && r.Path == "/users/STALE");
+        Assert.Contains(run.Host.Fake.Requests, r => r.Method == "GET" && r.Path == "/users/5a1e0000-0000-4000-8000-000000000012");
         Assert.Equal(Start, run.State.Resources[Fixture.User].LastWriteOn);
     }
 
@@ -418,7 +418,7 @@ public sealed class FileStateSinkTests
     {
         var store = new InMemoryStateStore();
         var state = StateFile.CreateNew("mem", EngineHost.Tenant, Start);
-        state.Upsert(StateSerializerTests.Entry("/providers/Microsoft.Entra/applications/app", Fixture.AppType, "A1"));
+        state.Upsert(StateSerializerTests.Entry("/providers/Microsoft.Entra/applications/app", Fixture.AppType, "a1000000-0000-4000-8000-000000000001"));
 
         await store.SaveAsync(state, Ct);
         var loaded = await store.LoadAsync("mem", Ct);
@@ -429,7 +429,7 @@ public sealed class FileStateSinkTests
         }
 
         Assert.NotSame(state, loaded);
-        Assert.Equal("A1", loaded!.GraphIdOf("/providers/Microsoft.Entra/applications/app"));
+        Assert.Equal("a1000000-0000-4000-8000-000000000001", loaded!.GraphIdOf("/providers/Microsoft.Entra/applications/app"));
         Assert.Equal(["mem"], await store.ListAsync(Ct));
         Assert.Null(await store.GetLockAsync("mem", Ct));
         Assert.True(await store.DeleteAsync("mem", Ct));

@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Core;
 using EArm.Core.Diagnostics;
 using EArm.Core.Types;
@@ -88,7 +88,8 @@ public sealed class DeploymentPlan
         int parallelism,
         RetryPolicy? retryPolicy,
         EdgeKindRegistry? edgeKinds = null,
-        string? signedInPrincipalId = null)
+        string? signedInPrincipalId = null,
+        bool appOnlyToken = false)
     {
         Document = document;
         Static = staticContext;
@@ -112,6 +113,7 @@ public sealed class DeploymentPlan
         RetryPolicy = retryPolicy;
         EdgeKinds = edgeKinds ?? EdgeKindRegistry.Default;
         SignedInPrincipalId = signedInPrincipalId;
+        AppOnlyToken = appOnlyToken;
         _byId = new Dictionary<ResourceIdentifier, ResourceInstance>();
         foreach (var instance in instances)
         {
@@ -144,7 +146,7 @@ public sealed class DeploymentPlan
     public IReadOnlyList<ResourceChange> Changes { get; internal set; } = [];
 
     /// <summary>
-    /// The what-if rows of the mode pass (plan section 1.8): state entries the template no longer declares, as
+    /// The what-if rows of the mode pass: state entries the template no longer declares, as
     /// <see cref="ChangeType.Delete"/> in Complete mode and <see cref="ChangeType.Ignore"/> in Incremental mode.
     /// Also included at the end of <see cref="Changes"/>.
     /// </summary>
@@ -184,11 +186,14 @@ public sealed class DeploymentPlan
     /// <summary>Outer retry policy for provider calls (tests with a fake client); <c>null</c> when the Graph client retries itself.</summary>
     public RetryPolicy? RetryPolicy { get; }
 
-    /// <summary>The edge-kind handlers the edge pass runs (plan section 1.4).</summary>
+    /// <summary>The edge-kind handlers the edge pass runs.</summary>
     public EdgeKindRegistry EdgeKinds { get; }
 
     /// <summary>The signed-in principal's object id when preflight supplied it (owner-removal warning); else looked up lazily.</summary>
     public string? SignedInPrincipalId { get; }
+
+    /// <summary>True when the signed-in token is an application (app-only) token: some relationship reads Graph does not support are then reported, not attempted.</summary>
+    public bool AppOnlyToken { get; }
 
     public ResourceChange? ChangeFor(ResourceInstance instance)
     {
@@ -235,7 +240,10 @@ public sealed class DeploymentPlan
 
     internal void AddDiagnostics(IEnumerable<Diagnostic> diagnostics)
     {
-        Diagnostics = [.. Diagnostics, .. diagnostics];
+        lock (_gate)
+        {
+            Diagnostics = [.. Diagnostics, .. diagnostics];
+        }
     }
 
     /// <summary>Materialises <see cref="Changes"/> in batch order (then the mode-pass rows) from the recorded per-instance changes.</summary>

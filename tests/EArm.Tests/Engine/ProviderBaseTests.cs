@@ -12,7 +12,7 @@ using EArm.Engine.Planning;
 using EArm.Engine.Providers;
 using EArm.TestSupport;
 using Xunit;
-using GraphApi = EArm.Az.GraphApi;
+using GraphApi = EArm.Graph.GraphApi;
 
 namespace EArm.Tests.Engine;
 
@@ -401,8 +401,11 @@ public sealed class ProviderBaseTests
         Assert.Null(missing);
         Assert.Equal("/applications(uniqueName='app')", host.Fake.Requests[0].Path);
         Assert.Equal(GraphApi.V1, host.Fake.Requests[0].Api);
-        Assert.Equal("/applications(uniqueName='app')/federatedIdentityCredentials(name='github')", host.Fake.Requests[1].Path);
-        Assert.Equal(GraphApi.Beta, host.Fake.Requests[1].Api);
+        // Review 3I (intentional change): the echo provider resolves a parent known only by its uniqueName to its object id first (Learn documents the child endpoints under
+        // /applications/{id}, and the fake directory refuses them below a uniqueName key), so the credential read is the third request.
+        Assert.Equal("/applications(uniqueName='app')", host.Fake.Requests[1].Path);
+        Assert.Equal("/applications/" + app["id"] + "/federatedIdentityCredentials(name='github')", host.Fake.Requests[2].Path);
+        Assert.Equal(GraphApi.Beta, host.Fake.Requests[2].Api);
         Assert.All(host.Fake.Requests, r => Assert.False(r.IsWrite));
     }
 

@@ -35,6 +35,7 @@ public sealed class ExpressionEvaluator : IExpressionEvaluator
     {
         ArgumentNullException.ThrowIfNull(expression);
         ArgumentNullException.ThrowIfNull(context);
+        using var unit = EvaluationBudget.BeginUnit();
         ExpressionStackGuard.Ensure(expression.Offset);
 
         switch (expression)
@@ -73,6 +74,24 @@ public sealed class ExpressionEvaluator : IExpressionEvaluator
     public JsonNode? EvaluateTree(JsonNode? node, EvaluationContext context)
     {
         ArgumentNullException.ThrowIfNull(context);
+        using var unit = EvaluationBudget.BeginUnit();
+        try
+        {
+            var result = EvaluateTreeCore(node, context);
+
+            // The template's own nesting plus the nesting of what its expressions produced is checked once, on the whole tree.
+            context.Budget.CheckValue(result);
+            context.Budget.CheckPropertyNames(result);
+            return result;
+        }
+        catch (ValueTooDeepException)
+        {
+            throw new ExpressionEvaluationException(DiagnosticCodes.ValueTooDeep, ValueGuard.TooDeepMessage);
+        }
+    }
+
+    private JsonNode? EvaluateTreeCore(JsonNode? node, EvaluationContext context)
+    {
         ExpressionStackGuard.Ensure();
         switch (node)
         {
@@ -83,7 +102,7 @@ public sealed class ExpressionEvaluator : IExpressionEvaluator
                     var result = new JsonObject();
                     foreach (var property in obj)
                     {
-                        result[property.Key] = EvaluateTree(property.Value, context);
+                        result[property.Key] = EvaluateTreeCore(property.Value, context);
                     }
 
                     return result;
@@ -94,7 +113,7 @@ public sealed class ExpressionEvaluator : IExpressionEvaluator
                     var result = new JsonArray();
                     foreach (var item in array)
                     {
-                        result.Add(EvaluateTree(item, context));
+                        result.Add(EvaluateTreeCore(item, context));
                     }
 
                     return result;
@@ -114,7 +133,27 @@ public sealed class ExpressionEvaluator : IExpressionEvaluator
         return ReferenceScanner.Scan(this, node, context, context.Context, JsonPath.Root).SameTemplateIds;
     }
 
+    /// <summary>
+    /// Evaluates one call: counts it against the run's budget, runs it, and checks the result against the size limits (nesting
+    /// depth, string length, elements per value), so no function can hand an oversized or too deeply nested value to the next.
+    /// </summary>
     internal JsonNode? EvaluateCall(CallExpression call, EvaluationContext context)
+    {
+        using var unit = EvaluationBudget.BeginUnit();
+        context.Budget.Step(call.Offset);
+        try
+        {
+            var result = EvaluateCallCore(call, context);
+            context.Budget.CheckValue(result, call.Offset);
+            return result;
+        }
+        catch (ValueTooDeepException)
+        {
+            throw new ExpressionEvaluationException(DiagnosticCodes.ValueTooDeep, ValueGuard.TooDeepMessage, call.Offset);
+        }
+    }
+
+    private JsonNode? EvaluateCallCore(CallExpression call, EvaluationContext context)
     {
         if (call.IsUserFunction)
         {
@@ -199,7 +238,11 @@ public sealed class ExpressionEvaluator : IExpressionEvaluator
         {
             return implementation(functionCall);
         }
-        catch (Exception ex) when (ex is not ExpressionException)
+        catch (ValueTooDeepException)
+        {
+            throw new ExpressionEvaluationException(DiagnosticCodes.ValueTooDeep, ValueGuard.TooDeepMessage, functionCall.Offset);
+        }
+        catch (Exception ex) when (ex is not (ExpressionException or OutOfMemoryException))
         {
             string detail = functionCall.IsTainted ? ex.GetType().Name : $"{ex.GetType().Name}: {ex.Message}";
             throw new ExpressionEvaluationException(DiagnosticCodes.ExpressionEvaluationFailed, $"{functionCall.Name}(): unexpected failure ({detail}).", functionCall.Offset, ex);

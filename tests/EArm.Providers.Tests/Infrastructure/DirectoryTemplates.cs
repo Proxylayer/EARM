@@ -32,7 +32,7 @@ internal static class BuiltInRoles
     }
 }
 
-/// <summary>Inline template builders for the WI-15 resources (administrative units, role definitions, role assignments, directoryRoles).</summary>
+/// <summary>Inline template builders for the directory resources (administrative units, role definitions, role assignments, directoryRoles).</summary>
 internal static class DirectoryTemplates
 {
     public const string AliceId = "/providers/Microsoft.Entra/users/alice@contoso.com";

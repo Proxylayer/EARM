@@ -59,7 +59,7 @@ public sealed class ResourceIdentifierTests
     }
 
     [Fact]
-    public void Equality_IsCaseInsensitiveForTypesAndCaseSensitiveForNames()
+    public void Equality_IsCaseInsensitiveForTypesAndNames_BecauseGraphMatchesItsKeysThatWay()
     {
         var a = ResourceIdentifier.Create("Microsoft.Entra/applications", "orders-api");
         var sameTypeDifferentCase = ResourceIdentifier.Create("MICROSOFT.ENTRA/Applications", "orders-api");
@@ -69,7 +69,9 @@ public sealed class ResourceIdentifierTests
         Assert.True(a.Equals((object)sameTypeDifferentCase));
         Assert.Equal(a.GetHashCode(), sameTypeDifferentCase.GetHashCode());
 
-        Assert.NotEqual(a, differentNameCase);
+        // Review finding E-01: Graph alternate keys and filters are case-insensitive, so ids differing only by case are the same resource.
+        Assert.Equal(a, differentNameCase);
+        Assert.Equal(a.GetHashCode(), differentNameCase.GetHashCode());
         Assert.False(a.Equals(null));
         Assert.False(a.Equals("not an identifier"));
         Assert.NotEqual(a, ResourceIdentifier.Create("Microsoft.Entra/groups", "orders-api"));
@@ -82,8 +84,10 @@ public sealed class ResourceIdentifierTests
         var b = ResourceIdentifier.Create(FicType, "app/FIC");
         var c = ResourceIdentifier.Create(FicType, "APP/fic");
 
-        Assert.NotEqual(a, b);
-        Assert.NotEqual(a, c);
+        Assert.Equal(a, b);
+        Assert.Equal(a, c);
+        Assert.NotEqual(a, ResourceIdentifier.Create(FicType, "app/other"));
+        Assert.NotEqual(a, ResourceIdentifier.Create(FicType, "other/fic"));
         Assert.Equal(a, ResourceIdentifier.Create(FicType, "app/fic"));
     }
 

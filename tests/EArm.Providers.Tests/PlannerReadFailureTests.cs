@@ -56,7 +56,7 @@ public sealed class PlannerReadFailureTests
     {
         var host = new ProviderHost();
         Check.Succeeded(await host.CreateAsync(host.Resources(Group())));
-        await host.Fake.DeleteAsync(new EArm.Az.GraphRequest("/groups/" + host.IdOf("/groups", "uniqueName", "test-admins")), ProviderHost.Ct);
+        await host.Fake.DeleteAsync(new EArm.Graph.GraphRequest("/groups/" + host.IdOf("/groups", "uniqueName", "test-admins")), ProviderHost.Ct);
 
         var complete = await host.WhatIfAsync(host.Resources(string.Empty), DeploymentMode.Complete);
         var incremental = await host.WhatIfAsync(host.Resources(string.Empty), DeploymentMode.Incremental);

@@ -1,16 +1,16 @@
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Core.Json;
 using EArm.Core.Types;
 using EArm.Engine.State;
-using GraphApi = EArm.Az.GraphApi;
+using GraphApi = EArm.Graph.GraphApi;
 
 namespace EArm.Engine.Providers;
 
 /// <summary>
-/// The per-type contract the engine drives (plan section 2.2). One implementation per
+/// The per-type contract the engine drives. One implementation per
 /// <c>Microsoft.Entra/&lt;type&gt;</c>, registered in a <see cref="ProviderRegistry"/>. Providers are stateless
 /// across resources; everything per call travels in the arguments. <see cref="ProviderBase"/> supplies the shared
 /// behaviour (key from <c>name</c>, name injection, defaults, server-managed stripping, diff, immutable detection).
@@ -59,6 +59,13 @@ public interface IResourceProvider
 
     /// <summary>Computes the change between the desired instance (evaluated) and the live object.</summary>
     ResourceChange Plan(ResourceInstance desired, ExistingResource? existing, PlanOptions options);
+
+    /// <summary>
+    /// True when repeating a create whose outcome is unknown (a 5xx, a lost connection) is harmless because the create is an upsert (a <c>PATCH</c> with <c>Prefer: create-if-missing</c> by alternate key:
+    /// applications, groups, authentication contexts, federated identity credentials). Every other create (<c>POST</c>) is never repeated blindly by the executor's retry policy: only a 429, replication lag or a token
+    /// refresh is waited out, and an unknown outcome is answered by re-reading the object by key (review round 2, S2-07). The default is the conservative <c>false</c>.
+    /// </summary>
+    bool CreateIsRepeatable => false;
 
     Task<AppliedResource> CreateAsync(ResourceInstance desired, IGraphClient graph, CancellationToken cancellationToken);
 

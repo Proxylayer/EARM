@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
   "contentVersion": "1.0.0.0",
-  "metadata": { "description": "WI-17 golden fixture: every row is a Create; symbolic SP name, deploy-time edge targets, securestring password, condition false." },
+  "metadata": { "description": "Golden fixture: every row is a Create; symbolic SP name, deploy-time edge targets, securestring password, condition false." },
   "parameters": {
     "env": { "type": "string", "allowedValues": ["dev", "prod"] },
     "initialPassword": { "type": "securestring" }

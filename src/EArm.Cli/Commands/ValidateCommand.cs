@@ -35,7 +35,7 @@ internal static class ValidateCommand
         var parameters = new Option<string[]>("--parameters", "-p")
         {
             Description = "Parameter values: @file.json (ARM deploymentParameters shape) or name=value. Repeatable; later values win.",
-            AllowMultipleArgumentsPerToken = true,
+            AllowMultipleArgumentsPerToken = false,
             DefaultValueFactory = _ => [],
         };
 

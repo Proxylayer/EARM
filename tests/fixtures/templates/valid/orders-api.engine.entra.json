@@ -2,7 +2,7 @@
   "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
   "contentVersion": "1.0.0.0",
   "metadata": {
-    "description": "samples/orders-api.entra.json with the WI-16 stub functions (wellKnownApp, permissionScope, appRole, roleTemplate, map/lambda, c.slug) replaced by literals so the engine tests can run a full create through EchoProvider. Keeps the nested children, the copy loop, the condition, the symbolic service principal name, the GUID-named assignments and the existing-resource lookups (cio@contoso.com, contoso-all-staff, the Microsoft Graph service principal)."
+    "description": "samples/orders-api.entra.json with the stub functions (wellKnownApp, permissionScope, appRole, roleTemplate, map/lambda, c.slug) replaced by literals so the engine tests can run a full create through EchoProvider. Keeps the nested children, the copy loop, the condition, the symbolic service principal name, the GUID-named assignments and the existing-resource lookups (cio@contoso.com, contoso-all-staff, the Microsoft Graph service principal)."
   },
   "parameters": {
     "env":             { "type": "string", "allowedValues": ["dev", "prod"], "metadata": { "description": "Environment" } },

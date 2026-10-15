@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Core;
 using EArm.Core.Types;
 using EArm.Engine;
@@ -15,7 +15,7 @@ using Xunit;
 
 namespace EArm.Providers.Tests;
 
-/// <summary>The service principals provider (WI-08) end to end.</summary>
+/// <summary>The service principals provider end to end.</summary>
 public sealed class ServicePrincipalsProviderTests
 {
     private const string AppType = ApplicationsProvider.ResourceType;

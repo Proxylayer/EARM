@@ -10,7 +10,7 @@ using Xunit;
 
 namespace EArm.Providers.Tests;
 
-/// <summary>Pure rules and the lookup helper of the service principals provider (WI-08).</summary>
+/// <summary>Pure rules and the lookup helper of the service principals provider.</summary>
 public sealed class ServicePrincipalsRulesTests
 {
     private const string AppId = "6d2f1c0e-2b7a-4c1e-9a1b-4f3f1f6a0002";

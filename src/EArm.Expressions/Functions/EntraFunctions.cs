@@ -12,13 +12,14 @@ using EArm.Expressions.Values;
 namespace EArm.Expressions.Functions;
 
 /// <summary>
-/// Group 6, the Entra-specific functions of plan section 1.5: <c>wellKnownApp(name)</c> (pure, from
+/// Group 6, the Entra-specific functions: <c>wellKnownApp(name)</c> (pure, from
 /// <see cref="WellKnownIds"/>), <c>appRole(ref, value)</c> / <c>permissionScope(ref, value)</c> and
-/// <c>roleTemplate(nameOrId)</c>. The lookups resolve, in order, from the live object of a template resource, from
-/// the embedded tables (Microsoft Graph permissions, built-in roles) and from the tenant through
-/// <see cref="EvaluationContext.EntraLookup"/>; offline they yield deploy-time unknowns.
+/// <c>roleTemplate(nameOrId)</c>. The lookups resolve, in order, from the live object of a template resource, then from
+/// the tenant through <see cref="EvaluationContext.EntraLookup"/> (the tenant wins over the embedded Microsoft Graph
+/// permission tables, which answer only offline or when the tenant cannot be asked); built-in roles come from the table
+/// first. Offline and not in a table they yield deploy-time unknowns.
 /// <para>
-/// Phase rule (plan section 1.5, phase 3): <c>appRole</c>, <c>permissionScope</c>, <c>roleTemplate</c> and
+/// Phase rule: <c>appRole</c>, <c>permissionScope</c>, <c>roleTemplate</c> and
 /// <c>tenant</c> need the tenant and are rejected in parameter defaults, variables and user-defined functions
 /// (<c>FunctionNotAllowedHere</c>); <c>wellKnownApp</c> is pure and allowed anywhere.
 /// </para>
@@ -58,7 +59,7 @@ internal static class EntraFunctions
             _ => null,
         };
 
-        return where is null ? null : $"{function}() cannot be used in {where}: it needs the tenant, which is only consulted while resources are applied; use it in a resource property or an output (plan section 1.5, phase 3).";
+        return where is null ? null : $"{function}() cannot be used in {where}: it needs the tenant, which is only consulted while resources are applied; use it in a resource property or an output.";
     }
 
     internal static void RequireResourceOrOutputScope(FunctionCall call)
@@ -133,19 +134,30 @@ internal static class EntraFunctions
             return JsonValue.Create(fromLive);
         }
 
-        // 2. The embedded Microsoft Graph tables (no request).
-        if (WellKnownIds.IsMicrosoftGraph(appId) && (appRoles ? WellKnownIds.TryGetGraphAppRoleId(value, out var known) : WellKnownIds.TryGetGraphScopeId(value, out known)))
+        // 2. The tenant wins over the embedded Microsoft Graph tables (the tables are the OFFLINE fallback: an id that is
+        //    wrong in the table must never beat what the tenant answers).
+        string? known = null;
+        bool inTable = WellKnownIds.IsMicrosoftGraph(appId) && (appRoles ? WellKnownIds.TryGetGraphAppRoleId(value, out known) : WellKnownIds.TryGetGraphScopeId(value, out known));
+        var lookup = call.Context.EntraLookup;
+        EntraLookupResult result;
+        try
         {
+            result = Await(call, appRoles ? lookup.FindAppRoleIdAsync(appId, value) : lookup.FindPermissionScopeIdAsync(appId, value));
+        }
+        catch (ExpressionException) when (inTable)
+        {
+            // The tenant could not be asked (transport failure): the embedded table still answers for Microsoft Graph.
             return JsonValue.Create(known);
         }
 
-        // 3. The tenant.
-        var lookup = call.Context.EntraLookup;
-        var result = Await(call, appRoles ? lookup.FindAppRoleIdAsync(appId, value) : lookup.FindPermissionScopeIdAsync(appId, value));
         switch (result)
         {
             case EntraLookupResult.Found found:
                 return JsonValue.Create(found.Id);
+            case EntraLookupResult.Placeholder when inTable:
+            case EntraLookupResult.NotFound when inTable:
+                // Offline (no tenant), or the tenant has no such Microsoft Graph service principal to ask: the table.
+                return JsonValue.Create(known);
             case EntraLookupResult.Placeholder:
                 string shownApp = live is null ? call.Render(0) : "'" + call.Redact(0, appId) + "'";
                 return UnknownJson.Create($"{call.Name}({shownApp}, {call.Render(1)})", UnknownOrigins.Deployment, call.IsTainted);

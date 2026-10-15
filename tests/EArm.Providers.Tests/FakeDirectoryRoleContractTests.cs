@@ -2,7 +2,7 @@ using System;
 using System.Net;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Providers.Tests.Infrastructure;
 using EArm.TestSupport;
 using Xunit;

@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Core;
 using EArm.Providers;
 using Xunit;
@@ -11,10 +11,10 @@ using Xunit;
 namespace EArm.Integration.Tests;
 
 /// <summary>
-/// Verification probes (the scribe TODOs of work item WI-01 / WI-19): each test exercises one real Graph or Azure CLI
+/// Verification probes: each test exercises one real Graph
 /// behaviour the code assumes, records what it observed (<see cref="TestContext.SendDiagnosticMessage"/>) and asserts the
 /// assumption. A red test names the file to change in its message; a green test means the assumption is confirmed and the
-/// matching TODO can be closed. Letters follow the TODO text: (a) launcher and paging, (b) alternate keys, filters, scope
+/// matching TODO can be closed. The letters group the probes: (a) launcher and paging, (b) alternate keys, filters, scope
 /// ids and restore permission, (c) Conditional Access nulls, (d) password credentials, (e) contexts and strengths, (f)
 /// application read-back and soft delete, (g) nested-object null handling. Run only these with
 /// <c>-Target EArm.Integration.Tests -Filter "Category=Verify"</c>.
@@ -30,10 +30,10 @@ public sealed class GraphBehaviourProbes : IntegrationTestBase
     {
     }
 
-    // ---- (a) az launcher: argument passing, token, paging ----
+    // ---- (a) HTTP transport: query encoding, token audience, paging ----
 
     [Fact]
-    public async Task It_Probe_A_LauncherPercentAmpersandSpaceTokenAndNextLink()
+    public async Task It_Probe_A_QueryEncodingTokenAudienceAndNextLink()
     {
         Fixture.Require();
         var report = new ProbeReport("a");
@@ -45,34 +45,34 @@ public sealed class GraphBehaviourProbes : IntegrationTestBase
             ids.Add((await TenantObjects.CreateGroupAsync(Fixture, "pg" + i, Ct, names[i])).RequireId());
         }
 
-        // '%' and '&' inside a --url-parameters value must reach Graph unchanged (pwsh native argument passing + az).
+        // '%' and '&' inside a $filter value must reach Graph unchanged (RFC 3986 percent-encoding by HttpGraphClient).
         var exact = await EventuallyAsync(
             () => Graph.ListAsync(new GraphRequest("/groups").WithFilter($"displayName eq '{names[0]}'").WithSelect("id", "displayName"), Ct),
             found => found is { Count: > 0 });
         report.Expect(
             exact is { Count: 1 } && exact[0].RequireId() == ids[0],
-            $"'%' or '&' did not survive the az launcher: a $filter on '{names[0]}' returned {exact?.Count ?? 0} object(s). Fix the argument passing in src/EArm.Az/Scripts/Invoke-AzRest.ps1 (how the --url-parameters value reaches az under $PSNativeCommandArgumentPassing) and src/EArm.Az/AzRequest.cs; update the TODO and docs/providers.md.");
+            $"'%' or '&' did not survive the query encoding: a $filter on '{names[0]}' returned {exact?.Count ?? 0} object(s). See GraphUrl.BuildQuery in src/EArm.Graph/GraphUrl.cs.");
 
-        // Spaces in a filter value ('startswith(displayName,'<stem> 100% & ')') are accepted by Graph once az has encoded them.
+        // Spaces in a filter value ('startswith(displayName,'<stem> 100% & ')') are accepted by Graph once they are percent-encoded.
         var all = await EventuallyAsync(
             () => Graph.ListAsync(new GraphRequest("/groups").WithFilter($"startswith(displayName,'{stem} 100% & ')").WithSelect("id", "displayName"), Ct),
             found => found is { Count: >= 3 });
         report.Expect(
             all is { Count: 3 },
-            $"A $filter containing spaces, '%' and '&' returned {all?.Count ?? 0} of 3 groups: the space encoding of --url-parameters is wrong or Graph rejects it. See src/EArm.Az/AzRequest.cs (url-parameter construction) and src/EArm.Az/GraphRequest.cs.");
+            $"A $filter containing spaces, '%' and '&' returned {all?.Count ?? 0} of 3 groups: the space encoding is wrong or Graph rejects it. See GraphUrl.BuildQuery in src/EArm.Graph/GraphUrl.cs.");
 
-        // No --resource is passed to az rest: the Graph token must be inferred from the URL.
+        // The token is requested for the Graph scope: GET /organization must name the signed-in tenant.
         var organization = await Graph.GetObjectAsync(new GraphRequest("/organization").WithSelect("id"), Ct);
         string? organizationId = (organization?["value"] as JsonArray)?.OfType<JsonObject>().FirstOrDefault()?.Text("id");
         report.Expect(
             string.Equals(organizationId, Fixture.Session?.TenantId, StringComparison.OrdinalIgnoreCase),
-            $"GET /organization without --resource returned '{organizationId}' instead of tenant {Fixture.Session?.TenantId}: az did not infer the Graph audience. Add '--resource https://graph.microsoft.com' in src/EArm.Az/Scripts/Invoke-AzRest.ps1 / AzRequest.cs.");
+            $"GET /organization returned '{organizationId}' instead of tenant {Fixture.Session?.TenantId}: the token was issued for another tenant or audience. See GraphCloud.GraphScope in src/EArm.Graph/GraphCloud.cs.");
 
-        // @odata.nextLink: three pages of one item each; the re-encoded next link must round-trip ($filter with spaces/%/&, $skiptoken).
+        // @odata.nextLink: three pages of one item each; the next link is followed as returned (validated to be on the Graph origin).
         var paged = await Graph.ListAsync(new GraphRequest("/groups").WithFilter($"startswith(displayName,'{stem} 100% & ')").WithSelect("id", "displayName").WithTop(1), Ct);
         report.Expect(
             paged.Count == 3 && paged.Select(p => p.RequireId()).Distinct(StringComparer.OrdinalIgnoreCase).Count() == 3,
-            $"Following @odata.nextLink returned {paged.Count} item(s) ({paged.Select(p => p.Text("displayName")).Distinct().Count()} distinct) instead of 3: the next-link re-encoding is wrong. See GraphRequest.ForNextLink in src/EArm.Az/GraphRequest.cs and the paging loop in src/EArm.Az/AzGraphClient.cs.");
+            $"Following @odata.nextLink returned {paged.Count} item(s) ({paged.Select(p => p.Text("displayName")).Distinct().Count()} distinct) instead of 3. See the paging loop in src/EArm.Graph/HttpGraphClient.cs (GetAllPagesAsync).");
 
         report.Complete();
     }
@@ -216,7 +216,7 @@ public sealed class GraphBehaviourProbes : IntegrationTestBase
             found => found is not null);
         Assert.NotNull(deleted);
 
-        report.Observe($"Signed in as {Fixture.Session?.UserName} ({Fixture.Session?.UserType}).");
+        report.Observe($"Signed in as {Fixture.Session?.PrincipalName} ({Fixture.Session?.PrincipalType}).");
         try
         {
             var restored = await Graph.PostAsync(new GraphRequest($"/directory/deletedItems/{id}/restore"), null, Ct);

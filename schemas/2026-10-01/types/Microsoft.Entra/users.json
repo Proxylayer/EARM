@@ -252,11 +252,11 @@
       "delegated": ["User.ReadWrite.All"],
       "roles": ["User Administrator"],
       "conditional": {
-        "memberOf": { "application": ["GroupMember.ReadWrite.All"], "roles": ["Groups Administrator"] },
+        "memberOf": { "application": ["GroupMember.ReadWrite.All", "Directory.Read.All"], "roles": ["Groups Administrator"] },
         "administrativeUnits": { "application": ["AdministrativeUnit.ReadWrite.All"], "roles": ["Privileged Role Administrator"] },
-        "assignedLicenses": { "application": ["Organization.Read.All"], "roles": ["License Administrator"] },
-        "appRoleAssignments": { "application": ["AppRoleAssignment.ReadWrite.All", "Application.Read.All"] },
-        "directoryRoles": { "application": ["RoleManagement.ReadWrite.Directory"], "roles": ["Privileged Role Administrator"] }
+        "assignedLicenses": { "application": ["LicenseAssignment.ReadWrite.All", "LicenseAssignment.Read.All"], "roles": ["License Administrator"] },
+        "appRoleAssignments": { "application": ["AppRoleAssignment.ReadWrite.All", "Application.Read.All", "Directory.Read.All"] },
+        "directoryRoles": { "application": ["RoleManagement.ReadWrite.Directory", "Directory.Read.All"], "roles": ["Privileged Role Administrator"] }
       }
     }
   }

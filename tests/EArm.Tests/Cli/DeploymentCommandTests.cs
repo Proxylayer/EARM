@@ -4,7 +4,7 @@ using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Cli;
 using EArm.Cli.Commands;
 using EArm.Core.Types;
@@ -17,21 +17,20 @@ using Xunit;
 namespace EArm.Tests.Cli;
 
 /// <summary>
-/// <c>earm deployment what-if / create</c> driven in-process against the fake Azure CLI (plan section 1.9 exit
-/// codes). Templates without resources go through the whole pipeline (preflight, state, lock, plan, execute) without
-/// needing a resource provider; the engine fixture covers the offline paths that stop before az.
+/// <c>earm deployment what-if / create</c> driven in-process against a fake Microsoft Graph over HTTP and a fake sign-in (the exit
+/// codes of the CLI). Templates without resources go through the whole pipeline (preflight, state, lock, plan, execute) without
+/// needing a resource provider; the engine fixture covers the offline paths that stop before any request.
 /// </summary>
 [Collection(CliCollection.Name)]
 public sealed class DeploymentCommandTests
 {
-    private const string NonexistentAz = "C:\\nonexistent\\earm-no-such-az.ps1";
     private static readonly DateTimeOffset Start = new(2026, 10, 14, 10, 0, 0, TimeSpan.Zero);
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     private static string[] Args(CliSandbox sandbox, params string[] args)
     {
-        return [.. args, .. sandbox.AzArgs];
+        return [.. args, .. sandbox.StateArgs];
     }
 
     private static StateFile OrphanState(string name, string tenant = CliSandbox.Tenant)
@@ -43,7 +42,7 @@ public sealed class DeploymentCommandTests
             Type = Fixture.GroupType,
             ApiVersion = "2026-10-01-preview",
             Key = new System.Collections.Generic.Dictionary<string, string> { ["uniqueName"] = "old-group" },
-            GraphId = "G-OLD",
+            GraphId = "c0de0000-0000-4000-8000-0000000000d1",
             LastWriteOn = Start,
         });
         state.CompleteRun(true, "Incremental", "sha256:previous", Start);
@@ -52,20 +51,18 @@ public sealed class DeploymentCommandTests
 
     /// <summary>Generic answers for a groups provider, should one be registered: the pinned read and the delete of the orphan.</summary>
     private const string GroupResponses =
-        "{ \"match\": { \"method\": \"GET\", \"urlContains\": \"/groups\" }, \"exitCode\": 0, \"stdoutJson\": { \"id\": \"G-OLD\", \"uniqueName\": \"old-group\", \"displayName\": \"Old\", \"mailEnabled\": false, \"securityEnabled\": true } }," +
-        "{ \"match\": { \"method\": \"GET\", \"urlContains\": \"/groups\" }, \"exitCode\": 0, \"stdoutJson\": { \"id\": \"G-OLD\", \"uniqueName\": \"old-group\", \"displayName\": \"Old\", \"mailEnabled\": false, \"securityEnabled\": true } }," +
-        "{ \"match\": { \"method\": \"DELETE\", \"urlContains\": \"/groups\" }, \"exitCode\": 0 }";
+        "{ \"match\": { \"method\": \"GET\", \"urlContains\": \"/groups\" }, \"status\": 200, \"body\": { \"id\": \"c0de0000-0000-4000-8000-0000000000d1\", \"uniqueName\": \"old-group\", \"displayName\": \"Old\", \"mailEnabled\": false, \"securityEnabled\": true } }," +
+        "{ \"match\": { \"method\": \"GET\", \"urlContains\": \"/groups\" }, \"status\": 200, \"body\": { \"id\": \"c0de0000-0000-4000-8000-0000000000d1\", \"uniqueName\": \"old-group\", \"displayName\": \"Old\", \"mailEnabled\": false, \"securityEnabled\": true } }," +
+        "{ \"match\": { \"method\": \"DELETE\", \"urlContains\": \"/groups\" }, \"status\": 204 }";
 
-    private static bool HasGroupsProvider => ProviderDiscovery.CreateRegistry(ResourceTypeCatalog.Default).Contains(Fixture.GroupType);
-
-    // ---- offline failures (never reach az) ----
+    // ---- offline failures (never send a request) ----
 
     [Fact]
-    public async Task WhatIf_WithoutParameterValues_FailsValidationBeforeAz()
+    public async Task WhatIf_WithoutParameterValues_FailsValidationBeforeAnyRequest()
     {
-        using var sandbox = new CliSandbox(nameof(WhatIf_WithoutParameterValues_FailsValidationBeforeAz));
+        using var sandbox = new CliSandbox(nameof(WhatIf_WithoutParameterValues_FailsValidationBeforeAnyRequest));
 
-        var result = await CliRunner.RunAsync("deployment", "what-if", "-f", Templates.FixturePath, "-o", "json", "--az-command", NonexistentAz, "--temp-dir", sandbox.TempDir, "--state-dir", sandbox.StateDir);
+        var result = await CliRunner.RunAsync("deployment", "what-if", "-f", Templates.FixturePath, "-o", "json", "--state-dir", sandbox.StateDir);
 
         Assert.Equal(2, result.ExitCode);
         Assert.Equal("Failed", result.Json["status"]!.GetValue<string>());
@@ -78,11 +75,11 @@ public sealed class DeploymentCommandTests
     }
 
     [Fact]
-    public async Task WhatIf_WithAMalformedParameterToken_ExitsOneBeforeAz()
+    public async Task WhatIf_WithAMalformedParameterToken_ExitsOneBeforeAnyRequest()
     {
-        using var sandbox = new CliSandbox(nameof(WhatIf_WithAMalformedParameterToken_ExitsOneBeforeAz));
+        using var sandbox = new CliSandbox(nameof(WhatIf_WithAMalformedParameterToken_ExitsOneBeforeAnyRequest));
 
-        var result = await CliRunner.RunAsync("deployment", "what-if", "-f", Templates.FixturePath, "-p", "notatoken", "-o", "json", "--az-command", NonexistentAz, "--temp-dir", sandbox.TempDir, "--state-dir", sandbox.StateDir);
+        var result = await CliRunner.RunAsync("deployment", "what-if", "-f", Templates.FixturePath, "-p", "notatoken", "-o", "json", "--state-dir", sandbox.StateDir);
 
         Assert.Equal(1, result.ExitCode);
         Assert.Contains(result.Diagnostics, d => d!["code"]!.GetValue<string>() == "InvalidArgument");
@@ -93,12 +90,12 @@ public sealed class DeploymentCommandTests
     [InlineData("bad name")]
     [InlineData("-leading-dash")]
     [InlineData("a/b")]
-    public async Task InvalidDeploymentName_ExitsOneBeforeAz(string name)
+    public async Task InvalidDeploymentName_ExitsOneBeforeAnyRequest(string name)
     {
-        using var sandbox = new CliSandbox(nameof(InvalidDeploymentName_ExitsOneBeforeAz));
+        using var sandbox = new CliSandbox(nameof(InvalidDeploymentName_ExitsOneBeforeAnyRequest));
         string template = sandbox.WriteEmptyTemplate();
 
-        var result = await CliRunner.RunAsync("deployment", "what-if", "-f", template, "-n", name, "-o", "json", "--az-command", NonexistentAz, "--temp-dir", sandbox.TempDir, "--state-dir", sandbox.StateDir);
+        var result = await CliRunner.RunAsync("deployment", "what-if", "-f", template, "-n", name, "-o", "json", "--state-dir", sandbox.StateDir);
 
         Assert.Equal(1, result.ExitCode);
         var diagnostic = Assert.Single(result.Diagnostics);
@@ -108,14 +105,14 @@ public sealed class DeploymentCommandTests
     }
 
     [Fact]
-    public async Task UnsupportedStateSchema_ExitsOneBeforeAz()
+    public async Task UnsupportedStateSchema_ExitsOneBeforeAnyRequest()
     {
-        using var sandbox = new CliSandbox(nameof(UnsupportedStateSchema_ExitsOneBeforeAz));
+        using var sandbox = new CliSandbox(nameof(UnsupportedStateSchema_ExitsOneBeforeAnyRequest));
         string template = sandbox.WriteEmptyTemplate();
         sandbox.WriteRawState("empty", "{ \"schemaVersion\": 2, \"deploymentName\": \"empty\", \"resources\": {} }");
 
-        var whatIf = await CliRunner.RunAsync("deployment", "what-if", "-f", template, "--az-command", NonexistentAz, "--temp-dir", sandbox.TempDir, "--state-dir", sandbox.StateDir);
-        var create = await CliRunner.RunAsync("deployment", "create", "-f", template, "-y", "--az-command", NonexistentAz, "--temp-dir", sandbox.TempDir, "--state-dir", sandbox.StateDir);
+        var whatIf = await CliRunner.RunAsync("deployment", "what-if", "-f", template, "--state-dir", sandbox.StateDir);
+        var create = await CliRunner.RunAsync("deployment", "create", "-f", template, "-y", "--state-dir", sandbox.StateDir);
 
         Assert.Equal(1, whatIf.ExitCode);
         Assert.Contains("schemaVersion 2", whatIf.StandardError);
@@ -127,23 +124,21 @@ public sealed class DeploymentCommandTests
     // ---- preflight ----
 
     [Fact]
-    public async Task WhatIf_NotLoggedIn_ExitsThreeWithTheLoginHint()
+    public async Task WhatIf_NotSignedIn_ExitsThreeWithTheSignInGuidance()
     {
-        using var sandbox = new CliSandbox(nameof(WhatIf_NotLoggedIn_ExitsThreeWithTheLoginHint));
+        using var sandbox = new CliSandbox(nameof(WhatIf_NotSignedIn_ExitsThreeWithTheSignInGuidance));
         sandbox.UseNotLoggedIn();
 
         var result = await CliRunner.RunAsync(Args(sandbox, "deployment", "what-if", "-f", Templates.FixturePath, "-p", "env=dev", "-p", "initialPassword=P@ss-w0rd1"));
 
         Assert.Equal(3, result.ExitCode);
-        Assert.Contains("Preflight failed", result.StandardError);
-        Assert.Contains("az login --allow-no-subscriptions", result.StandardError);
-        var commands = sandbox.RecordedCommands();
-        Assert.Equal(2, commands.Count);
-        Assert.StartsWith("version", commands[0], StringComparison.Ordinal);
-        Assert.StartsWith("account show", commands[1], StringComparison.Ordinal);
+        Assert.Contains("Preflight failed: Not signed in", result.StandardError);
+        Assert.Contains("earm auth login", result.StandardError);
+        Assert.Contains("AZURE_CLIENT_SECRET", result.StandardError);
+        Assert.DoesNotContain("az login", result.StandardError);
+        Assert.Empty(sandbox.RecordedCommands());
         Assert.False(File.Exists(sandbox.LockPath("orders-api.engine")));
     }
-
     [Fact]
     public async Task TenantMismatch_ExitsThree()
     {
@@ -156,8 +151,8 @@ public sealed class DeploymentCommandTests
 
         Assert.Equal(3, result.ExitCode);
         Assert.Contains("was deployed to tenant " + CliSandbox.OtherTenant, result.StandardError);
-        Assert.Contains("az login --tenant " + CliSandbox.OtherTenant, result.StandardError);
-        Assert.Equal(3, sandbox.RecordedCommands().Count);
+        Assert.Contains("earm auth login --tenant " + CliSandbox.OtherTenant, result.StandardError);
+        Assert.Equal(["GET /v1.0/organization?$select=id,displayName,verifiedDomains"], sandbox.RecordedCommands());
     }
 
     // ---- what-if ----
@@ -189,9 +184,9 @@ public sealed class DeploymentCommandTests
 
         Assert.False(File.Exists(sandbox.StatePath("empty")), "what-if never writes a state");
         Assert.False(File.Exists(sandbox.LockPath("empty")), "what-if never locks");
-        // Per run: az version, az account show, GET /organization (preflight) and GET /organization (tenant()).
-        Assert.Equal(8, sandbox.RecordedCommands().Count);
-        Assert.All(sandbox.RecordedCommands(), c => Assert.DoesNotContain("--method POST", c, StringComparison.Ordinal));
+        // Per run: one GET /organization (the preflight; it also feeds tenant()); what-if never writes.
+        Assert.Equal(2, sandbox.RecordedCommands().Count);
+        Assert.All(sandbox.RecordedCommands(), c => Assert.StartsWith("GET ", c, StringComparison.Ordinal));
     }
 
     [Fact]
@@ -299,7 +294,7 @@ public sealed class DeploymentCommandTests
             ConfirmWithWhatIf = true,
             Output = OutputFormat.Json,
             StateDir = sandbox.StateDir,
-            Az = new AzOptions { AzCommand = CliSandbox.FakeAzPath, TempDirectory = sandbox.TempDir },
+            Connection = sandbox.Connection,
         };
         using var declinedOut = new StringWriter();
         using var declinedErr = new StringWriter();
@@ -308,7 +303,7 @@ public sealed class DeploymentCommandTests
 
         Assert.Equal(1, declined);
         Assert.Contains("Deployment not started.", declinedErr.ToString());
-        Assert.Contains("Are you sure you want to execute the deployment?", declinedOut.ToString());
+        Assert.Contains("Are you sure you want to execute the deployment?", declinedErr.ToString());
         Assert.Contains("\"changes\"", declinedOut.ToString());
         Assert.False(File.Exists(sandbox.StatePath("empty")));
         Assert.False(File.Exists(sandbox.LockPath("empty")));
@@ -402,28 +397,6 @@ public sealed class DeploymentCommandTests
         Assert.Single(state["operations"]!.AsArray());
     }
 
-    [Fact]
-    public async Task Create_Complete_WithoutAProviderForTheOrphan_FailsAndKeepsTheEntry()
-    {
-        Assert.SkipWhen(HasGroupsProvider, "a groups provider is registered; the Complete-mode delete is covered by the provider and engine tests.");
-        using var sandbox = new CliSandbox(nameof(Create_Complete_WithoutAProviderForTheOrphan_FailsAndKeepsTheEntry));
-        sandbox.UsePreflightOk();
-        string template = sandbox.WriteEmptyTemplate();
-        await sandbox.WriteStateAsync(OrphanState("empty"));
-
-        var result = await CliRunner.RunAsync(Args(sandbox, "deployment", "create", "-f", template, "-y", "--mode", "Complete", "-o", "json"));
-
-        Assert.Equal(1, result.ExitCode);
-        Assert.Equal("Failed", result.Json["status"]!.GetValue<string>());
-        var operation = Assert.Single(result.Json["operations"]!.AsArray());
-        Assert.Equal("Failed", operation!["status"]!.GetValue<string>());
-        Assert.Equal(EngineDiagnosticCodes.ResourceDeleted, operation["errorCode"]!.GetValue<string>());
-        var state = JsonNode.Parse(await File.ReadAllTextAsync(sandbox.StatePath("empty"), Ct))!.AsObject();
-        Assert.Single(state["resources"]!.AsObject());
-        Assert.Equal("Failed", state["lastStatus"]!.GetValue<string>());
-        Assert.Equal("Complete", state["lastMode"]!.GetValue<string>());
-    }
-
     // ---- state directory resolution ----
 
     [Fact]
@@ -438,7 +411,7 @@ public sealed class DeploymentCommandTests
         sandbox.SetStateDirVariable(fromEnvironment);
         var environment = await CliRunner.RunAsync("deployment", "list", "-o", "json");
         var flagOverEnvironment = await CliRunner.RunAsync("deployment", "list", "-o", "json", "--state-dir", sandbox.StateDir);
-        var created = await CliRunner.RunAsync([.. sandbox.AzArgsWithoutStateDir, "deployment", "create", "-f", template, "-y", "-o", "none"]);
+        var created = await CliRunner.RunAsync(["deployment", "create", "-f", template, "-y", "-o", "none"]);
         sandbox.SetStateDirVariable(null);
         var templateRelative = await CliRunner.RunAsync("deployment", "list", "-o", "json", "-f", template);
         var workingDirectory = await CliRunner.RunAsync("deployment", "list", "-o", "json");
@@ -460,11 +433,11 @@ public sealed class DeploymentCommandTests
         {
             {
                 new[] { "deployment", "create", "--help" },
-                new[] { "--template-file", "-f", "--parameters", "-p", "--name", "-n", "--mode", "--parallelism", "--allow-ca-enforce", "--on-soft-deleted-conflict", "--what-if", "--confirm-with-what-if", "-c", "--yes", "-y", "--continue-on-error", "--reveal-secure-outputs", "--secure-outputs-file", "--force-unlock", "--lock-timeout", "--result-format", "--no-pretty-print", "--state-dir", "--az-command", "--pwsh-path", "--temp-dir", "--output", "-o", "--verbose", "--debug" }
+                new[] { "--template-file", "-f", "--parameters", "-p", "--name", "-n", "--mode", "--parallelism", "--allow-ca-enforce", "--on-soft-deleted-conflict", "--what-if", "--confirm-with-what-if", "-c", "--yes", "-y", "--continue-on-error", "--reveal-secure-outputs", "--secure-outputs-file", "--force-unlock", "--lock-timeout", "--result-format", "--no-pretty-print", "--state-dir", "--auth", "--tenant", "--client-id", "--output", "-o", "--verbose", "--debug" }
             },
             {
                 new[] { "deployment", "what-if", "--help" },
-                new[] { "--template-file", "--parameters", "--name", "--mode", "--parallelism", "--allow-ca-enforce", "--on-soft-deleted-conflict", "--result-format", "--exit-code-on-changes", "--no-pretty-print", "--state-dir", "--az-command" }
+                new[] { "--template-file", "--parameters", "--name", "--mode", "--parallelism", "--allow-ca-enforce", "--on-soft-deleted-conflict", "--result-format", "--exit-code-on-changes", "--no-pretty-print", "--state-dir", "--auth" }
             },
             {
                 new[] { "deployment", "delete", "--help" },
@@ -492,7 +465,7 @@ public sealed class DeploymentCommandTests
             },
             {
                 new[] { "state", "--help" },
-                new[] { "unlock", "forget" }
+                new[] { "unlock", "forget", "adopt" }
             },
         };
     }

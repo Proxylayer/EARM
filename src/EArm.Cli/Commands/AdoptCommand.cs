@@ -10,11 +10,13 @@ using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
-using EArm.Az;
+using EArm.Graph;
 using EArm.Cli.Hosting;
 using EArm.Core;
 using EArm.Core.Types;
+using EArm.Engine.Providers;
 using EArm.Engine.State;
+using EArm.Providers;
 
 namespace EArm.Cli.Commands;
 
@@ -36,19 +38,22 @@ internal sealed record AdoptRequest
     public string? Id { get; init; }
 
     public string? UniqueName { get; init; }
+
+    /// <summary>The uniqueName came from the deprecated <c>--name</c> (a hint is printed).</summary>
+    public bool UsedDeprecatedName { get; init; }
 }
 
 /// <summary>
-/// <c>earm state adopt</c> (plan section 1.9, "adopt"), two forms:
+/// <c>earm state adopt</c> ("adopt"), two forms:
 /// <list type="bullet">
 /// <item><b>Pin</b> (offline): <c>-n &lt;deployment&gt; --resource-id &lt;id&gt; --object-id &lt;guid&gt;</c> records a Graph object id under a resource id in
 /// the deployment's state, so a displayName-named or GUID-named resource that matches several objects (or none by
-/// key) binds to the intended one. Needs no Azure CLI session.</item>
-/// <item><b>uniqueName</b> (online): <c>--type Microsoft.Entra/applications|groups --id &lt;objectId|appId&gt; --name &lt;uniqueName&gt;</c>
+/// key) binds to the intended one. Needs no sign-in.</item>
+/// <item><b>uniqueName</b> (online): <c>--type Microsoft.Entra/applications|groups --id &lt;objectId|appId&gt; --unique-name &lt;uniqueName&gt;</c> (<c>--name</c> still works, hidden and deprecated)
 /// PATCHes <c>uniqueName</c> onto a brownfield application or group so a template can address it by name from then on.
 /// uniqueName is immutable: an object that already has a different one is refused.</item>
 /// </list>
-/// Exit codes: 0 done (or already in place), 1 refused or failed, 3 no usable Azure CLI session (uniqueName form), 4 the state is locked.
+/// Exit codes: 0 done (or already in place), 1 refused or failed, 3 no usable sign-in (uniqueName form), 4 the state is locked.
 /// </summary>
 internal static class AdoptCommand
 {
@@ -80,7 +85,7 @@ internal static class AdoptCommand
         var key = new Option<string[]>("--key")
         {
             Description = "Pin form, GUID-named types: a key property as name=value (repeatable), for example principalId=<guid>.",
-            AllowMultipleArgumentsPerToken = true,
+            AllowMultipleArgumentsPerToken = false,
             DefaultValueFactory = _ => [],
         };
 
@@ -94,12 +99,19 @@ internal static class AdoptCommand
             Description = "uniqueName form: the object id (applications also accept the application (client) id).",
         };
 
-        var name = new Option<string?>("--name")
+        var uniqueName = new Option<string?>("--unique-name")
         {
             Description = "uniqueName form: the uniqueName to set (immutable afterwards); it becomes the resource name in templates.",
         };
 
-        var command = new Command("adopt", "Brings an existing object under a template: pins its Graph id into a deployment's state (--resource-id/--object-id), or sets uniqueName on an application or group (--type/--id/--name).");
+        // --name used to be the uniqueName here while every other state verb uses -n/--name for the DEPLOYMENT: a footgun. It still works but is hidden and prints a hint.
+        var name = new Option<string?>("--name")
+        {
+            Description = "Deprecated: use --unique-name. (The deployment is -n/--deployment.)",
+            Hidden = true,
+        };
+
+        var command = new Command("adopt", "Brings an existing object under a template: pins its Graph id into a deployment's state (--resource-id/--object-id), or sets uniqueName on an application or group (--type/--id/--unique-name).");
         options.Add(command, nameRequired: false, withYes: true);
         command.Options.Add(resourceId);
         command.Options.Add(objectId);
@@ -107,6 +119,7 @@ internal static class AdoptCommand
         command.Options.Add(key);
         command.Options.Add(type);
         command.Options.Add(id);
+        command.Options.Add(uniqueName);
         command.Options.Add(name);
         command.SetAction((parseResult, ct) => RunAsync(
             options.Read(parseResult),
@@ -118,7 +131,8 @@ internal static class AdoptCommand
                 Keys = parseResult.GetValue(key) ?? [],
                 Type = parseResult.GetValue(type),
                 Id = parseResult.GetValue(id),
-                UniqueName = parseResult.GetValue(name),
+                UniqueName = parseResult.GetValue(uniqueName) ?? parseResult.GetValue(name),
+                UsedDeprecatedName = parseResult.GetValue(uniqueName) is null && parseResult.GetValue(name) is not null,
             },
             parseResult.InvocationConfiguration.Output,
             parseResult.InvocationConfiguration.Error,
@@ -129,14 +143,18 @@ internal static class AdoptCommand
 
     internal static Task<int> RunAsync(StateInvocation invocation, AdoptRequest request, TextWriter stdout, TextWriter stderr, Func<string?> readLine, CancellationToken cancellationToken)
     {
+        if (request.UsedDeprecatedName)
+        {
+            stderr.WriteLine("Note: --name on 'state adopt' is deprecated because it names the uniqueName while -n/--deployment names the deployment; use --unique-name.");
+        }
+
         bool pin = request.ResourceId is not null || request.ObjectId is not null || request.ParentObjectId is not null || request.Keys.Count > 0;
         bool unique = request.Type is not null || request.Id is not null || request.UniqueName is not null;
         if (pin == unique)
         {
-            stderr.WriteLine(pin
-                ? "Choose one form: --resource-id/--object-id (pin an id in the state) or --type/--id/--name (set uniqueName), not both."
-                : "Nothing to adopt. Pin an id: state adopt -n <deployment> --resource-id <id> --object-id <guid>. Set a uniqueName: state adopt --type Microsoft.Entra/applications|groups --id <objectId|appId> --name <uniqueName>.");
-            return Task.FromResult(ExitCodes.Failure);
+            return Task.FromResult(VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.Failure, "InvalidArgument", pin
+                ? "Choose one form: --resource-id/--object-id (pin an id in the state) or --type/--id/--unique-name (set uniqueName), not both."
+                : "Nothing to adopt. Pin an id: state adopt -n <deployment> --resource-id <id> --object-id <guid>. Set a uniqueName: state adopt --type Microsoft.Entra/applications|groups --id <objectId|appId> --unique-name <uniqueName>."));
         }
 
         return pin
@@ -148,6 +166,22 @@ internal static class AdoptCommand
 
     internal static async Task<int> PinAsync(StateInvocation invocation, AdoptRequest request, TextWriter stdout, TextWriter stderr, Func<string?> readLine, CancellationToken cancellationToken)
     {
+        try
+        {
+            return await PinCoreAsync(invocation, request, stdout, stderr, readLine, cancellationToken).ConfigureAwait(false);
+        }
+        catch (StateException ex)
+        {
+            return VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.Failure, ex.Code, ex.Message);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.Failure, "StateIoFailed", $"The state could not be read or written: {ex.Message}");
+        }
+    }
+
+    private static async Task<int> PinCoreAsync(StateInvocation invocation, AdoptRequest request, TextWriter stdout, TextWriter stderr, Func<string?> readLine, CancellationToken cancellationToken)
+    {
         string name;
         try
         {
@@ -155,40 +189,42 @@ internal static class AdoptCommand
         }
         catch (ArgumentException ex)
         {
-            stderr.WriteLine(ex.Message + " (-n/--deployment names the deployment whose state receives the id.)");
-            return ExitCodes.Failure;
+            return VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.Failure, "AdoptFailed", ex.Message + " (-n/--deployment names the deployment whose state receives the id.)");
         }
 
         if (string.IsNullOrWhiteSpace(request.ResourceId) || string.IsNullOrWhiteSpace(request.ObjectId))
         {
-            stderr.WriteLine("Pinning needs both --resource-id and --object-id.");
-            return ExitCodes.Failure;
+            return VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.Failure, "AdoptFailed", "Pinning needs both --resource-id and --object-id.");
         }
 
         var catalog = ResourceTypeCatalog.Default;
         if (!catalog.TryParseResourceId(request.ResourceId, out var identifier) || identifier is null || !catalog.TryGet(identifier.Type, out var definition))
         {
-            stderr.WriteLine($"'{request.ResourceId}' is not a resource id of a known type. Expected /providers/Microsoft.Entra/<type>/<name> (child types: .../<parentType>/<parent>/<childType>/<child>).");
-            return ExitCodes.Failure;
-        }
-
-        if (!Guid.TryParse(request.ObjectId, out var objectGuid))
-        {
-            stderr.WriteLine($"--object-id '{request.ObjectId}' is not a GUID.");
-            return ExitCodes.Failure;
+            return VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.Failure, "AdoptFailed", $"'{request.ResourceId}' is not a resource id of a known type. Expected /providers/Microsoft.Entra/<type>/<name> (child types: .../<parentType>/<parent>/<childType>/<child>).");
         }
 
         if (definition.NameKind == ResourceNameKind.Id)
         {
-            stderr.WriteLine($"{definition.Type} is addressed by its name ('{identifier.NameLeaf}' is the Graph id); there is nothing to pin.");
-            return ExitCodes.Failure;
+            return VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.Failure, "AdoptFailed", $"{definition.Type} is addressed by its name ('{identifier.NameLeaf}' is the Graph id); there is nothing to pin.");
         }
 
         string? nameProblem = NameProblem(definition, identifier.NameLeaf);
         if (nameProblem is not null)
         {
-            stderr.WriteLine(nameProblem);
-            return ExitCodes.Failure;
+            return VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.Failure, "AdoptFailed", nameProblem);
+        }
+
+        // The id ends up in Graph paths (and in deletes): only well-formed ids are accepted (S-01c). Directory objects have GUID ids;
+        // role assignments, app role assignments and permission grants have opaque ids, authentication contexts c1..c99.
+        string objectId = request.ObjectId.Trim();
+        if (Guid.TryParse(objectId, out var objectGuid))
+        {
+            objectId = objectGuid.ToString("D");
+        }
+
+        if (!StateIdShapes.IsValidGraphId(definition.Type, objectId))
+        {
+            return VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.Failure, "AdoptFailed", $"--object-id '{request.ObjectId}' is not {StateIdShapes.Describe(definition.Type)}.");
         }
 
         using var loggerFactory = GlobalOptions.CreateLoggerFactory(invocation.LogLevel);
@@ -200,8 +236,7 @@ internal static class AdoptCommand
         }
         catch (StateLockedException ex)
         {
-            stderr.WriteLine(ex.Message);
-            return ExitCodes.StateLocked;
+            return VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.StateLocked, ex.Code, ex.Message);
         }
 
         await using (lease.ConfigureAwait(false))
@@ -213,8 +248,7 @@ internal static class AdoptCommand
             }
             catch (StateException ex)
             {
-                stderr.WriteLine(ex.Message);
-                return ExitCodes.Failure;
+                return VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.Failure, ex.Code, ex.Message);
             }
 
             bool created = state is null;
@@ -223,23 +257,26 @@ internal static class AdoptCommand
             var keyResult = BuildKey(definition, identifier, request.Keys, state, request.ParentObjectId, out string? parentGraphId);
             if (keyResult.Error is not null)
             {
-                stderr.WriteLine(keyResult.Error);
-                return ExitCodes.Failure;
+                return VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.Failure, "AdoptFailed", keyResult.Error);
             }
 
-            string graphId = objectGuid.ToString("D");
+            string graphId = objectId;
             var existing = state.Find(identifier.Id);
             if (existing is not null && string.Equals(existing.GraphId, graphId, StringComparison.OrdinalIgnoreCase))
             {
-                stdout.WriteLine($"{identifier.Id} is already pinned to {graphId} in deployment '{name}'.");
-                return ExitCodes.Ok;
+                return VerbOutput.Succeed(invocation.Output, stdout, $"{identifier.Id} is already pinned to {graphId} in deployment '{name}'.", json =>
+                {
+                    json["deployment"] = name;
+                    json["resourceId"] = identifier.Id;
+                    json["objectId"] = graphId;
+                    json["changed"] = false;
+                });
             }
 
             if (existing is not null && !invocation.Yes
                 && !ConsolePrompt.Confirm($"{identifier.Id} is pinned to {existing.GraphId} in deployment '{name}'. Re-pin it to {graphId}?", stdout, stderr, readLine))
             {
-                stderr.WriteLine("Nothing changed.");
-                return ExitCodes.Failure;
+                return VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.Failure, "AdoptFailed", "Nothing changed.");
             }
 
             string apiVersion = definition.ApiVersions.Where(pair => pair.Value == EArm.Core.Types.GraphApi.V1).Select(pair => pair.Key).FirstOrDefault() ?? definition.ApiVersions.Keys.First();
@@ -251,6 +288,7 @@ internal static class AdoptCommand
                 Key = keyResult.Key!,
                 GraphId = graphId,
                 ParentGraphId = parentGraphId,
+                Provenance = StateProvenance.Adopted,
                 Extra = existing?.Extra,
                 Relationships = existing?.Relationships,
                 DependsOn = existing?.DependsOn ?? [],
@@ -263,6 +301,7 @@ internal static class AdoptCommand
             {
                 stdout.WriteLine(new JsonObject
                 {
+                    ["status"] = "Succeeded",
                     ["deployment"] = name,
                     ["stateFile"] = store.PathFor(name),
                     ["resourceId"] = identifier.Id,
@@ -388,12 +427,16 @@ internal static class AdoptCommand
 
     // ---- uniqueName form ----
 
+    private static string SingleLine(string text)
+    {
+        return Regex.Replace(text, @"\s+", " ",RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1)).Trim();
+    }
+
     internal static async Task<int> SetUniqueNameAsync(StateInvocation invocation, AdoptRequest request, TextWriter stdout, TextWriter stderr, Func<string?> readLine, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(request.Type) || string.IsNullOrWhiteSpace(request.Id) || string.IsNullOrWhiteSpace(request.UniqueName))
         {
-            stderr.WriteLine("Setting a uniqueName needs --type, --id and --name.");
-            return ExitCodes.Failure;
+            return VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.Failure, "AdoptFailed", "Setting a uniqueName needs --type, --id and --unique-name.");
         }
 
         var catalog = ResourceTypeCatalog.Default;
@@ -402,22 +445,19 @@ internal static class AdoptCommand
         string? type = UniqueNameTypes.FirstOrDefault(t => t.Equals(fullType, StringComparison.OrdinalIgnoreCase));
         if (type is null || catalog.Find(type) is not { } definition)
         {
-            stderr.WriteLine($"--type '{request.Type}' has no uniqueName; use {string.Join(" or ", UniqueNameTypes)}.");
-            return ExitCodes.Failure;
+            return VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.Failure, "AdoptFailed", $"--type '{request.Type}' has no uniqueName; use {string.Join(" or ", UniqueNameTypes)}.");
         }
 
         string id = request.Id.Trim();
         if (!Guid.TryParse(id, out _))
         {
-            stderr.WriteLine($"--id '{request.Id}' is not a GUID (an object id{(type.EndsWith("applications", StringComparison.Ordinal) ? " or an application (client) id" : string.Empty)}).");
-            return ExitCodes.Failure;
+            return VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.Failure, "AdoptFailed", $"--id '{request.Id}' is not a GUID (an object id{(type.EndsWith("applications", StringComparison.Ordinal) ? " or an application (client) id" : string.Empty)}).");
         }
 
         string uniqueName = request.UniqueName.Trim();
         if (NameProblem(definition, uniqueName) is { } problem)
         {
-            stderr.WriteLine(problem);
-            return ExitCodes.Failure;
+            return VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.Failure, "AdoptFailed", problem);
         }
 
         bool isApplication = type.EndsWith("applications", StringComparison.Ordinal);
@@ -425,18 +465,22 @@ internal static class AdoptCommand
         string[] select = isApplication ? ["id", "appId", "displayName", "uniqueName"] : ["id", "displayName", "uniqueName"];
 
         using var loggerFactory = GlobalOptions.CreateLoggerFactory(invocation.LogLevel);
-        using var services = new EngineServices(invocation.Az, loggerFactory);
+        if (!EngineServices.TryCreate(invocation.Connection, loggerFactory, stdout, stderr, invocation.Output, out var created, out int createExit))
+        {
+            return createExit;
+        }
 
-        // Preflight first: nothing is read or written without a working Azure CLI session.
-        AzPreflightResult preflight;
+        using var services = created!;
+
+        // Preflight first: nothing is read or written without a working sign-in.
+        GraphPreflightResult preflight;
         try
         {
             preflight = await services.Preflight.RunAsync(cancellationToken).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is AzCliException or ToolchainException)
+        catch (Exception ex) when (ex is GraphTransportException or GraphException)
         {
-            stderr.WriteLine("Preflight failed: " + ex.Message);
-            return ExitCodes.AuthOrPreflight;
+            return VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.AuthOrPreflight, "PreflightFailed", "Preflight failed: " + ex.Message);
         }
 
         try
@@ -450,8 +494,7 @@ internal static class AdoptCommand
 
             if (live is null || live["id"]?.GetValue<string>() is not { } objectId)
             {
-                stderr.WriteLine($"No {(isApplication ? "application" : "group")} with {(isApplication ? "object id or application id" : "object id")} {id} in tenant {preflight.TenantId}.");
-                return ExitCodes.Failure;
+                return VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.Failure, "AdoptFailed", $"No {(isApplication ? "application" : "group")} with {(isApplication ? "object id or application id" : "object id")} {id} in tenant {preflight.TenantId}.");
             }
 
             string display = live["displayName"]?.GetValue<string>() ?? objectId;
@@ -460,27 +503,47 @@ internal static class AdoptCommand
             {
                 if (string.Equals(current, uniqueName, StringComparison.Ordinal))
                 {
-                    stdout.WriteLine($"{display} ({objectId}) already has uniqueName '{current}'; nothing to do.");
-                    return ExitCodes.Ok;
+                    return VerbOutput.Succeed(invocation.Output, stdout, $"{display} ({objectId}) already has uniqueName '{current}'; nothing to do.", json =>
+                    {
+                        json["type"] = type;
+                        json["objectId"] = objectId;
+                        json["uniqueName"] = current;
+                        json["changed"] = false;
+                    });
                 }
 
-                stderr.WriteLine($"{display} ({objectId}) already has uniqueName '{current}', which is immutable; '{uniqueName}' cannot be set. Use '{current}' as the resource name in the template.");
-                return ExitCodes.Failure;
+                return VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.Failure, "AdoptFailed", $"{display} ({objectId}) already has uniqueName '{current}', which is immutable; '{uniqueName}' cannot be set. Use '{current}' as the resource name in the template.");
             }
 
             if (!invocation.Yes && !ConsolePrompt.Confirm($"Set uniqueName '{uniqueName}' on {(isApplication ? "application" : "group")} '{display}' ({objectId}) in tenant {preflight.TenantId}? uniqueName is immutable once set.", stdout, stderr, readLine))
             {
-                stderr.WriteLine("Nothing changed.");
-                return ExitCodes.Failure;
+                return VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.Failure, "AdoptFailed", "Nothing changed.");
             }
 
-            await graph.PatchAsync(new GraphRequest(collection + "/" + GraphPath.Segment(objectId)), new JsonObject { ["uniqueName"] = uniqueName }, cancellationToken).ConfigureAwait(false);
+            if (isApplication)
+            {
+                // The provider owns the explanation for Graph refusing an immutable uniqueName (UniqueNameNotSettable).
+                string resourceName = new ResourceIdentifier(type, [uniqueName]).Id;
+                try
+                {
+                    await new ApplicationsProvider(catalog).AdoptUniqueNameAsync(graph, objectId, uniqueName, EArm.Graph.GraphApi.V1, RetryHint.Default, $"application {display}", new ResourceIdentifier(type, [uniqueName]), cancellationToken).ConfigureAwait(false);
+                }
+                catch (ProviderException ex) when (ex.Code == ApplicationsProvider.UniqueNameNotSettable)
+                {
+                    return VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.Failure, "AdoptFailed", $"{ApplicationsProvider.UniqueNameNotSettable}: {SingleLine(ex.Message)} ({resourceName})");
+                }
+            }
+            else
+            {
+                await graph.PatchAsync(new GraphRequest(collection + "/" + GraphPath.Segment(objectId)), new JsonObject { ["uniqueName"] = uniqueName }, cancellationToken).ConfigureAwait(false);
+            }
 
             string resourceId = new ResourceIdentifier(type, [uniqueName]).Id;
             if (invocation.Output == OutputFormat.Json)
             {
                 stdout.WriteLine(new JsonObject
                 {
+                    ["status"] = "Succeeded",
                     ["type"] = type,
                     ["objectId"] = objectId,
                     ["displayName"] = display,
@@ -502,13 +565,11 @@ internal static class AdoptCommand
             string hint = ex.IsForbidden
                 ? $" The signed-in identity needs {(isApplication ? "Application.ReadWrite.All (Application.ReadWrite.OwnedBy for applications it owns)" : "Group.ReadWrite.All")}, or an Entra role that manages {(isApplication ? "applications" : "groups")}."
                 : string.Empty;
-            stderr.WriteLine($"Microsoft Graph refused the request: {ex.Message}{hint}");
-            return ExitCodes.Failure;
+            return VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.Failure, "AdoptFailed", $"Microsoft Graph refused the request: {ex.Message}{hint}");
         }
-        catch (Exception ex) when (ex is AzCliException or ToolchainException)
+        catch (GraphTransportException ex)
         {
-            stderr.WriteLine(ex.Message);
-            return ExitCodes.AuthOrPreflight;
+            return VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.AuthOrPreflight, "PreflightFailed", ex.Message);
         }
     }
 }

@@ -40,7 +40,7 @@
       ]
     },
     "isAssignableToRole": {
-      "description": "Role-assignable group (immutable; never dynamic; required for directoryRoles; up to 500 per tenant).",
+      "description": "Role-assignable group (immutable; never dynamic; securityEnabled must be true, and a Microsoft 365 group visibility Private - both defaulted on create; required for directoryRoles; up to 500 per tenant).",
       "anyOf": [ { "type": [ "boolean", "null" ] }, { "$ref": "#/$defs/expression" } ]
     },
     "visibility": {
@@ -230,7 +230,7 @@
       "roles": ["Groups Administrator"],
       "conditional": {
         "isAssignableToRole": { "application": ["RoleManagement.ReadWrite.Directory"], "roles": ["Privileged Role Administrator"] },
-        "assignedLicenses": { "application": ["Organization.Read.All"], "roles": ["License Administrator"] }
+        "assignedLicenses": { "application": ["LicenseAssignment.ReadWrite.All", "LicenseAssignment.Read.All"], "roles": ["License Administrator"] }
       }
     }
   }

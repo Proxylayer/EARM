@@ -40,11 +40,11 @@ public sealed class StateLockedException : StateException
     }
 }
 
-/// <summary>The state file belongs to another tenant than the Azure CLI session (CLI exit 3).</summary>
+/// <summary>The state file belongs to another tenant than the identity EARM is signed in as (CLI exit 3).</summary>
 public sealed class TenantMismatchException : StateException
 {
     public TenantMismatchException(string deploymentName, string stateTenantId, string currentTenantId)
-        : base(EngineDiagnosticCodes.TenantMismatch, deploymentName, $"Deployment '{deploymentName}' was deployed to tenant {stateTenantId}, but the Azure CLI session is signed in to tenant {currentTenantId}. Sign in to the right tenant (az login --tenant {stateTenantId} --allow-no-subscriptions) or use a different deployment name / --state-dir.")
+        : base(EngineDiagnosticCodes.TenantMismatch, deploymentName, $"Deployment '{deploymentName}' was deployed to tenant {stateTenantId}, but EARM is signed in to tenant {currentTenantId}. Sign in to the right tenant (set AZURE_TENANT_ID, or run 'earm auth login --tenant {stateTenantId}') or use a different deployment name / --state-dir.")
     {
         StateTenantId = stateTenantId;
         CurrentTenantId = currentTenantId;
@@ -62,4 +62,34 @@ public sealed class StateSchemaUnsupportedException : StateException
         : base(EngineDiagnosticCodes.StateSchemaUnsupported, deploymentName, message, inner)
     {
     }
+}
+
+/// <summary>
+/// The state directory or one of its files cannot be used safely: the directory is not a directory, or it (or a state, lock or
+/// temp file) is a symbolic link or junction (review finding S-06). The CLI reports it like any state failure (exit 1).
+/// </summary>
+public sealed class StateStoreException : StateException
+{
+    public StateStoreException(string deploymentName, string message, Exception? inner = null)
+        : base(EngineDiagnosticCodes.StateStoreUnsafe, deploymentName, message, inner)
+    {
+    }
+}
+
+/// <summary>
+/// A state entry fails the integrity rules of <see cref="StateKeyRules"/> / <see cref="StateIdShapes"/>: its key is not the key its resource id implies,
+/// or a recorded id is malformed. The whole state is refused (nothing is acted on); fix the file or run <c>earm state forget</c> for the entry.
+/// </summary>
+public sealed class StateEntryInvalidException : StateException
+{
+    public StateEntryInvalidException(string deploymentName, string resourceId, string detail)
+        : base(EngineDiagnosticCodes.StateEntryInvalid, deploymentName, $"The state entry '{resourceId}' of deployment '{deploymentName}' is invalid: {detail}. The state file is corrupt or was edited; nothing was acted on. Fix the entry, or remove it with 'earm state forget -n {deploymentName} --resource-id {resourceId}' (the object stays in the tenant).")
+    {
+        ResourceId = resourceId;
+        Detail = detail;
+    }
+
+    public string ResourceId { get; }
+
+    public string Detail { get; }
 }
