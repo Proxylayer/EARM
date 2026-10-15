@@ -14,6 +14,7 @@ internal static class RejectedFunctions
         ["resourceGroup"] = "Entra objects are tenant-scoped and have no resource group; use tenant() for tenant information.",
         ["subscription"] = "Entra objects are tenant-scoped and have no subscription; use tenant() for tenant information.",
         ["managementGroup"] = "Entra objects are tenant-scoped; there are no management groups. Use tenant().",
+        ["managementGroupResourceId"] = "EARM resources are tenant-scoped and never live in a management group; use resourceId(type, name[, childName]).",
         ["extensionResourceId"] = "EARM resources have no extension scope; use resourceId(type, name[, childName]).",
         ["subscriptionResourceId"] = "EARM resource ids are tenant-scoped; use resourceId(type, name[, childName]).",
         ["tenantResourceId"] = "EARM resource ids are already tenant-scoped; use resourceId(type, name[, childName]).",

@@ -126,13 +126,15 @@ public sealed class Review3J_ParameterConstraintTests
     }
 
     [Fact]
-    public void ALiteralDefault_OutsideTheConstraints_IsDefaultValueNotAllowed_AnExpressionDefaultIsNotChecked()
+    public void ALiteralDefault_OutsideTheConstraints_IsDefaultValueNotAllowed_AndSoIsAnEvaluatedExpressionDefault()
     {
         string tooShort = Template("\"p\": { \"type\": \"string\", \"defaultValue\": \"ab\", \"minLength\": 3 }");
         string expression = Template("\"p\": { \"type\": \"string\", \"defaultValue\": \"[concat('a', 'b')]\", \"minLength\": 3 }");
+        string fine = Template("\"p\": { \"type\": \"string\", \"defaultValue\": \"[concat('a', 'bc')]\", \"minLength\": 3 }");
 
         Assert.Contains(Review1C.Validate(tooShort), d => d.Code == DiagnosticCodes.DefaultValueNotAllowed && d.Message.Contains("minLength (3)", StringComparison.Ordinal));
-        Assert.DoesNotContain(Review1C.Validate(expression), d => d.Code == DiagnosticCodes.DefaultValueNotAllowed);
+        Assert.Contains(Review1C.Validate(expression), d => d.Code == DiagnosticCodes.DefaultValueNotAllowed && d.Message.Contains("minLength (3)", StringComparison.Ordinal));
+        Assert.DoesNotContain(Review1C.Validate(fine), d => d.IsError);
     }
 
     [Fact]

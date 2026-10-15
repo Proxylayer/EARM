@@ -350,7 +350,7 @@ public sealed class ParameterBindingTests
     [InlineData("secureObject", "{}", true)]
     [InlineData("array", "[]", true)]
     [InlineData("array", "{}", false)]
-    [InlineData("int", "\"[parameters('x')]\"", true)]
+    [InlineData("int", "\"[parameters('x')]\"", false)]
     public void TemplateParameterTypes_Matches_ChecksLiteralKinds(string typeName, string valueJson, bool expected)
     {
         Assert.True(TemplateParameterTypes.TryParse(typeName, out var type));

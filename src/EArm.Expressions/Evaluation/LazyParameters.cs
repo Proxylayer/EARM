@@ -6,7 +6,9 @@ using System.Linq;
 using System.Text.Json.Nodes;
 using EArm.Core;
 using EArm.Core.Diagnostics;
+using EArm.Core.Json;
 using EArm.Core.Secrets;
+using EArm.Core.Validation;
 using EArm.Expressions.Values;
 
 namespace EArm.Expressions.Evaluation;
@@ -146,7 +148,35 @@ public sealed class LazyParameters : IReadOnlyDictionary<string, JsonNode?>
         }
 
         var evaluated = _evaluator.EvaluateTree(bound.Value, _context);
+        if (TemplateJson.ContainsExpression(bound.Value) && !UnknownJson.ContainsUnknown(evaluated))
+        {
+            CheckEvaluatedDefault(bound.Definition, evaluated);
+        }
+
         return bound.IsSecure ? SecretJson.Taint(evaluated) : evaluated;
+    }
+
+    /// <summary>
+    /// Checks the value an expression <c>defaultValue</c> evaluated to against the declared type and the constraints, as a literal default is
+    /// checked offline (same codes, same wording). A literal default is not checked again here: the semantic checker has already reported it.
+    /// The messages never contain the value.
+    /// </summary>
+    private static void CheckEvaluatedDefault(ParameterDefinition definition, JsonNode? evaluated)
+    {
+        if (definition.ParsedType is not { } type)
+        {
+            return;
+        }
+
+        if (!TemplateParameterTypes.Matches(evaluated, type))
+        {
+            throw new ExpressionEvaluationException(DiagnosticCodes.DefaultValueTypeMismatch, $"Parameter '{definition.Name}': the default value does not match the declared type '{definition.Type}'.");
+        }
+
+        if (ParameterConstraints.Violation(definition, evaluated) is { } violation)
+        {
+            throw new ExpressionEvaluationException(DiagnosticCodes.DefaultValueNotAllowed, $"Parameter '{definition.Name}': the default value is not accepted: {violation}.");
+        }
     }
 
     public IEnumerator<KeyValuePair<string, JsonNode?>> GetEnumerator()

@@ -81,19 +81,14 @@ public static class TemplateParameterTypes
     }
 
     /// <summary>
-    /// True when a literal JSON value (not an expression) matches the declared type. Expressions always pass:
-    /// their result type is only known after evaluation.
+    /// True when a value matches the declared type. The value is data (a supplied parameter value, an evaluated default, a user-function
+    /// argument or result): a string shaped like <c>[...]</c> is just a string and never stands in for another type.
     /// </summary>
     public static bool Matches(JsonNode? value, TemplateParameterType type)
     {
         if (SecretJson.IsSecret(value, out var secret))
         {
             return KindMatches(secret.Kind, type);
-        }
-
-        if (value is JsonValue leaf && leaf.TryGetValue<string>(out var text) && ExpressionSyntax.IsExpression(text))
-        {
-            return true;
         }
 
         return value switch
@@ -104,6 +99,21 @@ public static class TemplateParameterTypes
             JsonValue v => KindMatches(v.GetValueKind(), type) && (type != TemplateParameterType.Int || IsIntegral(v)),
             _ => false,
         };
+    }
+
+    /// <summary>
+    /// True when a value written in the template itself (a <c>defaultValue</c>, an <c>allowedValues</c> entry) matches the declared type. An
+    /// expression always passes here: its result type is only known after evaluation, when it is checked with <see cref="Matches"/>. Only raw
+    /// template text may be treated as an unevaluated expression; never use this for supplied or evaluated values.
+    /// </summary>
+    public static bool MatchesTemplateText(JsonNode? value, TemplateParameterType type)
+    {
+        if (value is JsonValue leaf && leaf.TryGetValue<string>(out var text) && ExpressionSyntax.IsExpression(text))
+        {
+            return true;
+        }
+
+        return Matches(value, type);
     }
 
     private static bool KindMatches(JsonValueKind kind, TemplateParameterType type)

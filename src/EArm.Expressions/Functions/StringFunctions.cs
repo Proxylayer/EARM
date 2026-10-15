@@ -12,7 +12,8 @@ namespace EArm.Expressions.Functions;
 /// <summary>
 /// Group 2: string functions with ARM semantics. <c>contains</c>, <c>length</c>, <c>empty</c>, <c>indexOf</c> and
 /// <c>lastIndexOf</c> also accept arrays/objects, as in ARM. String comparisons in <c>startsWith</c>, <c>endsWith</c>,
-/// <c>contains</c> and <c>indexOf</c> are case-insensitive (ARM rule); <c>replace</c> is case-sensitive.
+/// <c>indexOf</c> and <c>lastIndexOf</c> are case-insensitive (ARM rule); <c>contains</c> on a string and <c>replace</c> are case-sensitive
+/// (ARM: "The string comparison is case-sensitive"), while <c>contains</c> on an object compares keys case-insensitively.
 /// </summary>
 internal static class StringFunctions
 {
@@ -520,7 +521,7 @@ internal static class StringFunctions
                 {
                     string text = call.String(0);
                     string needle = Stringify(call, item);
-                    return JsonValue.Create(Search(call, text, needle, last: false) >= 0);
+                    return JsonValue.Create(Search(call, text, needle, last: false, ignoreCase: false) >= 0);
                 }
         }
     }
@@ -582,16 +583,16 @@ internal static class StringFunctions
 
         string text = call.String(0);
         string needle = call.String(1);
-        return JsonValue.Create((long)Search(call, text, needle, last));
+        return JsonValue.Create((long)Search(call, text, needle, last, ignoreCase: true));
     }
 
     /// <summary>
-    /// The index of the first (or last) case-insensitive occurrence of <paramref name="needle"/> in <paramref name="text"/>, or -1. Both are folded to
-    /// upper case once and searched with Knuth-Morris-Pratt, so the time is linear in their lengths however the text and the needle repeat (the
+    /// The index of the first (or last) occurrence of <paramref name="needle"/> in <paramref name="text"/>, or -1, compared case-insensitively
+    /// when <paramref name="ignoreCase"/> is set (both are then folded to upper case once) and ordinally otherwise. Searched with Knuth-Morris-Pratt, so the time is linear in their lengths however the text and the needle repeat (the
     /// framework's case-insensitive <c>LastIndexOf</c> takes 12 seconds for 200,000 characters and minutes for 1 MiB). The work is charged to the
     /// run's budget first. An empty needle is found at 0 (first) or at the end (last), as in .NET.
     /// </summary>
-    internal static int Search(FunctionCall call, string text, string needle, bool last)
+    internal static int Search(FunctionCall call, string text, string needle, bool last, bool ignoreCase)
     {
         call.Context.Budget.ChargeText((long)text.Length + needle.Length, call.Offset);
         if (needle.Length == 0)
@@ -604,8 +605,8 @@ internal static class StringFunctions
             return -1;
         }
 
-        string haystack = text.ToUpperInvariant();
-        string pattern = needle.ToUpperInvariant();
+        string haystack = ignoreCase ? text.ToUpperInvariant() : text;
+        string pattern = ignoreCase ? needle.ToUpperInvariant() : needle;
         int m = pattern.Length;
 
         // The failure table of the pattern, read forward for a first match and backward (from the end) for a last one.

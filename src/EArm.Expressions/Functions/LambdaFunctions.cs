@@ -12,7 +12,7 @@ using EArm.Expressions.Values;
 namespace EArm.Expressions.Functions;
 
 /// <summary>
-/// Group 5: <c>map filter reduce sort toObject groupBy lambdaVariables</c>. A lambda is a
+/// Group 5: <c>map mapValues filter reduce sort toObject groupBy lambdaVariables</c>. A lambda is a
 /// <see cref="LambdaExpression"/> argument, so these functions are lazy: they evaluate the array argument, then the
 /// lambda body once per element with the parameters bound in <see cref="EvaluationContext.LambdaScope"/>
 /// (<see cref="FunctionCall.InvokeLambda"/>); <c>lambdaVariables('x')</c> reads a binding.
@@ -29,7 +29,7 @@ internal static class LambdaFunctions
     private const string Group = "lambda";
 
     /// <summary>The functions that take a lambda, for messages.</summary>
-    public const string TakingFunctions = "map, filter, reduce, sort, toObject, groupBy";
+    public const string TakingFunctions = "map, mapValues, filter, reduce, sort, toObject, groupBy";
 
     /// <summary>Where a function takes a lambda and how many parameters it may declare (for the validator and the implementations).</summary>
     public sealed record LambdaSlot(int MinParameters, int MaxParameters, string Roles);
@@ -47,6 +47,7 @@ internal static class LambdaFunctions
         ["sort"] = [null, Comparison],
         ["toObject"] = [null, Element, Element],
         ["groupBy"] = [null, Element],
+        ["mapValues"] = [null, Element],
     };
 
     /// <summary>True when argument <paramref name="argumentIndex"/> of built-in <paramref name="function"/> must be a lambda.</summary>
@@ -70,6 +71,7 @@ internal static class LambdaFunctions
         registry.Register(new FunctionDescriptor { Name = "sort", Group = Group, MinArgs = 2, MaxArgs = 2, Lazy = true, Implementation = Sort });
         registry.Register(new FunctionDescriptor { Name = "toObject", Group = Group, MinArgs = 2, MaxArgs = 3, Lazy = true, Implementation = ToObject });
         registry.Register(new FunctionDescriptor { Name = "groupBy", Group = Group, MinArgs = 2, MaxArgs = 2, Lazy = true, Implementation = GroupBy });
+        registry.Register(new FunctionDescriptor { Name = "mapValues", Group = Group, MinArgs = 2, MaxArgs = 2, Lazy = true, Implementation = MapValues });
         registry.Register(new FunctionDescriptor { Name = "lambdaVariables", Group = Group, MinArgs = 1, MaxArgs = 1, Implementation = LambdaVariables });
     }
 
@@ -103,6 +105,38 @@ internal static class LambdaFunctions
         for (int i = 0; i < array.Count; i++)
         {
             result.Add(Own(call.InvokeLambda(lambda, array[i], JsonValue.Create((long)i))));
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// ARM <c>mapValues(object, lambda('value', ...))</c>: an object with the same keys whose values are the lambda's results. An unknown object
+    /// makes the result unknown; unknown values flow through the lambda like any value.
+    /// </summary>
+    private static JsonNode? MapValues(FunctionCall call)
+    {
+        var lambda = Lambda(call, 1);
+        var source = call.EvaluateArgument(0);
+        if (UnknownJson.IsUnknown(source, out var unknownSource))
+        {
+            return UnknownJson.Create($"{call.Name}({unknownSource.Symbol}, {LambdaArguments(call, lambda)})", unknownSource.Origins, unknownSource.Tainted);
+        }
+
+        if (source is not JsonObject obj)
+        {
+            throw call.Error($"argument 1 must be an object, got {JsonValues.Describe(source)}.");
+        }
+
+        if (obj.Count == 0 && SecretJson.IsTaintedEmpty(obj))
+        {
+            return MarkedEmptyResult(call);
+        }
+
+        var result = new JsonObject();
+        foreach (var property in obj)
+        {
+            result[property.Key] = Own(call.InvokeLambda(lambda, property.Value));
         }
 
         return result;
@@ -382,7 +416,7 @@ internal static class LambdaFunctions
     /// <summary>The result of a lambda function over a source that is empty because of a secret: an empty object for the functions that build one, else an empty array; tainted either way.</summary>
     private static JsonNode MarkedEmptyResult(FunctionCall call)
     {
-        bool objectResult = call.Name.Equals("toObject", StringComparison.OrdinalIgnoreCase) || call.Name.Equals("groupBy", StringComparison.OrdinalIgnoreCase);
+        bool objectResult = call.Name.Equals("toObject", StringComparison.OrdinalIgnoreCase) || call.Name.Equals("groupBy", StringComparison.OrdinalIgnoreCase) || call.Name.Equals("mapValues", StringComparison.OrdinalIgnoreCase);
         return SecretJson.MarkTaintedEmpty(objectResult ? new JsonObject() : new JsonArray());
     }
 
