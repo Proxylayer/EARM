@@ -109,6 +109,8 @@ references (exit 3) and, for `create`, takes the state lock (exit 4). Rendering 
 
 `-f` only **locates** the state directory (`.earm/state` next to the template); `--state-dir` overrides it.
 
+### Migrating from the old name
+
 State files record each resource's `apiVersion`. The `apiVersion` relabel (`2026-10-01` became `2026-10-01-preview`, and the old `2026-10-01-preview` beta became `2026-10-01-preview.beta`) has no compatibility shim because the format is unreleased: **state files written before the rename must be deleted** before the next run (the objects stay in the tenant; `state adopt` re-pins them). The product rename (`entraarm` to `earm`) likewise has no shim: the state directory moved from `.entraarm/` to `.earm/` (and `%LOCALAPPDATA%\EntraArm` to `%LOCALAPPDATA%\EArm`, `ENTRAARM_*` to `EARM_*`), so delete or move an old `.entraarm/` directory (the objects stay in the tenant; `state adopt` re-pins them) and remove the old `entraarm` global tool (`dotnet tool uninstall -g entraarm`).
 
 ## `permissions`

@@ -2,6 +2,8 @@
 
 ARM-style JSON templates for **Microsoft Entra ID**, applied through the **Azure CLI**.
 
+EARM is short for "Entra ARM" (ARM-style templates for Entra), pronounced as the letters E-A-R-M or as "earm"; the command line tool is `earm`.
+
 > **Preview.** The template format and `apiVersion` `2026-10-01-preview` are in preview: breaking changes are possible and nothing is released
 > yet. EARM has **not been validated against a real tenant**: the integration suite that would do so is gated (see
 > [Contributing and testing](#contributing-and-testing)) and has not been run against one. Microsoft Graph **v1.0** is used by default
@@ -97,6 +99,12 @@ application's `appId`, which only exists once the application does: EARM works t
 nested like an ARM child resource; changing `rotationTag` rotates the secret. More in [`samples/`](samples/README.md).
 
 ## Install
+
+> **Renamed from EntraARM.** The project and tool used to be called EntraARM / `entraarm` and are now EARM / `earm`. If you used a pre-rename
+> checkout or tool: the global tool `entraarm` is replaced by `earm` (`deploy.ps1` uninstalls the old one); the environment variables
+> `ENTRAARM_*` became `EARM_*`; the state directory `.entraarm/` became `.earm/` (delete old state files) and `%LOCALAPPDATA%\EntraArm` became
+> `%LOCALAPPDATA%\EArm`; and the template `$schema` host `entraarm.dev` became `schema.earm.proxylayer.net`. Details:
+> [docs/cli.md](docs/cli.md#migrating-from-the-old-name).
 
 Prerequisites on the machine that builds or runs `earm`:
 

@@ -10,7 +10,7 @@ namespace EArm.Tests;
 
 /// <summary>
 /// Regression guard for the product rename (the old name to EARM / earm / EArm): no file path and no text file of the repository
-/// may contain the old name, case-insensitively, apart from the two allow-listed files that mention it on purpose, and every sample
+/// may contain the old name, case-insensitively, apart from the allow-listed files that mention it on purpose, and every sample
 /// points its <c>$schema</c> at the new schema host.
 /// </summary>
 public sealed class RenameGuardTests
@@ -20,8 +20,8 @@ public sealed class RenameGuardTests
 
     private const string SchemaHost = "https://schema.earm.proxylayer.net/";
 
-    /// <summary>Files that mention the old name deliberately: the deploy script uninstalls the old global tool, the CLI doc carries the migration note.</summary>
-    private static readonly string[] AllowedFiles = ["deploy.ps1", "docs/cli.md"];
+    /// <summary>Files that mention the old name deliberately: the deploy script uninstalls the old global tool, the CLI doc carries the migration note, the README carries the short "Renamed from" note.</summary>
+    private static readonly string[] AllowedFiles = ["deploy.ps1", "docs/cli.md", "README.md"];
 
     private static readonly string[] ExcludedDirectories = [".git", ".claude", ".vs", ".idea", "bin", "obj", "artifacts", "TestResults", "node_modules"];
 
