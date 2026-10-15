@@ -24,8 +24,13 @@ public sealed class Review2F_DocsCliParityTests
     /// <summary>Options a command accepts although the document leaves them out: each is a known inconsistency (none at present).</summary>
     private static readonly HashSet<string> KnownUndocumented = new(StringComparer.Ordinal);
 
-    /// <summary>Flags the document names on purpose although no command defines them: the removed Azure CLI transport options of the migration note, System.CommandLine's built-ins and <c>dotnet tool install -g</c>.</summary>
-    private static readonly HashSet<string> NamedButNotDefined = new(StringComparer.Ordinal) { "--az-command", "--pwsh-path", "--temp-dir", "--version", "--help", "-h", "-?", "-g" };
+    /// <summary>Flags the document names on purpose although no command defines them: the removed Azure CLI transport options and the retired state-file options of the migration notes, System.CommandLine's built-ins and <c>dotnet tool install -g</c>.</summary>
+    private static readonly HashSet<string> NamedButNotDefined = new(StringComparer.Ordinal)
+    {
+        "--az-command", "--pwsh-path", "--temp-dir",
+        "--state-dir", "--force-unlock", "--lock-timeout", "--max-deletes", "--allow-delete-all", "--delete-adopted", "--delete-resources",
+        "--version", "--help", "-h", "-?", "-g",
+    };
 
     private static string[] DocLines => File.ReadAllText(Path.Combine(TestPaths.RepoRoot, "docs", "cli.md")).Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
 

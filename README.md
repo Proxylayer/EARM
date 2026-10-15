@@ -19,14 +19,16 @@ at run time, and no app registration of its own unless you want interactive sign
 
 - **Declarative and idempotent**: applications, service principals, federated credentials and client secrets, groups, users, app role
   assignments and consent grants, directory roles and custom roles, administrative units, Conditional Access policies, named locations,
-  authentication strengths and contexts. A rerun updates; it never duplicates.
+  authentication strengths and contexts. A rerun finds each object again by its key in the live tenant and updates it.
 - **ARM vocabulary**: `resources[]` with `type` / `apiVersion` / `name` / `properties` / `dependsOn` / `condition` / `copy`, parameters,
   variables, user functions, outputs, `resourceId()` / `reference()` / `copyIndex()`, parameter files with Key Vault references,
   Incremental and Complete modes, **what-if** with ARM's change types.
 - **Relationships from either side**: `members`, `owners`, `memberOf`, `manager`, `appRoleAssignments`, `directoryRoles`, `assignedLicenses` are
   plain arrays in `properties`, applied after all objects exist, without cycles.
-- **Safe by construction**: a state file per deployment (ids only, safe to commit), secrets tainted and never written to state, logs or what-if,
-  state locking, tenant pinning, soft-delete awareness, a Conditional Access enforcement guard.
+- **No local state**: identity is the resource's type and `name`, resolved by a live read on every run, as in ARM. Nothing to commit, share or lock;
+  the only file EARM writes is the secure-outputs file you ask for.
+- **Safe by construction**: nothing the template does not declare is ever deleted (Complete mode only reports), replacements need confirmation,
+  secrets tainted and never written to logs or what-if, soft-delete awareness, a Conditional Access enforcement guard.
 - **Editor support**: JSON Schemas for the envelope and every resource type, installable into VS Code with one command.
 
 ## Status
@@ -37,10 +39,9 @@ Implemented (a working pre-release, see [Limitations](#limitations-v1) for what 
   `groups`, `users`, `appRoleAssignments`, `oauth2PermissionGrants`, `roleAssignments`, `roleDefinitions`, `administrativeUnits`,
   `conditionalAccess/policies`, `conditionalAccess/namedLocations`, `conditionalAccess/authenticationStrengths` and
   `conditionalAccess/authenticationContextClassReferences` (all under `Microsoft.Entra/`).
-- The verbs `deployment validate | what-if | create | show | list | delete`, `deployment operation list`, `permissions`, `schema print | install` and
-  `state unlock | forget | adopt | set-provenance`, `auth login | logout | status`.
-- Tests: about 6,100 unit and in-process tests (EArm.Tests, EArm.Providers.Tests, EArm.Graph.Tests; a warm `test.ps1` takes about 1-1.5 minutes), against fakes of Graph (an HTTP handler over an in-memory directory)
-  and of the sign-in, with about 95 % line and 90 % branch coverage ([tests/COVERAGE.md](tests/COVERAGE.md); how they are organised and reviewed: [docs/testing.md](docs/testing.md)).
+- The verbs `deployment validate | what-if | create | delete`, `permissions`, `schema print | install` and `auth login | logout | status`.
+- Tests: about 5,750 unit and in-process tests (EArm.Tests, EArm.Providers.Tests, EArm.Graph.Tests; a warm `test.ps1` takes about 1-1.5 minutes), against fakes of Graph (an HTTP handler over an in-memory directory)
+  and of the sign-in, with about 95 % line and 89 % branch coverage ([tests/COVERAGE.md](tests/COVERAGE.md); how they are organised and reviewed: [docs/testing.md](docs/testing.md)).
   The tenant-backed integration suite is gated behind `EARM_IT_TENANT` and has **not been run**: it is not part of those numbers, and a plain `test.ps1` reports it as `GATED`, not as a pass.
 
 ## Quick start
@@ -97,15 +98,21 @@ read the `what-if` first, and use a throwaway tenant while the format is in prev
 
 The application is addressed by its `name` (Graph `uniqueName`), so the second run finds and updates it. The service principal is named after the
 application's `appId`, which only exists once the application does: EARM works that out and orders the two. The child `passwordCredentials` is
-nested like an ARM child resource; changing `rotationTag` rotates the secret. More in [`samples/`](samples/README.md).
+nested like an ARM child resource; changing `rotationTag` rotates the secret. Nothing is stored between runs: the next run reads the tenant again.
+More in [`samples/`](samples/README.md).
 
 ## Install
 
 > **Renamed from EntraARM.** The project and tool used to be called EntraARM / `entraarm` and are now EARM / `earm`. If you used a pre-rename
 > checkout or tool: the global tool `entraarm` is replaced by `earm` (`deploy.ps1` uninstalls the old one); the environment variables
-> `ENTRAARM_*` became `EARM_*`; the state directory `.entraarm/` became `.earm/` (delete old state files) and `%LOCALAPPDATA%\EntraArm` became
-> `%LOCALAPPDATA%\EArm`; and the template `$schema` host `entraarm.dev` became `schema.earm.proxylayer.net`. Details:
+> `ENTRAARM_*` became `EARM_*`; `%LOCALAPPDATA%\EntraArm` became `%LOCALAPPDATA%\EArm`; and the template `$schema` host `entraarm.dev` became
+> `schema.earm.proxylayer.net`. An old `.entraarm/` or `.earm/` state directory is no longer read and can be deleted. Details:
 > [docs/cli.md](docs/cli.md#migrating-from-the-old-name).
+
+> **Coming from a version with a state file?** EARM no longer keeps one. Delete `.earm/` (or your `--state-dir`), drop the retired options from
+> your pipelines (`--state-dir`, `--max-deletes`, `--allow-delete-all`, `--delete-adopted`, `--force-unlock`, `--lock-timeout`, the `state` verbs,
+> `deployment show | list | operation list`), and read the behaviour changes (Complete mode no longer deletes, changed assignments keep the old
+> one, legacy password credentials, recreates ask) in [docs/cli.md](docs/cli.md#migrating-from-the-state-file-versions).
 
 Prerequisite on the machine that builds or runs `earm`:
 
@@ -145,12 +152,9 @@ earm deployment validate -f app.entra.json -p '@app.parameters.json'          # 
 earm permissions         -f app.entra.json -p '@app.parameters.json'          # what the identity needs (offline)
 earm deployment what-if  -f app.entra.json -p '@app.parameters.json'          # preview (read only); --exit-code-on-changes
 earm deployment create   -f app.entra.json -p '@app.parameters.json' -c       # what-if, confirm, apply
-earm deployment create   -f app.entra.json -p '@app.parameters.json' --mode Complete   # also delete what the template dropped
-earm deployment show -n app --refresh                                       # state + drift
-earm deployment delete -n app --delete-resources -y                         # tear down what the deployment created (-y: no prompt)
-earm state adopt -n app --resource-id /providers/Microsoft.Entra/groups/x --object-id <guid>   # bind an existing object
-earm state adopt --type Microsoft.Entra/groups --id <objectId> --unique-name contoso-x             # online: set the uniqueName an existing group or application lacks
-earm state set-provenance -n app --resource-id /providers/Microsoft.Entra/groups/x --provenance created   # mark an entry as created (or adopted)
+earm deployment what-if  -f app.entra.json -p '@app.parameters.json' --mode Complete   # also report (never delete) what the template no longer declares
+earm deployment create   -f app.entra.json -p '@app.parameters.json' -y       # apply; -y confirms replacements in unattended runs
+earm deployment delete   -f app.entra.json -p '@app.parameters.json'          # delete what the template declares (asks; -y: no prompt)
 earm schema install                                                         # VS Code validation of *.entra.json
 ```
 
@@ -158,59 +162,83 @@ earm schema install                                                         # VS
 |---|---|
 | `deployment validate` | Offline validation: JSON Schema, type catalog, semantic checks, expression syntax and static evaluation. Exit 2 on errors. |
 | `deployment what-if` | The changes `create` would make, in ARM's vocabulary (`+ ~ - = *`) or ARM-shaped JSON (`-o json`). Never writes. |
-| `deployment create` | Apply in dependency order; state saved after every resource; `-c` shows the what-if and asks before applying, `-y` skips that question (and the Complete-mode delete list) but never waives `--allow-delete-all`; plain `create` does not prompt. |
-| `deployment show` / `list` / `operation list` / `delete` | Inspect and remove deployments (state-backed). |
+| `deployment create` | Apply in dependency order; `-c` shows the what-if and asks before applying; a plain `create` asks only before it **replaces** objects (an immutable property changed), and `-y` skips both questions. A non-interactive run that would replace objects fails before any write without `-y`. |
+| `deployment delete` | Delete the objects the template declares, found by their live keys, in reverse dependency order, after a confirmation that lists them (`-y` skips it). |
 | `permissions` | Graph permissions and Entra roles a template needs (`--mode app\|delegated`, `-o json`). |
 | `schema print` / `install` | Emit the JSON Schemas, or install the VS Code mapping. |
-| `state unlock` / `forget` / `adopt` / `set-provenance` | Maintain state: break a lock, drop a resource (also an invalid one), adopt an existing object (or set an object's `uniqueName` with `--type/--id/--unique-name`; the older `--name` spelling is deprecated and hidden), mark an entry `created` or `adopted`. |
 
-Every verb and flag, and the exit codes (0 ok, 1 failure, 2 validation, 3 auth/preflight/tenant, 4 state lock, 5 what-if changes): [docs/cli.md](docs/cli.md).
+Every verb and flag, and the exit codes (0 ok, 1 failure, 2 validation, 3 auth/preflight, 5 changes with `--exit-code-on-changes`; 4 is retired): [docs/cli.md](docs/cli.md).
+
+## Identity without state
+
+EARM keeps **no state**: no state file, no lock, no deployment history. Like ARM, which finds an Azure resource by its type and name, EARM finds each
+declared resource **in the live tenant by a key derived from its type and `name`**, on every run. Found: update it (or leave it). Not found: create it.
+
+| Type (`Microsoft.Entra/...`) | Found by |
+|---|---|
+| `applications`, `groups` | `uniqueName` = the template `name` |
+| `users` | `userPrincipalName` = the `name` |
+| `servicePrincipals` | the `appId` of its application = the `name` |
+| `applications/federatedIdentityCredentials` | its `name` under the parent application |
+| `applications/passwordCredentials` | `displayName` `<name>#<rotationTag>` under the parent application (matched by `<name>`) |
+| `conditionalAccess/authenticationContextClassReferences` | its id (`c1`..`c99`) = the `name` |
+| `roleAssignments`, `appRoleAssignments`, `oauth2PermissionGrants` | their tuple (principal, role or resource, scope / consent type); the `guid(...)` `name` is only a label |
+| `conditionalAccess/policies`, `conditionalAccess/namedLocations`, `administrativeUnits`, custom `roleDefinitions`, custom `conditionalAccess/authenticationStrengths` | `displayName` = the `name` |
+
+What follows from it:
+
+- **A rename is a new object** (the ARM rule). Change a resource's `name` and the next run creates a new object; the old one stays in the tenant.
+  The same happens when someone renames a display-name-keyed object (a Conditional Access policy, a named location...) in the portal: it is no longer
+  found, and the next run creates a second one.
+- **Display names must be unique** for the display-name-keyed types: two live objects with the declared `displayName` fail the resource with
+  `AmbiguousMatch` (EARM never guesses which one you meant).
+- **No lock.** Nothing stops two runs at once. For the uniquely keyed types that is harmless, but two concurrent runs of one template can both create a
+  display-name-keyed object, leaving duplicates (and `AmbiguousMatch` afterwards). Serialise runs of one template in your pipeline.
+- **No tenant assertion**: the tenant is the one the credential signs in to (`earm auth status`).
+- **Cancelled runs** leave only the secure-outputs file and the logs. A Ctrl+C stops new work, but a write already sent to Graph completes and is
+  reported (and its one-time secret saved); the next run finds everything by key and converges.
+
+Full key table and details: [docs/engine.md](docs/engine.md#identity-without-state).
 
 ## Modes
 
-- **Incremental** (default): creates and updates the declared resources. Only the properties you declare are applied (Graph is merge-PATCH; omitted
-  properties are untouched). A resource that disappeared from the template is *detached* from the state with a warning; the object stays.
-- **Complete**: additionally deletes the objects **the state file records** that the template no longer declares, in reverse dependency order (edges first,
-  then groups, applications, users, policies…). It is **not** a "delete everything in the tenant that is not in the template" mode: an object that is not in the
-  state file is never deleted, however it got there, and with no state file (a fresh checkout, another `--state-dir`) Complete mode deletes nothing.
-  Preview it with `what-if --mode Complete`; security groups are deleted permanently and say so.
+- **Incremental** (default): creates and updates the declared resources; nothing else is touched. A resource removed from the template is simply no
+  longer managed: the object stays in the tenant.
+- **Complete**: the same writes, plus a read-only **orphan report**: the live objects of the types the template declares that no declared resource
+  matches are listed ("Not declared in the template (reported only; never deleted)", `orphans[]` in JSON). Complete mode **never deletes**, which is
+  where EARM deliberately differs from ARM. The listing is bounded: only the types the template declares; the whole (small) collection for Conditional
+  Access policies, named locations, custom authentication strengths, custom role definitions, administrative units and authentication contexts; the
+  credentials and service principals of the declared applications; the assignments and grants of the declared principals. Applications, groups and
+  users are tenant-wide and never listed.
 
-Complete mode is guarded, because a mistyped template path or an emptied file must not wipe a deployment:
+To remove objects, run **`earm deployment delete -f <template>`**: it deletes the objects the template declares (found by key, reverse dependency order,
+after a confirmation that lists them). To remove an object a template no longer declares, put it back in a template (a scratch template that declares
+just it is enough) and delete with that, or remove it in the portal / Graph. The signed-in principal and service principals owned by another organization
+are never deleted or replaced (`ProtectedObject`). Details: [docs/cli.md](docs/cli.md#deployment-delete), [docs/whatif.md](docs/whatif.md#orphan-report).
 
-| Guard | Behaviour |
-|---|---|
-| Confirmation | A Complete-mode `create` lists what it would delete (resource id, type, live `displayName`, `[adopted]`) and asks `Delete them as part of this deployment? (y/n)`; `-y` skips the question, and without `-y` a non-interactive standard input stops the run (exit 1, nothing started). |
-| `--allow-delete-all` | Required, even with `-y`, when the template declares **no resources** while the state manages some, or when the run would delete more than `--max-deletes` objects (default 25). |
-| `--max-deletes <n>` | An estimate before the run **and a hard limit during it**: the executor counts every state-driven delete (orphans and the old objects of recreates) and stops with `DeleteLimitExceeded` at the limit, so a run can never delete more than the number that was confirmed, even when the estimate was low (for example resource names only known at deployment time). `0` allows none; `--allow-delete-all` lifts it. |
-| Adopted objects | An object that existed before the deployment managed it (found by key without a state entry, or pinned with `state adopt`) is recorded as `adopted` and **never deleted** (warning `AdoptedObjectNotDeleted`, the entry stays) unless `--delete-adopted`. `AdoptedExistingObject` warns when an object is taken over. A state file written **before provenance was recorded** has no `provenance` on its entries and **all of them read as adopted**, so a Complete-mode run keeps everything (`AdoptedObjectNotDeleted`, "no provenance record"): mark the ones EARM created with `earm state set-provenance -n <name> --resource-id <id> --provenance created`. |
-| Re-verification | Every state-driven delete re-reads the object by its key and refuses (`StateEntryMismatch`) when the live id is not the pinned one; the signed-in principal and first-party service principals are never deleted (`ProtectedObject`). |
+> **Retained assignments (security-relevant).** A role assignment, app role assignment or consent grant is identified by its tuple. When the template
+> changes the principal, the role or the scope, EARM creates the new assignment and **keeps the old one, which still grants access**. It is reported in
+> every what-if and result as `orphan: retained` (warning `AssignmentRetained`), in both modes, and **never removed** by EARM. Review those rows whenever
+> you change an assignment, and remove the old access yourself. Details: [docs/engine.md](docs/engine.md#retained-assignments).
 
-The same rules apply to `deployment delete --delete-resources`. Details: [docs/cli.md](docs/cli.md#deployment-what-if-and-deployment-create),
-[docs/engine.md](docs/engine.md#state-earmenginestate), [docs/diagnostics.md](docs/diagnostics.md#engine-codes-what-if-and-create).
+**Relationships**: target-side lists (`members`, `owners`) are authoritative and remove what they do not list; principal-side lists (`memberOf`,
+`appRoleAssignments`, `directoryRoles`, `ownerOf`, `administrativeUnits`) are **ensure-only**: they add, and never remove an entry you drop
+([docs/edges.md](docs/edges.md)).
 
-## State
-
-Per deployment, `./.earm/state/<name>.json` next to the template (`--state-dir` or `EARM_STATE_DIR` to move it). It maps each resource id
-(`/providers/Microsoft.Entra/applications/contoso-dev-web`) to the Graph object id, so displayName-named objects stay bound, and records the edges the deployment
-created. It holds ids and hashes only (the serializer refuses to write a secret), is written atomically after **every** resource (a failed run leaves an accurate
-partial record), and is pinned to the tenant (a different tenant is refused with exit 3).
-
-**The state must be persisted and shared.** It is the only memory of what the deployment manages: commit it with the template, or keep it in a directory every
-operator and pipeline run can reach (`--state-dir` / `EARM_STATE_DIR`). A run that starts without it finds existing objects by key again (and records them as
-`adopted`, so Complete mode will not delete them), but it cannot delete what it no longer knows about, and two runs that do not see each other's state will race. A state is
-read as a hint, not an authority: ids are shape-checked, every pinned read is verified against the key, and a state edited to point at another object is refused
-(`StateEntryMismatch`). There is no state backend other than the file (a blob backend is planned).
-
-**A damaged state is repairable.** Loading a state checks every entry (a Graph id that is a GUID, a `key` that is the key its resource id implies, well-formed relationship ids); an entry that fails is refused by every verb that would act on the tenant (`StateEntryInvalid`, naming the entry). The two verbs that exist to get out of that situation read the state **leniently**: `state forget` removes the bad entry, and `deployment delete` (without `--delete-resources`) removes the state file; neither ever uses a leniently loaded state to touch the tenant (`delete --delete-resources` loads strictly). Trust model of the file itself (what a hand-edited state can and cannot do): [SECURITY.md](SECURITY.md#the-state-file-is-trusted-for-which-objects-it-names).
-
-**Locking.** A mutating run (`deployment create`, `deployment delete`, `state forget`, `state adopt`) takes `<name>.lock` in the state directory first, **then** loads the state, so a concurrent run cannot
-act on a stale read. `create` waits `--lock-timeout` seconds (default 10) for another run to finish, the other verbs fail at once; either way a lock that stays held is exit 4. `what-if` never locks: it reads an unlocked snapshot and says so. A lock left by a crashed run
-is taken over after an hour or broken with `state unlock` / `--force-unlock`.
+**Replacements ask first.** An immutable change on a cheap type (an assignment, a grant, a credential, a named location's kind) is applied as delete,
+then create. `create` lists those objects and asks `Replace them? (y/n)`; `-y` confirms, and without `-y` a non-interactive run fails before anything is
+written (`RecreateNotConfirmed`, exit 1). On applications, groups and users an immutable change is an error instead.
 
 ## Secrets
 
 `securestring` and `secureObject` parameters, `passwordProfile.password` and `secretText` are tainted: they may flow into resource properties and `securestring`
-outputs only, are `***` in every rendering, and never reach state, logs, what-if or diagnostics. A parameter file can pull a secret from **Azure Key Vault**
+outputs only, are `***` in every rendering, and never reach logs, what-if or diagnostics.
+
+**Secrets are write-once.** Graph never returns a secret, so EARM cannot compare one: a secret-bearing value is sent when the object is created and never
+compared or re-sent on an existing object (a rerun would otherwise always change it). Changing a user's `passwordProfile.password` in the template does not
+reset the password; rotate a client secret with `rotationTag`.
+
+A parameter file can pull a secret from **Azure Key Vault**
 (`"reference": { "keyVault": { "id": … }, "secretName": … }`, read over HTTPS from the vault with the signed-in identity's Key Vault token). A client secret's text is returned by Graph exactly once:
 read it from a `securestring` output with `--secure-outputs-file ./secure-outputs.json` (an owner-only file, checked before anything is deployed) or `--reveal-secure-outputs`
 in the run that creates or rotates it.
@@ -222,7 +250,8 @@ Treat that file like a password store: it is the only copy, it is in clear text,
 
 ## What-if
 
-`deployment what-if` (and `create -c`) shows `+ Create`, `~ Modify` with property deltas, `- Delete` (Complete mode), `= NoChange` and `* Ignore`, a `?` for values only
+`deployment what-if` (and `create -c`) shows `+ Create`, `~ Modify` with property deltas (a replacement says the object is deleted and created again), `= NoChange` and
+`* Ignore` (the orphan report rows are `Ignore` rows marked `orphan: undeclared` / `orphan: retained`), a `?` for values only
 known at deployment time and a `!` for a change that cannot be applied as planned; `-o json` mirrors ARM's what-if shape. `--exit-code-on-changes` makes it a CI
 drift check (exit 5). Details and golden fixtures: [docs/whatif.md](docs/whatif.md).
 
@@ -241,10 +270,10 @@ Manifest tables and warnings: [docs/permissions.md](docs/permissions.md).
 - **Deferred**: gallery / template application instantiation, application logo, SAML token-signing certificates, group settings templates and lifecycle policies,
   B2B invitations (guests), devices, PIM eligibility, the authentication methods policy, cross-tenant access, custom security attributes, entitlement management, terms of use,
   nested deployments.
-- **Later (v1.1+)**: property-level `copy`, `--rollback-on-error`, `export` (template from a tenant), `deployment validate --online`, a blob state backend, user password
-  reset, administrative-unit scoped role members, a published `$schema` URL (use `earm schema install` meanwhile).
+- **Later (v1.1+)**: property-level `copy`, `--rollback-on-error`, `export` (template from a tenant), `deployment validate --online`, user password
+  reset, name-prefix scoping for the orphan report of applications, groups and users, administrative-unit scoped role members, a published `$schema` URL (use `earm schema install` meanwhile).
 - Graph is eventually consistent: a freshly created object can be invisible for seconds, so dependent calls are retried for up to 90 s. Mail-enabled security groups cannot be
-  created through Graph (adopt only). Tenant policies (an application management policy blocking secrets, licensing) can refuse a call; the Graph error is reported per resource.
+  created through Graph (an existing one is managed when it is found by its `uniqueName`). Tenant policies (an application management policy blocking secrets, licensing) can refuse a call; the Graph error is reported per resource.
 - **Input limits** (a violation is a diagnostic, never a hang or a crash): a template file and a parameter file are each read only up to **8 MiB** (`InputTooLarge`, exit 1; also more than 2,000,000 JSON values), a variable may read at most **128** levels of other variables (`VariableChainTooDeep`), and expression length and depth, value sizes, `copy` expansion (800 per resource), evaluation steps and wall-clock time (`--evaluation-timeout`, default 60 s per evaluation) are bounded too: [docs/format.md](docs/format.md#evaluation-limits).
 - Sign-in is Azure.Identity only (no Azure CLI session, no Graph SDK). The delegated permission mode and a few Graph behaviours are verified by the gated integration
   tests (`EARM_IT_TENANT`), not by the unit tests.
@@ -258,7 +287,7 @@ Manifest tables and warnings: [docs/permissions.md](docs/permissions.md).
 | [docs/permissions.md](docs/permissions.md) | The permission manifest and `earm permissions` |
 | [docs/cli.md](docs/cli.md) | Every verb and flag, exit codes |
 | [docs/whatif.md](docs/whatif.md) | What-if output, symbols, JSON shape, golden fixtures |
-| [docs/engine.md](docs/engine.md) | Pipeline, dependency graph, edge pass, state, the provider contract |
+| [docs/engine.md](docs/engine.md) | Pipeline, dependency graph, edge pass, identity without state, the orphan report, the provider contract |
 | [docs/providers.md](docs/providers.md) | Writing and testing a resource provider, with a worked example per type family |
 | [docs/diagnostics.md](docs/diagnostics.md) | Every diagnostic code |
 | [docs/testing.md](docs/testing.md) | The test suites, `test.ps1` modes, coverage, mutation-style review notes, the gated integration tests |
@@ -273,7 +302,7 @@ Manifest tables and warnings: [docs/permissions.md](docs/permissions.md).
 | `src/EArm.Cli` | The `earm` command-line tool (System.CommandLine verbs, output rendering, schema installer) |
 | `src/EArm.Core` | Template loading, validation, diagnostics, the resource type catalog and the embedded JSON Schemas |
 | `src/EArm.Expressions` | The template expression language: parser, evaluator, deployment, string, array, object, lambda and Entra functions |
-| `src/EArm.Engine` | Planner, dependency graph, executor, what-if, state, the provider contract |
+| `src/EArm.Engine` | Planner, dependency graph, executor, what-if, orphan report, the provider contract |
 | `src/EArm.Providers` | One provider per resource type family (applications, groups, users, directory roles, Conditional Access, ...) |
 | `src/EArm.Graph` | The Graph transport: `HttpClient`-based Graph client, Azure.Identity token provider and `earm auth` plumbing, Key Vault reader, retry and error mapping |
 | `schemas/2026-10-01` | The JSON Schemas of the template format (envelope, parameters and one per resource type); the folder names the template-schema version, not the resource `apiVersion` |

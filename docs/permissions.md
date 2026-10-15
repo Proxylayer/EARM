@@ -25,6 +25,10 @@ conditions with the offline context, and asks every resource provider what it ne
 Resources whose name depends on another resource (a service principal named `[reference('app').appId]`) are computed from their declaration
 and the references it contains. Resources whose `condition` evaluates to `false` offline are left out, and a count is reported in the notes.
 
+The list covers both deployment modes and `deployment delete`: Complete mode never deletes, it only reads the declared types for its orphan report
+(which the read side of the permissions above allows), and deleting the declared objects needs the same permissions as managing them. EARM keeps no
+state, so there is no extra permission for reading back what an earlier run created: every run reads the tenant by key.
+
 ## Modes
 
 | `--mode` | Credentials | Output |

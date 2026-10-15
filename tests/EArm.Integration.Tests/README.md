@@ -9,7 +9,7 @@ Two kinds of tests live here:
 
 | Kind | Classes | Purpose |
 |---|---|---|
-| Scenarios | `ApplicationScenarioTests`, `DirectoryScenarioTests`, `ConditionalAccessScenarioTests`, `RoleScenarioTests`, `AdoptScenarioTests`, `CleanupScenarioTests` | Create, what-if (NoChange), drift, Complete-mode delete, secure outputs, edges and adopt, run through the real CLI in-process (`Program.BuildRootCommand`). |
+| Scenarios | `ApplicationScenarioTests`, `DirectoryScenarioTests`, `ConditionalAccessScenarioTests`, `RoleScenarioTests`, `CleanupScenarioTests` | Create, what-if (NoChange), drift, Complete mode (report only, never deletes), `deployment delete -f` (reverse dependency order), secure outputs and edges, run through the real CLI in-process (`Program.BuildRootCommand`). EARM keeps no state, so every scenario finds its objects by key, as a real run does. |
 | Verification probes (`[Trait("Category","Verify")]`) | `GraphBehaviourProbes` | One test per open verification TODO. Each exercises one real Graph behaviour the code assumes and asserts the assumption. |
 
 ## Prerequisites
@@ -43,10 +43,10 @@ Two kinds of tests live here:
    | Test group | Graph application permissions |
    |---|---|
    | Every test (preflight, cleanup guard) | `Organization.Read.All`, `Application.ReadWrite.All`, `Group.ReadWrite.All`, `User.ReadWrite.All`, `AdministrativeUnit.ReadWrite.All`, `Policy.Read.All`, `RoleManagement.Read.Directory` (the sweep lists and deletes what a run created) |
-   | `ApplicationScenarioTests`, adopt (application) | `Application.ReadWrite.All` |
+   | `ApplicationScenarioTests` | `Application.ReadWrite.All` |
    | `DirectoryScenarioTests` (groups, users, guest) | `User.ReadWrite.All`, `Group.ReadWrite.All`, `GroupMember.ReadWrite.All`, `User.Read.All` |
    | `ConditionalAccessScenarioTests` | `Policy.ReadWrite.ConditionalAccess`, `Policy.Read.All`, `Application.Read.All`, `Group.ReadWrite.All`; strengths additionally `Policy.ReadWrite.AuthenticationMethod` |
-   | `RoleScenarioTests`, adopt (administrative unit) | `RoleManagement.ReadWrite.Directory`, `AdministrativeUnit.ReadWrite.All`, `Group.ReadWrite.All`, `AppRoleAssignment.ReadWrite.All`, `DelegatedPermissionGrant.ReadWrite.All`, `Application.Read.All`, `Application.ReadWrite.All` |
+   | `RoleScenarioTests` | `RoleManagement.ReadWrite.Directory`, `AdministrativeUnit.ReadWrite.All`, `Group.ReadWrite.All`, `AppRoleAssignment.ReadWrite.All`, `DelegatedPermissionGrant.ReadWrite.All`, `Application.Read.All`, `Application.ReadWrite.All` |
    | Probes | the union of the above; `B4` (user restore) additionally documents whether `User.DeleteRestore.All` is needed |
    | Purging soft-deleted objects (cleanup) | the type's `*.ReadWrite.All`; users may need `User.DeleteRestore.All` |
 5. **Test users and guests.** Users are created and deleted by the tests; they need only the verified domain
@@ -61,7 +61,7 @@ Two kinds of tests live here:
 | `EARM_IT_PREFIX` | no | Name prefix of every object the run creates, 10-40 chars of `a-z0-9-` starting with a letter. Default `earm-it-<6 hex>`, new for every run. The cleanup guard only ever touches objects whose name starts with it. |
 | `EARM_IT_DOMAIN` | for user tests | A verified domain for user principal names, for example `contoso.onmicrosoft.com`. Tests that create users skip without it. |
 | `EARM_IT_ALLOW_CA` | `=1` | Required for every Conditional Access **policy**, authentication **strength** and **context** test, and for the orders variant. Named locations do not need it. |
-| `EARM_IT_ALLOW_ROLES` | `=1` | Required for the tests that write directory roles, administrative units, role assignments, app role assignments and consent grants (all of `RoleScenarioTests`, the administrative-unit adopt test, the orders variant). |
+| `EARM_IT_ALLOW_ROLES` | `=1` | Required for the tests that write directory roles, administrative units, role assignments, app role assignments and consent grants (all of `RoleScenarioTests`, including the orders variant). |
 | `EARM_IT_SWEEP` | `=1` | Enables `It_Cleanup_ManualSweepOfTheConfiguredPrefix` (see Manual cleanup). |
 
 ## Running
@@ -90,12 +90,10 @@ and run sequentially: they share the sign-in and the cleanup guard, and the in-p
 | `It_Users_GuestWithExtSuffixIsReadByReference` | a guest user in the tenant |
 | `It_NamedLocations_IpAndCountryRoundTrip` | - |
 | `It_ConditionalAccess_ReportOnlyPolicyWithLocationAndGroup` | `ALLOW_CA` |
-| `It_ConditionalAccess_StrengthAndContextLifecycleWithCompleteModeDeleteOrder` | `ALLOW_CA` |
+| `It_ConditionalAccess_StrengthAndContextLifecycleWithDeleteOrder` | `ALLOW_CA` |
 | `It_Roles_CustomRoleAdministrativeUnitAssignmentAndDirectoryRolesEdge` | `ALLOW_ROLES` |
 | `It_Roles_AppRoleAssignmentsAndOAuth2GrantsAgainstMicrosoftGraph` | `ALLOW_ROLES` |
-| `It_Roles_OrdersSampleVariantCompleteModeDeleteRoundTrip` | `DOMAIN`, `ALLOW_CA`, `ALLOW_ROLES` |
-| `It_Adopt_UniqueNameBackfillOnHandCreatedApplication` | - |
-| `It_Adopt_ObjectIdPinsDisplayNameKeyedAdministrativeUnit` | `ALLOW_ROLES` |
+| `It_Roles_OrdersSampleVariantCompleteModeAndDeleteRoundTrip` | `DOMAIN`, `ALLOW_CA`, `ALLOW_ROLES` |
 | `It_Cleanup_SweepRemovesTrackedGroupWithThePrefix` | - |
 | `It_Cleanup_ManualSweepOfTheConfiguredPrefix` | `SWEEP=1` |
 | `It_Probe_A` ... `It_Probe_G` (14 probes) | A, B1, B2, B3, D, F1-F4, G: -; B4: `DOMAIN`; C, E1, E2: `ALLOW_CA` |
@@ -117,19 +115,23 @@ and run sequentially: they share the sign-in and the cleanup guard, and the in-p
 
 ## Cleanup guarantees
 
-Every run has one prefix (`Fixture.Prefix`). At teardown (`IntegrationFixture.DisposeAsync`), also when tests failed:
+Every run has one prefix (`Fixture.Prefix`), and every object a test creates carries it (the templates take a `prefix` parameter). The scenarios
+remove their own deployments with `earm deployment delete -f <template> -p prefix=<prefix> -y` (the production delete: the objects the template
+declares, found by key, in reverse dependency order). There is no state directory to clean up. At teardown (`IntegrationFixture.DisposeAsync`), also
+when tests failed, the fixture removes whatever is left:
 
-1. **Deployments.** Every state file in the run's private state directory (`%TEMP%\earm-it\<prefix>\state`) is loaded and its objects
-   are deleted in reverse dependency order with the production `DeploymentDeleter.DeleteAllAsync` (continue on error).
-2. **Prefix sweep** (`TenantCleanup`): objects created directly through Graph and tracked with `Fixture.Track(...)`, then everything whose
+1. **Prefix sweep** (`TenantCleanup`): objects created directly through Graph and tracked with `Fixture.Track(...)`, then everything whose
    `displayName`, `userPrincipalName` or `uniqueName` starts with the prefix, in dependency order: Conditional Access policies (not
    enforced ones), authentication strengths, contexts (disabled first), named locations, role assignments of owned principals and roles,
    custom role definitions, administrative units, groups, users, service principals (also by the `appId` of owned applications), applications.
    Every delete re-checks the prefix right before it is sent and refuses otherwise. A prefix must be at least 10 characters.
-3. **Purge**: the soft-deleted copies (`/directory/deletedItems/microsoft.graph.{application,servicePrincipal,group,user,administrativeUnit}`)
+2. **Purge**: the soft-deleted copies (`/directory/deletedItems/microsoft.graph.{application,servicePrincipal,group,user,administrativeUnit}`)
    with the prefix are removed with `DELETE /directory/deletedItems/{id}`, so no name stays reserved for 30 days.
-4. **Report**: `%TEMP%\earm-it\<prefix>\cleanup.log` and a diagnostic message list every action. Anything that could not be removed is
-   a `LEFTOVER` line and makes the fixture teardown fail; the state directory is kept then.
+3. **Report**: `%TEMP%\earm-it\<prefix>\cleanup.log` and a diagnostic message list every action. Anything that could not be removed is
+   a `LEFTOVER` line and makes the fixture teardown fail.
+
+The sweep is what catches the objects `deployment delete` cannot: an object a test renamed (a new key is a new object, the old one stays), the old
+assignment of a changed tuple (retained, never removed by EARM), and anything a failed run or a test left behind.
 
 ### Manual cleanup
 
@@ -150,7 +152,8 @@ GET    https://graph.microsoft.com/v1.0/applications?$filter=startswith(displayN
 DELETE https://graph.microsoft.com/v1.0/applications/<id>
 DELETE https://graph.microsoft.com/v1.0/directory/deletedItems/<id>      # purge the soft-deleted copy
 ```
-or with the tool itself, from the kept state directory: `earm deployment delete -n <deployment> --state-dir "%TEMP%\earm-it\<prefix>\state" --delete-resources -y`.
+or with the tool itself, for the objects a scenario template declares: `earm deployment delete -f tests/EArm.Integration.Tests/Templates/<template> -p prefix=<prefix> -y`
+(add the scenario's other `-p` values, such as the domain). That removes only what the template declares under that prefix; follow it with the sweep above for the rest.
 Conditional Access policies, strengths and named locations are under *Entra ID > Security > Conditional Access* in the portal.
 
 ## How to read probe failures

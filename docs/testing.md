@@ -51,8 +51,8 @@ in, search for the class name: `grep -rl "class Review1C_BudgetTests" tests`.
 
 | Project | What it tests | Seam |
 |---|---|---|
-| `EArm.Tests` | Core (loader, validator, schemas, parameters), the expression language, the engine (planner, executor, state, edge pass, what-if), the CLI in-process | `CliRunner` drives `Program.InvokeAsync` with captured output; `CliSandbox` adds a private state directory, a fake sign-in and a fake Graph behind the real `HttpClient` stack |
-| `EArm.Providers.Tests` | One provider per type family: rules (pure), lifecycle against the fake directory, failure matrix, edge kinds, secret leaks | `ProviderHost` (real providers + `FakeGraphClient` over `FakeDirectory`, in-memory state) |
+| `EArm.Tests` | Core (loader, validator, schemas, parameters), the expression language, the engine (planner, executor, edge pass, orphan report, what-if), the CLI in-process (including `NoLocalStateTests`: what-if, create and delete write no file but the requested secure outputs file) | `CliRunner` drives `Program.InvokeAsync` with captured output; `CliSandbox` adds a private working directory, a fake sign-in and a fake Graph behind the real `HttpClient` stack |
+| `EArm.Providers.Tests` | One provider per type family: rules (pure), lifecycle against the fake directory, failure matrix, edge kinds, secret leaks | `ProviderHost` (real providers + `FakeGraphClient` over `FakeDirectory`) |
 | `EArm.Graph.Tests` | The transport: `HttpGraphClient` (paging, `$batch`, retry, limits), auth, preflight, Key Vault, secret redaction, owner-only files | `ScriptedHttpHandler` and a loopback server; no real network |
 | `EArm.TestSupport` | Not a test project: `FakeDirectory` (an in-memory Microsoft Graph with the behaviours that matter: alternate keys, `$filter`, `Prefer: create-if-missing`, soft delete, paging, `$batch`), `FakeGraphClient`, `ScriptedGraphHandler`, `EchoProvider`, fake token providers | built as a reference, never run |
 | `EArm.Integration.Tests` | The real thing against a dev tenant: scenarios through the real CLI, plus probes that verify Graph behaviours the fakes assume | gated, see below |
@@ -69,7 +69,7 @@ rendering change and review the diff ([whatif.md](whatif.md#golden-fixtures)). `
 - Prefer proofs that do not read a clock: file stamps are back-dated (`SchemaInstallerTests.SecondRun_RewritesNothing`), clocks are injected (`TimeProvider`,
   `FakeTimeProvider`, a fixed clock for password rotation), delays are replaced by a no-delay provider, and "linear, not quadratic" is asserted through the evaluation
   budget's step counter where the work is charged (`Review1C_BudgetTests` union / intersection, `Review3J_VariableChainTests`). Some behaviour is genuinely about
-  wall-clock time (the evaluation timeout, a regex timeout, a lock wait, a hung save abandoned after a timeout, requests that must overlap to prove parallelism), and
+  wall-clock time (the evaluation timeout, a regex timeout, the wait for a held secure-outputs file, requests that must overlap to prove parallelism), and
   there a test does read the clock or sleep. Those tests carry `[Trait("Category", "Timing")]` (see "Timing tests"); a test that waits for something to happen
   polls or awaits it with a generous limit instead of sleeping a guessed time, and an upper bound is a hang guard, not a benchmark. The remaining fixed
   `Task.Delay` calls only hold something open and assert a negative that a loaded machine cannot turn into a failure (a waiter is still waiting, a lock is still held).
@@ -84,11 +84,11 @@ mutant it exists to kill. Those classes carry the review round in their name, so
 
 | Prefix | Round | Examples |
 |---|---|---|
-| `Review1A_`..`Review1D_` | The first review wave: run safety, state trust, transport limits, console safety, provider fidelity | `Review1A_StateTrustTests`, `Review1D_CaFlagTests` (the Conditional Access guard reaches both what-if and create) |
+| `Review1A_`..`Review1D_` | The first review wave: run safety, identity by live key, transport limits, console safety, provider fidelity | `Review1A_IdentityTests`, `Review1D_CaFlagTests` (the Conditional Access guard reaches both what-if and create) |
 | `Review2E_` | Alternate-key wire format, adoption, diagnostic caps, app-only token behaviour | `Review2E_AlternateKeyWireTests` |
-| `Review2F_` | Flag wiring through the real command line (`--parallelism`, `--continue-on-error`, `--lock-timeout`, `--on-soft-deleted-conflict`, `--result-format`, `--no-pretty-print`, `-n`, `--state-dir`, `--exit-code-on-changes`), `tenant()` / `environment()` / signed-in principal reaching the engine, state-file redaction at the sink, the edge executor's verb, `$batch` threshold (20 / 21) and sub-response handling, the rotation boundary (`<` versus `<=` at exactly `rotateBeforeDays`), docs/cli.md versus the command tree in both directions | `Review2F_CliWiringTests`, `Review2F_StateSinkTests`, `Review2F_EdgeExecutorTests`, `Review2F_RotationBoundaryTests`, `Review2F_DocsCliParityTests` |
+| `Review2F_` | Flag wiring through the real command line (`--parallelism`, `--continue-on-error`, `--on-soft-deleted-conflict`, `--result-format`, `--no-pretty-print`, `-n`, `--exit-code-on-changes`), `tenant()` / `environment()` / signed-in principal reaching the engine, the edge executor's verb, `$batch` threshold (20 / 21) and sub-response handling, the rotation boundary (`<` versus `<=` at exactly `rotateBeforeDays`), docs/cli.md versus the command tree in both directions | `Review2F_CliWiringTests`, `Review2F_EdgeExecutorTests`, `Review2F_RotationBoundaryTests`, `Review2F_DocsCliParityTests` |
 | `Review4L_` | Repository hygiene and pinned surface: `.gitignore` patterns (textually and through `git check-ignore`), the CI workflow's safety settings, wall-clock assertions only inside `Category=Timing`, the new command-line flags and diagnostic codes pinned by name in the tree and in the documents, the `$batch` item error codes | `Review4L_RepositoryHygieneTests`, `Review4L_NewSurfaceDocsTests`, `Review4L_BatchErrorCodeTests` |
-| `Review2G_` | Quoted values of secret names in `SecretRedactor` (`password="x"`, escapes, unterminated quotes, linear time), the injectable persist timeout of `FileStateSink` (a hung state save is abandoned and reported as a state-save failure), `deployment list -n` | `Review2G_SecretRedactorQuotedValueTests`, `Review2G_StateSinkPersistTimeoutTests`, `Review2G_DeploymentListNameFilterTests` |
+| `Review2G_` | Quoted values of secret names in `SecretRedactor` (`password="x"`, escapes, unterminated quotes, linear time) | `Review2G_SecretRedactorQuotedValueTests` |
 
 A test that exposes a real defect is left failing (with the defect described in its summary) until the product is fixed; it is not skipped to hide the red.
 Known limitation of the mutation approach here: it is a manual review, not an automated mutation run (no Stryker configuration is checked in).

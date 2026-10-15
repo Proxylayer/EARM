@@ -74,17 +74,19 @@ knobs are command-line flags. Unknown top-level keys are a warning (`UnknownTopL
 
 `name` is the ARM-style key of the resource. The provider injects it into the Graph property that identifies the object;
 declaring that Graph property in `properties` too is an error unless the values are equal
-(`NameMappedPropertyConflict`).
+(`NameMappedPropertyConflict`). EARM keeps no state: every run finds the object again **by this key in the live tenant**, as ARM finds a
+resource by type and name, so changing the `name` names a different object (a rename is a new object; the old one stays). The full key
+table and its consequences are in [engine.md](engine.md#identity-without-state).
 
 | Name kind | Types | Meaning |
 |---|---|---|
-| `uniqueName` | applications, groups | Graph `uniqueName` alternate key; upsert is `PATCH /x(uniqueName='…')` with `Prefer: create-if-missing`. Immutable. A brownfield object gets one with `earm state adopt --type … --id … --unique-name …`. |
+| `uniqueName` | applications, groups | Graph `uniqueName` alternate key; upsert is `PATCH /x(uniqueName='…')` with `Prefer: create-if-missing`. Immutable. An existing object without a `uniqueName` is not found by name (an application declared with its `appId` is found by that and gets the name set, `UniqueNameNotSettable` when Graph refuses). |
 | `userPrincipalName` | users | `local@domain`. |
 | `appId` | servicePrincipals | The application (client) id GUID, or `[reference('app').appId]`. |
 | child name | federatedIdentityCredentials, passwordCredentials | `parent/child`; the child is the credential's own name. Nested children get the parent's name prepended by the loader. |
-| `displayName` | named locations, CA policies, authentication strengths, administrative units, role definitions | Looked up by `displayName` (0 hits: create, 1: pin the id in state, more than one: error; resolve with `state adopt --resource-id … --object-id …`). |
+| `displayName` | named locations, CA policies, authentication strengths, administrative units, role definitions | Looked up by `displayName` on every run (0 hits: create, 1: that object, more than one: `AmbiguousMatch`; the display name must be unique in the tenant). A display name changed outside the template is no longer found: the next run creates a second object. |
 | `id` | authenticationContextClassReferences | `c1` … `c99`; the name is the Graph id. |
-| GUID | appRoleAssignments, oauth2PermissionGrants, roleAssignments | A deterministic GUID chosen by the author with `guid(...)`, as with `Microsoft.Authorization/roleAssignments`. The Graph object is found by its composite properties and its id pinned in state; a changed composite under the same name is `Modify`/`Recreate`. |
+| GUID | appRoleAssignments, oauth2PermissionGrants, roleAssignments | A deterministic GUID chosen by the author with `guid(...)`, as with `Microsoft.Authorization/roleAssignments`. The `name` is a **label** (it gives the resource its id in the what-if and the result); the Graph object is found by its composite properties on every run. A changed composite is a **different assignment**: it is created, and the old one is retained and reported (`orphan: retained`), never removed (see [engine.md](engine.md#retained-assignments)). Only a change of a mutable property (a grant's `scope`) updates in place. |
 
 Every name segment, of every type, must be printable single-line text without leading or trailing whitespace and must not consist of dots only
 (`.`, `..`); `namePattern` and `nameKind` are checked for literal names offline and for names an expression computes (offline once the value
@@ -93,16 +95,29 @@ the text, so a name with a trailing line feed does not match. A property whose e
 the type's schema is `PropertyTypeMismatch`.
 
 The resource id is `/providers/Microsoft.Entra/<type>/<name>[/<childType>/<childName>]` (tenant scope, ARM style):
-deterministic, the key of the state file and what the what-if output prints. `resourceId('Microsoft.Entra/applications/passwordCredentials', 'app', 'ci-secret')` builds it.
+deterministic, and what the what-if output and the deployment result print. `resourceId('Microsoft.Entra/applications/passwordCredentials', 'app', 'ci-secret')` builds it.
 
 ### Differences from ARM
 
 | ARM | EARM |
 |---|---|
 | `location`, `sku`, `kind`, top-level `tags`, `identity`, `scope`, resource group and subscription | Not present: Entra objects have none of them (Graph `tags` live inside `properties`). `resourceGroup()`, `subscription()`, `managementGroup()`, `managementGroupResourceId()`, `extensionResourceId()`, `subscriptionResourceId()`, `tenantResourceId()`, `listKeys()`, `listSecrets()`, `providers()` and `pickZones()` are errors (`UnsupportedArmFunction`) with a pointer to the alternative. |
-| PUT replaces the resource | Graph is merge-PATCH: only the **declared** properties are applied; omitted ones are untouched. Arrays and nested objects are replaced whole when declared. |
+| Deployment history (`az deployment group show / list`, `operation list`); a resource is identified by type and name | **No state and no history**: nothing is stored, locally or in the tenant. Identity is the resource's type and `name`, resolved by a live read on every run, which is the ARM model; `name` maps to a Graph key ([key table](engine.md#identity-without-state)). For display-name-keyed types the key is not unique in Graph: duplicates are `AmbiguousMatch`. A rename is a new object, as in ARM. There is no lock, so concurrent runs of one template are not serialised. |
+| PUT replaces the resource | **PATCH asymmetry.** Graph is merge-PATCH at the top level: only the **declared** top-level properties are applied, omitted ones are untouched. A declared nested object is replaced whole (live-only sub-properties are sent as explicit `null`, unless Graph refuses that), and a declared array is written whole. |
+| Complete mode deletes resources of the resource group the template does not declare | Complete mode **only reports** the undeclared live objects of the declared types (bounded per type; applications, groups and users are never listed) and **never deletes**. Remove objects with `deployment delete -f` (the objects a template declares) or by hand. |
+| A changed immutable property fails the deployment (most resource providers) | Applications, groups and users fail (`ImmutablePropertyChanged`); the cheap types (assignments, grants, credentials, named location kinds) are **replaced** (delete, then create), which needs confirmation (`-y` or the prompt; a non-interactive run without `-y` fails before any write). |
+| Changing a role assignment's properties under the same name is an error | The assignment `name` is a label; the tuple is the identity. A changed tuple creates a new assignment and **keeps the old one**, which still grants access: it is reported (`orphan: retained`), never removed. |
+| Every PUT sends the secrets of the resource | Secrets are **write-once** on an existing object: a `secretText` / `passwordProfile.password` is sent at creation and never compared or re-sent (Graph cannot return it, so a rerun would otherwise always change). Rotate client secrets with `rotationTag`. |
+| Child relationships are separate resources with their own lifecycle | Relationship arrays are declarable from either side ([edges.md](edges.md)): target-side lists (`members`, `owners`) are authoritative and prune; principal-side lists (`memberOf`, `appRoleAssignments`, `directoryRoles`, ...) only add, never remove. |
+| Resources start as soon as their own dependencies finish; a failure lets independent resources finish | **Level-batched**: the dependency graph is cut into levels and each level runs as a batch (`--parallelism` inside it). By default a failure **stops at the batch boundary** (fail-fast; later batches are skipped); `--continue-on-error` keeps independent branches going. |
+| `--rollback-on-error` | Not available (planned). A failed run leaves what it applied; a rerun converges. |
+| Type names such as `Microsoft.Network/virtualNetworks/subnets` are parent/child | `conditionalAccess/policies`, `conditionalAccess/namedLocations`, `conditionalAccess/authenticationStrengths` and `conditionalAccess/authenticationContextClassReferences` are **pseudo-child** type names: top-level resources with a one-segment `name`, not children of a `conditionalAccess` resource. |
+| `apiVersion` is the resource provider's REST version | `apiVersion` is the format version: `2026-10-01-preview` (Graph v1.0) or `2026-10-01-preview.beta` (Graph beta, passthrough, no normalisation guarantees). |
+| `reference()` and `list*()` may not be used in `name` or `dependsOn` | Allowed: a name such as `[reference('app').appId]` is a **symbolic name** resolved before its batch ([engine.md](engine.md#symbolic-names)). |
+| Secure outputs are never returned | `securestring` / `secureObject` outputs are `***` unless `--reveal-secure-outputs`, or written to an owner-only file with `--secure-outputs-file`. |
+| `az deployment` exit codes (0 success, 1 error, 2 command-line parse error, 3 resource not found) | 0 success, 1 failure (usage errors included), 2 validation, 3 authentication / preflight, 5 `--exit-code-on-changes`; 4 is retired ([cli.md](cli.md#exit-codes)). |
 | Implicit parent dependency of a child must be explicit | Inferred for nested children (a superset of the ARM rule). |
-| `existing` resources | `reference(resourceId('Microsoft.Entra/…', 'name'), '2026-10-01-preview')` looks up an object that is not in the template (no dependency; an error when not found). |
+| `existing` resources; `reference(id, apiVersion)` reads any resource | `reference(resourceId('Microsoft.Entra/…', 'name'), '2026-10-01-preview')` (the form **with** an `apiVersion`) always means an object that is **not** in the template: no dependency, an error when not found. Reference a template resource without the `apiVersion`. |
 | Relationships live in separate resources | Arrays inside `properties`, declarable from either side; see [edges.md](edges.md). |
 | Nested and linked deployments (`Microsoft.Resources/deployments`, `templateLink`) | Not supported: a template is deployed on its own. Split the work into several templates and pass values between them through parameter files. |
 | `copy` in `variables` (variable iteration) and property-level `copy` | Not supported. A `copy` block in `variables` is an `InvalidCopy` error (it is never read as a variable named `copy`); build arrays with `map(range(0, n), lambda('i', ...))` instead. |
@@ -153,7 +168,7 @@ enumerations. In short:
   `null` (except where the overlay says Graph refuses that, `nullable`).
 - **Arrays of scalars** (`identifierUris`, `tags`, `redirectUris`, `builtInControls`, `members`) are compared as sets and written whole.
 - **Arrays of objects** are compared by a member key (`id` for `appRoles` and `oauth2PermissionScopes`, `cidrAddress` for `ipRanges`)
-  and written whole. An omitted app role or scope `id` is derived deterministically (UUIDv5 of `uniqueName` and `value`) and recorded in state.
+  and written whole. An omitted app role or scope `id` is derived deterministically (UUIDv5 of `uniqueName` and `value`), so every run computes the same id.
 - **Passthrough**: every object keeps `additionalProperties: true`. A property the schema does not list is still sent to
   Graph unchanged; it is simply not validated or documented.
 - **EARM-only properties** (never sent to Graph): `rotationTag` and `rotateBeforeDays` on `passwordCredentials` (see below),
@@ -239,7 +254,7 @@ only as parameter defaults.
 
 `securestring` / `secureObject` parameters, `secretText`, `passwordProfile.password` and anything computed from them are *tainted*:
 they may flow into resource properties and `securestring` / `secureObject` outputs only (not into names, `condition`, `copy.count`,
-`dependsOn` or plain outputs, which are written to state and logs). They are `***` in what-if, logs and diagnostics; the plain text
+`dependsOn` or plain outputs, which are printed in what-if, results and logs). They are `***` in what-if, logs and diagnostics; the plain text
 exists only in Graph request bodies and in `--reveal-secure-outputs` / `--secure-outputs-file`.
 
 ### Evaluation limits
@@ -285,8 +300,7 @@ A template file and a parameter file are each read only up to **8 MiB (8,388,608
 (exit code 1) from its size, before it is read, and the read itself stops at the limit for a file that reports no size. A document may also hold
 at most **2,000,000 JSON values** (objects, arrays and leaves); they are counted in one cheap pass over the text before anything is built, so a
 file of millions of tiny nodes is refused without allocating its tree. Files must be UTF-8 (a byte-order mark is accepted); UTF-16 and UTF-32
-are named as such instead of failing with a byte-level syntax error. A directory passed as the template file is reported as a directory. The
-state file has its own limit (see the state documentation).
+are named as such instead of failing with a byte-level syntax error. A directory passed as the template file is reported as a directory.
 
 ## Parameters and parameter files
 

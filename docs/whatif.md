@@ -5,7 +5,7 @@ make, in the human-readable text form and in the ARM-shaped JSON form. The rende
 `src/EArm.Engine/WhatIf/`; the CLI glue (`-o`, colours, `--no-pretty-print`, exit codes) in
 `src/EArm.Cli/Output/WhatIfWriter.cs` and `src/EArm.Cli/Commands/DeploymentRunner.cs`.
 
-Nothing in a what-if is written to the tenant or to the state. The what-if shown by `create -c` is the plan the
+Nothing in a what-if is written to the tenant or to the local disk (EARM keeps no state: every resource is found by its live key). The what-if shown by `create -c` is the plan the
 executor then applies (expansion, dependency graph and batches are computed once); the executor still re-reads each
 resource right before writing it (docs/engine.md, pipeline step 6), so a confirmed what-if cannot go stale.
 
@@ -260,14 +260,14 @@ with `--exit-code-on-changes`).
 | `--exit-code-on-changes` | `what-if`, `create` | `what-if` / `create --what-if`: exit `5` when the what-if contains any `Create`, `Modify` or `Delete` row, or any edge add / remove (`WhatIfReport.HasChanges`). `NoChange` and `Ignore` rows (orphan report rows included) do not count. `create` (with or without `-c`): exit `5` when the deployment succeeded and applied such a change (`DeploymentResult.HasChanges`); a failure exits `1`. |
 | `--result-format FullResourcePayloads\|ResourceIdOnly` | `what-if`, `create` | Default `FullResourcePayloads`. `ResourceIdOnly` drops payloads and deltas from both formats. |
 | `--no-pretty-print` | `what-if`, `create` | Compact JSON (`-o json`). |
-| `--what-if` | `create` | Alias of `deployment what-if`: same output and exit codes, never locks or writes the state. |
+| `--what-if` | `create` | Alias of `deployment what-if`: same output and exit codes, never writes. |
 | `-c` / `--confirm-with-what-if` | `create` | Prints the what-if in the selected `-o` format, asks `Are you sure you want to execute the deployment? (y/n):` and applies the same plan on `y` / `yes`. With `-o json` standard output carries one document: the what-if is embedded in the deployment result as `whatIf` (or, when the prompt is declined, in a `Failed` document with code `NotConfirmed`), and the prompt shows the what-if as text on standard error. |
 | `-y` / `--yes` | `create` | Skips the confirmation prompts: the one `-c` asks (the deployment is applied right after the what-if) and the one a plain `create` asks before it replaces objects (`Replace them? (y/n):`, after listing them on standard error). A plain `create` without replacements never prompts. Without `-y`, standard input must be interactive: without it the CLI prints `Standard input is not interactive; pass --yes to confirm.` and `Deployment not started.` to standard error and exits `1` without writing anything (`RecreateNotConfirmed` for a replacement). Answering anything but `y` / `yes` exits `1` the same way. |
 | `--verbose` | global | Also prints the payload of `NoChange` rows and the `NoEffect` deltas (and the usual debug logging on standard error). |
 
 Exit codes of the what-if path: `0` no changes or changes without `--exit-code-on-changes`,
-`5` changes with it, `2` validation failure (before anything is rendered), `3` auth / preflight / tenant mismatch,
-`1` unreadable state or a type without a provider. `create -c` continues with the `create` exit codes (`0` / `1`, or `5` with
+`5` changes with it, `2` validation failure (before anything is rendered), `3` auth / preflight / Key Vault reference,
+`1` an unreadable template or parameter file, or a type without a provider. `create -c` continues with the `create` exit codes (`0` / `1`, or `5` with
 `--exit-code-on-changes` when the applied run changed something) after the prompt.
 
 ## Golden fixtures
@@ -275,8 +275,7 @@ Exit codes of the what-if path: `0` no changes or changes without `--exit-code-o
 `tests/fixtures/whatif/` holds golden outputs generated from the engine against `FakeGraphClient` with the real
 providers (`ProviderDiscovery.CreateRegistry`) plus `EchoProvider` for catalog types without a provider. Each
 scenario is a template (`<scenario>.entra.json`), a directory seed (`<scenario>.seed.json`: entities to add per
-collection and `$ref` navigation links to post), an optional state file (`<scenario>.state.json`, the on-disk state
-shape; no scenario uses one any more) and the two expected renderings (`<scenario>.expected.txt`, `<scenario>.expected.json`, LF line endings,
+collection and `$ref` navigation links to post) and the two expected renderings (`<scenario>.expected.txt`, `<scenario>.expected.json`, LF line endings,
 UTF-8 without BOM). `scenarios.json` lists them with the deployment name, mode, tenant id, inline parameters and
 result format; `tests/fixtures/whatif/README.md` has the seed format.
 
@@ -296,7 +295,7 @@ pwsh -File test.ps1                           # confirm: the goldens now match
 ```
 
 `WhatIfGoldenTests` (`tests/EArm.Tests/Engine`) loads each scenario from `scenarios.json`, loads the template with `TemplateLoader`,
-seeds a `FakeGraphClient` from the seed file, deserializes the state with `StateSerializer.Deserialize`, plans with `PlanMode.WhatIf`
+seeds a `FakeGraphClient` from the seed file, plans with `PlanMode.WhatIf`
 (tenant id and deployment name from the manifest, `EdgeKinds = ProviderDiscovery.CreateEdgeKinds(catalog)`), builds
 `WhatIfReport.From(plan)` and compares `WhatIfText.Render` / `WhatIfJson.Serialize(WhatIfJson.Build(report, format), prettyPrint: true)`
 against the expected files after normalising line endings. With `EARM_UPDATE_GOLDENS=1` it writes the files instead of comparing. Review the

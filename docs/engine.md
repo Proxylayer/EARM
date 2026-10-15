@@ -59,12 +59,12 @@ load ──► validate ──► expand ──► graph ──► [per batch: r
      (`PropertyDelta.IsUnknown`, `ResourceChange.IsUnknown`).
    - *create* (`DeploymentExecutor`): evaluate properties → `ResolveKey` → `ReadAsync` → `Plan` →
      `CreateAsync` / `UpdateAsync` (or delete + create for `ChangeMode.Recreate`) → publish the live object →
-     `IStateSink.ResourceAppliedAsync`. `PlanMode.Create` skips the planner's read pass: the executor plans each
+     record the operation in the result. `PlanMode.Create` skips the planner's read pass: the executor plans each
      resource live right before applying it, so a what-if shown for confirmation never goes stale.
    - *evaluating properties* (`InstanceEvaluator.EvaluateProperties`, both modes) splits off the edge properties
      and **taints every leaf under the overlay's `secure` paths** (`InstanceEvaluator.TaintSecrets`:
      `passwordProfile.password`, `secretText`) exactly as a `securestring` parameter would, so a literal secret
-     in a template is `***` in what-if rows, diagnostics, logs and the state hash for every type; only
+     in a template is `***` in what-if rows, diagnostics and logs for every type; only
      `ProviderBase.BuildCreateBody` / `BuildPatchBody` reveal it. The taint is idempotent (already secret, already
      tainted-unknown and `null` leaves are left alone), so a provider may taint again in its own `Plan`.
 7. **Edge pass** after all batches and before the outputs: the relationship properties
@@ -93,7 +93,7 @@ load ──► validate ──► expand ──► graph ──► [per batch: r
   batch is `Skipped`.
 - `--continue-on-error`: only the transitive dependents of a failed resource (`DependencyGraph.TransitiveDependents`)
   are skipped; independent branches keep going. A dependent is recorded `Skipped` / `ResourceSkipped` with the
-  reason "it depends on *type 'name'*, which failed" and reported through `IStateSink.ResourceSkippedAsync` at
+  reason "it depends on *type 'name'*, which failed" at
   the start of its batch, before symbolic names are resolved: it is never attempted, its name is never
   re-evaluated (a symbolic dependent keeps its symbolic id in the result) and it never counts as a failure.
 - A `create` that comes back "already exists" (`GraphException.IsAlreadyExists`) is idempotent success: the
@@ -106,7 +106,7 @@ load ──► validate ──► expand ──► graph ──► [per batch: r
   the provider - an empty `$filter` result answers 200, never 404 - as well as a 404 or a replication-lag 400. The executor owns this wait whether
   or not the plan carries a retry policy (the CLI's never does: `HttpGraphClient` retries each call itself); with a policy each read goes through
   it with `RetryHint.Default`, so throttling and transient failures are still waited out but the replication window is never waited twice. The
-  reads are not cancellable (an object found is recorded, not orphaned); a Ctrl+C cuts the wait short to one last read. The same wait applies to
+  reads are not cancellable (an object found is reported, not lost); a Ctrl+C cuts the wait short to one last read. The same wait applies to
   a create answered "already exists" before the object is taken over. A create whose ambiguous failure hid no commit therefore reports its error
   only after the window. When the object exists the create counts as done (warning
   `CreateOutcomeUncertain`; a value Graph only returns at creation, such as a secret, is not available for it), otherwise the original error is reported.
@@ -116,11 +116,11 @@ load ──► validate ──► expand ──► graph ──► [per batch: r
   `BatchResponse.Error`.
 - **A failure after the primary write.** A provider that writes in several steps (create the object, then owners, licenses, a restore...) and fails after the first hands the partial result over
   (`ProviderException.Partial`: `UsersProvider` does it when `assignLicense` fails after `POST /users`); for any other provider the executor looks the object up by key after a failed create. Either way the
-  object, its provenance and its one-time secret (a generated password) are **recorded in the state and the secure outputs file** and the resource is reported failed (`ResourceApplyFailed`,
-  "recorded in the state"); a rerun converges instead of conflicting with an object nobody recorded.
+  object's one-time secret (a generated password) is written to **the secure outputs file** and the resource is reported failed with the object's Graph id (`ResourceApplyFailed`,
+  "the object was created (Graph id ...), but a later step failed"); a rerun finds the object by key and converges.
 - **Unexpected exceptions.** Anything not handled above (a null reference, a format error, an HTTP timeout that is not the caller's cancellation) fails **that one resource** (`ResourceApplyFailed`, `unexpected error (<type>)`):
-  parallel siblings are never cancelled by it, and the end phase (edge pass, outputs, secure outputs file, orphan report, completion record) still runs. An exception of the engine itself outside any resource aborts the run the same
-  way: the unstarted resources are recorded as skipped, the orphan report judges nothing, the run ends `Failed` with an error diagnostic, and the state is **never left `Running`**.
+  parallel siblings are never cancelled by it, and the end phase (edge pass, outputs, secure outputs file, orphan report) still runs. An exception of the engine itself outside any resource aborts the run the same
+  way: the unstarted resources are reported as skipped, the orphan report judges nothing, and the run ends `Failed` with an error diagnostic.
 - **Replacing** an object whose immutable properties changed (`ChangeMode.Recreate`: credentials, federated identity credentials, named location kinds,
   every-property-immutable types) deletes the old object, then creates it again. The old object was found by the key, so the replacement has the same key and
   identity; there is no create-first variant. (A changed **tuple** of an assignment or grant is not a replacement: the tuple is the identity, so it is a new
@@ -130,18 +130,17 @@ load ──► validate ──► expand ──► graph ──► [per batch: r
   resource fails with `RecreateNotConfirmed` before anything is deleted. The CLI plans with the read-only what-if pass first when `-y` is not given, lists the
   replacements and asks (non-interactive without `-y`: exit 1 before any write). The what-if row of a recreate says that the existing object is DELETED and created
   again (warning `DestructiveDelete`); a provider's `IDeleteWarningSource` risk is warned before the delete.
-- **The end phase records what happened regardless of the caller's cancellation, and stops writing when asked to.** After the last batch the executor runs the edge pass, evaluates the outputs, merges the secure
-  outputs file, runs the orphan report and records the completion; **recording** (state saves, one-time secrets, the completion) uses `CancellationToken.None`, so a Ctrl+C or a failed state write cannot skip the steps
-  after it. The step that **writes to the tenant again** (the edge pass) checks the caller's token **between operations**: the one in flight finishes and is recorded, nothing new is
-  started (the edge operations not started are recorded as failed "cancelled"), and the run ends `Cancelled`. A cancelled run ends with `lastStatus: Cancelled` (never stuck at `Running`), the unstarted resources recorded as skipped, and then throws
-  `OperationCanceledException`. An `IOException` / `UnauthorizedAccessException` from a state save (retried 5 times with a growing pause first) fails
-  that resource (`StateSaveFailed`: the object may exist without an entry) or adds a `StateSaveFailed` error diagnostic; it never crashes the run.
+- **The end phase reports what happened regardless of the caller's cancellation, and stops writing when asked to.** After the last batch the executor runs the edge pass, evaluates the outputs, merges the secure
+  outputs file and runs the orphan report; what only **reports** (one-time secrets, the secure outputs file, the result) uses `CancellationToken.None`, so a Ctrl+C or an I/O failure cannot skip the steps
+  after it. The step that **writes to the tenant again** (the edge pass) checks the caller's token **between operations**: the one in flight finishes and is reported, nothing new is
+  started (the edge operations not started are reported failed "cancelled"), and the run ends `Cancelled` with the unstarted resources reported as skipped, then throws
+  `OperationCanceledException`. A cancelled run leaves only the secure outputs file and the logs: see [Cancellation and in-flight writes](#cancellation-and-in-flight-writes).
 - **One-time secrets**: when `--secure-outputs-file` is set, a password credential's `secretText` (and a generated user password) is merged into the file
-  (`oneTimeSecrets` → resource id, written atomically through `OwnerOnlyFile`) right after the apply that produced it, before the state records the resource.
+  (`oneTimeSecrets` → resource id, written atomically through `OwnerOnlyFile`) right after the apply that produced it.
   `SecureOutputsFile` validates the path before the run, merges the secure outputs afterwards and never shrinks or replaces an existing file; a file that
   is not valid JSON is kept as `<file>.previous` (owner-only like the file itself). The read-merge-write runs under an exclusive handle on `<file>.lock` (released by the operating system even when a run dies; a second run waits up to 30 s), so two runs sharing one file never lose each other's one-time secret; the generated password of a user is registered with the scrubber before the request that carries it is sent.
 - **Error texts never carry a secure value**: the planner and the executor register every secure parameter value (and the tainted leaves of evaluated
-  properties and provider results) with `SecretScrubber`, and every error that reaches the state (`operations[].error`), the result, the what-if rows and the
+  properties and provider results) with `SecretScrubber`, and every error that reaches the result (`operations[].error`), the what-if rows and the
   log is passed through `SecretScrubber.Scrub` first.
 - Replication lag: an instance whose dependency was **created in this run** carries
   `RetryHint.ExpectReplicationLag`; providers put it on their write requests (`GraphRequest.Hint`) so a 404 /
@@ -271,8 +270,7 @@ mutual declarations (`user.memberOf` ↔ `group.members`) are never cycles.
   `ResolveItemAsync` (a declared item → the other side's id, collection, extras; placeholders and invalid items),
   `ReadTargetAsync` (existence, dynamic flag, collection, and the principals attached when asked),
   `ReadPrincipalAsync` (the targets a principal is attached to, read from the principal's side),
-  `AddRequest` / `RemoveRequest` (`BatchRequest`s), `RecordEntry` / `FromRecordAsync` (no longer called: edges are not
-  recorded; they go with the state subsystem), `IdentityOf` (de-duplication key), `GraphIdsOf` (the
+  `AddRequest` / `RemoveRequest` (`BatchRequest`s; a removal gets the live edge's extras, such as an assignment id), `IdentityOf` (de-duplication key), `GraphIdsOf` (the
   object ids on both sides, for the replication-lag hint; defaults to target + principal), and the flags
   `IsSingleValued`, `RejectsDynamicTargets`, `WarnOnSignedInPrincipalRemoval`, `Phase`.
 - **`EdgeDeclaration`**: one entry of one relationship property of one instance (declarer, property, index,
@@ -303,8 +301,8 @@ mutual declarations (`user.memberOf` ↔ `group.members`) are never cycles.
    flag, `ownerOf` target collection from the template or `GET /directoryObjects/{id}?$select=id`), missing edges
    are added. Nothing outside the template is removed.
 4. **Principal side is ensure-only**: a principal-side edge that is no longer declared is **never removed**, whoever created it. Only
-   an authoritative target-side set (step 2) prunes. (Earlier versions removed the edges a deployment had recorded in its state; there are
-   no records any more.)
+   an authoritative target-side set (step 2) prunes. (The state-file versions removed the edges a deployment had recorded; with no
+   records, a principal-side declaration can only add.)
 5. **`manager`** (single-valued): a declared id replaces the live manager (`PUT /users/{u}/manager/$ref`), an
    explicit `null` removes it (`DELETE`), an absent property leaves it untouched.
 6. **De-duplication**: operations are keyed by `IdentityOf(edge)`; the same edge declared from both sides (or by
@@ -333,142 +331,103 @@ mutual declarations (`user.memberOf` ↔ `group.members`) are never cycles.
    - **`manager` read answers 403.** `GET /users/{id}/manager` can be refused for an identity without `User.Read.All`:
      `ManagerReadForbidden` warning, the manager relationship is neither read nor written for that user, the run goes on.
 
-Templates without relationship properties never enter the pass: no reads, no diagnostics. Edges are not recorded in the
-state (a state file written by an earlier version may still carry `relationships`; nothing reads them).
+Templates without relationship properties never enter the pass: no reads, no diagnostics. Nothing about edges is kept between runs:
+every run reads the live relationships again.
 
 ### Adding a kind (app role assignments, directory roles)
 
 Implement `IEdgeKindHandler` with `Phase = EdgePhase.B` in `EArm.Providers`, attribute it
 `[EntraEdgeKind(EdgeKind.<Kind>)]`, and `ProviderDiscovery.CreateEdgeKinds(catalog)` (wired by `EngineServices` into
-`PlannerOptions.EdgeKinds`) registers it next to the part A kinds. Return your assignment id from the add response
-through `RecordEntry` / `FromRecordAsync` so removals can `DELETE` by id. `ResolveItemAsync` is asynchronous so name
+`PlannerOptions.EdgeKinds`) registers it next to the part A kinds. Put the assignment id of a live edge into the extras
+`ReadPrincipalAsync` / `ReadTargetAsync` return, so `RemoveRequest` can `DELETE` by id. `ResolveItemAsync` is asynchronous so name
 resolution (`resourceAppId` → service principal, `appRole` value → id, role names → template ids) happens there;
 `IdentityOf` must include the extras that distinguish assignments. Two conventions the planner relies on: the
-principal-side existence read and the tracked removals are keyed by `Edge.TargetId`, so a kind whose assignments are
+principal-side existence read is keyed by `Edge.TargetId`, so a kind whose assignments are
 not unique per target encodes the assignment in it (`{resourceId}/{appRoleId}`) and overrides `GraphIdsOf` to return
-the real object ids for the replication-lag hint; and previous state records are matched to declarations by
-`IdentityOf`, so a record may carry extras (the assignment id) a declaration cannot know. The standalone resource
+the real object ids for the replication-lag hint; and live edges are matched to declarations by
+`IdentityOf`, so a live edge may carry extras (the assignment id) a declaration cannot know. The standalone resource
 types (`Microsoft.Entra/appRoleAssignments`, `roleAssignments`) are applied in the object pass, before the edge pass,
-so a principal-side item for the same assignment finds it in place and the pass neither writes nor records it; the
-executor, the state recording and the what-if rendering need no change. Walk-through in
+so a principal-side item for the same assignment finds it in place and the pass does not write it; the
+executor and the what-if rendering need no change. Walk-through in
 [providers.md, "Adding an edge kind"](providers.md#adding-an-edge-kind).
 
-## State (`EArm.Engine.State`)
+## Identity without state
 
-One `StateFile` per deployment name, keyed by ARM-style resource id, records which Graph objects
-the deployment manages (`id` = Graph id, `key`, `parentId`, `contentHash`, `dependsOn`, `lastWriteOn`, provider
-`extra`, `relationships` for the edge pass) plus the run metadata (`tenantId`, `createdOn`, `lastDeployedOn`,
-`lastStatus` = `Running | Succeeded | Failed`, `lastMode`, `lastTemplateHash`) and the per-resource `operations` of
-the last run (`deployment operation list`). It is safe to commit: ids and hashes only. `StateSerializer` refuses to
-write an entry that carries a secret (`SecretJson`) or a deploy-time placeholder (`UnknownJson`), and
-`contentHash` (`StateHashing`) is the SHA-256 of the canonical evaluated properties with those leaves removed
-(informational: the diff is always live-vs-desired).
+EARM keeps **no local state**: no state file, no lock, no record of what a deployment created. Every run finds every declared
+resource again **in the live tenant, by its key**, exactly as ARM finds an Azure resource by its type and name. The key is derived from
+the resource's `type` and template `name` (and, for child types, its parent; for assignments, its composite properties) by
+`ProviderBase.ResolveKey`, and `IResourceProvider.ReadAsync(key, ...)` reads by that key alone. Found = update (or no change); not
+found = create.
 
-```json
-{ "schemaVersion": 1, "deploymentName": "orders-dev", "tenantId": "1111…", "createdOn": "…", "lastDeployedOn": "…",
-  "lastStatus": "Succeeded", "lastMode": "Incremental", "lastTemplateHash": "sha256:…",
-  "resources": {
-    "/providers/Microsoft.Entra/applications/contoso-dev-api":
-      { "type": "Microsoft.Entra/applications", "apiVersion": "2026-10-01-preview", "key": { "uniqueName": "contoso-dev-api" },
-        "id": "568e…", "contentHash": "sha256:…", "dependsOn": ["/providers/Microsoft.Entra/users/bg-orders@contoso.com"], "lastWriteOn": "…" },
-    "/providers/Microsoft.Entra/applications/contoso-dev-api/passwordCredentials/ci-secret":
-      { "type": "Microsoft.Entra/applications/passwordCredentials", "apiVersion": "2026-10-01-preview", "key": { "displayName": "ci-secret" },
-        "id": "<keyId>", "parentId": "568e…", "contentHash": "sha256:…", "dependsOn": ["…/applications/contoso-dev-api"],
-        "lastWriteOn": "…", "extra": { "keyId": "…", "endDateTime": "2027-10-01T00:00:00Z" } } },
-  "operations": [ { "resourceId": "…", "type": "…", "status": "Succeeded", "changeType": "Create", "batch": 2,
-                    "startedOn": "…", "finishedOn": "…", "graphId": "…" } ] }
-```
+| Type (`Microsoft.Entra/...`) | Key | Template `name` |
+|---|---|---|
+| `applications`, `groups` | `uniqueName` (Graph alternate key; case-insensitive) | the `uniqueName` |
+| `users` | `userPrincipalName` | the UPN |
+| `servicePrincipals` | `appId` of the application it instantiates | the `appId` (usually `[reference('app').appId]`) |
+| `applications/federatedIdentityCredentials` | `name` under the parent application | the credential's `name` |
+| `applications/passwordCredentials` | `displayName` `<name>#<rotationTag>` under the parent application, matched by the base name (the tag is what follows the `#`; a `#` in the name or in `rotationTag` is rejected offline) | the base name |
+| `conditionalAccess/authenticationContextClassReferences` | `id` (`c1`..`c99`) | the id |
+| `roleAssignments` | (`roleDefinitionId`, `principalId`, `directoryScopeId`) | a label (`guid(...)`); not part of the identity |
+| `appRoleAssignments` | (`principalId`, `resourceId`, `appRoleId`) | a label |
+| `oauth2PermissionGrants` | (`clientId`, `resourceId`, `consentType`, `principalId`) | a label |
+| `conditionalAccess/policies`, `conditionalAccess/namedLocations`, `administrativeUnits`, `roleDefinitions` (custom), `conditionalAccess/authenticationStrengths` (custom) | `displayName` (authentication strengths are matched client-side: Graph cannot `$filter` them by `displayName`) | the display name |
 
-- **The state is a hint, not an authority** (it is committed and can be edited; the full model is [below](#state-trust-model)). (1) **Graph ids have a shape**: `StateIdShapes` accepts a GUID for
-  directory objects, an opaque token (`[A-Za-z0-9_=-]`) for role assignments, app role assignments and OAuth2 permission grants, `c1`..`c99` for
-  authentication contexts; anything else (`me`, `../x`) fails the load with a clear error. **An entry's `key` is the key its resource id implies** (`StateKeyRules`): a name-keyed type carries exactly its `nameMapsTo` property
-  with the last name segment as value (an application may add its `appId`), a GUID-named type exactly its catalog key properties; an entry that says otherwise (`key: { "securityEnabled": "true" }` on a group with
-  a victim's id) fails the load with `StateEntryInvalid` naming the entry,. An entry without any key gets the derived key. The ids recorded under `relationships`
-  (target ids, assignment ids, principal/resource/role ids, scopes) are shape-checked at load too. (2) **A pinned read is verified** (`ProviderReads.ReadVerifiedAsync`,
-  executor and planner): the returned object's key properties (`uniqueName`, `appId`, `userPrincipalName`, `displayName`, the composite members) must match the
-  desired key, case-insensitively; a mismatch discards the pinned result, warns `StateEntryMismatch` and looks the object up by key instead, so an object
-  with another key is never PATCHed. (3) **No delete reads the state** (Complete mode only reports; `deployment delete` and the old object of a recreate are
-  found by key, and the signed-in principal and service principals with a foreign `appOwnerOrganizationId` are never deleted: `DeleteGuards`, `ProtectedObject`).
-  (4) Entries still carry `provenance` (`created` | `adopted`) and an optional `createdDateTime`; nothing reads them any more. `schemaVersion` stays 1. (5) **One object, one resource**: resource ids compare case-insensitively (Graph matches its keys that way; GUID-shaped names are lower-cased), so
-  `MyApp` → `myapp` is a rename of one resource, not a delete and a create; two declarations whose ids differ only by case are a `DuplicateResourceId`
-  error; two declarations that resolve to the same Graph object fail the second at apply time (`DuplicateGraphObject`).
-- **A rename outside the template** (a user's UPN, a group, named location or policy `displayName` changed in the portal): the pinned object no longer has the key and nothing else has it. The resource **fails** with
-  `StateEntryMismatch` ("object <id> was renamed outside the template ... restore the name, or run `earm state forget`") instead of planning a create that would duplicate the object and orphan the original; the what-if shows an
-  error row. (Composite-keyed types have no rename: a key that differs is a new object, as before.)
-- **Keys are always concrete.** A resource whose name is symbolic (`[reference('app').appId]`) is recorded under
-  its resolved id; copy iterations under their expanded ids. `FileStateSink` throws if asked to record a symbolic
-  instance. `StateSerializer.ParseResourceId(id, type)` rebuilds the identifier from a key and the entry's type
-  (no catalog needed, so unknown types still round-trip).
-- **Store** (`IStateStore` / `FileStateStore`): `<dir>/<deploymentName>.json`, written to a temp file and moved into
-  place; `LoadAsync` goes through `StateMigrator` (`schemaVersion` 1; a newer version → `StateSchemaUnsupportedException`).
-  The directory is `--state-dir`, else `EARM_STATE_DIR`, else `.earm/state` next to the template
-  (`StateDirectory.Resolve`). Deployment names are file names: `StateNames` allows `[A-Za-z0-9][A-Za-z0-9._-]*`.
-  `tests/EArm.TestSupport/InMemoryStateStore` is the in-memory counterpart (same serializer, records every save).
-  Names are matched with `\A…\z` (a trailing newline is not a name), may not end with `.` and may not be a Windows reserved device name (`CON`, `PRN`, `AUX`,
-  `NUL`, `COM1`-`COM9`, `LPT1`-`LPT9`, with or without an extension). The state directory and every state, lock and temp file must be ordinary: a symbolic link or
-  junction, or a state directory that is a file, throws `StateStoreException` (exit 1; `deployment list --state-dir <file>` is an error, not "No deployments."). A link **anywhere above** the state directory (an ancestor
-  folder: `PathSafety.FindLinkedComponent`; the entries directly under the root on Unix-like systems are skipped) is refused too, and so is a link above the folder of the secure outputs file. A state file over 16 MiB and a lock file over 1 MiB
-  are refused / not read (`StateStoreException`). Reads of the state allow a concurrent writer (`FileShare.ReadWrite | Delete`, three retries) and the atomic replace retries a refusal, so a reader and a saver never collide on Windows.
-  The resolved directory is logged at Debug; a directory outside the user profile, the current directory and the template folder is warned about. Every state command
-  reports `IOException` / `UnauthorizedAccessException` as a one-line message with exit 1.
-- **Lock**: `<deploymentName>.lock` created with `FileMode.CreateNew` holding pid/host/user/UTC time and a random lock id; `LockAsync`
-  waits up to the given time (`--lock-timeout`, 10 s) then throws `StateLockedException` (CLI exit 4). The holder rewrites a **heartbeat** timestamp every
-  30 s (real time) while it runs, so a long run is never stale. A lock whose newest timestamp (heartbeat, else acquisition) is older than one hour is taken over
-  with a warning, **unless** another process of that pid still runs on this host (checked with the process start time, so a reused pid does not count; only for
-  up to 24 h). A lock whose holder is a **process of this host that demonstrably no longer runs** is taken over **at once**, whatever its age. The takeover is serialised: the lock file is first renamed to a unique `.stale`
-  name (only one taker can win the rename), judged there (still the content that was judged abandoned?) and deleted, or put back untouched when it changed (a holder that heartbeated, or another taker's new lock), so two takers can never
-  both end up holding. The holder's **heartbeat** rewrites the file in place through one open handle after checking its `lockId`, so a lock that was deleted (`state unlock`) stays deleted and a lock another holder owns is never rewritten; a
-  **release** deletes the file only while it still carries the lease's own `lockId` (after `state unlock` the old run never deletes the next holder's lock).
-  `state unlock -n <name>` / `--force-unlock` break it. **The lock is taken before the state is read** (`create`, `delete`, `state forget`, `state adopt`:
-  lock → load state → preflight → tenant pin → plan), so two runs never plan against the same stale state; `what-if` never locks (it never writes) and says
-  it read an unlocked snapshot.
-- **Tenant pin**: the CLI calls `StateFile.EnsureTenant(preflight tenant)` after preflight; a state written for
-  another tenant throws `TenantMismatchException` (exit 3). A state without a tenant adopts the current one.
-- **Sink** (`FileStateSink : IStateSink`): `BeginAsync` marks the run `Running` (operations cleared); every
-  `ResourceAppliedAsync` upserts the entry and **saves after every resource**; `ResourceFailedAsync` records the
-  (redacted) error and keeps the previous entry; skipped/ignored resources are recorded too;
-  `ResourceEdgesFailedAsync` records an edge failure (edges themselves are no longer recorded: the executor never calls `ResourceEdgesAppliedAsync`,
-  `ResourceDetachedAsync` or `ResourceDeletedAsync` any more); `CompletedAsync` sets `lastStatus` /
-  `lastDeployedOn` / `lastMode` / `lastTemplateHash`. A crash leaves `lastStatus: Running` and the entries written so far.
-  **Recording is not cancellable**: every record after `BeginAsync` describes work that already happened, so the sink
-  saves it under its own 30-second bound (`FileStateSink.PersistTimeout`) and the executor passes `CancellationToken.None`;
-  a Ctrl+C right after a Graph write therefore still records that object (a generated secret or key id is never
-  orphaned), while cancellation keeps stopping new work between resources and batches. **A write in flight is not
-  aborted either**: `HttpGraphClient` honours the caller's token for a `POST` / `PATCH` / `PUT` / `DELETE` only until
-  the request is sent (token, connection slot, retry waits); once it is on the wire it runs to completion, bounded by
-  the request timeout (`GraphOptions.Timeout`, 120 s; a timeout is reported as an ambiguous failure, not as a
-  cancellation), and its answer - a created object, a one-time secret - is returned and recorded (secure outputs file,
-  then state) before the cancellation takes effect. Reads stay cancellable at once. When the cancellation reaches a
-  provider **between** two of its requests (after its first write committed), the executor looks the object up by key
-  once more, uncancellably, and records it (the resource is reported failed: "cancelled while the object was being
-  created"); when nothing is found the create never happened and the resource is skipped. The CLI gives this end
-  phase time to finish: `Program.ProcessTerminationTimeout` is 5 minutes instead of System.CommandLine's 2-second
-  default (one request timeout for the write, one for the follow-up lookup, the 30 s state-save bound, with margin;
-  `null` is not an option, it would disable the cancellation token and Ctrl+C would kill the process at once).
-  `UsersProvider` treats a cancellation of its `assignLicense` step like any failure after `POST /users`: the user and
-  its generated password go out as `ProviderException.Partial` and are recorded. Not covered: a multi-chunk `$batch`
-  that is cancelled between chunks throws away the per-item results of the chunks already sent (the edges are read
-  back on the next run). The executor also passes the pinned Graph id to
-  `ReadAsync` (`ExecuteOptions.State`); a 404 on the pinned id is drift: the provider falls back to the key, the
-  resource is planned as `Create` if nothing is found, and the sink re-pins the entry.
-- **No delete is driven by the state.** Complete mode only reports undeclared objects, and `deployment delete` finds the declared objects by
-  key from the template (see [Orphan report and `deployment delete`](#orphan-report-and-deployment-delete)). The state is write-only for the
-  engine apart from the extra data of unchanged resources; it goes away with the state subsystem.
+Consequences, all deliberate:
 
-### State trust model
+- **Rename = new object** (the ARM rule). Changing a resource's `name` in the template names a different object: the new one is created and
+  the old one is left alone. It is not found by `deployment delete` any more (the template no longer declares it); Complete mode lists it
+  where its type is listed ([Orphan report](#orphan-report-and-deployment-delete)). An object renamed **outside** the template (a policy's
+  `displayName` changed in the portal, a user's UPN changed) is no longer found either: the next run creates a second object and the
+  renamed one stays. There is no record that could connect the two.
+- **Display names must be unique for display-name-keyed types.** With no state to say which object is meant, two live objects with the
+  declared `displayName` fail the resource with `AmbiguousMatch` (the message lists their ids); EARM never picks one.
+- **Changed assignment tuple = new assignment.** A role assignment, app role assignment or grant whose principal, role, resource or scope
+  changed is a different object: it is created and the old one is **retained** (see [Retained assignments](#retained-assignments)).
+- **No concurrency control.** There is no lock. Two concurrent runs of one template are harmless for the uniquely keyed types (the second write
+  conflicts with, or finds, the first one's object), but for the display-name-keyed types both runs can read "not found" and both create:
+  the result is two objects with one display name and `AmbiguousMatch` on every later run until one is deleted. Serialise runs of one
+  template in the pipeline.
+- **No tenant assertion.** The tenant is the one the credential signs in to (`earm auth status`, `tenant()`); nothing remembers a previous one.
+- **One object, one resource**: resource ids compare case-insensitively (Graph matches its keys that way; GUID-shaped names are lower-cased), so
+  `MyApp` → `myapp` is the same resource; two declarations whose ids differ only by case are a `DuplicateResourceId` error; two declarations that
+  resolve to the same Graph object fail the second at apply time (`DuplicateGraphObject`).
+- **Keys are always concrete.** A resource whose name is symbolic (`[reference('app').appId]`) is read under its resolved name once its input exists;
+  until then what-if shows it as `(deploy-time)`.
 
-The state file is **not cryptographically protected** and EARM does not pretend otherwise: it is a plain JSON file in a directory the user chose, committed to a repository by design. Anyone who can write it can make EARM believe that an
-object belongs to a deployment. What EARM does about that, and what it cannot do:
+### Retained assignments
 
-| What | Defence |
-|---|---|
-| Re-pointing an entry (`id`) at somebody else's object | The entry's `key` must be the key its resource id implies (load error `StateEntryInvalid`). Identity is resolved live by key, and nothing is deleted on the strength of an entry: Complete mode only reports, `deployment delete` works from the template. |
-| Recorded edge ids (`relationships`) | Shape-checked at load; never read (principal-side edges are ensure-only, nothing is removed because it was recorded). |
-| A pinned id that does not match the key | Ignored (the object is looked up by key); never PATCHed; a renamed object fails the resource (`StateEntryMismatch`). |
-| **An attacker who writes a *consistent* entry** (the true key and id of a real object, `provenance: created`, a copied `createdDateTime`) | Harmless for deletes: no delete reads the state. |
+> **Security-relevant.** When a role assignment, app role assignment or OAuth2 permission grant changes its tuple (another role, another
+> principal, another scope or resource), EARM creates the new assignment and **keeps the old one**. The old assignment **still grants access**.
+> EARM reports it, in both modes, as an orphan row `orphan: retained` with an `AssignmentRetained` warning ("retained: no longer declared; still
+> grants access"), in the what-if and in the deployment result (`orphans[]`), and **never removes it**. Review those rows after every change to
+> an assignment and remove what should no longer grant access yourself (portal, Graph, or a scratch template with `deployment delete -f`).
 
-Therefore: keep the state in a **trusted location** (a private, access-controlled storage or a repository branch with review), do not take state files from pull requests of untrusted authors, and protect `.earm/state` the way you protect the pipeline that deploys: for a Git repository add `.earm/state/` to **CODEOWNERS** so a change of a state file needs the review of the deployment owners,
-and protect the branch that the deployment runs from. A tampered file that fails the integrity rules is refused loudly; a consistent forgery is only visible in review.
+The same applies to an assignment simply dropped from the template: it stays, and is reported as retained while its principal is still declared.
+The report covers the assignments of the principals (grants: the clients) the template declares; an assignment of a principal the template no
+longer mentions at all is not listed.
+
+### Cancellation and in-flight writes
+
+There is nothing to save on cancel except what the user asked for: a cancelled (or crashed) run leaves **only the secure outputs file and the
+logs**. Ctrl+C stops new work between resources, batches and edge operations; it never aborts a write in flight:
+
+- `HttpGraphClient` honours the caller's token for a `POST` / `PATCH` / `PUT` / `DELETE` only until the request is sent (token, connection slot,
+  retry waits); once it is on the wire it runs to completion, bounded by the request timeout (`GraphOptions.Timeout`, 120 s; a timeout is an
+  ambiguous failure, not a cancellation). Its answer (a created object, a one-time secret) is returned and **reported** in the result, and a
+  one-time secret is written to the secure outputs file, before the cancellation takes effect. Reads stay cancellable at once.
+- When the cancellation reaches a provider **between** two of its requests (after its first write committed), the executor looks the object up by
+  key once more, uncancellably, and reports it (the resource is failed: "cancelled while the object was being created"); when nothing is found the
+  create never happened and the resource is skipped.
+- The end phase (edge pass, outputs, secure outputs file, orphan report) runs with `CancellationToken.None` for what only reports, and checks the
+  caller's token between edge operations: the one in flight finishes and is reported, the unstarted ones are reported failed "cancelled", and the
+  run ends `Cancelled` (unstarted resources reported as skipped) and throws `OperationCanceledException`.
+- The CLI gives this end phase time to finish: `Program.ProcessTerminationTimeout` is 5 minutes instead of System.CommandLine's 2-second default
+  (one request timeout for the write, one for the follow-up lookup, with margin).
+- `UsersProvider` treats a cancellation of its `assignLicense` step like any failure after `POST /users`: the user and its generated password go
+  out as `ProviderException.Partial` (password into the secure outputs file). Not covered: a multi-chunk `$batch` that is cancelled between chunks
+  throws away the per-item results of the chunks already sent (the edges are read back on the next run).
+
+A rerun converges: everything the cancelled run wrote is found again by key.
 
 ## Orphan report and `deployment delete`
 
@@ -489,7 +448,7 @@ run (what-if: an error row or an unresolved key; executor: not succeeded) or its
 owned by another organization are kept) and the provider's `IDeleteWarningSource` risk (groups: distribution lists and mail-enabled security groups, which Learn
 does not list as restorable). After the confirmation `DeleteAsync` re-reads each object by key (it must be the listed one), deletes it through the provider inside
 the retry policy (a 404 counts as gone) and stops at the first failure unless `continueOnError`; a delete in flight is never cancelled, a Ctrl+C skips the rest.
-No state is read or written.
+Nothing is read from or written to the local disk.
 
 ## Key Vault parameter references (`EArm.Engine.KeyVault`)
 
@@ -514,12 +473,12 @@ public interface IResourceProvider
     IReadOnlyList<RelationshipSpec> Relationships { get; }      // edge properties (applied by the edge pass)
     Task PrepareAsync(ResourceInstance desired, IGraphClient g, CancellationToken ct);  // default no-op: sugar + live validation before the key
     ResourceKey ResolveKey(ResourceInstance desired);           // from name / parent / composite properties
-    Task<ExistingResource?> ReadAsync(ResourceKey key, string? stateId, IGraphClient g, CancellationToken ct);
+    Task<ExistingResource?> ReadAsync(ResourceKey key, IGraphClient g, CancellationToken ct);   // by key only: no stored id
     ResourceChange Plan(ResourceInstance desired, ExistingResource? existing, PlanOptions o);
     bool CreateIsRepeatable { get; }                            // default false: only an upsert (PATCH + create-if-missing) may be repeated after an unknown outcome
     Task<AppliedResource> CreateAsync(ResourceInstance desired, IGraphClient g, CancellationToken ct);
     Task<AppliedResource> UpdateAsync(ResourceInstance desired, ExistingResource existing, ResourceChange change, IGraphClient g, CancellationToken ct);
-    Task DeleteAsync(StateEntry entry, IGraphClient g, CancellationToken ct);
+    Task DeleteAsync(ResourceKey key, ExistingResource live, IGraphClient g, CancellationToken ct);  // the object just read by key
 }
 ```
 
@@ -532,8 +491,8 @@ public interface IResourceProvider
   **unknown leaves** (`UnknownJson`); never use `JsonNode.DeepClone` on them (`JsonValues.Clone` /
   `SecretJson.Clone`).
 - **A create or update that writes in several steps** (create the object, then owners, licenses, a restore, a federated credential...) must not lose what it already did when a later step fails: throw
-  `new ProviderException(code, message, id) { Partial = appliedSoFar }` (the `AppliedResource` of the object as far as it got, including its one-time secrets). The executor records the object, its provenance and its
-  one-time secret and reports the resource failed; a provider that does not do this is covered by a re-read by key after a failed create (the object is recorded, but a value Graph only returned in the lost response,
+  `new ProviderException(code, message, id) { Partial = appliedSoFar }` (the `AppliedResource` of the object as far as it got, including its one-time secrets). The executor writes its
+  one-time secret to the secure outputs file and reports the resource failed with its Graph id; a provider that does not do this is covered by a re-read by key after a failed create (the object is reported, but a value Graph only returned in the lost response,
   such as a generated password, is gone). `UsersProvider` does it for `assignLicense`; the other providers' post-create steps (group owners and licenses, restore, ...) rely on the re-read until they adopt `Partial`.
   `CreateIsRepeatable` says whether the create is an upsert (`ProviderBase`: `uniqueName`- and id-keyed types and federated credentials); any other create is never repeated by the executor's retry policy after a 5xx or a lost connection.
 - `PrepareAsync` runs on the evaluated instance right before `ResolveKey`, in the planner (what-if) and the
@@ -547,14 +506,11 @@ public interface IResourceProvider
 - `ExistingResource`: `GraphId`, `Properties` (after `stripOnRead`, the diff view) and `Raw` (what
   `reference()` returns).
 - `AppliedResource`: `GraphId`, the `Live` object to publish (may carry secret leaves such as a new
-  `secretText`), the `Key`, and `Extra` data for the state file (never a secret or a placeholder; the sink refuses
-  both). `Warnings` are non-fatal observations of the apply (`ProviderWarning(Code, Message)`); the executor reports each as a warning diagnostic against the resource
-  (see [providers.md](providers.md#review-1d-behaviours)). On a `NoChange` the executor republishes `ExistingResource.Raw` and carries the entry's recorded `extra`
-  forward unchanged, so provider data written at create time (derived ids) survives reruns.
-- `PlanOptions`: deployment-wide knobs for `Plan` (`Mode`, `PlanMode`, `AllowCaEnforce`, `OnSoftDeletedConflict`)
-  plus `State`, the deployment's state before the run, for providers whose live object cannot carry everything the
-  diff needs (no provider reads it any more: password credentials carry their `rotationTag` in the live `displayName`).
-  Read-only for providers.
+  `secretText`), the `Key`, and optional `Extra` data for the executor (a password credential's `keyId`, a user's `generatedPassword` flag; never a secret or a placeholder). `Warnings` are non-fatal observations of the apply (`ProviderWarning(Code, Message)`); the executor reports each as a warning diagnostic against the resource
+  (see [providers.md](providers.md#review-1d-behaviours)). On a `NoChange` the executor republishes `ExistingResource.Raw`; nothing is carried from an earlier run.
+- `PlanOptions`: deployment-wide knobs for `Plan` (`Mode`, `PlanMode`, `AllowCaEnforce`, `OnSoftDeletedConflict`).
+  Read-only for providers. There is no earlier-run input: whatever the diff needs must be on the live object (password credentials
+  carry their `rotationTag` in the live `displayName` for that reason).
 - `LiveSecrets`: the marker contract for one-time secrets (`secretText` / `secretTextAvailable`) between a provider's
   published live object and the output evaluation (pipeline step 8).
 - `ResourceChange` / `PropertyDelta`: ARM what-if vocabulary (`Create | Modify | Delete | NoChange | Ignore`,
@@ -603,10 +559,8 @@ provider code such as `AmbiguousMatch`) for non-Graph failures; let `GraphExcept
   `Writes`) and `FakeFailureScript` (replication lag, 429, 403, 5xx, "already exists", transport failures). It does
   not retry; pass a `RetryPolicy` with a no-op `IDelayProvider` through `PlannerOptions.RetryPolicy`.
 - `EchoProvider`: a generic catalog-driven provider (`EchoProvider.RegistryForCatalog(catalog)` registers one
-  per type) so planner and executor tests run end to end without the real providers. It reads the pinned Graph id
-  first (any name kind) and falls back to the key.
-- `InMemoryStateStore`: an `IStateStore` over memory that round-trips every save through `StateSerializer` and
-  keeps the saved documents (`Saves`) for "saved after every resource" assertions.
+  per type) so planner and executor tests run end to end without the real providers. It reads by the overlay's key kind.
+- `DeleteTarget`: builds the `ResourceKey` / `ExistingResource` pair a provider's `DeleteAsync` takes, for provider delete tests.
 - `ScriptedGraphHandler` and `FakeJwtTokenProvider`: an `HttpMessageHandler` that records requests and replays scripted
   HTTP responses (match on method, URL and body), and a token provider with chosen claims or a sign-in failure; the CLI tests
   inject both through `ServiceOverrides` (no environment variables).

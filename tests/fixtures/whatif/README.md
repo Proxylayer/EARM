@@ -10,10 +10,9 @@ compare after normalising `\r\n` to `\n`.
 |---|---|
 | `<scenario>.entra.json` | The template. Parameters come from `scenarios.json` (inline). |
 | `<scenario>.seed.json` | The fake directory before the what-if (see below). |
-| `<scenario>.state.json` | Optional. The deployment's state file in the on-disk shape (`StateSerializer.Deserialize(json, deploymentName)`), keyed by the manifest's `deploymentName`. |
 | `<scenario>.expected.txt` | `WhatIfText.Render(report, writer, new WhatIfTextOptions(resultFormat))` with `writer.NewLine = "\n"`, no colours. |
 | `<scenario>.expected.json` | `WhatIfJson.Serialize(WhatIfJson.Build(report, resultFormat), prettyPrint: true)` plus a trailing newline (relaxed escaping: quotes and non-ASCII raw). |
-| `scenarios.json` | The manifest: `name`, `deploymentName` (the plan's deployment name; the inputs' file stem), `mode`, `resultFormat`, `tenantId`, `template`, `seed`, `state` (or `null`), `parameters` (name → value), `expectedText`, `expectedJson`. A rendering-only scenario (`modify-resource-id-only`) reuses another scenario's inputs. |
+| `scenarios.json` | The manifest: `name`, `deploymentName` (the plan's deployment name; the inputs' file stem), `mode`, `resultFormat`, `tenantId`, `template`, `seed`, `parameters` (name → value), `expectedText`, `expectedJson`. A rendering-only scenario (`modify-resource-id-only`) reuses another scenario's inputs. |
 
 ## Seed format
 
@@ -28,7 +27,8 @@ An array applied in order to a fresh `FakeGraphClient`:
 ```
 
 - `collection` + `entity`: `client.Directory.Add(collection, entity)`. Every entity carries an explicit `id` so the
-  output is deterministic.
+  output is deterministic. The seed is the whole input besides the template: EARM keeps no state, so the what-if finds each
+  declared resource in the seeded directory by its key, exactly as a real run finds it in the tenant.
 - `ref` + `id` (+ `method`, default `POST`): a navigation link, posted (or put) through the client as
   `{ "@odata.id": "https://graph.microsoft.com/v1.0/directoryObjects/<id>" }`. Call `client.ClearRequests()` after
   seeding so the what-if's "no writes" assertions start clean.
@@ -39,7 +39,7 @@ An array applied in order to a fresh `FakeGraphClient`:
 registry  = ProviderDiscovery.CreateRegistry(catalog) + new EchoProvider(definition, catalog) for every catalog type the registry lacks
 planner   = new DeploymentPlanner(registry, client, new PlannerOptions { DeploymentName = <deploymentName>, TenantId = <tenantId>, Catalog = catalog, EdgeKinds = ProviderDiscovery.CreateEdgeKinds(catalog) }, NullLogger<DeploymentPlanner>.Instance)
 document  = new TemplateLoader(catalog).LoadAsync(<template>, ParameterSet.Empty.WithInline(...), ct)
-plan      = planner.PlanAsync(document, state, <mode>, PlanMode.WhatIf, ct)
+plan      = planner.PlanAsync(document, <mode>, PlanMode.WhatIf, ct)
 report    = WhatIfReport.From(plan)
 ```
 

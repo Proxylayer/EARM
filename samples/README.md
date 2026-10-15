@@ -26,7 +26,9 @@ earm deployment create  -f samples/app-with-sp-and-secret.entra.json -p '@sample
 Notes:
 
 - The names and domains (`contoso`, `bg-orders@contoso.com`, `203.0.113.0/24`) are placeholders: change the prefixes and domains before you deploy. A
-  rerun with the same names updates the same objects; `-n` chooses the state file name (default: the template's file name).
+  rerun with the same names finds and updates the same objects in the tenant (EARM keeps no state file); renaming a resource creates a new object and
+  leaves the old one. `-n` is only a label in the output (default: the template's file name). Remove what a sample created with
+  `earm deployment delete -f <template> -p '@<parameters>'`.
 - `orders-api.parameters.json` references a Key Vault secret (`contoso-kv` / `bg-initial`). Offline validation never reads it; for a real run replace
   it with `{ "value": "…" }` through `-p initialPassword=…` or point it at a vault you can read.
 - Conditional Access policies in both samples are `enabledForReportingButNotEnforced`: report-only. Switching one to `enabled` needs `--allow-ca-enforce`.

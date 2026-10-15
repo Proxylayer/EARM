@@ -43,9 +43,9 @@ Environment: `EARM_AUTH`, `EARM_TENANT_ID`, `EARM_CLIENT_ID`, `EARM_EVALUATION_T
 | Code | Meaning |
 |---|---|
 | 0 | Success (with `--exit-code-on-changes`: `what-if` planned no change, `create` succeeded and wrote nothing). |
-| 1 | Deployment or operation failure; a template, parameter file or state file that cannot be loaded; a malformed argument or a usage error; a type without a provider; a refusal (confirmation declined, non-interactive without `--yes`, a replacement that was not confirmed: `RecreateNotConfirmed`); an **unexpected error**, printed as one line `Unexpected error (<type>): <message>` (the full exception only with `--debug` / `EARM_DEBUG=1`), a file access problem (`Access denied: ...`, `A file operation failed ...`) or running out of memory. |
+| 1 | Deployment or operation failure; a template or parameter file that cannot be loaded; a malformed argument or a usage error; a type without a provider; a refusal (confirmation declined, non-interactive without `--yes`, a replacement that was not confirmed: `RecreateNotConfirmed`); an **unexpected error**, printed as one line `Unexpected error (<type>): <message>` (the full exception only with `--debug` / `EARM_DEBUG=1`), a file access problem (`Access denied: ...`, `A file operation failed ...`) or running out of memory. |
 | 2 | Validation failure: the template has errors (offline validation, expansion or the dependency graph). |
-| 3 | Authentication, preflight or tenant failure: no credential signs in, a Graph token that is rejected, an unreadable Key Vault reference. |
+| 3 | Authentication or preflight failure: no credential signs in, a Graph token that is rejected, an unreadable Key Vault reference. |
 | 5 | `--exit-code-on-changes`: `what-if` (and `create --what-if`) planned a Create, Modify or Delete (or an edge add or remove); `create` **succeeded** and applied at least one (a failed `create` exits 1). Orphan report rows never count: they are reported, never written. A secret-bearing property of an existing object is never compared, so it never counts either. |
 
 Code four is retired: it meant a locked local state, and EARM keeps no local state. It is not reused, so the other codes keep their meaning.
@@ -128,8 +128,9 @@ no errors (warnings allowed), 2 with errors, 1 when a file cannot be loaded. Eve
 
 ### `deployment what-if` and `deployment create`
 
-`what-if` reads the tenant and prints what `create` would do; it never writes and never locks the state. `create` applies the template in
-dependency order, recording every resource in the state after each operation.
+`what-if` reads the tenant and prints what `create` would do; it never writes. `create` applies the template in dependency order. Neither keeps
+anything on the local disk: every resource is found again on every run by its **live key** (see [Identity without state](engine.md#identity-without-state)),
+and the only file a run writes is the `--secure-outputs-file` you name.
 
 | Option | Verb | Meaning |
 |---|---|---|
@@ -146,13 +147,18 @@ dependency order, recording every resource in the state after each operation.
 | `-y`, `--yes` | `create` | Skip the confirmations: the one `--confirm-with-what-if` asks (the deployment is applied right after the what-if), and the one a plain `create` asks before it **replaces** objects (an immutable property changed: delete, then create again). Without `-y`, standard input must be interactive for either question; a non-interactive `create` that would replace objects fails before any write (`RecreateNotConfirmed`, exit 1). A plain `create` without replacements never prompts. |
 | `--continue-on-error` | `create` | Keep deploying resources that do not depend on a failed one (default: stop at the batch boundary). |
 | `--reveal-secure-outputs` | `create` | Print `securestring` / `secureObject` outputs in clear text instead of `***`. |
-| `--secure-outputs-file <path>` | `create` | Write the secure outputs in clear text to a file with owner-only permissions. The file is checked **before** anything is deployed (a directory, a missing folder, a read-only file or a symbolic link stops the run: exit 1, "Deployment not started."). One-time secrets (a password credential's `secretText`, a generated user password) are written to it **immediately** after the apply that produced them, under the reserved top-level key `oneTimeSecrets` (by resource id), so a crash, Ctrl+C or failed state save cannot lose them. A rerun **merges** into an existing file (keys that are not superseded stay) and never replaces it with a smaller one; a run with no secure values does not touch the file at all. |
+| `--secure-outputs-file <path>` | `create` | Write the secure outputs in clear text to a file with owner-only permissions. The file is checked **before** anything is deployed (a directory, a missing folder, a read-only file or a symbolic link stops the run: exit 1, "Deployment not started."). One-time secrets (a password credential's `secretText`, a generated user password) are written to it **immediately** after the apply that produced them, under the reserved top-level key `oneTimeSecrets` (by resource id), so a crash or Ctrl+C cannot lose them. A rerun **merges** into an existing file (keys that are not superseded stay) and never replaces it with a smaller one; a run with no secure values does not touch the file at all. |
 
-Before anything is planned, the CLI runs offline validation (exit 2) and, for `create`, checks `--secure-outputs-file` (exit 1), then takes the state
-lock (exit 4), **then** loads the state (exit 1 when unreadable: a symbolic link or junction as state directory, as **any folder above it** or as state file, a state file that is not valid or over 16 MiB, a
-Graph id that is not a GUID, an entry whose `key` is not the key its resource id implies or whose recorded relationship ids are malformed: `StateEntryInvalid`, repair with `state forget`), runs the preflight (acquires a token, reads its tenant and principal, one `GET /organization`; exit 3), checks the state's tenant
-(exit 3 on a mismatch) and resolves Key Vault parameter references (exit 3). `what-if` never locks: it reads the state as an unlocked snapshot and says so on
-stderr. Rendering is described in [whatif.md](whatif.md), the pipeline in [engine.md](engine.md).
+Before anything is planned, `create` checks `--secure-outputs-file` (exit 1); then both verbs load the parameters and the template (exit 1), run offline
+validation (exit 2, before any sign-in), run the preflight (acquires a token, reads its tenant and principal, one `GET /organization`; exit 3) and resolve
+Key Vault parameter references (exit 3). There is no lock and no tenant assertion: the tenant is the one the credential signs in to (`earm auth status` shows it).
+Rendering is described in [whatif.md](whatif.md), the pipeline in [engine.md](engine.md).
+
+**No lock.** Nothing serialises two runs. Two concurrent `create` runs of one template are safe for the types found by a unique key (applications and groups
+by `uniqueName`, users by UPN, service principals by `appId`, assignments by their tuple: the second write fails or finds the first run's object), but for the
+types found by `displayName` (Conditional Access policies, named locations, administrative units, custom role definitions, authentication strengths) both runs
+can see "not found" and **both create**, leaving two objects with one display name; every later run then fails with `AmbiguousMatch` until one is deleted.
+Serialise runs of one template in your pipeline (a concurrency group, a single agent).
 
 **Replacements need confirmation.** A `create` that would replace objects (an immutable property changed on a type that is deleted and created again:
 assignments, grants, credentials, named location kinds...) lists them on stderr (resource id, type, Graph id) and asks `Replace them? (y/n):` unless `-y`.
@@ -166,7 +172,7 @@ The deployment result (`-o json`) carries `orphans[]`: `{ "resourceId", "type", 
 the orphan report (the table output lists them under "Not declared in the template (reported only; never deleted)"). Orphans do not affect the status or the
 exit code. The former `detached` and `deleted` counts are gone.
 
-With `-o json` the standard output of a verb that fails **before** it has anything else to report (a preflight failure, exit 3; an unreadable state; a state lock, exit 4; a replacement refusal of a plain `create`) is **one JSON document** `{ "status": "Failed", "diagnostics": [ { "severity": "Error", "code": "...", "message": "..." } ] }` instead of prose on stderr; a multi-line message uses `\n` line breaks. A declined `-c` prompt with `-o json` is the same kind of document with code `NotConfirmed` and the what-if under `whatIf`; with `-o table` the what-if text is already on stdout and the decline stays on stderr. The read-only planning pass of a plain `create` without `-y` is never printed: its stdout carries only the result (or the refusal) document.
+With `-o json` the standard output of a verb that fails **before** it has anything else to report (a preflight failure, exit 3; a replacement refusal of a plain `create`) is **one JSON document** `{ "status": "Failed", "diagnostics": [ { "severity": "Error", "code": "...", "message": "..." } ] }` instead of prose on stderr; a multi-line message uses `\n` line breaks. A declined `-c` prompt with `-o json` is the same kind of document with code `NotConfirmed` and the what-if under `whatIf`; with `-o table` the what-if text is already on stdout and the decline stays on stderr. The read-only planning pass of a plain `create` without `-y` is never printed: its stdout carries only the result (or the refusal) document.
 
 ### `deployment delete`
 
@@ -183,11 +189,44 @@ read is a failure of that object.
 
 With `-o json`: `{ "status", "deployment", "message", "deleted", "alreadyGone", "kept", "failed", "skipped", "outcomes": [ { "resourceId", "type", "graphId", "status", "error", "errorCode" } ] }`
 (`status` of an outcome: `Deleted`, `AlreadyGone`, `Refused`, `Failed`, `Skipped`); nothing to delete is `{ "status": "Succeeded", "message": "Nothing to delete: ...", "deployment", "deleted": 0 }`.
-The deployment's state file is not read or changed.
+
+`delete` removes only what the template **declares** and finds by key. It does not find objects a template no longer declares, objects whose key changed (a
+renamed `uniqueName` is a different object), or the old assignment of a changed tuple: list those with `what-if --mode Complete` (the orphan report) and
+remove them yourself, or put them back in a template (a scratch template that declares just them is enough) and run `delete -f` on that.
+
+### Migrating from the state-file versions
+
+Earlier previews kept a state file per deployment (`.earm/state/<name>.json` with a `<name>.lock`, or under `--state-dir` / `EARM_STATE_DIR`). That subsystem
+is gone; identity is resolved from the live tenant on every run ([engine.md](engine.md#identity-without-state)). What to do:
+
+- **Delete the state directory** (`.earm/`, wherever `--state-dir` / `EARM_STATE_DIR` pointed, and an old `.entraarm/`) and drop it from source control.
+  Nothing reads it. Keep your secure-outputs files: they are not state.
+- **Remove the retired options** from scripts and pipelines: `--state-dir`, `EARM_STATE_DIR`, `--force-unlock`, `--lock-timeout`, `--max-deletes`,
+  `--allow-delete-all`, `--delete-adopted` and `delete --delete-resources` are unknown options now (a usage error, exit 1). The verbs
+  `state unlock | forget | adopt | set-provenance`, `deployment show`, `deployment list` and `deployment operation list` no longer exist; `-n` is only a label.
+  `deployment delete` now takes the template (`-f`, `-p`) and deletes what it declares.
+- **Exit code 4** (state locked) is never returned; no other code changed.
+- **Complete mode no longer deletes.** A pipeline that relied on it to remove what the template dropped now gets a report (`orphans[]`, "Not declared in the
+  template") and must remove those objects itself.
+- **Objects that were bound only through the state must be findable by key.** Applications and groups need a `uniqueName` equal to the template `name`
+  (EARM sets it on the objects it creates; an object adopted from outside without one is not found and would be created again: set its `uniqueName` in Graph
+  first, or, for an application, declare its `appId` so it is found by that and given the name). Display-name-keyed types (Conditional Access policies, named locations, administrative units, custom role definitions, authentication strengths) are
+  found by `displayName`: one renamed in the portal is no longer found, and the next run creates a second one. Run `what-if` first and check every `+ Create`.
+- **Legacy password credentials.** A credential is now found by its `displayName` `<name>#<rotationTag>`; one created by a state-file version is named
+  `<name>` with no tag. It is still matched by its base name and reported with `RotationTagNotStamped`, and it is **not rotated by a changed `rotationTag`**
+  until it has been rotated once (the change cannot be detected). To rotate such a credential now, declare a different `endDateTime`; the replacement is then
+  named with the tag.
+- **Changed assignments keep the old one.** An assignment whose principal, role or scope changed is a new assignment; the old one stays and is reported
+  (`orphan: retained`), never removed. The state-file versions deleted it. Review [Retained assignments](engine.md#retained-assignments).
+- **Principal-side edges no longer remove.** A `memberOf` / `appRoleAssignments` / `directoryRoles` entry removed from a principal is no longer removed from
+  the tenant ([edges.md](edges.md)).
+- **Recreates ask.** A plain `create` that would replace objects prompts, and fails without `-y` on a non-interactive console (`RecreateNotConfirmed`): add
+  `-y` to unattended pipelines that accept replacements.
+- **Concurrent runs are not serialised.** The lock is gone; see "No lock" above.
 
 ### Migrating from the old name
 
-State files record each resource's `apiVersion`. The `apiVersion` relabel (`2026-10-01` became `2026-10-01-preview`, and the old `2026-10-01-preview` beta became `2026-10-01-preview.beta`) has no compatibility shim because the format is unreleased: **state files written before the rename must be deleted** before the next run (the objects stay in the tenant; `state adopt` re-pins them). The product rename (`entraarm` to `earm`) likewise has no shim: the state directory moved from `.entraarm/` to `.earm/` (and `%LOCALAPPDATA%\EntraArm` to `%LOCALAPPDATA%\EArm`, `ENTRAARM_*` to `EARM_*`), so delete or move an old `.entraarm/` directory (the objects stay in the tenant; `state adopt` re-pins them) and remove the old `entraarm` global tool (`dotnet tool uninstall -g entraarm`).
+The `apiVersion` relabel (`2026-10-01` became `2026-10-01-preview`, and the old `2026-10-01-preview` beta became `2026-10-01-preview.beta`) has no compatibility shim because the format is unreleased: update the `apiVersion` of your templates (the old label is rejected with `UnknownApiVersion`). The product rename (`entraarm` to `earm`) likewise has no shim: `%LOCALAPPDATA%\EntraArm` became `%LOCALAPPDATA%\EArm` and `ENTRAARM_*` became `EARM_*`; delete an old `.entraarm/` state directory (nothing reads it) and remove the old `entraarm` global tool (`dotnet tool uninstall -g entraarm`).
 
 ## `permissions`
 

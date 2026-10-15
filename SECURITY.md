@@ -9,7 +9,7 @@ objects. Treat a run of `earm deployment create` with the care you give a privil
 
 Please do not open a public issue for a security problem. Use the repository's private vulnerability reporting
 (the **Report a vulnerability** button on the Security tab of <https://github.com/Proxylayer/EARM>) and include the version (`earm --version`), the
-command line, a minimal template or state file that reproduces it, and what you expected. Do not include real tenant data or secrets. You will get an
+command line, a minimal template and parameter file that reproduce it, and what you expected. Do not include real tenant data or secrets. You will get an
 acknowledgement; fixes land on the main branch first (there is no released version to backport to yet).
 
 ## Threat model
@@ -20,28 +20,29 @@ acknowledgement; fixes land on the main branch first (there is no released versi
 |---|---|
 | The operator and the machine or pipeline that runs `earm` | It holds a credential that can write the tenant. A compromised runner is a compromised tenant. |
 | The signed-in identity and the tenant it signs in to | EARM never widens its permissions; `earm permissions` lists what a template needs so the identity can be scoped. |
-| The file system permissions of the state directory and of the secure-outputs file | Both are written owner-only (DACL on Windows, mode 0600 on Unix), but anything running as the same user can read them. |
-| Reviewed templates | A template can legitimately grant a role, disable a Conditional Access policy or delete an object (Complete mode). **Review the template and the what-if before `create`**, the same way you review any infrastructure-as-code change. |
+| The file system permissions of the secure-outputs file | It is written owner-only (DACL on Windows, mode 0600 on Unix), but anything running as the same user can read it. It is the only file EARM writes. |
+| Reviewed templates | A template can legitimately grant a role, disable a Conditional Access policy, replace an object (a recreate, after confirmation) or, with `deployment delete -f`, delete the objects it declares. **Review the template and the what-if before `create`**, the same way you review any infrastructure-as-code change. |
+| The tenant's display names | Some types are found by `displayName` ([docs/engine.md](docs/engine.md#identity-without-state)). Whoever can rename or create such an object in the tenant (a Conditional Access policy, a named location, an administrative unit, a custom role) decides which object a later run updates, or makes it fail with `AmbiguousMatch`. Restrict who can manage those objects outside the pipeline. |
 
-### The state file is trusted for which objects it names
+### No local state, and what EARM deletes
 
-The state file (`.earm/state/<name>.json`) is **trusted for WHICH objects a deployment manages**: it maps each resource id to a Graph object id, and a Complete-mode run or
-`deployment delete --delete-resources` deletes the objects it names. Its integrity is **not cryptographic**: there is no signature, MAC or hash chain, so anyone who can
-write the file can write a *consistent* entry (the true key and id of a real object, `provenance: created`) that EARM cannot tell from one of its own. EARM bounds the damage but
-cannot prevent it (shape and key checks on load, a re-read by key before every delete, the signed-in principal and first-party service principals never deleted, adopted
-objects never deleted without `--delete-adopted`, `--max-deletes` as a hard limit during the run, the confirmation, the tenant pin); the full table of tampering cases and what each
-check stops is in [docs/engine.md](docs/engine.md#state-trust-model). What that means for operators:
+EARM keeps no state file: every run finds the declared objects in the tenant by their keys ([docs/engine.md](docs/engine.md#identity-without-state)). There is
+therefore no file whose tampering could make EARM act on an object, and **nothing is deleted except what a template declares**:
 
-- Keep `.earm/state` (or the `--state-dir` / `EARM_STATE_DIR` directory) in a **protected location**: writable only by the people and pipelines that may change the tenant, never by a
-  contributor who can merely open a pull request.
-- When the state is committed, protect the directory like the template: a **CODEOWNERS** entry for it (for example `/.earm/state/ @your-org/identity-admins`) and **branch protection**
-  that requires an approved review and forbids direct pushes, so a state change cannot reach the branch a deployment runs from without a second pair of eyes. Review a state diff in a
-  pull request as carefully as a template diff: it chooses which objects a later `--mode Complete` run may delete.
-- A pipeline that runs `create` must read the state from the protected branch or location, not from a fork's checkout.
+- `create`, in either mode, deletes nothing the template does not declare. Complete mode only **reports** undeclared objects of the declared types.
+- A **replacement** (an immutable property changed: delete, then create) is listed and needs confirmation (`-y`, or the prompt; a non-interactive run without `-y` fails before any
+  write with `RecreateNotConfirmed`).
+- `deployment delete -f` deletes the objects the template declares, found by key, after a confirmation that lists them; each is re-read by key right before its delete.
+- The signed-in principal and service principals owned by another organization (Microsoft first-party and multi-tenant apps) are never deleted or replaced (`ProtectedObject`).
 
-### What is defended against (hostile templates, parameter files and state)
+The flip side is security-relevant: **an assignment whose tuple changed keeps its old assignment.** EARM creates the new role assignment, app role assignment or grant and
+reports the old one (`orphan: retained`, warning `AssignmentRetained`), but never removes it, so the old principal or scope keeps its access until someone removes it. A
+principal-side relationship (`memberOf`, a principal's `appRoleAssignments` / `directoryRoles`) dropped from the template is not removed either; only target-side lists
+(`members`, `owners`) are authoritative ([docs/edges.md](docs/edges.md)). Review the retained rows of every what-if that changes an assignment.
 
-Templates, parameter files and state files can arrive from a pull request, a shared directory or a tenant, so they are parsed as untrusted input:
+### What is defended against (hostile templates and parameter files)
+
+Templates and parameter files can arrive from a pull request, a shared directory or a tenant, so they are parsed as untrusted input:
 
 - **No code execution and no side channels.** Expressions are a closed function set evaluated by an interpreter: no file, process, environment or arbitrary network
   access. EARM starts no external process (no Azure CLI, no PowerShell). The only network peers are the Microsoft Graph host, the Entra authority and the Key Vault
@@ -50,10 +51,8 @@ Templates, parameter files and state files can arrive from a pull request, a sha
   ([docs/format.md](docs/format.md#evaluation-limits)); a violation is a diagnostic, never a hang or an out-of-memory crash. Duplicate JSON keys are rejected.
 - **Graph requests fail closed.** Request paths, `@odata.nextLink` values and `$batch` sub-requests that are not relative Graph paths are refused (`UnsafeUrl`), query
   values are percent-encoded, `$filter` values are escaped, paging has hard limits, and HTTP redirects are never followed (the Authorization header cannot be forwarded to another host).
-- **The state is a hint, not an authority** (and it is not tamper-proof: see [the trust model](#the-state-file-is-trusted-for-which-objects-it-names)). Graph ids in a state file are shape-checked, a pinned read is verified against the declared key, and every state-driven
-  delete re-reads the object by key and refuses on a mismatch (`StateEntryMismatch`). The signed-in principal and first-party service principals are never deleted
-  (`ProtectedObject`); adopted objects are never deleted unless `--delete-adopted`; Complete mode needs `--allow-delete-all` for an empty template or more than `--max-deletes`
-  deletions. A state file is bound to its tenant (exit 3 on a mismatch). Symbolic links and junctions as state directory, state file, lock or secure-outputs file are refused.
+- **No delete beyond the template.** See [No local state, and what EARM deletes](#no-local-state-and-what-earm-deletes). A symbolic link or junction as the secure-outputs file, or
+  anywhere above its folder, is refused.
 - **Untrusted text is made safe before it is printed.** Control characters, terminal escape sequences, bidirectional overrides and CI log-command prefixes
   (`##vso[`, `##[`, `::`) in names and values are escaped or neutralised on both streams ([docs/cli.md](docs/cli.md#output-errors-and-prompts)).
 - **Conditional Access guard.** A policy with `state: enabled` is refused without `--allow-ca-enforce`, so a template cannot silently lock administrators out.
@@ -61,8 +60,10 @@ Templates, parameter files and state files can arrive from a pull request, a sha
 ### How secrets are handled
 
 - `securestring` / `secureObject` parameters, `passwordProfile.password` and a credential's `secretText` are **tainted**: they may flow only into resource properties and
-  `securestring` outputs, and are `***` in what-if, logs, diagnostics, error messages and JSON output. The state serializer refuses to write one, and error text from Graph is
-  scrubbed of secret-looking values before it is stored or printed. Tokens, Authorization headers and request bodies are never logged.
+  `securestring` outputs, and are `***` in what-if, logs, diagnostics, error messages and JSON output. Error text from Graph is
+  scrubbed of secret-looking values before it is printed. Tokens, Authorization headers and request bodies are never logged.
+- A secret on an existing object is **write-once**: EARM never compares or re-sends it (it cannot read it back), so changing a `secretText` or `passwordProfile.password` value in the
+  template does not change the live secret. Rotate a client secret with `rotationTag`; a user's password is set only at creation.
 - A secret Graph returns only once (a new client secret, a generated user password) is written to the file given by `--secure-outputs-file` **immediately**, under the key
   `oneTimeSecrets`, or printed with `--reveal-secure-outputs`. That file is in clear text, owner-only, and must be treated like a password store; it is git-ignored under the usual names, but you
   are responsible for where you put it.
@@ -95,6 +96,7 @@ Templates, parameter files and state files can arrive from a pull request, a sha
 
 1. Run unattended deployments as a service principal or managed identity with only the permissions `earm permissions` lists, in a dedicated dev tenant first.
 2. Read `deployment what-if` (and `--mode Complete` what-if) before `create`; in CI use `--exit-code-on-changes` as a drift gate and require review of template changes.
-3. Persist the state with the template or in a protected shared directory, and keep the secure-outputs file (and its `.previous` / `.lock` companions) out of source control and build logs. Protect the state directory with CODEOWNERS and branch protection (see above).
-4. Do not pass `-y` and `--allow-delete-all` together in a pipeline unless a human reviewed the what-if for that exact run.
-5. Set `EARM_KEYVAULT_ALLOWED` in pipelines that read Key Vault references, and do not give secrets to `what-if` / `validate` runs of untrusted templates (pull-request validation).
+3. Keep the secure-outputs file (and its `.previous` / `.lock` companions) out of source control and build logs.
+4. Do not pass `-y` in a pipeline unless a human reviewed the what-if (its replacements) for that exact run, and review the `orphan: retained` rows: old assignments keep granting access until you remove them.
+5. Serialise runs of one template (no lock protects concurrent runs; display-name-keyed types can be duplicated).
+6. Set `EARM_KEYVAULT_ALLOWED` in pipelines that read Key Vault references, and do not give secrets to `what-if` / `validate` runs of untrusted templates (pull-request validation).
