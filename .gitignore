@@ -41,7 +41,5 @@ secure-outputs*.json
 *.secrets.json
 appsettings.*.local.json
 
-# ---- Claude Code local files ----
-# .claude/scribe/ (the project tracking documents) is intentionally NOT ignored; its own .gitignore
-# keeps the generated md/ renders out.
-.claude/settings.local.json
+# ---- Claude Code / agent tooling (local only, never committed) ----
+.claude/
