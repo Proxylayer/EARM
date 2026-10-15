@@ -392,12 +392,13 @@ public sealed class UsersProvider : ProviderBase
 
         // The object was created a moment ago: the license action by id may hit replication lag. A failure here leaves a user that exists (with a generated password that Graph
         // never returns again): the partial result goes with the exception so the executor records the object and the one-time secret instead of losing both.
+        // A cancellation (Ctrl+C) that reaches the license step is such a failure too: the user and its password are recorded, then the run stops.
         var created = new AppliedResource(desired.Id, id, live, key, Extra(generated)) { Warnings = warnings };
         try
         {
             await ApplyLicensesAsync(desired, id, null, RetryHint.ExpectReplicationLag, graph, cancellationToken).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is GraphException or GraphTransportException or ProviderException)
+        catch (Exception ex) when (ex is GraphException or GraphTransportException or ProviderException or OperationCanceledException)
         {
             throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{desired.Describe()}: the user was created (id {id}) but assigning its licenses failed: {ex.Message}", desired.Id, ex) { Partial = created };
         }

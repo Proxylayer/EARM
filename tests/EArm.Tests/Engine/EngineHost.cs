@@ -366,6 +366,7 @@ internal sealed class EngineHost
         Graph = decorate is null ? Fake : decorate(Fake);
         Registry = registry ?? EchoProvider.RegistryForCatalog(Catalog);
         Delays = new RecordingDelayProvider();
+        ReplicationDelays = new RecordingDelayProvider();
         Retry = new RetryPolicy(new RetryOptions(), Delays, NullLogger<RetryPolicy>.Instance);
     }
 
@@ -380,6 +381,9 @@ internal sealed class EngineHost
     public ProviderRegistry Registry { get; }
 
     public RecordingDelayProvider Delays { get; }
+
+    /// <summary>The executor's own replication wait after an uncertain create (<see cref="ReplicationWait"/>), kept apart from the retry policy's delays.</summary>
+    public RecordingDelayProvider ReplicationDelays { get; }
 
     public RetryPolicy Retry { get; }
 
@@ -411,7 +415,7 @@ internal sealed class EngineHost
 
     public DeploymentExecutor Executor()
     {
-        return new DeploymentExecutor(Registry, Graph, NullLogger<DeploymentExecutor>.Instance);
+        return new DeploymentExecutor(Registry, Graph, NullLogger<DeploymentExecutor>.Instance, new ReplicationWait { Delay = ReplicationDelays });
     }
 
     public Task<DeploymentPlan> WhatIfAsync(TemplateDocument document, StateFile? state = null, DeploymentMode mode = DeploymentMode.Incremental, PlannerOptions? options = null)

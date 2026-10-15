@@ -599,7 +599,11 @@ public sealed partial class HttpGraphClient : IGraphClient
         var stopwatch = Stopwatch.StartNew();
         try
         {
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            // A write is never abandoned once it is on the wire: the caller's cancellation (Ctrl+C) is honoured up to here and then only between
+            // requests, so a POST that Graph commits is answered and recorded instead of orphaned (with any secret only its response carries). The
+            // request timeout still bounds it. A read stays cancellable throughout.
+            cancellationToken.ThrowIfCancellationRequested();
+            using var timeout = write ? new CancellationTokenSource() : CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeout.CancelAfter(_options.Timeout);
             using var message = BuildMessage(method, uri, headers, payload, graphToken, clientRequestId);
             message.Options.Set(ConnectProbeKey, probe);
@@ -610,7 +614,7 @@ public sealed partial class HttpGraphClient : IGraphClient
                 response = await _http.SendAsync(message, HttpCompletionOption.ResponseHeadersRead, timeout.Token).ConfigureAwait(false);
                 Interlocked.Increment(ref _responsesStarted);
             }
-            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            catch (OperationCanceledException) when (write || !cancellationToken.IsCancellationRequested)
             {
                 // Still making the connection, and no other call finished meanwhile (so none could have lent this one an idle connection): nothing was sent.
                 var nothingSent = probe.StillConnecting && Volatile.Read(ref _responsesStarted) == responsesBefore;
@@ -638,7 +642,7 @@ public sealed partial class HttpGraphClient : IGraphClient
                         timeout.Token).ConfigureAwait(false);
                     text = Encoding.UTF8.GetString(bytes);
                 }
-                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                catch (OperationCanceledException) when (write || !cancellationToken.IsCancellationRequested)
                 {
                     throw TimeoutFailure(method, logTarget, stopwatch, clientRequestId, null, write);
                 }

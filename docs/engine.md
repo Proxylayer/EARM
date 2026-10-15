@@ -99,7 +99,15 @@ load ──► validate ──► expand ──► graph ──► [per batch: r
   object is re-read by key and **adopted** (state provenance `adopted`, warning `AdoptedExistingObject`).
 - A `create` that comes back "already exists" also applies the declared properties **in the same run** (one extra PATCH where the provider supports it and the difference can be patched in place; otherwise `AdoptedExistingObject` says the object differs and a rerun or the what-if shows how).
 - A `create` with an **ambiguous outcome** (a timeout, a transport error, any 5xx: the write may have been committed) is not repeated and not
-  simply failed: the object is re-read by key once (`ExpectReplicationLag`); when it exists the create counts as done (warning
+  simply failed: the object is looked up by key, and because Graph replicates a new object with some delay the **executor itself waits out
+  replication** (`ReplicationWait`, a constructor argument of `DeploymentExecutor`: the read is repeated every 5 s until the object is found or
+  90 s of waiting were scheduled, the defaults of `RetryOptions.ReplicationInterval` / `ReplicationWindow`). "Not found yet" covers a `null` from
+  the provider - an empty `$filter` result answers 200, never 404 - as well as a 404 or a replication-lag 400. The executor owns this wait whether
+  or not the plan carries a retry policy (the CLI's never does: `HttpGraphClient` retries each call itself); with a policy each read goes through
+  it with `RetryHint.Default`, so throttling and transient failures are still waited out but the replication window is never waited twice. The
+  reads are not cancellable (an object found is recorded, not orphaned); a Ctrl+C cuts the wait short to one last read. The same wait applies to
+  a create answered "already exists" before the object is adopted. A create whose ambiguous failure hid no commit therefore reports its error
+  only after the window. When the object exists the create counts as done (warning
   `CreateOutcomeUncertain`; a value Graph only returns at creation, such as a secret, is not available for it), otherwise the original error is reported. The provenance is `created`
   unless Graph reports a `createdDateTime` that is more than 5 minutes older than the start of the run: then the object was not created by this run and is `adopted` (`AdoptedExistingObject`).
   The executor never repeats a create blindly **at any level**: its own retry policy (`RetryPolicy.ExecuteAsync(..., idempotent: false)`) only waits out a 429, replication lag and a token refresh for a provider write
@@ -456,7 +464,22 @@ write an entry that carries a secret (`SecretJson`) or a deploy-time placeholder
   **Recording is not cancellable**: every record after `BeginAsync` describes work that already happened, so the sink
   saves it under its own 30-second bound (`FileStateSink.PersistTimeout`) and the executor passes `CancellationToken.None`;
   a Ctrl+C right after a Graph write therefore still records that object (a generated secret or key id is never
-  orphaned), while cancellation keeps stopping new work between resources and batches. The executor also passes the pinned Graph id to
+  orphaned), while cancellation keeps stopping new work between resources and batches. **A write in flight is not
+  aborted either**: `HttpGraphClient` honours the caller's token for a `POST` / `PATCH` / `PUT` / `DELETE` only until
+  the request is sent (token, connection slot, retry waits); once it is on the wire it runs to completion, bounded by
+  the request timeout (`GraphOptions.Timeout`, 120 s; a timeout is reported as an ambiguous failure, not as a
+  cancellation), and its answer - a created object, a one-time secret - is returned and recorded (secure outputs file,
+  then state) before the cancellation takes effect. Reads stay cancellable at once. When the cancellation reaches a
+  provider **between** two of its requests (after its first write committed), the executor looks the object up by key
+  once more, uncancellably, and records it (the resource is reported failed: "cancelled while the object was being
+  created"); when nothing is found the create never happened and the resource is skipped. The CLI gives this end
+  phase time to finish: `Program.ProcessTerminationTimeout` is 5 minutes instead of System.CommandLine's 2-second
+  default (one request timeout for the write, one for the follow-up lookup, the 30 s state-save bound, with margin;
+  `null` is not an option, it would disable the cancellation token and Ctrl+C would kill the process at once).
+  `UsersProvider` treats a cancellation of its `assignLicense` step like any failure after `POST /users`: the user and
+  its generated password go out as `ProviderException.Partial` and are recorded. Not covered: a multi-chunk `$batch`
+  that is cancelled between chunks throws away the per-item results of the chunks already sent (the edges are read
+  back on the next run). The executor also passes the pinned Graph id to
   `ReadAsync` (`ExecuteOptions.State`); a 404 on the pinned id is drift: the provider falls back to the key, the
   resource is planned as `Create` if nothing is found, and the sink re-pins the entry.
 - **Mode pass** (`ModePass`, executor and planner): orphans = entries whose id is not among the expanded instances

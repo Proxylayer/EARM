@@ -20,9 +20,19 @@ internal static class Program
     /// <summary>The longest text shown for an unexpected error (the message is cut, never the type).</summary>
     private const int MaxUnexpectedMessageLength = 500;
 
+    /// <summary>
+    /// How long the process waits, after Ctrl+C / SIGINT / SIGTERM, for the command to finish before System.CommandLine lets it exit (its default is 2 s).
+    /// A cancelled deployment does not stop dead: a write already sent to Graph is let finish (bounded by the 120 s request timeout,
+    /// <see cref="GraphOptions.Timeout"/>), an object whose create answer was lost is looked up once more (one more request timeout), and the state
+    /// and the secure outputs file are saved (30 s bound per save). Killing the process inside that window would orphan the object just written and
+    /// its one-time secret, which is exactly what the uncancellable end phase prevents; 5 minutes covers that worst case with margin. Not <c>null</c>:
+    /// that would disable the cancellation token altogether, and Ctrl+C would kill the process at once.
+    /// </summary>
+    internal static readonly TimeSpan ProcessTerminationTimeout = TimeSpan.FromMinutes(5);
+
     private static Task<int> Main(string[] args)
     {
-        return InvokeAsync(args, new InvocationConfiguration(), CancellationToken.None);
+        return InvokeAsync(args, new InvocationConfiguration { ProcessTerminationTimeout = ProcessTerminationTimeout }, CancellationToken.None);
     }
 
     /// <summary>

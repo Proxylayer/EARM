@@ -45,6 +45,7 @@ internal sealed class ProviderHost
         Store = new InMemoryStateStore();
         Logs = new LogSink();
         Delays = new NoDelayProvider();
+        ReplicationDelays = new NoDelayProvider();
         Retry = new RetryPolicy(new RetryOptions(), Delays, Logs.For<RetryPolicy>());
         EdgeKinds = ProviderDiscovery.CreateEdgeKinds(Catalog);
     }
@@ -64,6 +65,9 @@ internal sealed class ProviderHost
     public LogSink Logs { get; }
 
     public NoDelayProvider Delays { get; }
+
+    /// <summary>The executor's own replication wait after an uncertain create (<see cref="ReplicationWait"/>), kept apart from the retry policy's delays.</summary>
+    public NoDelayProvider ReplicationDelays { get; }
 
     public RetryPolicy Retry { get; }
 
@@ -162,7 +166,7 @@ internal sealed class ProviderHost
 
     public DeploymentExecutor Executor()
     {
-        return new DeploymentExecutor(Registry, Fake, Logs.For<DeploymentExecutor>());
+        return new DeploymentExecutor(Registry, Fake, Logs.For<DeploymentExecutor>(), new ReplicationWait { Delay = ReplicationDelays });
     }
 
     public Task<StateFile?> LoadStateAsync()

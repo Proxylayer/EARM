@@ -39,8 +39,13 @@ public sealed class DeploymentExecutor
     private readonly ProviderRegistry _registry;
     private readonly IGraphClient _graph;
     private readonly ILogger _logger;
+    private readonly ReplicationWait _replicationWait;
 
-    public DeploymentExecutor(ProviderRegistry registry, IGraphClient graph, ILogger<DeploymentExecutor> logger)
+    /// <param name="registry">The resource providers.</param>
+    /// <param name="graph">The Graph client.</param>
+    /// <param name="logger">Diagnostics.</param>
+    /// <param name="replicationWait">How long an object is looked for after a create with an uncertain outcome; default <see cref="ReplicationWait.Default"/>.</param>
+    public DeploymentExecutor(ProviderRegistry registry, IGraphClient graph, ILogger<DeploymentExecutor> logger, ReplicationWait? replicationWait = null)
     {
         ArgumentNullException.ThrowIfNull(registry);
         ArgumentNullException.ThrowIfNull(graph);
@@ -48,6 +53,7 @@ public sealed class DeploymentExecutor
         _registry = registry;
         _graph = graph;
         _logger = logger;
+        _replicationWait = replicationWait ?? ReplicationWait.Default;
     }
 
     public async Task<DeploymentResult> ExecuteAsync(DeploymentPlan plan, ExecuteOptions options, CancellationToken cancellationToken)
@@ -945,7 +951,7 @@ public sealed class DeploymentExecutor
             catch (GraphException ex) when (ex.IsAlreadyExists)
             {
                 EngineLog.AdoptingExisting(Logger, instance.Id.Id);
-                var existing = await WithRetryAsync(ct => provider.ReadAsync(key, null, _owner._graph, ct), RetryHint.ExpectReplicationLag, cancellationToken).ConfigureAwait(false);
+                var existing = await ReadAfterCreateAsync(provider, key, cancellationToken).ConfigureAwait(false);
                 if (existing is null)
                 {
                     throw;
@@ -955,8 +961,8 @@ public sealed class DeploymentExecutor
             }
             catch (Exception ex) when (ProviderReads.IsAmbiguousWriteFailure(ex))
             {
-                // The write may have been committed although no answer came back: look for the object once instead of failing or repeating the POST.
-                var found = await TryReadByKeyAsync(provider, key, cancellationToken).ConfigureAwait(false);
+                // The write may have been committed although no answer came back: look for the object (waiting out replication) instead of failing or repeating the POST.
+                var found = await TryReadAfterCreateAsync(provider, key, cancellationToken).ConfigureAwait(false);
                 if (found is null)
                 {
                     throw;
@@ -981,18 +987,100 @@ public sealed class DeploymentExecutor
                 AddInstanceDiagnostic(instance, Diagnostic.Warning(EngineDiagnosticCodes.ResourceApplyFailed, $"'{instance.Id.Id}': the object exists in the tenant (Graph id {found.GraphId}) although the create failed; it was recorded in the state."));
                 return new CreateOutcome(partial, ProvenanceOfFound(found), failure, null);
             }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                // Ctrl+C reached the provider between two of its requests (a request already sent is never abandoned, see HttpGraphClient): an earlier
+                // POST of this create may have committed. One last, uncancellable look by key records such an object instead of orphaning it; when
+                // nothing is there, the create never happened and the cancellation stands (the resource is reported skipped).
+                var found = await TryReadOnceByKeyAsync(provider, key, RetryHint.Default, CancellationToken.None).ConfigureAwait(false);
+                if (found is null)
+                {
+                    throw;
+                }
+
+                var partial = new AppliedResource(instance.Id, found.GraphId, found.Raw, key);
+                string failure = $"{instance.Describe()}: the deployment was cancelled while the object was being created; it exists (Graph id {found.GraphId}) and is recorded in the state, but the create may not have completed. Run the deployment again to finish it.";
+                return new CreateOutcome(partial, ProvenanceOfFound(found), failure, null);
+            }
         }
 
-        /// <summary>One look for the object by its key after a write whose outcome is unclear; any failure of the look itself counts as "not found".</summary>
+        /// <summary>One look for the object by its key after a failed write; any failure of the look itself counts as "not found".</summary>
         private async Task<ExistingResource?> TryReadByKeyAsync(IResourceProvider provider, ResourceKey key, CancellationToken cancellationToken)
+        {
+            return await TryReadOnceByKeyAsync(provider, key, RetryHint.ExpectReplicationLag, cancellationToken).ConfigureAwait(false);
+        }
+
+        private async Task<ExistingResource?> TryReadOnceByKeyAsync(IResourceProvider provider, ResourceKey key, RetryHint hint, CancellationToken cancellationToken)
         {
             try
             {
-                return await WithRetryAsync(ct => provider.ReadAsync(key, null, _owner._graph, ct), RetryHint.ExpectReplicationLag, cancellationToken).ConfigureAwait(false);
+                return await WithRetryAsync(ct => provider.ReadAsync(key, null, _owner._graph, ct), hint, cancellationToken).ConfigureAwait(false);
             }
             catch (Exception readFailure) when (readFailure is GraphException or GraphTransportException or ProviderException or InvalidOperationException or ArgumentException)
             {
                 // The look itself failed: the failure that made us look stays the one that is reported.
+                return null;
+            }
+        }
+
+        /// <summary><see cref="ReadAfterCreateAsync"/> for a create whose answer was lost; any failure of the look itself counts as "not found".</summary>
+        private async Task<ExistingResource?> TryReadAfterCreateAsync(IResourceProvider provider, ResourceKey key, CancellationToken cancellationToken)
+        {
+            try
+            {
+                return await ReadAfterCreateAsync(provider, key, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception readFailure) when (readFailure is GraphException or GraphTransportException or ProviderException or InvalidOperationException or ArgumentException)
+            {
+                // The look itself failed: the failure that made us look stays the one that is reported.
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Looks for the object by its key after a create whose outcome is not known from its answer (lost, or "already exists"), waiting out replication
+        /// (<see cref="ReplicationWait"/>): "not found" - <c>null</c> from the provider (an empty <c>$filter</c> answers 200, not 404), a 404 or a replication-lag
+        /// 400 - is read again every <see cref="ReplicationWait.Interval"/> until the object turns up or <see cref="ReplicationWait.Window"/> of waiting was scheduled.
+        /// The executor owns this wait whether or not the plan carries a retry policy: each read goes through the policy (when there is one) with
+        /// <see cref="RetryHint.Default"/>, so the policy still waits out throttling and transient failures but never waits out replication a second time.
+        /// The reads are not cancellable (the create may have committed: an object found is recorded, not orphaned); a cancellation cuts the WAIT short
+        /// to one last read. Any other failure of a read propagates.
+        /// </summary>
+        private async Task<ExistingResource?> ReadAfterCreateAsync(IResourceProvider provider, ResourceKey key, CancellationToken cancellationToken)
+        {
+            var wait = _owner._replicationWait;
+            var waited = TimeSpan.Zero;
+            while (true)
+            {
+                var found = await ReadOnceAfterCreateAsync(provider, key).ConfigureAwait(false);
+                if (found is not null || cancellationToken.IsCancellationRequested || waited + wait.Interval > wait.Window)
+                {
+                    return found;
+                }
+
+                try
+                {
+                    await wait.Delay.DelayAsync(wait.Interval, cancellationToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    return await ReadOnceAfterCreateAsync(provider, key).ConfigureAwait(false);
+                }
+
+                waited += wait.Interval;
+                EngineLog.WaitingForReplication(Logger, key.Describe(), waited.TotalSeconds, wait.Window.TotalSeconds);
+            }
+        }
+
+        /// <summary>One uncancellable read by key; "not there yet" (a 404, a replication-lag answer) is <c>null</c>.</summary>
+        private async Task<ExistingResource?> ReadOnceAfterCreateAsync(IResourceProvider provider, ResourceKey key)
+        {
+            try
+            {
+                return await WithRetryAsync(ct => provider.ReadAsync(key, null, _owner._graph, ct), RetryHint.Default, CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (GraphException ex) when (ex.IsNotFound || GraphException.IsReplicationError(ex.Status, ex.Code, ex.GraphMessage))
+            {
                 return null;
             }
         }

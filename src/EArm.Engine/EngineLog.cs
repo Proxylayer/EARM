@@ -142,4 +142,7 @@ internal static partial class EngineLog
 
     [LoggerMessage(EventId = 2079, Level = LogLevel.Error, Message = "Saving the secure outputs file failed: {Error}")]
     public static partial void SecureOutputsSaveFailed(ILogger logger, string error);
+
+    [LoggerMessage(EventId = 2080, Level = LogLevel.Information, Message = "Not found yet after the create, reading {Key} again (waited {WaitedSeconds} s of {WindowSeconds} s for replication)")]
+    public static partial void WaitingForReplication(ILogger logger, string key, double waitedSeconds, double windowSeconds);
 }

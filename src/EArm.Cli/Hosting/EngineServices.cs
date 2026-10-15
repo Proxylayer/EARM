@@ -28,6 +28,7 @@ internal sealed class EngineServices : IDisposable
 {
     private readonly HttpClient _http;
     private readonly IGraphTokenProvider _tokens;
+    private readonly ReplicationWait _replicationWait;
 
     private EngineServices(ConnectionSettings connection, GraphCloud cloud, GraphAuthOptions auth, ILoggerFactory loggerFactory)
     {
@@ -43,6 +44,7 @@ internal sealed class EngineServices : IDisposable
         _tokens = overrides?.Tokens ?? authFactory.Create(auth);
 
         var time = overrides?.Time ?? TimeProvider.System;
+        _replicationWait = new ReplicationWait { Delay = overrides?.Delay ?? TaskDelayProvider.Instance };
         RetryPolicy = new RetryPolicy(new RetryOptions(), overrides?.Delay ?? TaskDelayProvider.Instance, loggerFactory.CreateLogger<RetryPolicy>());
         var options = new GraphOptions { Cloud = cloud, MaxParallel = Math.Max(1, connection.Parallelism) };
         Graph = new HttpGraphClient(_http, _tokens, RetryPolicy, options, loggerFactory.CreateLogger<HttpGraphClient>(), time);
@@ -117,7 +119,7 @@ internal sealed class EngineServices : IDisposable
 
     public DeploymentExecutor CreateExecutor()
     {
-        return new DeploymentExecutor(Providers, Graph, LoggerFactory.CreateLogger<DeploymentExecutor>());
+        return new DeploymentExecutor(Providers, Graph, LoggerFactory.CreateLogger<DeploymentExecutor>(), _replicationWait);
     }
 
     /// <summary>Resolves parameter-file Key Vault references with a Key Vault token of the signed-in identity.</summary>

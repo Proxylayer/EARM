@@ -185,6 +185,43 @@ public sealed class UsersProviderTests
         Assert.Equal("/users/carol@contoso.com", run.Requests[0].Path);
     }
 
+    /// <summary>
+    /// A Ctrl+C that arrives after <c>POST /users</c> committed but before <c>assignLicense</c> used to escape as an OperationCanceledException: the
+    /// executor recorded the user as skipped, so the user was orphaned and its generated password (returned by nobody, ever again) lost. The
+    /// cancellation is now handled like any failure after the create: the user and its password are handed over as the partial result.
+    /// </summary>
+    [Fact]
+    public async Task ACancellationBeforeAssignLicense_HandsOverTheCreatedUser_WithItsGeneratedPassword()
+    {
+        var host = new ProviderHost();
+        SeedSkus(host);
+        using var cts = new System.Threading.CancellationTokenSource();
+        var graph = new InterceptingGraphClient(host.Fake)
+        {
+            PostOverride = (request, body) =>
+            {
+                if (request.Path == "/users")
+                {
+                    var response = host.Fake.PostAsync(request, body, ProviderHost.Ct).GetAwaiter().GetResult();
+                    cts.Cancel();
+                    return response;
+                }
+
+                cts.Token.ThrowIfCancellationRequested();
+                return null;
+            },
+        };
+        var whatIf = await host.WhatIfAsync(host.Resources(User("erin@contoso.com", "\"displayName\": \"Erin\", \"usageLocation\": \"GB\", \"assignedLicenses\": [ { \"skuPartNumber\": \"ENTERPRISEPACK\", \"disabledPlans\": [] } ]")));
+        var instance = whatIf.Plan.Instances.Single(i => ResourceIdentifier.TypeEquals(i.Type, Type));
+
+        var error = await Assert.ThrowsAsync<ProviderException>(() => host.Registry.Get(Type).CreateAsync(instance, graph, cts.Token));
+
+        var partial = Assert.IsType<AppliedResource>(error.Partial);
+        Assert.Equal(host.IdOf("/users", "userPrincipalName", "erin@contoso.com"), partial.GraphId);
+        Assert.True(partial.Extra!["generatedPassword"]!.GetValue<bool>());
+        Assert.IsType<OperationCanceledException>(error.InnerException, exactMatch: false);
+    }
+
     [Fact]
     public async Task S4_AssignedLicenses_AreAddedAfterCreate_WithReplicationHint_AndNotRepeated()
     {
