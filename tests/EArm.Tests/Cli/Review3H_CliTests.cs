@@ -108,127 +108,7 @@ public sealed class Review3H_CliTests
         Assert.NotNull(directory.FindById(victimId));
     }
 
-    // ---- S2-02: a recorded assignment id is verified before it is removed ----
-
-    [Fact]
-    public async Task ARecordedDirectoryRoleAssignmentOfAnotherPrincipal_IsNeverRemoved_OneOfTheOrphanIs()
-    {
-        var (sandbox, directory) = Setup(nameof(ARecordedDirectoryRoleAssignmentOfAnotherPrincipal_IsNeverRemoved_OneOfTheOrphanIs));
-        using var _ = sandbox;
-        string orphanId = directory.AddGroup("orphan", "Orphan group")["id"]!.GetValue<string>();
-        string otherPrincipal = directory.AddUser("someone@contoso.com", "Someone")["id"]!.GetValue<string>();
-        const string RoleId = "62e90394-69f5-4237-9190-012177145e10";
-        string victimAssignment = directory.Add("/roleManagement/directory/roleAssignments", new JsonObject { ["roleDefinitionId"] = RoleId, ["principalId"] = otherPrincipal, ["directoryScopeId"] = "/" })["id"]!.GetValue<string>();
-        string ownAssignment = directory.Add("/roleManagement/directory/roleAssignments", new JsonObject { ["roleDefinitionId"] = "fe930be7-5e62-47db-91af-98c3a49a38b1", ["principalId"] = orphanId, ["directoryScopeId"] = "/" })["id"]!.GetValue<string>();
-        string relationships = ", \"relationships\": { \"directoryRoles\": [ "
-            + "{ \"roleDefinitionId\": \"" + RoleId + "\", \"principalId\": \"" + orphanId + "\", \"directoryScopeId\": \"/\", \"id\": \"" + victimAssignment + "\" }, "
-            + "{ \"roleDefinitionId\": \"fe930be7-5e62-47db-91af-98c3a49a38b1\", \"principalId\": \"" + orphanId + "\", \"directoryScopeId\": \"/\", \"id\": \"" + ownAssignment + "\" } ] }";
-        sandbox.WriteRawState("dep", StateJson("dep", GroupEntry("orphan", "{ \"uniqueName\": \"orphan\" }", orphanId, extra: relationships)));
-        string template = DeclaredGroupTemplate(sandbox);
-
-        var result = await CliRunner.RunAsync("deployment", "create", "-f", template, "-n", "dep", "--mode", "Complete", "-y", "--state-dir", sandbox.StateDir, "-o", "json");
-
-        Assert.Equal(0, result.ExitCode);
-        Assert.Contains(sandbox.RecordedCommands(), c => c.StartsWith("GET /v1.0/roleManagement/directory/roleAssignments/" + victimAssignment, StringComparison.Ordinal));
-        Assert.DoesNotContain(sandbox.RecordedCommands(), c => c.StartsWith("DELETE", StringComparison.Ordinal) && c.Contains(victimAssignment, StringComparison.Ordinal));
-        Assert.NotNull(directory.FindById(victimAssignment));
-        Assert.Contains(sandbox.RecordedCommands(), c => c.StartsWith("DELETE", StringComparison.Ordinal) && c.Contains(ownAssignment, StringComparison.Ordinal));
-        Assert.Equal(1, directory.Count("/roleManagement/directory/roleAssignments"));
-        Assert.Null(directory.Find("/groups", "uniqueName", "orphan"));
-    }
-
-    // ---- S2-12: the delete estimate counts entries of types it cannot judge yet ----
-
-    private static StateFile SpOrphans(int count)
-    {
-        var state = StateFile.CreateNew("dep", CliSandbox.Tenant, Start);
-        for (int i = 0; i < count; i++)
-        {
-            string appId = new Guid(0xa0 + i, 0, 0, [0, 0, 0, 0, 0, 0, 0, 1]).ToString("D");
-            state.Upsert(new StateEntry
-            {
-                Id = StateSerializer.ParseResourceId("/providers/Microsoft.Entra/servicePrincipals/" + appId, "Microsoft.Entra/servicePrincipals")!,
-                Type = "Microsoft.Entra/servicePrincipals",
-                ApiVersion = Api,
-                Key = new Dictionary<string, string> { ["appId"] = appId },
-                GraphId = new Guid(0xb0 + i, 0, 0, [0, 0, 0, 0, 0, 0, 0, 1]).ToString("D"),
-                Provenance = StateProvenance.Created,
-                LastWriteOn = Start,
-            });
-        }
-
-        state.CompleteRun(true, "Incremental", "sha256:previous", Start);
-        return state;
-    }
-
-    private static string SymbolicSpTemplate(CliSandbox sandbox)
-    {
-        return sandbox.WriteTemplate("t.entra.json", "\"resources\": [ "
-            + "{ \"type\": \"Microsoft.Entra/applications\", \"apiVersion\": \"" + Api + "\", \"name\": \"app1\", \"properties\": { \"displayName\": \"App 1\" } }, "
-            + "{ \"type\": \"Microsoft.Entra/servicePrincipals\", \"apiVersion\": \"" + Api + "\", \"name\": \"[reference(resourceId('Microsoft.Entra/applications', 'app1')).appId]\", \"properties\": { } } ]");
-    }
-
-    [Fact]
-    public async Task EntriesOfATypeWithADeployTimeName_AreCountedAsPossibleDeletions_SoMaxDeletesCannotBeExceededByTheModePass()
-    {
-        var (sandbox, _) = Setup(nameof(EntriesOfATypeWithADeployTimeName_AreCountedAsPossibleDeletions_SoMaxDeletesCannotBeExceededByTheModePass));
-        using var _ = sandbox;
-        await sandbox.WriteStateAsync(SpOrphans(3));
-        string template = SymbolicSpTemplate(sandbox);
-
-        var result = await CliRunner.RunAsync("deployment", "create", "-f", template, "-n", "dep", "--mode", "Complete", "-y", "--max-deletes", "1", "--state-dir", sandbox.StateDir);
-
-        Assert.Equal(1, result.ExitCode);
-        Assert.Contains("may include 3", result.StandardError, StringComparison.Ordinal);
-        Assert.Contains("--max-deletes 1", result.StandardError, StringComparison.Ordinal);
-        Assert.Contains("only known at deployment time", result.StandardError, StringComparison.Ordinal);
-        Assert.Equal(0, Count(sandbox, "POST"));
-        Assert.Equal(0, Count(sandbox, "DELETE"));
-    }
-
-    [Fact]
-    public async Task TheRefusal_WithJsonOutput_IsOneDocument_AndAllowDeleteAllLiftsIt()
-    {
-        var (sandbox, _) = Setup(nameof(TheRefusal_WithJsonOutput_IsOneDocument_AndAllowDeleteAllLiftsIt));
-        using var disposeSandbox = sandbox;
-        await sandbox.WriteStateAsync(SpOrphans(3));
-        string template = SymbolicSpTemplate(sandbox);
-
-        var refused = await CliRunner.RunAsync("deployment", "create", "-f", template, "-n", "dep", "--mode", "Complete", "-y", "--max-deletes", "1", "--state-dir", sandbox.StateDir, "-o", "json");
-        var allowed = await CliRunner.RunAsync("deployment", "create", "-f", template, "-n", "dep", "--mode", "Complete", "-y", "--max-deletes", "1", "--allow-delete-all", "--state-dir", sandbox.StateDir, "-o", "json");
-
-        Assert.Equal(1, refused.ExitCode);
-        Assert.Equal("DeleteLimitExceeded", OneDocument(refused)["diagnostics"]![0]!["code"]!.GetValue<string>());
-        Assert.DoesNotContain("Refusing the Complete-mode deployment", allowed.StandardOutput + allowed.StandardError, StringComparison.Ordinal);
-    }
-
     // ---- S2-16: set-provenance ----
-
-    [Fact]
-    public async Task ALegacyEntry_IsExplainedAsSuch_AndSetProvenanceMakesItDeletable()
-    {
-        var (sandbox, directory) = Setup(nameof(ALegacyEntry_IsExplainedAsSuch_AndSetProvenanceMakesItDeletable));
-        using var _ = sandbox;
-        string id = directory.AddGroup("legacy", "Legacy")["id"]!.GetValue<string>();
-        sandbox.WriteRawState("dep", StateJson("dep", GroupEntry("legacy", "{ \"uniqueName\": \"legacy\" }", id, provenance: string.Empty)));
-        string template = DeclaredGroupTemplate(sandbox);
-
-        var kept = await CliRunner.RunAsync("deployment", "create", "-f", template, "-n", "dep", "--mode", "Complete", "-y", "--state-dir", sandbox.StateDir, "-o", "json");
-        Assert.Equal(0, kept.ExitCode);
-        Assert.Contains("no provenance record", kept.StandardOutput, StringComparison.Ordinal);
-        Assert.NotNull(directory.FindById(id));
-
-        var mark = await CliRunner.RunAsync("state", "set-provenance", "-n", "dep", "--resource-id", "/providers/Microsoft.Entra/groups/legacy", "--provenance", "created", "-y", "--state-dir", sandbox.StateDir, "-o", "json");
-        Assert.Equal(0, mark.ExitCode);
-        var doc = OneDocument(mark);
-        Assert.Equal("Succeeded", doc["status"]!.GetValue<string>());
-        Assert.Equal("created", doc["provenance"]!.GetValue<string>());
-        Assert.True(doc["changed"]!.GetValue<bool>());
-
-        var deleted = await CliRunner.RunAsync("deployment", "create", "-f", template, "-n", "dep", "--mode", "Complete", "-y", "--state-dir", sandbox.StateDir, "-o", "json");
-        Assert.Equal(0, deleted.ExitCode);
-        Assert.Null(directory.Find("/groups", "uniqueName", "legacy"));
-    }
 
     [Fact]
     public async Task SetProvenance_RefusesAnUnknownId_AndAnUnknownValue_AndNeedsConfirmation()
@@ -315,28 +195,26 @@ public sealed class Review3H_CliTests
     }
 
     [Fact]
-    public async Task DeploymentDelete_Json_IsOneDocument_ForTheStateOnlyDelete_ThePerObjectDelete_AndAnUnknownName()
+    public async Task DeploymentDelete_Json_IsOneDocument_ForADelete_AndForNothingToDelete()
     {
-        var (sandbox, directory) = Setup(nameof(DeploymentDelete_Json_IsOneDocument_ForTheStateOnlyDelete_ThePerObjectDelete_AndAnUnknownName));
+        var (sandbox, directory) = Setup(nameof(DeploymentDelete_Json_IsOneDocument_ForADelete_AndForNothingToDelete));
         using var _ = sandbox;
-        string id = directory.AddGroup("g", "G")["id"]!.GetValue<string>();
-        sandbox.WriteRawState("dep", StateJson("dep", GroupEntry("g", "{ \"uniqueName\": \"g\" }", id)));
-        sandbox.WriteRawState("dep2", StateJson("dep2", GroupEntry("g", "{ \"uniqueName\": \"g\" }", id)));
+        directory.AddGroup("declared", "Declared");
+        string template = DeclaredGroupTemplate(sandbox);
 
-        var unknown = await CliRunner.RunAsync("deployment", "delete", "-n", "ghost", "-y", "--state-dir", sandbox.StateDir, "-o", "json");
-        var stateOnly = await CliRunner.RunAsync("deployment", "delete", "-n", "dep", "-y", "--state-dir", sandbox.StateDir, "-o", "json");
-        var objects = await CliRunner.RunAsync("deployment", "delete", "-n", "dep2", "--delete-resources", "-y", "--state-dir", sandbox.StateDir, "-o", "json");
+        var objects = await CliRunner.RunAsync("deployment", "delete", "-f", template, "-y", "-o", "json");
+        var nothing = await CliRunner.RunAsync("deployment", "delete", "-f", template, "-y", "-o", "json");
 
-        Assert.Equal("DeploymentNotFound", OneDocument(unknown)["diagnostics"]![0]!["code"]!.GetValue<string>());
-        var stateOnlyDoc = OneDocument(stateOnly);
-        Assert.Equal("Succeeded", stateOnlyDoc["status"]!.GetValue<string>());
-        Assert.True(stateOnlyDoc["stateRemoved"]!.GetValue<bool>());
         Assert.Equal(0, objects.ExitCode);
         var doc = OneDocument(objects);
         Assert.Equal("Succeeded", doc["status"]!.GetValue<string>());
         Assert.Equal(1, doc["deleted"]!.GetValue<int>());
         Assert.Equal("Deleted", doc["outcomes"]![0]!["status"]!.GetValue<string>());
         Assert.Equal(0, directory.Count("/groups"));
+        Assert.Equal(0, nothing.ExitCode);
+        var none = OneDocument(nothing);
+        Assert.Equal("Succeeded", none["status"]!.GetValue<string>());
+        Assert.Contains("Nothing to delete", none["message"]!.GetValue<string>(), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -392,7 +270,6 @@ public sealed class Review3H_CliTests
     [Theory]
     [InlineData("--parallelism", "-1")]
     [InlineData("--parallelism", "0")]
-    [InlineData("--max-deletes", "-1")]
     [InlineData("--lock-timeout", "-1")]
     public async Task ANegativeBound_IsAUsageError_NothingRuns(string option, string value)
     {
@@ -409,13 +286,13 @@ public sealed class Review3H_CliTests
     }
 
     [Fact]
-    public async Task ZeroIsStillAValidMaxDeletesAndLockTimeout()
+    public async Task ZeroIsStillAValidLockTimeout()
     {
-        using var sandbox = new CliSandbox(nameof(ZeroIsStillAValidMaxDeletesAndLockTimeout));
+        using var sandbox = new CliSandbox(nameof(ZeroIsStillAValidLockTimeout));
         sandbox.UsePreflightOk();
         string template = sandbox.WriteEmptyTemplate();
 
-        var result = await CliRunner.RunAsync("deployment", "create", "-f", template, "-y", "--max-deletes", "0", "--lock-timeout", "0", "--state-dir", sandbox.StateDir, "-o", "json");
+        var result = await CliRunner.RunAsync("deployment", "create", "-f", template, "-y", "--lock-timeout", "0", "--state-dir", sandbox.StateDir, "-o", "json");
 
         Assert.Equal(0, result.ExitCode);
     }

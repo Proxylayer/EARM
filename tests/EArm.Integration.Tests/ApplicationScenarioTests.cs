@@ -11,7 +11,7 @@ namespace EArm.Integration.Tests;
 
 /// <summary>
 /// Applications, service principals, federated identity credentials and client secrets against the real tenant:
-/// create, what-if (NoChange), drift, Complete-mode delete, secure outputs. Skipped without <c>EARM_IT_TENANT</c>.
+/// create, what-if (NoChange), drift, Complete mode (report only, never deletes), deployment delete, secure outputs. Skipped without <c>EARM_IT_TENANT</c>.
 /// </summary>
 [Collection(RealTenantCollection.Name)]
 public sealed class ApplicationScenarioTests : IntegrationTestBase
@@ -70,26 +70,22 @@ public sealed class ApplicationScenarioTests : IntegrationTestBase
         AssertNoChanges(await Fixture.Cli.WhatIfAsync(run, Ct, "--exit-code-on-changes"), "what-if after repair");
         Assert.Equal(appName, (await ApplicationByNameAsync(appName, "displayName"))!.Text("displayName"));
 
-        // 5. Complete mode with the application alone: the service principal, the credential and the FIC are deleted.
+        // 5. Complete mode with the application alone never deletes: the service principal, the credential and the FIC stay (their types are not declared).
         var appOnly = TemplateEditor.Retain(TemplateEditor.Load(run.TemplateFile), r => TemplateEditor.IsType(r, "Microsoft.Entra/applications"));
         var completeRun = run.WithTemplate(TemplateEditor.Write(Path.Combine(Fixture.ScratchDirectory, "variants"), "apps-app-only.entra.json", appOnly));
         var preview = await Fixture.Cli.WhatIfAsync(completeRun, Ct, "--mode", "Complete", "--exit-code-on-changes");
-        AssertExit(5, preview, "Complete what-if");
-        Assert.Equal(3, preview.Changes.Count(c => (string?)c["changeType"] == "Delete"));
+        AssertExit(0, preview, "Complete what-if");
+        Assert.DoesNotContain(preview.Changes, c => (string?)c["changeType"] == "Delete");
         Assert.Equal("NoChange", preview.ChangeTypeOf(appResource));
 
         var complete = await Fixture.Cli.CreateAsync(completeRun, Ct, "--mode", "Complete");
         AssertCreated(complete, "Complete create");
-        Assert.Equal(3, (int?)complete.Json["deleted"]);
-        Assert.Null(await FindOneAsync("/servicePrincipals", "appId", appId, "id"));
-        var remaining = await Graph.GetObjectAsync(new GraphRequest("/applications/" + appObjectId).WithSelect("id", "passwordCredentials"), Ct);
-        Assert.Empty(remaining!["passwordCredentials"]!.AsArray());
-        Assert.Empty(await Graph.ListAsync(new GraphRequest($"/applications/{appObjectId}/federatedIdentityCredentials"), Ct));
+        Assert.NotNull(await FindOneAsync("/servicePrincipals", "appId", appId, "id"));
 
-        // 6. deployment delete --delete-resources removes the application and the state.
-        var deleted = await Fixture.Cli.DeleteAllAsync(run.Name, Ct);
-        AssertExit(0, deleted, "delete --delete-resources");
+        // 6. deployment delete removes what the full template declares, children first.
+        var deleted = await Fixture.Cli.DeleteAllAsync(run, Ct);
+        AssertExit(0, deleted, "deployment delete");
         Assert.Null(await ApplicationByNameAsync(appName, "id"));
-        Assert.Null(await Fixture.Store.LoadAsync(run.Name, Ct));
+        Assert.Null(await FindOneAsync("/servicePrincipals", "appId", appId, "id"));
     }
 }

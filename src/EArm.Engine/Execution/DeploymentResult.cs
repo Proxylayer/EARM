@@ -28,7 +28,7 @@ public enum OperationStatus
     /// <summary><c>condition</c> evaluated to false.</summary>
     Ignored,
 
-    /// <summary>Mode pass, Incremental: the resource is no longer declared and was dropped from the state (the object stays).</summary>
+    /// <summary>Only in older state files (an entry dropped from the state by the former mode pass); the executor never reports it. Goes away with the state subsystem.</summary>
     Detached,
 }
 
@@ -75,7 +75,8 @@ public sealed class DeploymentResult
         JsonObject secureOutputs,
         IReadOnlyList<Diagnostic> diagnostics,
         string? secureOutputsFile,
-        TimeSpan duration)
+        TimeSpan duration,
+        IReadOnlyList<ResourceChange>? orphans = null)
     {
         DeploymentName = deploymentName;
         Status = status;
@@ -86,6 +87,7 @@ public sealed class DeploymentResult
         Diagnostics = diagnostics;
         SecureOutputsFile = secureOutputsFile;
         Duration = duration;
+        Orphans = orphans ?? [];
     }
 
     public string DeploymentName { get; }
@@ -116,18 +118,18 @@ public sealed class DeploymentResult
 
     public TimeSpan Duration { get; }
 
-    /// <summary>Resources created, updated or found unchanged (mode-pass deletes are counted by <see cref="DeletedCount"/>).</summary>
-    public int SucceededCount => Operations.Count(o => o.Status == OperationStatus.Succeeded && o.ChangeType != Providers.ChangeType.Delete);
+    /// <summary>
+    /// The orphan report of the run: live objects no declared resource matches (<see cref="ResourceChange.Orphan"/>: undeclared in Complete mode, retained
+    /// assignments and grants of declared principals in both modes). Reported only; nothing was deleted, and they do not affect <see cref="Status"/>.
+    /// </summary>
+    public IReadOnlyList<ResourceChange> Orphans { get; }
+
+    /// <summary>Resources created, updated (or replaced) or found unchanged.</summary>
+    public int SucceededCount => Operations.Count(o => o.Status == OperationStatus.Succeeded);
 
     public int FailedCount => Operations.Count(o => o.Status == OperationStatus.Failed);
 
     public int SkippedCount => Operations.Count(o => o.Status == OperationStatus.Skipped);
 
     public int IgnoredCount => Operations.Count(o => o.Status == OperationStatus.Ignored);
-
-    /// <summary>Entries the mode pass dropped from the state without touching the object (Incremental).</summary>
-    public int DetachedCount => Operations.Count(o => o.Status == OperationStatus.Detached);
-
-    /// <summary>Objects the mode pass deleted (Complete).</summary>
-    public int DeletedCount => Operations.Count(o => o.Status == OperationStatus.Succeeded && o.ChangeType == Providers.ChangeType.Delete);
 }

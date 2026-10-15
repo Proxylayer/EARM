@@ -207,9 +207,12 @@ public sealed class AssignmentsAndGrantsTests
         Assert.Equal(ChangeType.NoChange, Assert.Single(rerun.Executed.Operations).ChangeType);
         Check.NoWrites(rerun);
 
+        // Complete mode never deletes; 'deployment delete' removes the declared assignment.
         var complete = await host.CreateAsync(host.Resources(string.Empty), EArm.Engine.Planning.DeploymentMode.Complete);
         Check.Succeeded(complete);
-        Assert.Contains(complete.Writes, w => w.Method == "DELETE");
+        Check.NoWrites(complete);
+        var deletion = await host.DeleteDeclaredAsync(document);
+        Assert.True(deletion.Succeeded);
         Assert.Empty(host.Directory.Objects("/servicePrincipals/" + resourceId + "/appRoleAssignedTo"));
     }
 

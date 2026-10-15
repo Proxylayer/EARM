@@ -29,7 +29,7 @@ internal static class TemplateEditor
         return template;
     }
 
-    /// <summary>The template without any resource: Complete mode deletes everything the deployment manages.</summary>
+    /// <summary>The template without any resource.</summary>
     public static JsonObject Empty(JsonObject template)
     {
         return Retain(template, static _ => false);

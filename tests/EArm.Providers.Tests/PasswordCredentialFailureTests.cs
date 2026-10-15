@@ -235,13 +235,8 @@ public sealed class PasswordCredentialFailureTests
         Check.Succeeded(await host.CreateAsync(host.Resources(Template())));
         host.ClearRequests();
 
-        // The credentials existed before the deployment managed them, so the state records them as adopted; deleting them is explicit (review finding E-02).
-        var kept = await host.DeleteAllAsync();
-        Assert.Equal(0, kept.FailedCount);
-        Assert.Equal(2, kept.RefusedCount); // the application and its credential
-        Assert.DoesNotContain(host.Fake.Writes, w => w.Path.EndsWith("/removePassword", StringComparison.Ordinal));
-
-        var result = await host.DeleteAllAsync(deleteAdopted: true);
+        // No adoption distinction any more: 'deployment delete' deletes what the template declares, found by key.
+        var result = await host.DeleteDeclaredAsync(host.Resources(Template()));
 
         Assert.Equal(0, result.FailedCount);
         var removed = host.Fake.Writes.Where(w => w.Path.EndsWith("/removePassword", StringComparison.Ordinal)).Select(w => Check.Body(w)["keyId"]!.GetValue<string>()).ToList();

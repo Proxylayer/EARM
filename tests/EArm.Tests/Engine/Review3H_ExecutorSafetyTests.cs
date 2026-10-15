@@ -137,97 +137,35 @@ public sealed class Review3H_ExecutorSafetyTests
     }
 
     [Fact]
-    public async Task ARecreate_OfAnObjectTheStateDoesNotVouchFor_IsRefused_NothingIsDeletedOrCreated()
+    public async Task ARecreate_ThatWasNotConfirmed_IsRefused_NothingIsDeletedOrCreated()
     {
         var host = new EngineHost();
         SeedApplicationWithCredential(host);
 
-        var (_, result, _) = await ExecuteAsync(host, NewState(), Templates.Resources(PasswordFixtureDoc()));
+        var (_, result, _) = await ExecuteAsync(host, NewState(), Templates.Resources(PasswordFixtureDoc()), execute: new ExecuteOptions { ApprovedRecreates = new HashSet<string>() });
 
         Assert.False(result.Succeeded);
         var credential = Assert.Single(result.Operations, o => o.Type.EndsWith("passwordCredentials", StringComparison.Ordinal));
         Assert.Equal(OperationStatus.Failed, credential.Status);
-        Assert.Equal(EngineDiagnosticCodes.AdoptedObjectNotDeleted, credential.ErrorCode);
-        Assert.Contains("--delete-adopted", credential.Error, StringComparison.Ordinal);
+        Assert.Equal(EngineDiagnosticCodes.RecreateNotConfirmed, credential.ErrorCode);
+        Assert.Contains("-y", credential.Error, StringComparison.Ordinal);
         Assert.DoesNotContain(host.Fake.Writes, w => w.Path.EndsWith("Password", StringComparison.Ordinal));
         Assert.Single(host.Directory.Objects("/applications").Single()["passwordCredentials"]!.AsArray());
     }
 
     [Fact]
-    public async Task ARecreate_IsPlannedAndCountedAsADelete_InTheWhatIf_AndRefusedForAnAdoptedObject()
+    public async Task ARecreate_IsPlannedAsADeleteAndCreate_InTheWhatIf_WhateverCreatedTheObject()
     {
         var host = new EngineHost();
         SeedApplicationWithCredential(host);
-        var document = Templates.Resources(PasswordFixtureDoc());
 
-        var refused = await host.WhatIfAsync(document, NewState());
-        var allowed = await host.WhatIfAsync(document, NewState(), DeploymentMode.Incremental, host.Options() with { DeleteAdopted = true });
+        var plan = await host.WhatIfAsync(Templates.Resources(PasswordFixtureDoc()), NewState());
 
-        var refusedRow = Assert.Single(refused.Changes, c => c.ResourceType.EndsWith("passwordCredentials", StringComparison.Ordinal));
-        Assert.True(refusedRow.HasError);
-        Assert.Contains("--delete-adopted", refusedRow.UnsupportedReason, StringComparison.Ordinal);
-        var allowedRow = Assert.Single(allowed.Changes, c => c.ResourceType.EndsWith("passwordCredentials", StringComparison.Ordinal));
-        Assert.False(allowedRow.HasError);
-        Assert.Equal(ChangeMode.Recreate, allowedRow.Mode);
-        Assert.Contains(allowedRow.Reasons, r => r.Contains("DELETED and created again", StringComparison.Ordinal));
-        Assert.Contains(allowed.Diagnostics, d => d.Code == EngineDiagnosticCodes.DestructiveDelete && d.Message.Contains("--max-deletes", StringComparison.Ordinal));
-    }
-
-    [Fact]
-    public async Task ARecreate_OfAnObjectThisDeploymentCreated_Proceeds_AndCountsAgainstTheDeleteLimit()
-    {
-        var host = new EngineHost();
-        var app = SeedApplicationWithCredential(host);
-        var credentialEntry = new StateEntry
-        {
-            Id = StateSerializer.ParseResourceId("/providers/Microsoft.Entra/applications/app/passwordCredentials/ci", Fixture.PasswordType)!,
-            Type = Fixture.PasswordType,
-            ApiVersion = ApiVersion,
-            Key = new Dictionary<string, string> { ["displayName"] = "ci" },
-            GraphId = "K1",
-            ParentGraphId = IdOf(app),
-            Provenance = StateProvenance.Created,
-        };
-        var allowedState = NewState();
-        allowedState.Upsert(Entry(AppId("app"), Fixture.AppType, IdOf(app), "uniqueName", "app"));
-        allowedState.Upsert(credentialEntry);
-
-        var (_, replaced, _) = await ExecuteAsync(host, allowedState, Templates.Resources(PasswordFixtureDoc()));
-
-        Assert.True(replaced.Succeeded, string.Join("\n", replaced.Operations.Select(o => o.Error)));
-        Assert.Contains(host.Fake.Writes, w => w.Path.EndsWith("/removePassword", StringComparison.Ordinal));
-
-        // The same replacement with a budget of zero deletes: the old object is not touched.
-        var host2 = new EngineHost();
-        var app2 = SeedApplicationWithCredential(host2);
-        var state2 = NewState();
-        state2.Upsert(Entry(AppId("app"), Fixture.AppType, IdOf(app2), "uniqueName", "app"));
-        state2.Upsert(credentialEntry with { ParentGraphId = IdOf(app2) });
-
-        var (_, limited, _) = await ExecuteAsync(host2, state2, Templates.Resources(PasswordFixtureDoc()), execute: new ExecuteOptions { MaxDeletes = 0 });
-
-        var credential = Assert.Single(limited.Operations, o => o.Type.EndsWith("passwordCredentials", StringComparison.Ordinal));
-        Assert.Equal(EngineDiagnosticCodes.DeleteLimitExceeded, credential.ErrorCode);
-        Assert.DoesNotContain(host2.Fake.Writes, w => w.Path.EndsWith("Password", StringComparison.Ordinal));
-    }
-
-    [Fact]
-    public async Task TheMaxDeletesLimit_IsAHardLimitOfTheRun_TheModePassStopsWhenItIsUsedUp()
-    {
-        var host = new EngineHost();
-        var state = NewState();
-        foreach (string name in new[] { "a", "b", "c" })
-        {
-            state.Upsert(Entry(AppId(name), Fixture.AppType, IdOf(host.Directory.AddApplication(name, name)), "uniqueName", name));
-        }
-
-        var (_, result, _) = await ExecuteAsync(host, state, Empty(), DeploymentMode.Complete, execute: new ExecuteOptions { MaxDeletes = 1 });
-
-        Assert.Equal(1, result.DeletedCount);
-        Assert.Equal(1, host.Directory.Count("/applications") == 2 ? 1 : 0);
-        Assert.Contains(result.Diagnostics, d => d.Code == EngineDiagnosticCodes.DeleteLimitExceeded && d.IsError);
-        Assert.Equal(2, state.Resources.Count);
-        Assert.Contains(result.Operations, o => o.ErrorCode == EngineDiagnosticCodes.DeleteLimitExceeded);
+        var row = Assert.Single(plan.Changes, c => c.ResourceType.EndsWith("passwordCredentials", StringComparison.Ordinal));
+        Assert.False(row.HasError);
+        Assert.Equal(ChangeMode.Recreate, row.Mode);
+        Assert.Contains(row.Reasons, r => r.Contains("DELETED and created again", StringComparison.Ordinal));
+        Assert.Contains(plan.Diagnostics, d => d.Code == EngineDiagnosticCodes.DestructiveDelete && d.Message.Contains("(-y)", StringComparison.Ordinal));
     }
 
     // ---- S2-05: --continue-on-error and the edge pass ----
@@ -283,31 +221,6 @@ public sealed class Review3H_ExecutorSafetyTests
     }
 
     [Fact]
-    public async Task ARecordedEdge_WhoseDeclarationMovedToTheTargetSide_StaysRecorded()
-    {
-        var host = new EngineHost();
-        var group = host.Directory.AddGroup("g", "g");
-        var user = host.Directory.AddUser("u@contoso.com", "U");
-        await AddMemberAsync(host, IdOf(group), IdOf(user));
-        var state = NewState();
-        state.Upsert(Entry("/providers/Microsoft.Entra/users/u@contoso.com", Fixture.UserType, IdOf(user), "userPrincipalName", "u@contoso.com") with
-        {
-            Relationships = new JsonObject { ["memberOf"] = new JsonArray(IdOf(group)) },
-        });
-        string userBody = "\"accountEnabled\": true, \"passwordProfile\": { \"password\": \"Initial-P@ssw0rd-1\" }";
-        var document = Templates.Resources(
-            GroupDoc("g", ", \"members\": [ \"" + IdOf(user) + "\" ]") + ", "
-            + "{ \"type\": \"Microsoft.Entra/users\", \"apiVersion\": \"" + ApiVersion + "\", \"name\": \"u@contoso.com\", \"properties\": { \"displayName\": \"U\", " + userBody + " } }");
-
-        var (_, result, _) = await ExecuteAsync(host, state, document);
-
-        Assert.True(result.Succeeded, string.Join("\n", result.Operations.Select(o => o.Error)));
-        Assert.DoesNotContain(host.Fake.Writes, w => w.Method == "DELETE");
-        var recorded = Assert.IsType<JsonArray>(state.Find("/providers/Microsoft.Entra/users/u@contoso.com")!.Relationships!["memberOf"]);
-        Assert.Equal([IdOf(group)], recorded.Select(n => n!.GetValue<string>()).ToList());
-    }
-
-    [Fact]
     public async Task WithoutAFailedPrincipal_TheAuthoritativeSetStillPrunesWhatIsNotDeclared()
     {
         var host = new EngineHost();
@@ -322,36 +235,10 @@ public sealed class Review3H_ExecutorSafetyTests
         Assert.DoesNotContain(IdOf(stranger), MembersOf(host, IdOf(group)), StringComparer.OrdinalIgnoreCase);
     }
 
-    // ---- S2-06: edge records ----
+    // ---- principal-side edges are ensure-only ----
 
     [Fact]
-    public async Task ARecordedEdge_WhoseRemovalFails_StaysRecorded_SoALaterRunCanRemoveIt()
-    {
-        var host = new EngineHost();
-        var g1 = host.Directory.AddGroup("g1", "g1");
-        var g2 = host.Directory.AddGroup("g2", "g2");
-        var user = host.Directory.AddUser("u@contoso.com", "U");
-        await AddMemberAsync(host, IdOf(g1), IdOf(user));
-        await AddMemberAsync(host, IdOf(g2), IdOf(user));
-        var state = NewState();
-        state.Upsert(Entry("/providers/Microsoft.Entra/users/u@contoso.com", Fixture.UserType, IdOf(user), "userPrincipalName", "u@contoso.com") with
-        {
-            Relationships = new JsonObject { ["memberOf"] = new JsonArray(IdOf(g1), IdOf(g2)) },
-        });
-        host.Fake.Failures.Forbid("/groups/" + IdOf(g2) + "/members", "DELETE");
-        var document = Templates.Resources("{ \"type\": \"Microsoft.Entra/users\", \"apiVersion\": \"" + ApiVersion + "\", \"name\": \"u@contoso.com\", \"properties\": { \"displayName\": \"U\", \"accountEnabled\": true, \"passwordProfile\": { \"password\": \"Initial-P@ssw0rd-1\" }, \"memberOf\": [ \"" + IdOf(g1) + "\" ] } }");
-
-        var (_, result, _) = await ExecuteAsync(host, state, document);
-
-        Assert.False(result.Succeeded);
-        var recorded = Assert.IsType<JsonArray>(state.Find("/providers/Microsoft.Entra/users/u@contoso.com")!.Relationships!["memberOf"]);
-        var ids = recorded.Select(n => n!.GetValue<string>()).ToList();
-        Assert.Contains(IdOf(g1), ids, StringComparer.OrdinalIgnoreCase);
-        Assert.Contains(IdOf(g2), ids, StringComparer.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public async Task ARecordedEdge_ThatWasRemoved_IsNoLongerRecorded()
+    public async Task APrincipalSideEdge_NoLongerDeclared_IsNeverRemoved_EvenWhenTheStateRecordsIt()
     {
         var host = new EngineHost();
         var g1 = host.Directory.AddGroup("g1", "g1");
@@ -366,15 +253,17 @@ public sealed class Review3H_ExecutorSafetyTests
         });
         var document = Templates.Resources("{ \"type\": \"Microsoft.Entra/users\", \"apiVersion\": \"" + ApiVersion + "\", \"name\": \"u@contoso.com\", \"properties\": { \"displayName\": \"U\", \"accountEnabled\": true, \"passwordProfile\": { \"password\": \"Initial-P@ssw0rd-1\" }, \"memberOf\": [ \"" + IdOf(g1) + "\" ] } }");
 
+        var plan = await host.WhatIfAsync(document, state);
         var (_, result, _) = await ExecuteAsync(host, state, document);
 
+        Assert.DoesNotContain(plan.Changes.SelectMany(c => c.Deltas).SelectMany(d => d.Children ?? []), c => c.Kind == PropertyChangeType.Delete);
         Assert.True(result.Succeeded, string.Join("\n", result.Operations.Select(o => o.Error)));
-        var recorded = Assert.IsType<JsonArray>(state.Find("/providers/Microsoft.Entra/users/u@contoso.com")!.Relationships!["memberOf"]);
-        Assert.Equal([IdOf(g1)], recorded.Select(n => n!.GetValue<string>()).ToList());
+        Assert.DoesNotContain(host.Fake.Writes, w => w.Method == "DELETE");
+        Assert.Contains(IdOf(user), MembersOf(host, IdOf(g2)), StringComparer.OrdinalIgnoreCase);
     }
 
     [Fact]
-    public async Task AnAddWhoseAnswerWasLost_ButThatCommitted_IsRecordedAsCreatedByTheDeployment()
+    public async Task AnAddWhoseAnswerWasLost_ButThatCommitted_CountsAsDone()
     {
         EngineHost? created = null;
         var host = new EngineHost(graph => new CommitThenFailGraphClient(graph, r => r.Path.EndsWith("/members/$ref", StringComparison.Ordinal), _ => new GraphException(HttpStatusCode.ServiceUnavailable, "ServiceUnavailable", "the answer got lost", RetryHint.Default)));
@@ -388,8 +277,6 @@ public sealed class Review3H_ExecutorSafetyTests
 
         Assert.True(result.Succeeded, string.Join("\n", result.Operations.Select(o => o.Error)) + string.Join("\n", result.Diagnostics));
         Assert.Contains(IdOf(user), MembersOf(host, IdOf(group)), StringComparer.OrdinalIgnoreCase);
-        var recorded = Assert.IsType<JsonArray>(state.Find("/providers/Microsoft.Entra/users/u@contoso.com")!.Relationships!["memberOf"]);
-        Assert.Equal([IdOf(group)], recorded.Select(n => n!.GetValue<string>()).ToList());
     }
 
     // ---- S2-07: no blind outer retry of a create ----
@@ -552,58 +439,6 @@ public sealed class Review3H_ExecutorSafetyTests
 
     // ---- S2-10: Ctrl-C in the end phase ----
 
-    private sealed class CancelOnDelete : GraphClientDecorator
-    {
-        private readonly CancellationTokenSource _source;
-        private readonly int _afterDeletes;
-        private int _deletes;
-
-        public CancelOnDelete(IGraphClient inner, CancellationTokenSource source, int afterDeletes)
-            : base(inner)
-        {
-            _source = source;
-            _afterDeletes = afterDeletes;
-        }
-
-        public int Deletes => Volatile.Read(ref _deletes);
-
-        public override async Task DeleteAsync(GraphRequest request, CancellationToken cancellationToken)
-        {
-            await base.DeleteAsync(request, cancellationToken);
-            if (Interlocked.Increment(ref _deletes) == _afterDeletes)
-            {
-                await _source.CancelAsync();
-            }
-        }
-    }
-
-    [Fact]
-    public async Task ACtrlCDuringTheCompleteModeDeletes_StopsTheNextDelete_RecordsTheRestAsSkipped_AndEndsCancelled()
-    {
-        using var source = CancellationTokenSource.CreateLinkedTokenSource(Ct);
-        CancelOnDelete? canceller = null;
-        var host = new EngineHost(graph => canceller = new CancelOnDelete(graph, source, 2));
-        var state = NewState();
-        foreach (string name in new[] { "a", "b", "c", "d", "e" })
-        {
-            state.Upsert(Entry(AppId(name), Fixture.AppType, IdOf(host.Directory.AddApplication(name, name)), "uniqueName", name));
-        }
-
-        var store = new InMemoryStateStore();
-        var plan = await host.ExpandAsync(Empty(), state, DeploymentMode.Complete);
-        var sink = new FileStateSink(store, state, plan) { SaveRetryBaseDelay = TimeSpan.FromMilliseconds(1) };
-        await sink.BeginAsync(Ct);
-
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => host.Executor().ExecuteAsync(plan, new ExecuteOptions { StateSink = sink, State = state }, source.Token));
-
-        Assert.Equal(2, canceller!.Deletes);
-        Assert.Equal(3, host.Directory.Count("/applications"));
-        Assert.Equal(3, state.Resources.Count);
-        Assert.Equal(StateFile.StatusCancelled, state.LastStatus);
-        Assert.Equal(3, state.Operations.Count(o => o.Status == OperationStatus.Succeeded && o.ChangeType == ChangeType.Delete) + 1);
-        Assert.Equal(2, state.Operations.Count(o => o.Status == OperationStatus.Succeeded && o.ChangeType == ChangeType.Delete));
-    }
-
     [Fact]
     public async Task TheEdgePass_StopsBetweenOperationsWhenCancelled_AndRecordsTheOnesNotStartedAsFailed()
     {
@@ -665,10 +500,10 @@ public sealed class Review3H_ExecutorSafetyTests
         public Task<IReadOnlyList<BatchResponse>> BatchAsync(IReadOnlyList<BatchRequest> requests, GraphApi api, RetryHint hint, CancellationToken cancellationToken) => throw new NotSupportedException();
     }
 
-    // ---- S2-17: provenance after an uncertain create, properties applied after "already exists" ----
+    // ---- S2-17: an uncertain create, properties applied after "already exists" ----
 
     [Fact]
-    public async Task AnUncertainCreate_WhoseObjectWasCreatedLongBeforeTheRun_IsAdopted_NotCreated()
+    public async Task AnUncertainCreate_WhoseObjectIsFoundUnderTheKey_IsNotCreatedAgain()
     {
         InterceptingGraphClient? interceptor = null;
         var host = new EngineHost(graph => interceptor = new InterceptingGraphClient(graph));
@@ -687,9 +522,8 @@ public sealed class Review3H_ExecutorSafetyTests
         var (_, result, _) = await ExecuteAsync(host, state, Users("old@contoso.com"));
 
         Assert.True(result.Succeeded, string.Join("\n", result.Operations.Select(o => o.Error)));
-        Assert.Equal(StateProvenance.Adopted, state.Find(UserResourceId("old@contoso.com"))!.Provenance);
         Assert.Contains(result.Diagnostics, d => d.Code == EngineDiagnosticCodes.CreateOutcomeUncertain);
-        Assert.Contains(result.Diagnostics, d => d.Code == EngineDiagnosticCodes.AdoptedExistingObject);
+        Assert.Single(host.Directory.Objects("/users"));
     }
 
     [Fact]
@@ -705,7 +539,7 @@ public sealed class Review3H_ExecutorSafetyTests
     }
 
     [Fact]
-    public async Task AlreadyExists_AdoptsTheObject_AndAppliesTheDeclaredPropertiesInTheSameRun()
+    public async Task AlreadyExists_TakesTheObjectOver_AndAppliesTheDeclaredPropertiesInTheSameRun()
     {
         EngineHost? created = null;
         var host = new EngineHost(graph => new RacingApplicationClient(graph, () => created!.Directory.AddApplication("racy", "Racy (somebody else's name)")));
@@ -715,7 +549,6 @@ public sealed class Review3H_ExecutorSafetyTests
         var (_, result, _) = await ExecuteAsync(host, state, Apps("racy"));
 
         Assert.True(result.Succeeded, string.Join("\n", result.Operations.Select(o => o.Error)));
-        Assert.Equal(StateProvenance.Adopted, state.Find(AppId("racy"))!.Provenance);
         Assert.Equal("racy", host.Directory.Find("/applications", "uniqueName", "racy")!["displayName"]!.GetValue<string>());
     }
 }

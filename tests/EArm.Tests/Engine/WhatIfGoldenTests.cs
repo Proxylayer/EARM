@@ -103,7 +103,7 @@ public sealed class WhatIfGoldenTests
     {
         var all = WhatIfScenario.All();
 
-        Assert.Equal(["create-incremental", "modify-incremental", "modify-resource-id-only", "delete-complete", "detach-incremental"], all.Select(s => s.Name).ToList());
+        Assert.Equal(["create-incremental", "modify-incremental", "modify-resource-id-only", "orphans-complete", "retained-incremental"], all.Select(s => s.Name).ToList());
         foreach (var scenario in all)
         {
             Assert.True(System.IO.File.Exists(scenario.PathOf(scenario.Template)), scenario.Template);
@@ -117,7 +117,8 @@ public sealed class WhatIfGoldenTests
         }
 
         Assert.Equal(ResultFormat.ResourceIdOnly, all.Single(s => s.Name == "modify-resource-id-only").ResultFormat);
-        Assert.Equal(EArm.Engine.Planning.DeploymentMode.Complete, all.Single(s => s.Name == "delete-complete").Mode);
+        Assert.Equal(EArm.Engine.Planning.DeploymentMode.Complete, all.Single(s => s.Name == "orphans-complete").Mode);
+        Assert.Equal(EArm.Engine.Planning.DeploymentMode.Incremental, all.Single(s => s.Name == "retained-incremental").Mode);
     }
 
     [Fact]
@@ -178,8 +179,8 @@ public sealed class WhatIfGoldenTests
     [InlineData("create-incremental", true, 4, 0, 0, 0, 1)]
     [InlineData("modify-incremental", true, 1, 4, 0, 1, 0)]
     [InlineData("modify-resource-id-only", true, 1, 4, 0, 1, 0)]
-    [InlineData("delete-complete", true, 0, 0, 1, 1, 0)]
-    [InlineData("detach-incremental", false, 0, 0, 0, 1, 1)]
+    [InlineData("orphans-complete", true, 2, 0, 0, 0, 0)]
+    [InlineData("retained-incremental", true, 2, 0, 0, 0, 0)]
     public async Task Summary_AndHasChanges_FollowTheScenario(string name, bool hasChanges, int create, int modify, int delete, int noChange, int ignore)
     {
         var report = (await WhatIfScenario.Find(name).PlanAsync()).Report;
@@ -228,21 +229,38 @@ public sealed class WhatIfGoldenTests
     }
 
     [Fact]
-    public async Task DeleteAndDetachScenarios_AreTheSameStateInTwoModes()
+    public async Task OrphanScenarios_ListTheUndeclaredLocationInComplete_AndTheRetainedAssignmentInBothModes_NeverAsAChange()
     {
-        var delete = await WhatIfScenario.Find("delete-complete").PlanAsync();
-        var detach = await WhatIfScenario.Find("detach-incremental").PlanAsync();
+        var complete = await WhatIfScenario.Find("orphans-complete").PlanAsync();
+        var incremental = await WhatIfScenario.Find("retained-incremental").PlanAsync();
 
-        var deleted = Assert.Single(delete.Report.Rows, r => r.IsModePass);
-        var detached = Assert.Single(detach.Report.Rows, r => r.IsModePass);
-        Assert.Equal(deleted.ResourceId, detached.ResourceId);
-        Assert.Equal(ChangeType.Delete, deleted.Type);
-        Assert.Equal(ChangeType.Ignore, detached.Type);
-        Assert.NotNull(deleted.Before);
-        Assert.Null(deleted.After);
-        Assert.Null(deleted.Instance);
-        Assert.False(deleted.Before!.ContainsKey("apiVersion"));
-        Assert.Contains(delete.Report.Diagnostics, d => d.Code == EArm.Engine.EngineDiagnosticCodes.DestructiveDelete);
-        Assert.Contains(detach.Report.Diagnostics, d => d.Code == EArm.Engine.EngineDiagnosticCodes.ResourceDetached);
+        var undeclared = Assert.Single(complete.Report.Rows, r => r.Change.Orphan == OrphanReason.Undeclared);
+        Assert.Equal("/providers/Microsoft.Entra/conditionalAccess/namedLocations/Legacy offices", undeclared.ResourceId);
+        Assert.Equal("22222222-0000-0000-0000-000000000050", undeclared.Change.GraphId);
+        var retained = Assert.Single(complete.Report.Rows, r => r.Change.Orphan == OrphanReason.Retained);
+        Assert.Equal("/providers/Microsoft.Entra/roleAssignments/22222222-0000-0000-0000-000000000060", retained.ResourceId);
+        Assert.Contains(retained.Reasons, r => r.StartsWith("retained: no longer declared; still grants access", StringComparison.Ordinal));
+
+        var onlyRetained = Assert.Single(incremental.Report.Rows, r => r.IsOrphan);
+        Assert.Equal(OrphanReason.Retained, onlyRetained.Change.Orphan);
+        Assert.Equal(retained.ResourceId, onlyRetained.ResourceId);
+
+        foreach (var report in new[] { complete.Report, incremental.Report })
+        {
+            Assert.All(report.Rows.Where(r => r.IsOrphan), r =>
+            {
+                Assert.Equal(ChangeType.Ignore, r.Type);
+                Assert.False(r.IsWrite);
+                Assert.Null(r.Instance);
+                Assert.Null(r.Before);
+                Assert.Null(r.After);
+            });
+            Assert.DoesNotContain(report.Rows, r => r.Type == ChangeType.Delete);
+            Assert.Contains(report.Diagnostics, d => d.Code == EArm.Engine.EngineDiagnosticCodes.AssignmentRetained);
+        }
+
+        Assert.Equal(2, complete.Report.Summary.Orphans);
+        Assert.Equal(1, incremental.Report.Summary.Orphans);
+        Assert.Empty(complete.Client.Writes);
     }
 }

@@ -129,15 +129,21 @@ public sealed class ProviderLifecycleContractTests
 
     [Theory]
     [MemberData(nameof(Cases))]
-    public async Task Complete_ModeRemovesWhatTheTemplateNoLongerDeclares(string name)
+    public async Task CompleteModeDeletesNothing_AndDeploymentDeleteRemovesWhatTheTemplateDeclares(string name)
     {
         var host = new ProviderHost();
-        Check.Succeeded(await host.CreateAsync(host.Resources(ProviderFailureMatrixTests.Templates()[name])));
+        var document = host.Resources(ProviderFailureMatrixTests.Templates()[name]);
+        Check.Succeeded(await host.CreateAsync(document));
 
-        var removal = await host.CreateAsync(host.Resources(string.Empty), EArm.Engine.Planning.DeploymentMode.Complete);
+        var complete = await host.CreateAsync(host.Resources(string.Empty), EArm.Engine.Planning.DeploymentMode.Complete);
+        Check.Succeeded(complete);
+        Check.NoWrites(complete);
 
-        Check.Succeeded(removal);
-        Assert.Contains(removal.Writes, w => w.Method == "DELETE");
-        Assert.Empty((await host.LoadStateAsync())?.Resources ?? []);
+        host.ClearRequests();
+        var deletion = await host.DeleteDeclaredAsync(document);
+
+        Assert.True(deletion.Succeeded, string.Join("; ", deletion.Outcomes.Select(o => o.Target.Instance.Id.Id + "=" + o.Status + " " + o.Error)));
+        Assert.Contains(host.Fake.Writes, w => w.Method == "DELETE");
+        Assert.DoesNotContain(EArm.Engine.Execution.TemplateDeleter.FindDeclaredObjects((await host.WhatIfAsync(document)).Plan), t => t.Refusal is null);
     }
 }

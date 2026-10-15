@@ -57,8 +57,7 @@ public sealed class DeploymentExecutorTests
         Assert.Equal(1, result.IgnoredCount);
         Assert.Equal(0, result.FailedCount);
         Assert.Equal(0, result.SkippedCount);
-        Assert.Equal(0, result.DetachedCount);
-        Assert.Equal(0, result.DeletedCount);
+        Assert.Empty(result.Orphans);
         Assert.DoesNotContain(result.Diagnostics, d => d.IsError);
         Assert.Empty(plan.Changes);
         Assert.Equal(Fixture.InstanceCount, result.Changes.Count);
@@ -478,9 +477,8 @@ public sealed class DeploymentExecutorTests
             });
         });
 
-        // Review round 2 (S2-03): the credential was not created by this deployment (no state entry), so replacing it - which deletes it - needs --delete-adopted
-        // (Review3H_RecreateTests covers the refusal).
-        var (_, result) = await host.CreateAsync(await Templates.FixtureAsync(), new ExecuteOptions { DeleteAdopted = true });
+        // A replacement deletes the old object: the executor does it when confirmed (ApprovedRecreates null = every replacement, the CLI's -y).
+        var (_, result) = await host.CreateAsync(await Templates.FixtureAsync(), new ExecuteOptions());
 
         var password = Operation(result, Fixture.Password);
         Assert.Equal(OperationStatus.Succeeded, password.Status);

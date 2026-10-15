@@ -52,10 +52,9 @@ public sealed class Review4L_NewSurfaceDocsTests
         ("state adopt", "--unique-name"),
         ("state adopt", "--type"),
         ("state adopt", "--id"),
-        ("deployment create", "--delete-adopted"),
-        ("deployment create", "--allow-delete-all"),
-        ("deployment create", "--max-deletes"),
-        ("deployment delete", "--delete-adopted"),
+        ("deployment delete", "--template-file"),
+        ("deployment delete", "--yes"),
+        ("deployment delete", "--continue-on-error"),
         ("auth login", "--device-code"),
         (string.Empty, "--evaluation-timeout"),
     ];
@@ -124,14 +123,6 @@ public sealed class Review4L_NewSurfaceDocsTests
         Assert.Contains("`--name` still works", Doc("cli.md"), StringComparison.Ordinal);
     }
 
-    [Fact]
-    public void ANegativeMaxDeletes_IsAUsageError_NamingTheOption()
-    {
-        var parse = Program.BuildRootCommand().Parse(["deployment", "create", "--max-deletes", "-1"]);
-
-        Assert.Contains(parse.Errors, e => e.Message.Contains("max-deletes", StringComparison.Ordinal));
-    }
-
     // ---- diagnostic codes of the review rounds ----
 
     public static TheoryData<string> ReviewCodes()
@@ -139,7 +130,9 @@ public sealed class Review4L_NewSurfaceDocsTests
         return new TheoryData<string>
         {
             nameof(EngineDiagnosticCodes.StateEntryInvalid),
-            nameof(EngineDiagnosticCodes.DeleteLimitExceeded),
+            nameof(EngineDiagnosticCodes.RecreateNotConfirmed),
+            nameof(EngineDiagnosticCodes.OrphanReportIncomplete),
+            nameof(EngineDiagnosticCodes.AssignmentRetained),
             nameof(DiagnosticCodes.InputTooLarge),
             nameof(DiagnosticCodes.VariableChainTooDeep),
         };

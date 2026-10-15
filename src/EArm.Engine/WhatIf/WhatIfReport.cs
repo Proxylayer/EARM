@@ -40,7 +40,7 @@ public sealed record EdgeSummary(int Add, int Remove)
 /// </summary>
 public sealed class WhatIfRow
 {
-    private WhatIfRow(ResourceChange change, ResourceInstance? instance, JsonObject? before, JsonObject? after, IReadOnlyList<PropertyDelta> deltas, bool isUnknown, EdgeSummary edges, bool isModePass)
+    private WhatIfRow(ResourceChange change, ResourceInstance? instance, JsonObject? before, JsonObject? after, IReadOnlyList<PropertyDelta> deltas, bool isUnknown, EdgeSummary edges)
     {
         Change = change;
         Instance = instance;
@@ -49,12 +49,11 @@ public sealed class WhatIfRow
         Deltas = deltas;
         IsUnknown = isUnknown;
         Edges = edges;
-        IsModePass = isModePass;
     }
 
     public ResourceChange Change { get; }
 
-    /// <summary>The planned instance; <c>null</c> for mode-pass rows (state entries the template no longer declares).</summary>
+    /// <summary>The planned instance; <c>null</c> for orphan report rows (live objects the template does not declare).</summary>
     public ResourceInstance? Instance { get; }
 
     public string ResourceId => Change.Id.Id;
@@ -85,16 +84,19 @@ public sealed class WhatIfRow
     /// <summary>Edge entries this row adds and removes (relationship properties).</summary>
     public EdgeSummary Edges { get; }
 
-    /// <summary>True for the rows of the mode pass (not declared in the template: Delete in Complete, Ignore in Incremental).</summary>
-    public bool IsModePass { get; }
+    /// <summary>True for the rows of the orphan report (live objects no declared resource matches; never deleted). <see cref="ResourceChange.Orphan"/> says why.</summary>
+    public bool IsOrphan => Change.IsOrphan;
 
-    /// <summary>True when the row counts as a change for <c>--exit-code-on-changes</c>: Create, Modify or Delete, or any edge add / remove.</summary>
+    /// <summary>
+    /// True when the row counts as a change for <c>--exit-code-on-changes</c>: Create, Modify or Delete, or any edge add / remove. Orphan report rows never do
+    /// (nothing is written for them).
+    /// </summary>
     public bool IsWrite => Change.IsWrite || Edges.HasChanges;
 
     /// <summary>The ARM symbol (<c>+ ~ - = *</c>) followed by <c>!</c> when unsupported, else <c>?</c> when deploy-time values are involved.</summary>
     public string Marker => Change.Symbol + (IsUnsupported ? "!" : IsUnknown ? "?" : string.Empty);
 
-    internal static WhatIfRow Create(ResourceChange change, ResourceInstance? instance, ResourceTypeDefinition? definition, bool isModePass)
+    internal static WhatIfRow Create(ResourceChange change, ResourceInstance? instance, ResourceTypeDefinition? definition)
     {
         var secure = definition?.Secure ?? [];
         var deltas = WhatIfMasking.MaskDeltas(change.Deltas, secure);
@@ -104,7 +106,7 @@ public sealed class WhatIfRow
         var after = Payload(change, instance, change.After, instance?.EdgeProperties, secure);
         bool unknown = change.IsUnknown || deltas.Any(WhatIfMasking.ContainsUnknown);
         var edges = CountEdges(deltas, definition);
-        return new WhatIfRow(change, instance, before, after, deltas, unknown, edges, isModePass);
+        return new WhatIfRow(change, instance, before, after, deltas, unknown, edges);
     }
 
     private static JsonObject? Payload(ResourceChange change, ResourceInstance? instance, JsonObject? properties, JsonObject? edgeProperties, IReadOnlyList<JsonPath> secure)
@@ -201,8 +203,8 @@ public sealed class WhatIfRow
 
 /// <summary>
 /// The rendering model of a what-if, built once from a <see cref="DeploymentPlan"/> and shared
-/// by the text and JSON renderers: rows in batch order (ties by resource id) followed by the mode-pass rows (by
-/// resource id), the summary counts, the edge counts, the required permissions, the warnings and the unresolved
+/// by the text and JSON renderers: rows in batch order (ties by resource id) followed by the orphan report rows (by
+/// type, then resource id), the summary counts, the edge counts, the required permissions, the warnings and the unresolved
 /// existing-resource lookups.
 /// </summary>
 public sealed class WhatIfReport
@@ -255,24 +257,24 @@ public sealed class WhatIfReport
             {
                 if (plan.ChangeFor(instance) is { } change && seen.Add(change))
                 {
-                    rows.Add(WhatIfRow.Create(change, instance, plan.Catalog.Find(change.ResourceType), isModePass: false));
+                    rows.Add(WhatIfRow.Create(change, instance, plan.Catalog.Find(change.ResourceType)));
                 }
             }
         }
 
         // Rows the batches do not reach (defensive: the plan lists them, so they are rendered).
-        var modePass = new HashSet<ResourceChange>(plan.ModeChanges, ReferenceEqualityComparer.Instance);
+        var orphans = new HashSet<ResourceChange>(plan.Orphans, ReferenceEqualityComparer.Instance);
         foreach (var change in plan.Changes)
         {
-            if (!modePass.Contains(change) && seen.Add(change))
+            if (!orphans.Contains(change) && seen.Add(change))
             {
-                rows.Add(WhatIfRow.Create(change, plan.FindInstance(change.Id), plan.Catalog.Find(change.ResourceType), isModePass: false));
+                rows.Add(WhatIfRow.Create(change, plan.FindInstance(change.Id), plan.Catalog.Find(change.ResourceType)));
             }
         }
 
-        foreach (var change in plan.ModeChanges.OrderBy(c => c.Id.Id, StringComparer.Ordinal))
+        foreach (var change in plan.Orphans.OrderBy(c => c.ResourceType, StringComparer.Ordinal).ThenBy(c => c.Id.Id, StringComparer.Ordinal))
         {
-            rows.Add(WhatIfRow.Create(change, null, plan.Catalog.Find(change.ResourceType), isModePass: true));
+            rows.Add(WhatIfRow.Create(change, null, plan.Catalog.Find(change.ResourceType)));
         }
 
         return new WhatIfReport(plan, rows);

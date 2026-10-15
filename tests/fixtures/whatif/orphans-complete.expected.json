@@ -1,0 +1,91 @@
+{
+  "status": "Succeeded",
+  "deploymentName": "orphans-complete",
+  "tenantId": "11111111-1111-1111-1111-111111111111",
+  "mode": "Complete",
+  "changes": [
+    {
+      "resourceId": "/providers/Microsoft.Entra/conditionalAccess/namedLocations/Contoso offices",
+      "changeType": "Create",
+      "after": {
+        "name": "Contoso offices",
+        "type": "Microsoft.Entra/conditionalAccess/namedLocations",
+        "apiVersion": "2026-10-01-preview",
+        "properties": {
+          "@odata.type": "#microsoft.graph.ipNamedLocation",
+          "isTrusted": true,
+          "ipRanges": [
+            {
+              "cidrAddress": "10.0.0.0/8",
+              "@odata.type": "#microsoft.graph.iPv4CidrRange"
+            }
+          ]
+        }
+      },
+      "unsupportedReason": null
+    },
+    {
+      "resourceId": "/providers/Microsoft.Entra/roleAssignments/83d54051-352a-5a0a-8f33-4f6dbe6a70ec",
+      "changeType": "Create",
+      "after": {
+        "name": "83d54051-352a-5a0a-8f33-4f6dbe6a70ec",
+        "type": "Microsoft.Entra/roleAssignments",
+        "apiVersion": "2026-10-01-preview",
+        "properties": {
+          "principalId": "22222222-0000-0000-0000-000000000001",
+          "directoryScopeId": "/",
+          "roleDefinitionId": "f2ef992c-3afb-46b9-b7cf-a126ee74c451"
+        }
+      },
+      "unsupportedReason": null
+    },
+    {
+      "resourceId": "/providers/Microsoft.Entra/conditionalAccess/namedLocations/Legacy offices",
+      "changeType": "Ignore",
+      "orphan": "undeclared",
+      "graphId": "22222222-0000-0000-0000-000000000050",
+      "unsupportedReason": null,
+      "reasons": [
+        "not declared in the template. Complete mode reports it and never deletes it: declare it to manage it, or delete it yourself."
+      ]
+    },
+    {
+      "resourceId": "/providers/Microsoft.Entra/roleAssignments/22222222-0000-0000-0000-000000000060",
+      "changeType": "Ignore",
+      "orphan": "retained",
+      "graphId": "22222222-0000-0000-0000-000000000060",
+      "unsupportedReason": null,
+      "reasons": [
+        "retained: no longer declared; still grants access (principalId '22222222-0000-0000-0000-000000000001', roleDefinitionId '88d8e3e3-8f55-4a1e-953a-9b9898b8876b', directoryScopeId '/'). Assignments are never removed: delete it yourself if the access should end."
+      ]
+    }
+  ],
+  "diagnostics": [
+    {
+      "level": "Warning",
+      "code": "AssignmentRetained",
+      "target": null,
+      "message": "'/providers/Microsoft.Entra/roleAssignments/22222222-0000-0000-0000-000000000060' (Graph id 22222222-0000-0000-0000-000000000060) is not declared by the template but still grants access (principalId '22222222-0000-0000-0000-000000000001', roleDefinitionId '88d8e3e3-8f55-4a1e-953a-9b9898b8876b', directoryScopeId '/'); EARM never removes it. Delete it yourself if the access should end."
+    }
+  ],
+  "requiredPermissions": [
+    "Directory.Read.All",
+    "Policy.Read.All",
+    "Policy.ReadWrite.ConditionalAccess",
+    "RoleManagement.ReadWrite.Directory"
+  ],
+  "unresolvedReferences": [],
+  "summary": {
+    "create": 2,
+    "modify": 0,
+    "delete": 0,
+    "noChange": 0,
+    "ignore": 0,
+    "unsupported": 0,
+    "orphans": 2,
+    "edges": {
+      "add": 0,
+      "remove": 0
+    }
+  }
+}

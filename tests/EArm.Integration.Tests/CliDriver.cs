@@ -124,9 +124,9 @@ internal sealed class CliDriver
         return RunAsync(["deployment", "create", "-f", run.TemplateFile, "-n", run.Name, .. run.ParameterTokens, "-y", "-o", "json", .. extra], cancellationToken);
     }
 
-    /// <summary><c>deployment delete -n … --delete-resources -y</c>.</summary>
-    public Task<CliResult> DeleteAllAsync(string deploymentName, CancellationToken cancellationToken)
+    /// <summary><c>deployment delete -f … -n … -p … -y -o json</c>: deletes the objects the template declares.</summary>
+    public Task<CliResult> DeleteAllAsync(DeploymentRun run, CancellationToken cancellationToken)
     {
-        return RunAsync(["deployment", "delete", "-n", deploymentName, "--delete-resources", "-y"], cancellationToken);
+        return RunAsync(["deployment", "delete", "-f", run.TemplateFile, "-n", run.Name, .. run.ParameterTokens, "-y", "-o", "json"], cancellationToken);
     }
 }

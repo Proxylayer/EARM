@@ -66,9 +66,8 @@ public sealed class DirectoryScenarioTests : IntegrationTestBase
         Assert.Contains(u2, await IdsOfAsync($"/groups/{gc}/members"));
         AssertNoChanges(await Fixture.Cli.WhatIfAsync(run, Ct, "--exit-code-on-changes"), "what-if after edge repair");
 
-        // Complete mode with nothing declared removes users and groups (edges go with the objects).
-        var emptyRun = run.WithTemplate(TemplateEditor.Write(Path.Combine(Fixture.ScratchDirectory, "variants"), "groups-empty.entra.json", TemplateEditor.Empty(TemplateEditor.Load(run.TemplateFile))));
-        AssertCreated(await Fixture.Cli.CreateAsync(emptyRun, Ct, "--mode", "Complete"), "Complete with an empty template");
+        // deployment delete removes the declared users and groups (edges go with the objects).
+        AssertExit(0, await Fixture.Cli.DeleteAllAsync(run, Ct), "deployment delete");
         Assert.Null(await GroupByNameAsync(Fixture.Name("ga"), "id"));
         Assert.Null(await UserAsync(Fixture.Upn("u1"), "id"));
     }
@@ -118,7 +117,7 @@ public sealed class DirectoryScenarioTests : IntegrationTestBase
         AssertCreated(await Fixture.Cli.CreateAsync(run, Ct), "create after drift");
         Assert.Equal("Integration test user", (await UserAsync(Fixture.Upn("u1"), "jobTitle"))!.Text("jobTitle"));
 
-        AssertExit(0, await Fixture.Cli.DeleteAllAsync(run.Name, Ct), "delete --delete-resources");
+        AssertExit(0, await Fixture.Cli.DeleteAllAsync(run, Ct), "deployment delete");
         Assert.Null(await UserAsync(Fixture.Upn("u1"), "id"));
     }
 

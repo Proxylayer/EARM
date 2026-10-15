@@ -17,6 +17,19 @@ public enum ChangeType
     Ignore,
 }
 
+/// <summary>Why a row of the orphan report is listed (see docs/whatif.md, "Orphan report").</summary>
+public enum OrphanReason
+{
+    /// <summary>A live object of a type the template declares that no declared resource matches by key (Complete mode only). It is never deleted.</summary>
+    Undeclared,
+
+    /// <summary>
+    /// A live assignment or grant of a principal (or client) the template declares that no declared assignment matches: typically the old tuple of an
+    /// assignment whose principal, role or scope changed. It is retained (never removed) and still grants access. Listed in both modes.
+    /// </summary>
+    Retained,
+}
+
 /// <summary>How a change is applied.</summary>
 public enum ChangeMode
 {
@@ -97,6 +110,14 @@ public sealed record ResourceChange
     /// <summary>The Graph id of the existing object when one was found.</summary>
     public string? GraphId { get; init; }
 
+    /// <summary>
+    /// Set on the rows of the orphan report only (an <see cref="ChangeType.Ignore"/> row for a live object no declared resource matches); <c>null</c> for
+    /// every planned change. Orphans are never written to: they do not count as changes.
+    /// </summary>
+    public OrphanReason? Orphan { get; init; }
+
+    public bool IsOrphan => Orphan is not null;
+
     public bool HasError => UnsupportedReason is not null;
 
     public bool IsWrite => Type is ChangeType.Create or ChangeType.Modify or ChangeType.Delete;
@@ -105,6 +126,13 @@ public sealed record ResourceChange
     {
         ArgumentNullException.ThrowIfNull(id);
         return new ResourceChange { Id = id, ResourceType = resourceType, Type = ChangeType.Ignore, Mode = ChangeMode.None, Reasons = [reason], IsUnknown = isUnknown };
+    }
+
+    /// <summary>A row of the orphan report: an <see cref="ChangeType.Ignore"/> row for the live object <paramref name="graphId"/>, never acted on.</summary>
+    public static ResourceChange OrphanRow(ResourceIdentifier id, string resourceType, string graphId, OrphanReason reason, string text)
+    {
+        ArgumentNullException.ThrowIfNull(id);
+        return new ResourceChange { Id = id, ResourceType = resourceType, Type = ChangeType.Ignore, Mode = ChangeMode.None, GraphId = graphId, Orphan = reason, Reasons = [text] };
     }
 
     public static ResourceChange Unsupported(ResourceIdentifier id, string resourceType, ChangeType type, string reason)

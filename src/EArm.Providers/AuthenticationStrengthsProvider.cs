@@ -40,7 +40,7 @@ namespace EArm.Providers;
 /// </para>
 /// </summary>
 [EntraProvider(ResourceType)]
-public sealed class AuthenticationStrengthsProvider : ProviderBase
+public sealed class AuthenticationStrengthsProvider : ProviderBase, IOrphanCandidateSource
 {
     public const string ResourceType = "Microsoft.Entra/conditionalAccess/authenticationStrengths";
 
@@ -291,5 +291,17 @@ public sealed class AuthenticationStrengthsProvider : ProviderBase
     {
         return JsonObjects.GetId(live)
             ?? throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{TypeName}: Graph returned an object without 'id' for '{desired.Name}'.", desired.Id);
+    }
+
+    // ---- orphan report ----
+
+    /// <summary>The orphan report lists the whole collection of custom strengths (built-in ones are never reported).</summary>
+    public OrphanScope OrphanScope => OrphanScope.Collection;
+
+    public Task<IReadOnlyList<OrphanCandidate>> ListOrphanCandidatesAsync(OrphanQuery query, IGraphClient graph, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        ArgumentNullException.ThrowIfNull(graph);
+        return OrphanListing.CollectionAsync(graph, new GraphRequest(CollectionPath, query.Api).WithSelect("id", KeyProperty, AuthenticationStrengthsRules.PolicyTypeProperty), KeyProperty, live => !AuthenticationStrengthsRules.IsBuiltIn(live), null, cancellationToken);
     }
 }

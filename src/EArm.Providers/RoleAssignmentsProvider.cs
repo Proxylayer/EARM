@@ -41,7 +41,7 @@ namespace EArm.Providers;
 /// </para>
 /// </summary>
 [EntraProvider(ResourceType)]
-public sealed class RoleAssignmentsProvider : ProviderBase
+public sealed class RoleAssignmentsProvider : ProviderBase, IOrphanCandidateSource
 {
     public const string ResourceType = "Microsoft.Entra/roleAssignments";
 
@@ -376,5 +376,29 @@ public sealed class RoleAssignmentsProvider : ProviderBase
     {
         return JsonObjects.GetId(live)
             ?? throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{TypeName}: Graph returned an object without 'id' for '{desired.Name}'.", desired.Id);
+    }
+
+    // ---- orphan report ----
+
+    /// <summary>The orphan report lists the directory role assignments of the principals the declared assignments name (reported as retained).</summary>
+    public OrphanScope OrphanScope => OrphanScope.DeclaredPrincipals;
+
+    public async Task<IReadOnlyList<OrphanCandidate>> ListOrphanCandidatesAsync(OrphanQuery query, IGraphClient graph, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        ArgumentNullException.ThrowIfNull(graph);
+        var candidates = new List<OrphanCandidate>();
+        foreach (var principalId in OrphanListing.DistinctKeyValues(query.DeclaredKeys, "principalId"))
+        {
+            foreach (var assignment in await RoleAssignmentsLookup.ReadPrincipalAssignmentsAsync(graph, principalId, query.Api, RetryHint.Default, cancellationToken).ConfigureAwait(false))
+            {
+                if (JsonObjects.GetId(assignment) is { } id)
+                {
+                    candidates.Add(new OrphanCandidate(id, id, null, OrphanListing.Describe(assignment, "principalId", "roleDefinitionId", "directoryScopeId")));
+                }
+            }
+        }
+
+        return candidates;
     }
 }

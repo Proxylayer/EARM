@@ -52,31 +52,35 @@ public sealed class WhatIfRenderingTests
     // ---- report ----
 
     [Fact]
-    public async Task Report_OrdersRowsByBatchThenIdThenModePass()
+    public async Task Report_OrdersRowsByBatchThenIdThenTheOrphanReport()
     {
         var run = await WhatIfScenario.Find("create-incremental").PlanAsync();
 
         var ids = run.Report.Rows.Select(r => r.ResourceId).ToList();
         var batchOrder = run.Plan.Batches.SelectMany(b => b.Instances.OrderBy(i => i.PlannedId.Id, StringComparer.Ordinal)).Select(i => i.PlannedId.Id).ToList();
         Assert.Equal(batchOrder, ids);
-        Assert.All(run.Report.Rows, r => Assert.False(r.IsModePass));
+        Assert.All(run.Report.Rows, r => Assert.False(r.IsOrphan));
         Assert.Equal(run.Plan.Changes.Count, run.Report.Rows.Count);
 
-        var mode = await WhatIfScenario.Find("delete-complete").PlanAsync();
-        Assert.False(mode.Report.Rows[0].IsModePass);
-        Assert.True(mode.Report.Rows[^1].IsModePass);
-        Assert.Equal(mode.Report.Rows.Skip(1).Select(r => r.ResourceId).Order(StringComparer.Ordinal), mode.Report.Rows.Skip(1).Select(r => r.ResourceId));
+        var orphans = await WhatIfScenario.Find("orphans-complete").PlanAsync();
+        var rows = orphans.Report.Rows;
+        int firstOrphan = rows.ToList().FindIndex(r => r.IsOrphan);
+        Assert.True(firstOrphan > 0);
+        Assert.All(rows.Take(firstOrphan), r => Assert.False(r.IsOrphan));
+        Assert.All(rows.Skip(firstOrphan), r => Assert.True(r.IsOrphan));
+        var tail = rows.Skip(firstOrphan).Select(r => (r.ResourceType, r.ResourceId)).ToList();
+        Assert.Equal(tail.OrderBy(t => t.ResourceType, StringComparer.Ordinal).ThenBy(t => t.ResourceId, StringComparer.Ordinal), tail);
     }
 
     [Fact]
     public async Task Report_CarriesTheNamesTenantModePermissionsAndDiagnostics()
     {
-        var run = await WhatIfScenario.Find("delete-complete").PlanAsync();
+        var run = await WhatIfScenario.Find("orphans-complete").PlanAsync();
 
-        Assert.Equal("delete-complete", run.Report.DeploymentName);
+        Assert.Equal("orphans-complete", run.Report.DeploymentName);
         Assert.Equal("11111111-1111-1111-1111-111111111111", run.Report.TenantId);
         Assert.Equal(EArm.Engine.Planning.DeploymentMode.Complete, run.Report.Mode);
-        Assert.Equal(["Group.ReadWrite.All"], run.Report.RequiredPermissions);
+        Assert.Equal(run.Plan.RequiredPermissions.Order(StringComparer.Ordinal), run.Report.RequiredPermissions);
         Assert.Equal(run.Plan.Diagnostics, run.Report.Diagnostics);
         Assert.Equal(EdgeSummary.Empty, run.Report.Edges);
         Assert.False(EdgeSummary.Empty.HasChanges);
@@ -183,7 +187,8 @@ public sealed class WhatIfRenderingTests
 
         string text = Text(WhatIfReport.From(plan));
 
-        Assert.Contains("The template declares no resources and the state records none.", text);
+        Assert.Contains("The template declares no resources.", text);
+        Assert.DoesNotContain("Orphans:", text, StringComparison.Ordinal);
         Assert.DoesNotContain("The deployment would make the following changes:", text, StringComparison.Ordinal);
         Assert.Contains("Resource changes: 0 to create, 0 to modify, 0 to delete, 0 unchanged, 0 ignored.", text);
         Assert.Contains("Edges: 0 to add, 0 to remove.", text);
@@ -210,13 +215,13 @@ public sealed class WhatIfRenderingTests
     [Fact]
     public async Task Text_PrintsDiagnosticsAfterTheFooter()
     {
-        var text = Text((await WhatIfScenario.Find("detach-incremental").PlanAsync()).Report);
+        var text = Text((await WhatIfScenario.Find("retained-incremental").PlanAsync()).Report);
 
         int footer = text.IndexOf("Required permissions:", StringComparison.Ordinal);
-        int warning = text.IndexOf("warning ResourceDetached:", StringComparison.Ordinal);
+        int warning = text.IndexOf("warning AssignmentRetained:", StringComparison.Ordinal);
         Assert.True(footer > 0 && warning > footer);
-        Assert.EndsWith("(use --mode Complete to delete it).\n", text, StringComparison.Ordinal);
-        Assert.Contains("(not in template; will be detached from state)", text);
+        Assert.Contains("[Microsoft.Entra/roleAssignments] (orphan: retained)", text);
+        Assert.Contains("Orphans: 1 live object(s) not declared in the template (reported only; never deleted).", text);
     }
 
     // ---- JSON ----
@@ -245,7 +250,7 @@ public sealed class WhatIfRenderingTests
     public async Task Json_FollowsTheArmPayloadRulesPerChangeType()
     {
         var modify = WhatIfJson.Build((await WhatIfScenario.Find("modify-incremental").PlanAsync()).Report)["changes"]!.AsArray().Select(c => c!.AsObject()).ToList();
-        var delete = WhatIfJson.Build((await WhatIfScenario.Find("delete-complete").PlanAsync()).Report)["changes"]!.AsArray().Select(c => c!.AsObject()).ToList();
+        var orphans = WhatIfJson.Build((await WhatIfScenario.Find("orphans-complete").PlanAsync()).Report)["changes"]!.AsArray().Select(c => c!.AsObject()).ToList();
         var create = WhatIfJson.Build((await WhatIfScenario.Find("create-incremental").PlanAsync()).Report)["changes"]!.AsArray().Select(c => c!.AsObject()).ToList();
 
         JsonObject Of(System.Collections.Generic.List<JsonObject> rows, string type) => rows.First(r => r["changeType"]!.GetValue<string>() == type);
@@ -265,11 +270,16 @@ public sealed class WhatIfRenderingTests
         Assert.NotNull(noChange["after"]);
         Assert.Null(noChange["delta"]);
 
-        var deleted = Of(delete, "Delete");
-        Assert.NotNull(deleted["before"]);
-        Assert.Null(deleted["after"]);
-        Assert.Null(deleted["delta"]);
-        Assert.Equal("not in template; Complete mode deletes it", deleted["reasons"]![0]!.GetValue<string>());
+        Assert.DoesNotContain(orphans, r => r["changeType"]!.GetValue<string>() == "Delete");
+        var undeclared = orphans.Single(r => r["orphan"]?.GetValue<string>() == "undeclared");
+        Assert.Equal("Ignore", undeclared["changeType"]!.GetValue<string>());
+        Assert.Null(undeclared["before"]);
+        Assert.Null(undeclared["after"]);
+        Assert.Null(undeclared["delta"]);
+        Assert.Equal("22222222-0000-0000-0000-000000000050", undeclared["graphId"]!.GetValue<string>());
+        Assert.StartsWith("not declared in the template", undeclared["reasons"]![0]!.GetValue<string>(), StringComparison.Ordinal);
+        Assert.Equal("retained", orphans.Single(r => r["resourceId"]!.GetValue<string>().Contains("roleAssignments", StringComparison.Ordinal) && r["orphan"] is not null)["orphan"]!.GetValue<string>());
+        Assert.All(orphans.Where(r => r["orphan"] is null), r => Assert.False(r.ContainsKey("graphId")));
 
         var ignored = Of(create, "Ignore");
         Assert.Null(ignored["before"]);
@@ -450,12 +460,12 @@ public sealed class WhatIfRenderingTests
     [Fact]
     public async Task Writer_FromAPlan_ReturnsTheReport()
     {
-        var run = await WhatIfScenario.Find("detach-incremental").PlanAsync();
+        var run = await WhatIfScenario.Find("retained-incremental").PlanAsync();
         using var writer = new StringWriter();
 
         var report = WhatIfWriter.Write(run.Plan, Invocation(OutputFormat.None), writer);
 
-        Assert.False(report.HasChanges);
+        Assert.True(report.HasChanges);
         Assert.Equal(run.Report.Rows.Count, report.Rows.Count);
     }
 

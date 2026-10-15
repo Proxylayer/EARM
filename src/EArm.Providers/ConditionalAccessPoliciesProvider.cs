@@ -38,7 +38,7 @@ namespace EArm.Providers;
 /// </para>
 /// </summary>
 [EntraProvider(ResourceType)]
-public sealed class ConditionalAccessPoliciesProvider : ProviderBase
+public sealed class ConditionalAccessPoliciesProvider : ProviderBase, IOrphanCandidateSource
 {
     public const string ResourceType = "Microsoft.Entra/conditionalAccess/policies";
 
@@ -291,5 +291,17 @@ public sealed class ConditionalAccessPoliciesProvider : ProviderBase
     {
         return JsonObjects.GetId(live)
             ?? throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{TypeName}: Graph returned an object without 'id' for '{desired.Name}'.", desired.Id);
+    }
+
+    // ---- orphan report ----
+
+    /// <summary>The orphan report lists the whole collection.</summary>
+    public OrphanScope OrphanScope => OrphanScope.Collection;
+
+    public Task<IReadOnlyList<OrphanCandidate>> ListOrphanCandidatesAsync(OrphanQuery query, IGraphClient graph, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        ArgumentNullException.ThrowIfNull(graph);
+        return OrphanListing.CollectionAsync(graph, new GraphRequest(CollectionPath, query.Api).WithSelect("id", KeyProperty), KeyProperty, null, null, cancellationToken);
     }
 }

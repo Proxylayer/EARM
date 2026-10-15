@@ -447,28 +447,6 @@ public sealed class Review1A_RunSafetyTests
 
     // ---- E-11: edges added before another edge of the row failed are still recorded ----
 
-    [Fact]
-    public async Task WhenOneEdgeOfARowFails_TheEdgesThatWereAdded_AreStillRecordedInTheState()
-    {
-        var host = new EngineHost();
-        var allStaff = host.SeedExisting()[1];
-        string allStaffId = IdOf(allStaff);
-        host.Fake.Failures.Forbid("/groups/" + allStaffId + "/members", "POST");
-        var state = NewState();
-
-        var (_, result, _) = await ExecuteAsync(host, state, await Templates.FixtureAsync());
-
-        Assert.False(result.Succeeded);
-        var user = Assert.Single(result.Operations, o => o.Id.Id == Fixture.User);
-        Assert.Equal(OperationStatus.Failed, user.Status);
-        Assert.Equal(EngineDiagnosticCodes.EdgeApplyFailed, user.ErrorCode);
-        var recorded = state.Find(Fixture.User)!.Relationships;
-        Assert.NotNull(recorded);
-        var memberOf = Assert.IsType<JsonArray>(recorded["memberOf"]);
-        string admins = IdOf(host.Directory.Find("/groups", "uniqueName", "contoso-dev-orders-admins")!);
-        Assert.Contains(memberOf, node => node!.ToJsonString().Contains(admins, StringComparison.OrdinalIgnoreCase));
-        Assert.DoesNotContain(memberOf, node => node!.ToJsonString().Contains(allStaffId, StringComparison.OrdinalIgnoreCase));
-    }
 }
 
 internal sealed class CancelAfterPostClient : GraphClientDecorator

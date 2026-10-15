@@ -201,7 +201,7 @@ public sealed class FederatedIdentityCredentialsProviderTests
     }
 
     [Fact]
-    public async Task Rename_DetachesInIncremental_AndDeletesInComplete()
+    public async Task Rename_KeepsTheOldCredential_AndCompleteModeReportsIt()
     {
         var host = new ProviderHost();
         var first = await host.CreateAsync(host.Resources(App() + ", " + Fic("github-old", "repo:contoso/orders:ref:refs/heads/old")));
@@ -215,26 +215,23 @@ public sealed class FederatedIdentityCredentialsProviderTests
         var incremental = await host.CreateAsync(host.Resources(App() + ", " + Fic("github-new", "repo:contoso/orders:ref:refs/heads/new")));
         Check.Succeeded(incremental);
         Assert.Equal(ChangeType.Create, incremental.Op("github-new").ChangeType);
-        Assert.Equal(OperationStatus.Detached, incremental.Op("github-old").Status);
         Assert.Equal(2, host.Directory.Count("/applications/" + appId + "/federatedIdentityCredentials"));
-        Assert.False(incremental.State!.Resources.ContainsKey(oldEntry.Id.Id));
+        Assert.Empty(incremental.Executed.Orphans);
 
         var complete = new ProviderHost();
         await complete.CreateAsync(complete.Resources(App() + ", " + Fic("github-old", "repo:contoso/orders:ref:refs/heads/old")));
         appId = complete.IdOf("/applications", "uniqueName", AppName);
+        string oldId = complete.Directory.Objects("/applications/" + appId + "/federatedIdentityCredentials").Single()["id"]!.GetValue<string>();
 
         var run = await complete.CreateAsync(complete.Resources(App() + ", " + Fic("github-new", "repo:contoso/orders:ref:refs/heads/new")), DeploymentMode.Complete);
 
         Check.Succeeded(run);
-        Assert.Equal(ChangeType.Delete, run.Op("github-old").ChangeType);
-        Assert.Equal(OperationStatus.Succeeded, run.Op("github-old").Status);
-        var writes = run.Writes;
-        Assert.Equal(2, writes.Count);
-        Assert.Equal("PATCH", writes[0].Method);
-        Assert.EndsWith("(name='github-new')", writes[0].Path, StringComparison.Ordinal);
-        Assert.Equal("DELETE", writes[1].Method);
-        Assert.Equal("/applications/" + appId + "/federatedIdentityCredentials(name='github-old')", writes[1].Path);
-        Assert.Equal("github-new", Assert.Single(complete.Directory.Objects("/applications/" + appId + "/federatedIdentityCredentials"))["name"]!.GetValue<string>());
+        Assert.DoesNotContain(run.Writes, w => w.Method == "DELETE");
+        Assert.Equal(2, complete.Directory.Count("/applications/" + appId + "/federatedIdentityCredentials"));
+        var orphan = Assert.Single(run.Executed.Orphans);
+        Assert.Equal(OrphanReason.Undeclared, orphan.Orphan);
+        Assert.Equal(oldId, orphan.GraphId);
+        Assert.Equal(oldEntry.Id.Id, orphan.Id.Id);
     }
 
     [Fact]
@@ -341,9 +338,9 @@ public sealed class FederatedIdentityCredentialsProviderTests
         string appId = host.IdOf("/applications", "uniqueName", AppName);
         host.ClearRequests();
 
-        var deletion = await host.DeleteAllAsync();
+        var deletion = await host.DeleteDeclaredAsync(host.Resources(FlatTemplate));
 
-        Assert.True(deletion.Succeeded, string.Join("; ", deletion.Outcomes.Select(o => o.Entry.Id.Id + "=" + o.Status + " " + o.Error)));
+        Assert.True(deletion.Succeeded, string.Join("; ", deletion.Outcomes.Select(o => o.Target.Instance.Id.Id + "=" + o.Status + " " + o.Error)));
         var writes = host.Fake.Writes;
         Assert.Equal(3, writes.Count);
         Assert.All(writes, w => Assert.Equal("DELETE", w.Method));

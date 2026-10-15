@@ -39,7 +39,7 @@ namespace EArm.Providers;
 /// </para>
 /// </summary>
 [EntraProvider(ResourceType)]
-public sealed class AppRoleAssignmentsProvider : ProviderBase
+public sealed class AppRoleAssignmentsProvider : ProviderBase, IOrphanCandidateSource
 {
     public const string ResourceType = "Microsoft.Entra/appRoleAssignments";
 
@@ -368,5 +368,29 @@ public sealed class AppRoleAssignmentsProvider : ProviderBase
     {
         return JsonObjects.GetId(live)
             ?? throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{TypeName}: Graph returned an object without 'id' for '{desired.Name}'.", desired.Id);
+    }
+
+    // ---- orphan report ----
+
+    /// <summary>The orphan report lists the app role assignments the principals of the declared assignments hold (principal side; reported as retained).</summary>
+    public OrphanScope OrphanScope => OrphanScope.DeclaredPrincipals;
+
+    public async Task<IReadOnlyList<OrphanCandidate>> ListOrphanCandidatesAsync(OrphanQuery query, IGraphClient graph, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        ArgumentNullException.ThrowIfNull(graph);
+        var candidates = new List<OrphanCandidate>();
+        foreach (var principalId in OrphanListing.DistinctKeyValues(query.DeclaredKeys, "principalId"))
+        {
+            foreach (var assignment in await AppRoleAssignmentsLookup.ReadPrincipalAssignmentsAsync(graph, principalId, query.Api, RetryHint.Default, cancellationToken).ConfigureAwait(false))
+            {
+                if (JsonObjects.GetId(assignment) is { } id)
+                {
+                    candidates.Add(new OrphanCandidate(id, id, null, OrphanListing.Describe(assignment, "principalId", "resourceDisplayName", "resourceId", "appRoleId")));
+                }
+            }
+        }
+
+        return candidates;
     }
 }

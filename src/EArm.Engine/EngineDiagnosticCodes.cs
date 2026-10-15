@@ -66,10 +66,7 @@ public static class EngineDiagnosticCodes
     /// <summary>A state entry is not what it must be (its key is not the key its resource id implies, a recorded id is malformed): the state is refused at load, nothing is acted on (CLI exit 1).</summary>
     public const string StateEntryInvalid = "StateEntryInvalid";
 
-    /// <summary>A state-managed resource is no longer declared in the template and was detached from the state (Incremental mode).</summary>
-    public const string ResourceDetached = "ResourceDetached";
-
-    /// <summary>A state-managed resource is no longer declared in the template and was deleted from the tenant (Complete mode), or its deletion failed.</summary>
+    /// <summary><c>deployment delete</c> failed to delete a declared object (the message carries the Graph error).</summary>
     public const string ResourceDeleted = "ResourceDeleted";
 
     // ---- Edge pass ----
@@ -89,7 +86,7 @@ public static class EngineDiagnosticCodes
     /// <summary>Applying the template removes the signed-in principal from an object's owners.</summary>
     public const string SignedInPrincipalRemoved = "SignedInPrincipalRemoved";
 
-    /// <summary>Complete mode is about to delete an object that cannot be restored (a security group).</summary>
+    /// <summary>A delete (<c>deployment delete</c>, or the old object of a recreate) removes an object that cannot be restored (a security group).</summary>
     public const string DestructiveDelete = "DestructiveDelete";
 
     // ---- Safety review (state trust, adoption, blast radius) ----
@@ -97,16 +94,7 @@ public static class EngineDiagnosticCodes
     /// <summary>The state entry does not describe the live object it points at (pinned id / key mismatch), so it was not used to modify or delete anything.</summary>
     public const string StateEntryMismatch = "StateEntryMismatch";
 
-    /// <summary>Complete mode found an orphan state entry that points at the same Graph object as a declared resource; it was not deleted.</summary>
-    public const string OrphanSharesObject = "OrphanSharesObject";
-
-    /// <summary>The deployment took over an object that existed before it managed it (found by key without a state entry, or created concurrently).</summary>
-    public const string AdoptedExistingObject = "AdoptedExistingObject";
-
-    /// <summary>A state entry whose object was adopted (not created by this deployment) was not deleted; pass <c>--delete-adopted</c> to delete it.</summary>
-    public const string AdoptedObjectNotDeleted = "AdoptedObjectNotDeleted";
-
-    /// <summary>A delete was refused because the object is the signed-in principal or a Microsoft first-party service principal.</summary>
+    /// <summary>A delete (a recreate, or <c>deployment delete</c>) was refused because the object is the signed-in principal or a service principal owned by another organization.</summary>
     public const string ProtectedObject = "ProtectedObject";
 
     /// <summary>Two declared resources resolve to the same Graph object.</summary>
@@ -115,8 +103,16 @@ public static class EngineDiagnosticCodes
     /// <summary>A create failed with an ambiguous outcome (timeout, transport error, 5xx); the object was looked up by key and found, so the create counts as done.</summary>
     public const string CreateOutcomeUncertain = "CreateOutcomeUncertain";
 
-    /// <summary>A delete was not performed because the run had already used its <c>--max-deletes</c> budget (recreating an object replaces it and counts as a delete).</summary>
-    public const string DeleteLimitExceeded = "DeleteLimitExceeded";
+    /// <summary>A replacement (an immutable property changed: delete and create again) was not confirmed with <c>-y</c> or at the prompt; nothing was deleted.</summary>
+    public const string RecreateNotConfirmed = "RecreateNotConfirmed";
+
+    // ---- Orphan report (read-only; nothing is ever deleted) ----
+
+    /// <summary>The orphan report did not list a declared type: one of its declared resources is not resolved in this run, the listing failed, or the type is tenant-wide (applications, groups, users).</summary>
+    public const string OrphanReportIncomplete = "OrphanReportIncomplete";
+
+    /// <summary>A live assignment or grant of a principal the template declares is not declared (for example the old tuple of a changed assignment): it is retained and still grants access.</summary>
+    public const string AssignmentRetained = "AssignmentRetained";
 
     /// <summary>The state directory or a state file is a symbolic link / junction, or the directory is not a directory.</summary>
     public const string StateStoreUnsafe = "StateStoreUnsafe";

@@ -50,7 +50,7 @@ public sealed class DeploymentPlannerTests
         Assert.Equal(1, summary.Ignore);
         Assert.Equal(0, summary.Unsupported);
         Assert.True(plan.HasChanges);
-        Assert.Empty(plan.ModeChanges);
+        Assert.Empty(plan.Orphans);
         Assert.Empty(plan.UnresolvedReferences);
         Assert.DoesNotContain(plan.Diagnostics, d => d.IsError);
 

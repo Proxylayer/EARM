@@ -117,7 +117,7 @@ public sealed class Review3I_GroupSoftDeleteTests
         var host = new ProviderHost();
         Check.Succeeded(await host.CreateAsync(host.Resources(Group("bin-me", """{ "displayName": "Bin" }"""))));
 
-        var deletion = await host.DeleteAllAsync();
+        var deletion = await host.DeleteDeclaredAsync(host.Resources(Group("bin-me", """{ "displayName": "Bin" }""")));
 
         Assert.True(deletion.Succeeded);
         Assert.Null(host.Directory.Find("/groups", "uniqueName", "bin-me"));

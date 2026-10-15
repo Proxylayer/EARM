@@ -28,9 +28,6 @@ public sealed record PlannerOptions
 
     public bool AllowCaEnforce { get; init; }
 
-    /// <summary><c>--delete-adopted</c>: what-if shows adopted state entries as deletions in Complete mode instead of "not deleted".</summary>
-    public bool DeleteAdopted { get; init; }
-
     public SoftDeletedConflict OnSoftDeletedConflict { get; init; } = SoftDeletedConflict.Error;
 
     public ResourceTypeCatalog Catalog { get; init; } = ResourceTypeCatalog.Default;

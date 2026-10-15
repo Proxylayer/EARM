@@ -135,41 +135,6 @@ public sealed class Review3H_StateIntegrityTests
 
     // ---- S2-01: the same rules guard a delete even when the entry was built in memory ----
 
-    [Fact]
-    public async Task Complete_AnOrphanEntryWithAForgedKey_NeverDeletesTheObject_EvenWhenTheFileCheckIsBypassed()
-    {
-        var host = new EngineHost();
-        var victim = host.Directory.AddGroup("victim", "Victim Group");
-        var state = NewState();
-        state.Upsert(Entry(GroupId("orphan"), Fixture.GroupType, IdOf(victim), "displayName", "Victim Group"));
-
-        var (_, result, _) = await ExecuteAsync(host, state, Empty(), DeploymentMode.Complete);
-
-        Assert.DoesNotContain(host.Fake.Writes, w => w.Method == "DELETE");
-        Assert.Equal(1, host.Directory.Count("/groups"));
-        var op = Assert.Single(result.Operations);
-        Assert.Equal(OperationStatus.Failed, op.Status);
-        Assert.Equal(EngineDiagnosticCodes.StateEntryInvalid, op.ErrorCode);
-        Assert.Contains(GroupId("orphan"), op.Error, StringComparison.Ordinal);
-        Assert.NotNull(state.Find(GroupId("orphan")));
-    }
-
-    [Fact]
-    public async Task Deleter_RefusesAnEntryWithAForgedKey_AndRelationships()
-    {
-        var host = new EngineHost();
-        var victim = host.Directory.AddGroup("victim", "Victim Group");
-        var state = NewState();
-        state.Upsert(Entry(GroupId("orphan"), Fixture.GroupType, IdOf(victim), "uniqueName", "orphan") with { Relationships = new JsonObject { ["memberOf"] = new JsonArray("me") } });
-        var store = new InMemoryStateStore();
-
-        var result = await DeploymentDeleter.DeleteAllAsync(state, store, host.Registry, host.Graph, host.Retry, continueOnError: true, DeleteGuard.Default, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, Ct);
-
-        Assert.Equal(1, result.FailedCount);
-        Assert.Equal(EngineDiagnosticCodes.StateEntryInvalid, result.Outcomes.Single().ErrorCode);
-        Assert.Equal(1, host.Directory.Count("/groups"));
-    }
-
     // ---- S2-01: the createdDateTime fingerprint ----
 
     [Fact]
@@ -187,37 +152,6 @@ public sealed class Review3H_StateIntegrityTests
         var reloaded = StateSerializer.Deserialize(store.DocumentOf(EngineHost.DeploymentName)!, EngineHost.DeploymentName);
         Assert.Equal(entry.CreatedDateTime, reloaded.Find(AppId("fp-app"))!.CreatedDateTime);
         Assert.Contains("\"createdDateTime\"", store.DocumentOf(EngineHost.DeploymentName), StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task Complete_AnOrphanWhoseObjectWasCreatedAtAnotherTimeThanTheEntryRecorded_IsNotDeleted()
-    {
-        var host = new EngineHost();
-        var live = host.Directory.AddApplication("ghost", "Ghost");
-        var state = NewState();
-        state.Upsert(Entry(AppId("ghost"), Fixture.AppType, IdOf(live), "uniqueName", "ghost") with { CreatedDateTime = new DateTimeOffset(2020, 1, 1, 0, 0, 0, TimeSpan.Zero) });
-
-        var (_, result, _) = await ExecuteAsync(host, state, Empty(), DeploymentMode.Complete);
-
-        Assert.DoesNotContain(host.Fake.Writes, w => w.Method == "DELETE");
-        var op = Assert.Single(result.Operations);
-        Assert.Equal(EngineDiagnosticCodes.StateEntryMismatch, op.ErrorCode);
-        Assert.Contains("different object", op.Error, StringComparison.Ordinal);
-        Assert.Equal(1, host.Directory.Count("/applications"));
-    }
-
-    [Fact]
-    public async Task Complete_AnOrphanWhoseObjectMatchesTheRecordedFingerprint_IsDeleted()
-    {
-        var host = new EngineHost();
-        var live = host.Directory.AddApplication("ghost", "Ghost");
-        var state = NewState();
-        state.Upsert(Entry(AppId("ghost"), Fixture.AppType, IdOf(live), "uniqueName", "ghost") with { CreatedDateTime = ProviderReads.CreatedDateTimeOf(live) });
-
-        var (_, result, _) = await ExecuteAsync(host, state, Empty(), DeploymentMode.Complete);
-
-        Assert.True(result.Succeeded);
-        Assert.Equal(0, host.Directory.Count("/applications"));
     }
 
     [Fact]
@@ -280,100 +214,6 @@ public sealed class Review3H_StateIntegrityTests
     }
 
     // ---- S2-16: first-party service principals and the provenance wording ----
-
-    [Fact]
-    public async Task Complete_AFirstPartyServicePrincipalThisDeploymentCreated_CanBeDeleted()
-    {
-        var host = new EngineHost();
-        const string AppId0 = "00000003-0000-0000-c000-000000000000";
-        var sp = host.Directory.AddServicePrincipal(AppId0, "Microsoft Graph", s => s["appOwnerOrganizationId"] = "f8cdef31-a31e-4b4a-93e4-5f571e91255a");
-        var state = NewState();
-        state.Upsert(Entry("/providers/Microsoft.Entra/servicePrincipals/" + AppId0, Fixture.SpType, IdOf(sp), "appId", AppId0, StateProvenance.Created));
-
-        var (_, result, _) = await ExecuteAsync(host, state, Empty(), DeploymentMode.Complete);
-
-        Assert.True(result.Succeeded, string.Join("\n", result.Operations.Select(o => o.Error)));
-        Assert.Equal(0, host.Directory.Count("/servicePrincipals"));
-    }
-
-    [Fact]
-    public async Task AnEntryWithoutAProvenanceRecord_IsExplainedAsAnOlderStateFile_NotAsExistedBefore()
-    {
-        var host = new EngineHost();
-        var live = host.Directory.AddApplication("legacy", "Legacy");
-        string json = Json(AppId("legacy"), Fixture.AppType, IdOf(live), "{ \"uniqueName\": \"legacy\" }").Replace(", \"provenance\": \"created\"", string.Empty, StringComparison.Ordinal);
-        var state = StateSerializer.Deserialize(json, EngineHost.DeploymentName);
-
-        var (_, result, _) = await ExecuteAsync(host, state, Empty(), DeploymentMode.Complete);
-
-        var warning = Assert.Single(result.Diagnostics, d => d.Code == EngineDiagnosticCodes.AdoptedObjectNotDeleted);
-        Assert.Contains("no provenance record", warning.Message, StringComparison.Ordinal);
-        Assert.Contains("older state file", warning.Message, StringComparison.Ordinal);
-        Assert.Contains("set-provenance", warning.Message, StringComparison.Ordinal);
-        Assert.DoesNotContain("existed before", warning.Message, StringComparison.Ordinal);
-        Assert.Equal(1, host.Directory.Count("/applications"));
-    }
-
-    [Fact]
-    public async Task TheDetachedWarning_DoesNotPromiseThatCompleteModeDeletesWhatIsNoLongerInTheState()
-    {
-        var host = new EngineHost();
-        var live = host.Directory.AddApplication("gone-from-template", "Gone");
-        var state = NewState();
-        state.Upsert(Entry(AppId("gone-from-template"), Fixture.AppType, IdOf(live), "uniqueName", "gone-from-template"));
-
-        var (_, result, _) = await ExecuteAsync(host, state, Empty());
-
-        var warning = Assert.Single(result.Diagnostics, d => d.Code == EngineDiagnosticCodes.ResourceDetached);
-        Assert.DoesNotContain("use --mode Complete to delete it", warning.Message, StringComparison.Ordinal);
-        Assert.Contains("not managed by this deployment any more", warning.Message, StringComparison.Ordinal);
-    }
-
-    // ---- S2-13: the bulk delete never leaves "Running" ----
-
-    private sealed class CancelAfterFirstDelete : GraphClientDecorator
-    {
-        private readonly CancellationTokenSource _source;
-        private int _deletes;
-
-        public CancelAfterFirstDelete(IGraphClient inner, CancellationTokenSource source)
-            : base(inner)
-        {
-            _source = source;
-        }
-
-        public override async Task DeleteAsync(GraphRequest request, CancellationToken cancellationToken)
-        {
-            await base.DeleteAsync(request, cancellationToken);
-            if (Interlocked.Increment(ref _deletes) == 1)
-            {
-                await _source.CancelAsync();
-            }
-        }
-    }
-
-    [Fact]
-    public async Task DeploymentDelete_CancelledAfterTheFirstObject_SavesCancelledNotRunning_WithTheDeletedEntryGone()
-    {
-        using var source = CancellationTokenSource.CreateLinkedTokenSource(Ct);
-        var host = new EngineHost(graph => new CancelAfterFirstDelete(graph, source));
-        var state = NewState();
-        foreach (string name in new[] { "a", "b", "c" })
-        {
-            state.Upsert(Entry(AppId(name), Fixture.AppType, IdOf(host.Directory.AddApplication(name, name)), "uniqueName", name));
-        }
-
-        var store = new InMemoryStateStore();
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => DeploymentDeleter.DeleteAllAsync(state, store, host.Registry, host.Graph, host.Retry, continueOnError: false, DeleteGuard.Default, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, source.Token));
-
-        Assert.Equal(StateFile.StatusCancelled, state.LastStatus);
-        Assert.Equal(2, state.Resources.Count);
-        var saved = StateSerializer.Deserialize(store.DocumentOf(EngineHost.DeploymentName)!, EngineHost.DeploymentName);
-        Assert.Equal(StateFile.StatusCancelled, saved.LastStatus);
-        Assert.Equal(2, saved.Resources.Count);
-    }
-
-    // ---- S2-14: reading while a writer replaces, and the size caps ----
 
     [Fact]
     public async Task ReadersAndWriters_OfOneStateFile_NeverCollide()

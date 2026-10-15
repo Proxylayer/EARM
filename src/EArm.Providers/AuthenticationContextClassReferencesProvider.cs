@@ -2,8 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Net;
 using System.Text.Json.Nodes;
-using System.Threading;
 using System.Threading.Tasks;
+using System.Threading;
 using EArm.Graph;
 using EArm.Core;
 using EArm.Core.Types;
@@ -33,7 +33,7 @@ namespace EArm.Providers;
 /// </para>
 /// </summary>
 [EntraProvider(ResourceType)]
-public sealed class AuthenticationContextClassReferencesProvider : ProviderBase
+public sealed class AuthenticationContextClassReferencesProvider : ProviderBase, IOrphanCandidateSource
 {
     public const string ResourceType = "Microsoft.Entra/conditionalAccess/authenticationContextClassReferences";
 
@@ -244,5 +244,17 @@ public sealed class AuthenticationContextClassReferencesProvider : ProviderBase
             Reasons = [message],
             UnsupportedReason = message,
         };
+    }
+
+    // ---- orphan report ----
+
+    /// <summary>The orphan report lists the whole collection.</summary>
+    public OrphanScope OrphanScope => OrphanScope.Collection;
+
+    public Task<IReadOnlyList<OrphanCandidate>> ListOrphanCandidatesAsync(OrphanQuery query, IGraphClient graph, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        ArgumentNullException.ThrowIfNull(graph);
+        return OrphanListing.CollectionAsync(graph, new GraphRequest(CollectionPath, query.Api).WithSelect("id", "displayName"), KeyProperty, null, live => JsonObjects.GetString(live, "displayName"), cancellationToken);
     }
 }

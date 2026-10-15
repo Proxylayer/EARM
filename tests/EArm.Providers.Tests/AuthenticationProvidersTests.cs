@@ -224,13 +224,14 @@ public sealed class AuthenticationProvidersTests
     public async Task Context_Delete_MakesItUnavailableFirst_ThenDeletes_AndToleratesNotFound()
     {
         var host = new ProviderHost();
-        await host.CreateAsync(host.Resources(Accr("c10", """{ "displayName": "Sensitive" }""")));
+        var document = host.Resources(Accr("c10", """{ "displayName": "Sensitive" }"""));
+        await host.CreateAsync(document);
         host.ClearRequests();
 
-        var complete = await host.CreateAsync(host.Resources(string.Empty), DeploymentMode.Complete);
+        var deletion = await host.DeleteDeclaredAsync(document);
 
-        Check.Succeeded(complete);
-        var writes = complete.Writes;
+        Assert.True(deletion.Succeeded);
+        var writes = host.Fake.Writes;
         Assert.Equal(2, writes.Count);
         Assert.Equal("PATCH", writes[0].Method);
         Assert.Equal(AccrPath + "/c10", writes[0].Path);
@@ -372,7 +373,8 @@ public sealed class AuthenticationProvidersTests
               "dependsOn": ["[resourceId('Microsoft.Entra/conditionalAccess/authenticationStrengths', 'Phishing-resistant')]"] }
             """;
 
-        var run = await host.CreateAsync(host.Resources(Strength("Phishing-resistant", StrengthProps) + "," + policy));
+        var document = host.Resources(Strength("Phishing-resistant", StrengthProps) + "," + policy);
+        var run = await host.CreateAsync(document);
 
         Check.Succeeded(run);
         string strengthId = host.IdOf(StrengthPath, "displayName", "Phishing-resistant");
@@ -381,7 +383,7 @@ public sealed class AuthenticationProvidersTests
         Assert.Equal(RetryHint.ExpectReplicationLag, policyPost.Hint);
 
         host.ClearRequests();
-        var deletion = await host.DeleteAllAsync();
+        var deletion = await host.DeleteDeclaredAsync(document);
         Assert.True(deletion.Succeeded);
         Assert.StartsWith("/identity/conditionalAccess/policies/", host.Fake.Writes[0].Path, StringComparison.Ordinal);
         Assert.StartsWith(StrengthPath + "/", host.Fake.Writes[1].Path, StringComparison.Ordinal);

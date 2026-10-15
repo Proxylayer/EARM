@@ -123,6 +123,11 @@ internal sealed class EngineServices : IDisposable
     }
 
     /// <summary>Resolves parameter-file Key Vault references with a Key Vault token of the signed-in identity.</summary>
+    public TemplateDeleter CreateTemplateDeleter()
+    {
+        return new TemplateDeleter(Providers, Graph, LoggerFactory.CreateLogger<TemplateDeleter>());
+    }
+
     public KeyVaultSecretResolver CreateKeyVaultResolver()
     {
         return new KeyVaultSecretResolver(KeyVault, LoggerFactory.CreateLogger<KeyVaultSecretResolver>());

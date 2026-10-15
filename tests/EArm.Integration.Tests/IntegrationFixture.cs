@@ -30,9 +30,8 @@ namespace EArm.Integration.Tests;
 /// a tenant other than <c>EARM_IT_TENANT</c> turns every test into a skip with that reason.
 /// </para>
 /// <para>
-/// Cleanup guard: <see cref="DisposeAsync"/> (1) deletes the objects of every deployment state in the run's state
-/// directory with <see cref="DeploymentDeleter.DeleteAllAsync"/>, (2) sweeps leftovers whose name starts with the run
-/// prefix (<see cref="TenantCleanup"/>) and purges their soft-deleted copies, (3) writes a log next to the state
+/// Cleanup guard: <see cref="DisposeAsync"/> (1) sweeps everything whose name starts with the run
+/// prefix (<see cref="TenantCleanup"/>) and purges their soft-deleted copies, (2) writes a log next to the state
 /// directory and fails loudly when a live object with the prefix could not be removed. Objects without the prefix are
 /// never touched.
 /// </para>
@@ -241,7 +240,7 @@ public sealed class IntegrationFixture : IAsyncLifetime
 
     private List<string> _leftovers = [];
 
-    /// <summary>The cleanup guard: deletes every state-managed object, sweeps the prefix and purges soft-deleted copies. Safe to call repeatedly.</summary>
+    /// <summary>The cleanup guard: sweeps the prefix and purges soft-deleted copies. Safe to call repeatedly.</summary>
     internal async Task SweepNowAsync(CancellationToken cancellationToken)
     {
         if (Session is null || _graph is null || _store is null)
@@ -252,42 +251,8 @@ public sealed class IntegrationFixture : IAsyncLifetime
         var log = new List<string>();
         _leftovers = [];
 
-        // 1. Everything a deployment recorded, in reverse dependency order, with the production deleter.
-        IReadOnlyList<string> names = [];
-        try
-        {
-            names = await _store.ListAsync(cancellationToken);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            log.Add($"the state directory could not be listed: {ex.Message}; the prefix sweep still runs");
-        }
-
-        foreach (string name in names)
-        {
-            try
-            {
-                var state = await _store.LoadAsync(name, cancellationToken);
-                if (state is null)
-                {
-                    continue;
-                }
-
-                var logger = _loggerFactory!.CreateLogger("EArm.IntegrationTests.Cleanup");
-                var result = await DeploymentDeleter.DeleteAllAsync(state, _store, Providers, _graph, null, true, logger, cancellationToken);
-                log.Add($"deployment '{name}': {result.DeletedCount} deleted, {result.AlreadyGoneCount} already gone, {result.FailedCount} failed, {result.SkippedCount} skipped");
-                foreach (var outcome in result.Outcomes.Where(o => !o.Succeeded))
-                {
-                    log.Add($"  {outcome.Status} {outcome.Entry.Id.Id}: {outcome.Error}");
-                }
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                log.Add($"deployment '{name}': the delete pass failed: {ex.GetType().Name}: {ex.Message}; the prefix sweep still runs");
-            }
-        }
-
-        // 2. The prefix sweep (also removes what a failed delete left behind, and everything tests created directly).
+        // The prefix sweep removes everything the runs created (every test object carries the run prefix), also what a failed
+        // 'deployment delete' left behind and everything tests created directly.
         var cleanup = new TenantCleanup(_graph, Prefix);
         try
         {

@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using EArm.Engine.State;
 
 namespace EArm.Engine.Execution;
@@ -13,15 +14,12 @@ public sealed record ExecuteOptions
     /// <summary>Keep deploying resources that do not depend on a failed one (default: stop at the batch boundary).</summary>
     public bool ContinueOnError { get; init; }
 
-    /// <summary><c>--delete-adopted</c>: Complete mode may also delete state entries that were adopted (existed before the deployment managed them).</summary>
-    public bool DeleteAdopted { get; init; }
-
     /// <summary>
-    /// <c>--max-deletes</c> as a hard limit of the run: the most objects the run may delete (Complete-mode orphans and the old objects of recreates).
-    /// <c>null</c> (<c>--allow-delete-all</c>, or no limit) is unlimited. The CLI estimates the number before the run starts; this limit holds even when the
-    /// estimate was too low (a symbolic name that only resolves during the run, a state entry added meanwhile).
+    /// The resource ids whose replacement (an immutable property changed: delete, then create again) was confirmed. A recreate of any other resource fails
+    /// with <see cref="EngineDiagnosticCodes.RecreateNotConfirmed"/> before anything is deleted. <c>null</c> confirms every replacement (<c>-y</c>). The CLI
+    /// fills it from the plan the user confirmed; a replacement the run discovers later (its input only resolved during the run) is therefore refused.
     /// </summary>
-    public int? MaxDeletes { get; init; }
+    public IReadOnlySet<string>? ApprovedRecreates { get; init; }
 
     /// <summary>Show <c>securestring</c>/<c>secureObject</c> output values instead of <c>***</c>.</summary>
     public bool RevealSecureOutputs { get; init; }
@@ -33,9 +31,8 @@ public sealed record ExecuteOptions
     public IStateSink StateSink { get; init; } = NullStateSink.Instance;
 
     /// <summary>
-    /// The deployment's state before this run: pinned Graph ids are passed to the providers' reads, and the mode pass
-    /// detaches (Incremental) or deletes (Complete) the entries the template no longer
-    /// declares. <c>null</c> skips both.
+    /// The deployment's state before this run; only the extra data of unchanged resources is carried forward from it. Nothing is identified or deleted
+    /// through it; it goes away with the state subsystem.
     /// </summary>
     public StateFile? State { get; init; }
 }

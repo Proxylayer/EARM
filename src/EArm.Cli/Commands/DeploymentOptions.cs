@@ -26,17 +26,6 @@ internal sealed record DeploymentInvocation
 
     public bool AllowCaEnforce { get; init; }
 
-    /// <summary><c>--delete-adopted</c>: Complete mode may delete state entries that were adopted (existed before the deployment managed them).</summary>
-    public bool DeleteAdopted { get; init; }
-
-    /// <summary><c>--allow-delete-all</c>: confirms a Complete-mode deployment that declares no resources, or deletes more than <see cref="MaxDeletes"/> objects.</summary>
-    public bool AllowDeleteAll { get; init; }
-
-    /// <summary><c>--max-deletes</c>: the most objects a Complete-mode deployment deletes without <see cref="AllowDeleteAll"/>.</summary>
-    public int MaxDeletes { get; init; } = DefaultMaxDeletes;
-
-    public const int DefaultMaxDeletes = 25;
-
     public SoftDeletedConflict OnSoftDeletedConflict { get; init; } = SoftDeletedConflict.Error;
 
     // what-if
@@ -115,7 +104,7 @@ internal sealed class DeploymentOptions
         Description = "Deployment name (state file name). Default: the template file stem.",
     };
 
-    public Option<string> Mode { get; } = CreateChoice("--mode", "Incremental: create/update declared resources. Complete: additionally delete state-managed resources missing from the template.", "Incremental", "Incremental", "Complete");
+    public Option<string> Mode { get; } = CreateChoice("--mode", "Incremental: create/update declared resources. Complete: additionally report (never delete) the live objects of the declared types that the template does not declare.", "Incremental", "Incremental", "Complete");
 
     public Option<int> Parallelism { get; } = CreateBounded("--parallelism", "Maximum number of resources read/applied concurrently inside a dependency batch.", 4, minimum: 1);
 
@@ -123,18 +112,6 @@ internal sealed class DeploymentOptions
     {
         Description = "Allow Conditional Access policies with state 'enabled' (default: report-only or disabled only).",
     };
-
-    public Option<bool> DeleteAdopted { get; } = new("--delete-adopted")
-    {
-        Description = "Complete mode: also delete state entries that were adopted (the object existed before the deployment managed it). Default: adopted objects are never deleted.",
-    };
-
-    public Option<bool> AllowDeleteAll { get; } = new("--allow-delete-all")
-    {
-        Description = "Complete mode: confirm a deployment whose template declares no resources, or that deletes more than --max-deletes objects.",
-    };
-
-    public Option<int> MaxDeletes { get; } = CreateBounded("--max-deletes", "The most objects a run deletes without --allow-delete-all: Complete-mode orphans and the old objects of recreates. A hard limit of the run, not only an estimate before it.", DeploymentInvocation.DefaultMaxDeletes, minimum: 0);
 
     public Option<string> OnSoftDeletedConflict { get; } = CreateChoice("--on-soft-deleted-conflict", "What to do when the key of a resource to create is held by a soft-deleted object.", "error", "error", "restore");
 
@@ -164,7 +141,7 @@ internal sealed class DeploymentOptions
 
     public Option<bool> Yes { get; } = new("--yes", "-y")
     {
-        Description = "Skip the confirmation asked by --confirm-with-what-if (and applies the deployment right after the what-if). Plain create never prompts.",
+        Description = "Skip the confirmations: the one asked by --confirm-with-what-if, and the one asked before objects are replaced (deleted and created again because an immutable property changed). Without -y, a non-interactive run that would replace objects fails before any write.",
     };
 
     public Option<bool> ContinueOnError { get; } = new("--continue-on-error")
@@ -199,7 +176,6 @@ internal sealed class DeploymentOptions
         command.Options.Add(Parallelism);
         command.Options.Add(AllowCaEnforce);
         command.Options.Add(OnSoftDeletedConflict);
-        command.Options.Add(DeleteAdopted);
     }
 
     public void AddWhatIf(Command command)
@@ -219,8 +195,6 @@ internal sealed class DeploymentOptions
         command.Options.Add(ContinueOnError);
         command.Options.Add(RevealSecureOutputs);
         command.Options.Add(SecureOutputsFile);
-        command.Options.Add(AllowDeleteAll);
-        command.Options.Add(MaxDeletes);
         command.Options.Add(ForceUnlock);
         command.Options.Add(LockTimeout);
         command.Options.Add(ResultFormat);
@@ -240,9 +214,6 @@ internal sealed class DeploymentOptions
             Mode = Enum.Parse<DeploymentMode>(parseResult.GetValue(Mode) ?? "Incremental", ignoreCase: true),
             Parallelism = parallelism,
             AllowCaEnforce = parseResult.GetValue(AllowCaEnforce),
-            DeleteAdopted = parseResult.GetValue(DeleteAdopted),
-            AllowDeleteAll = parseResult.GetValue(AllowDeleteAll),
-            MaxDeletes = Math.Max(0, parseResult.GetValue(MaxDeletes)),
             OnSoftDeletedConflict = Enum.Parse<SoftDeletedConflict>(parseResult.GetValue(OnSoftDeletedConflict) ?? "error", ignoreCase: true),
             ResultFormat = Enum.Parse<ResultFormat>(parseResult.GetValue(ResultFormat) ?? "FullResourcePayloads", ignoreCase: true),
             ExitCodeOnChanges = parseResult.GetValue(ExitCodeOnChanges),
@@ -262,7 +233,7 @@ internal sealed class DeploymentOptions
         };
     }
 
-    /// <summary>An integer option with a lower bound: a value below it is a usage error (a negative <c>--parallelism</c>, <c>--max-deletes</c> or <c>--lock-timeout</c> used to be clamped silently).</summary>
+    /// <summary>An integer option with a lower bound: a value below it is a usage error (a negative <c>--parallelism</c> or <c>--lock-timeout</c> used to be clamped silently).</summary>
     private static Option<int> CreateBounded(string name, string description, int defaultValue, int minimum)
     {
         var option = new Option<int>(name)

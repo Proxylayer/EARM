@@ -151,16 +151,17 @@ public sealed class AdministrativeUnitsProviderTests
     }
 
     [Fact]
-    public async Task U7_CompleteMode_DeletesTheUnitById()
+    public async Task U7_DeploymentDelete_DeletesTheUnitById()
     {
         var host = new ProviderHost();
         Check.Succeeded(await host.CreateAsync(host.Resources(Join(Alice(), Au()))));
         string auId = host.IdOf(BuiltInRoles.UnitsPath, "displayName", "Orders AU");
+        host.ClearRequests();
 
-        var run = await host.CreateAsync(host.Resources(Alice()), DeploymentMode.Complete);
+        var deletion = await host.DeleteDeclaredAsync(host.Resources(Au()));
 
-        Check.Succeeded(run);
-        var write = Assert.Single(run.Writes);
+        Assert.True(deletion.Succeeded);
+        var write = Assert.Single(host.Fake.Writes);
         Assert.Equal("DELETE", write.Method);
         Assert.Equal($"{BuiltInRoles.UnitsPath}/{auId}", write.Path);
     }
@@ -289,23 +290,25 @@ public sealed class RoleDefinitionsProviderTests
     public async Task R6_DeletingAssignedRole_IsRoleDefinitionInUse_ThenSucceedsOnceUnassigned()
     {
         var host = new ProviderHost();
-        Check.Succeeded(await host.CreateAsync(host.Resources(RoleDef())));
+        var document = host.Resources(RoleDef());
+        Check.Succeeded(await host.CreateAsync(document));
         string roleId = host.IdOf(BuiltInRoles.DefinitionsPath, "displayName", "Orders Support");
         string bobId = host.Directory.AddUser("bob@contoso.com", "Bob")["id"]!.GetValue<string>();
         var assignment = host.Directory.Add(BuiltInRoles.AssignmentsPath, new JsonObject { ["roleDefinitionId"] = roleId, ["principalId"] = bobId, ["directoryScopeId"] = "/" });
 
-        var blocked = await host.CreateAsync(host.Resources(string.Empty), DeploymentMode.Complete);
+        var blocked = await host.DeleteDeclaredAsync(document);
 
-        var op = blocked.Op("Orders Support");
+        var outcome = Assert.Single(blocked.Outcomes);
         Assert.False(blocked.Succeeded);
-        Assert.Equal(RoleDefinitionsProvider.RoleDefinitionInUse, op.ErrorCode);
-        Assert.Contains("directoryRoles", op.Error, StringComparison.Ordinal);
+        Assert.Equal(RoleDefinitionsProvider.RoleDefinitionInUse, outcome.ErrorCode);
+        Assert.Contains("directoryRoles", outcome.Error, StringComparison.Ordinal);
 
         await host.Fake.DeleteAsync(new GraphRequest($"{BuiltInRoles.AssignmentsPath}/{assignment["id"]!.GetValue<string>()}"), ProviderHost.Ct);
-        var run = await host.CreateAsync(host.Resources(string.Empty), DeploymentMode.Complete);
+        host.ClearRequests();
+        var deletion = await host.DeleteDeclaredAsync(document);
 
-        Check.Succeeded(run);
-        Assert.Contains(run.Writes, w => w.Method == "DELETE" && w.Path == $"{BuiltInRoles.DefinitionsPath}/{roleId}");
+        Assert.True(deletion.Succeeded);
+        Assert.Contains(host.Fake.Writes, w => w.Method == "DELETE" && w.Path == $"{BuiltInRoles.DefinitionsPath}/{roleId}");
         Assert.Null(host.Directory.Find(BuiltInRoles.DefinitionsPath, "displayName", "Orders Support"));
     }
 

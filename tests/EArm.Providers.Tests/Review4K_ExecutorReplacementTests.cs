@@ -86,47 +86,30 @@ public sealed partial class Review4K_ExecutorTests
         Assert.NotNull(t.Host.Directory.Objects(AssignedTo(t.ResourceId)).SingleOrDefault(o => o["id"]!.GetValue<string>() == oldId));
     }
 
-    [Fact]
-    public async Task AnAdoptedEntry_NeverSupersedesTheObject_ItIsNotDeletedWithoutDeleteAdopted()
-    {
-        var t = NewTenant();
-        string name = Guid.NewGuid().ToString("D");
-        Check.Succeeded(await t.Host.CreateAsync(t.Host.Resources(Assignment(t, name, UserRoleId))));
-        await TamperAsync(t.Host, AssignmentResourceId(name), e => e with { Provenance = StateProvenance.Adopted });
-
-        var run = await t.Host.CreateAsync(t.Host.Resources(Assignment(t, name, BothRoleId)));
-
-        Check.Succeeded(run);
-        Assert.DoesNotContain(run.Writes, w => w.Method == "DELETE");
-        Assert.Equal(2, t.Host.Directory.Objects(AssignedTo(t.ResourceId)).Count);
-    }
-
-    // ---- DE22 / DE24: replacing an adopted object ----
+    // ---- replacing an object needs confirmation (ExecuteOptions.ApprovedRecreates) ----
 
     [Fact]
-    public async Task AnAdoptedObject_IsReplacedOnlyWithDeleteAdopted_AndTheNewEntryIsCreated()
+    public async Task AReplacementThatWasNotConfirmed_FailsBeforeAnyDelete_AndAConfirmedOneReplacesTheObject()
     {
         var host = new ProviderHost();
         Check.Succeeded(await host.CreateAsync(host.Resources(IpLocation())));
         string oldId = host.IdOf(LocPath, "displayName", "Contoso offices");
-        await TamperAsync(host, "/providers/" + LocType + "/Contoso offices", e => e with { Provenance = StateProvenance.Adopted });
+        string locationId = "/providers/" + LocType + "/Contoso offices";
+        host.ClearRequests();
 
-        var refused = await ExecuteAsync(host, host.Resources(CountryLocation()));
+        var refused = await ExecuteAsync(host, host.Resources(CountryLocation()), execute: new ExecuteOptions { Parallelism = 1, ApprovedRecreates = new HashSet<string>(StringComparer.OrdinalIgnoreCase) });
 
         var refusedOperation = Assert.Single(refused.Result.Operations);
         Assert.Equal(OperationStatus.Failed, refusedOperation.Status);
-        Assert.Equal(EngineDiagnosticCodes.AdoptedObjectNotDeleted, refusedOperation.ErrorCode);
-        Assert.DoesNotContain(host.Fake.Writes, w => w.Method == "DELETE");
+        Assert.Equal(EngineDiagnosticCodes.RecreateNotConfirmed, refusedOperation.ErrorCode);
+        Assert.Contains("Nothing was changed", refusedOperation.Error, StringComparison.Ordinal);
+        Assert.DoesNotContain(host.Fake.Writes, w => w.Method is "DELETE" or "POST");
         Assert.Equal(oldId, host.IdOf(LocPath, "displayName", "Contoso offices"));
 
-        var replaced = await ExecuteAsync(host, host.Resources(CountryLocation()), execute: new ExecuteOptions { Parallelism = 1, DeleteAdopted = true });
+        var replaced = await ExecuteAsync(host, host.Resources(CountryLocation()), execute: new ExecuteOptions { Parallelism = 1, ApprovedRecreates = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { locationId.ToUpperInvariant() } });
 
         Assert.True(replaced.Result.Succeeded, string.Join("\n", replaced.Result.Operations.Select(o => o.Error)));
-        string newId = host.IdOf(LocPath, "displayName", "Contoso offices");
-        Assert.NotEqual(oldId, newId);
-        var entry = (await StateOfAsync(host)).Find("/providers/" + LocType + "/Contoso offices")!;
-        Assert.Equal(newId, entry.GraphId);
-        Assert.Equal(StateProvenance.Created, entry.Provenance);
+        Assert.NotEqual(oldId, host.IdOf(LocPath, "displayName", "Contoso offices"));
     }
 
     [Fact]
@@ -143,24 +126,6 @@ public sealed partial class Review4K_ExecutorTests
         Assert.Contains(host.Fake.Writes, w => w.Method == "DELETE");
         var dependent = Assert.Single(host.Fake.Writes, w => w.Method == "PATCH" && w.Path.Contains("uniqueName='dep'", StringComparison.Ordinal));
         Assert.Equal(RetryHint.ExpectReplicationLag, dependent.Hint);
-    }
-
-    // ---- DE31: the entry describes the object only when it pins this very id ----
-
-    [Fact]
-    public async Task AnEntryThatPinsAnotherId_DoesNotVouchForTheObjectFound_SoItIsNotReplacedWithoutDeleteAdopted()
-    {
-        var host = new ProviderHost();
-        Check.Succeeded(await host.CreateAsync(host.Resources(IpLocation())));
-        await TamperAsync(host, "/providers/" + LocType + "/Contoso offices", e => e with { GraphId = Guid.NewGuid().ToString("D") });
-
-        var outcome = await ExecuteAsync(host, host.Resources(CountryLocation()));
-
-        var operation = Assert.Single(outcome.Result.Operations);
-        Assert.Equal(OperationStatus.Failed, operation.Status);
-        Assert.Equal(EngineDiagnosticCodes.AdoptedObjectNotDeleted, operation.ErrorCode);
-        Assert.DoesNotContain(host.Fake.Writes, w => w.Method == "DELETE");
-        Assert.Equal("#microsoft.graph.ipNamedLocation", host.Directory.Find(LocPath, "displayName", "Contoso offices")!["@odata.type"]!.GetValue<string>());
     }
 
     // ---- DE32 / DE33: the signed-in principal is never replaced, whatever the case of its id ----
@@ -184,7 +149,7 @@ public sealed partial class Review4K_ExecutorTests
     // ---- DE34: an old object that is already gone is no failure ----
 
     [Fact]
-    public async Task AnOldObjectThatVanishedBeforeTheReplacement_IsNoFailure_AndIsNotDeletedAgain()
+    public async Task AnOldObjectThatVanishedBeforeTheReplacement_IsNoFailure()
     {
         var host = new ProviderHost();
         Check.Succeeded(await host.CreateAsync(host.Resources(IpLocation())));
@@ -203,7 +168,6 @@ public sealed partial class Review4K_ExecutorTests
         var outcome = await ExecuteAsync(host, host.Resources(CountryLocation()), logger: logger);
 
         Assert.True(outcome.Result.Succeeded, string.Join("\n", outcome.Result.Operations.Select(o => o.Error)));
-        Assert.Single(host.Fake.Writes, w => w.Method == "DELETE");
         Assert.Equal("#microsoft.graph.countryNamedLocation", host.Directory.Find(LocPath, "displayName", "Contoso offices")!["@odata.type"]!.GetValue<string>());
     }
 

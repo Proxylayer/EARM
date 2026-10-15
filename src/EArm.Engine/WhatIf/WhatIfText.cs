@@ -64,7 +64,7 @@ public static class WhatIfText
 
         if (report.Rows.Count == 0)
         {
-            writer.WriteLine("The template declares no resources and the state records none.");
+            writer.WriteLine("The template declares no resources.");
             writer.WriteLine();
         }
         else
@@ -81,6 +81,11 @@ public static class WhatIfText
         var summary = report.Summary;
         writer.WriteLine(string.Create(culture, $"Resource changes: {summary.Create} to create, {summary.Modify} to modify, {summary.Delete} to delete, {summary.NoChange} unchanged, {summary.Ignore} ignored."));
         writer.WriteLine(string.Create(culture, $"Edges: {report.Edges.Add} to add, {report.Edges.Remove} to remove."));
+        if (summary.Orphans > 0)
+        {
+            writer.WriteLine(string.Create(culture, $"Orphans: {summary.Orphans} live object(s) not declared in the template (reported only; never deleted)."));
+        }
+
         writer.WriteLine(report.RequiredPermissions.Count == 0
             ? "Required permissions: none."
             : "Required permissions: " + string.Join(", ", report.RequiredPermissions) + ".");
@@ -108,7 +113,13 @@ public static class WhatIfText
     private static void RenderRow(WhatIfRow row, TextWriter writer, WhatIfTextOptions options)
     {
         char symbol = row.Change.Symbol;
-        writer.WriteLine(Colour(options, symbol, $"{RowIndent}{row.Marker} {row.ResourceId} [{row.ResourceType}]"));
+        string orphan = row.Change.Orphan switch
+        {
+            OrphanReason.Retained => " (orphan: retained)",
+            OrphanReason.Undeclared => " (orphan: undeclared)",
+            _ => string.Empty,
+        };
+        writer.WriteLine(Colour(options, symbol, $"{RowIndent}{row.Marker} {row.ResourceId} [{row.ResourceType}]{orphan}"));
 
         bool full = options.Format == ResultFormat.FullResourcePayloads;
         switch (row.Type)

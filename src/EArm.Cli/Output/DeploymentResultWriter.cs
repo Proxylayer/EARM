@@ -8,7 +8,11 @@ using EArm.Engine.Execution;
 
 namespace EArm.Cli.Output;
 
-/// <summary>Renders a <see cref="DeploymentResult"/> as a table (one line per resource plus outputs) or as JSON.</summary>
+/// <summary>
+/// Renders a <see cref="DeploymentResult"/> as a table (one line per resource, the orphan report, outputs) or as JSON. The JSON carries
+/// <c>orphans[]</c> (<c>resourceId</c>, <c>type</c>, <c>graphId</c>, <c>orphan</c>: <c>undeclared</c> | <c>retained</c>, <c>reason</c>): live objects
+/// no declared resource matches, reported only and never deleted (docs/cli.md).
+/// </summary>
 internal static class DeploymentResultWriter
 {
     public static void Write(DeploymentResult result, OutputFormat format, bool prettyPrint, TextWriter stdout, TextWriter stderr)
@@ -47,6 +51,19 @@ internal static class DeploymentResultWriter
             });
         }
 
+        var orphans = new JsonArray();
+        foreach (var orphan in result.Orphans)
+        {
+            orphans.Add(new JsonObject
+            {
+                ["resourceId"] = orphan.Id.Id,
+                ["type"] = orphan.ResourceType,
+                ["graphId"] = orphan.GraphId,
+                ["orphan"] = orphan.Orphan == EArm.Engine.Providers.OrphanReason.Retained ? "retained" : "undeclared",
+                ["reason"] = orphan.Reasons.Count > 0 ? orphan.Reasons[0] : null,
+            });
+        }
+
         var diagnostics = new JsonArray();
         foreach (var diagnostic in result.Diagnostics)
         {
@@ -68,9 +85,8 @@ internal static class DeploymentResultWriter
             ["failed"] = result.FailedCount,
             ["skipped"] = result.SkippedCount,
             ["ignored"] = result.IgnoredCount,
-            ["detached"] = result.DetachedCount,
-            ["deleted"] = result.DeletedCount,
             ["operations"] = operations,
+            ["orphans"] = orphans,
             ["outputs"] = result.Outputs.DeepClone(),
             ["secureOutputsFile"] = result.SecureOutputsFile,
             ["diagnostics"] = diagnostics,
@@ -80,22 +96,29 @@ internal static class DeploymentResultWriter
     private static void WriteTable(DeploymentResult result, TextWriter stdout, TextWriter stderr)
     {
         var culture = CultureInfo.InvariantCulture;
-        string modePass = result.DetachedCount + result.DeletedCount == 0
-            ? string.Empty
-            : string.Create(culture, $", {result.DetachedCount} detached, {result.DeletedCount} deleted");
-        stdout.WriteLine(string.Create(culture, $"Deployment '{result.DeploymentName}' {result.Status} in {result.Duration.TotalSeconds:F1} s: {result.SucceededCount} succeeded, {result.FailedCount} failed, {result.SkippedCount} skipped, {result.IgnoredCount} ignored{modePass}."));
+        string orphans = result.Orphans.Count == 0 ? string.Empty : string.Create(culture, $", {result.Orphans.Count} orphan(s) reported");
+        stdout.WriteLine(string.Create(culture, $"Deployment '{result.DeploymentName}' {result.Status} in {result.Duration.TotalSeconds:F1} s: {result.SucceededCount} succeeded, {result.FailedCount} failed, {result.SkippedCount} skipped, {result.IgnoredCount} ignored{orphans}."));
         foreach (var operation in result.Operations)
         {
             string detail = operation.Status switch
             {
                 OperationStatus.Succeeded => operation.ChangeType?.ToString() ?? string.Empty,
                 OperationStatus.Ignored => "condition false",
-                OperationStatus.Detached => "not in template; detached from state",
                 _ => operation.Error ?? operation.Status.ToString(),
             };
 
             var writer = operation.Status == OperationStatus.Failed ? stderr : stdout;
             writer.WriteLine($"  {operation.Symbol} {operation.Id.Id} ({detail})");
+        }
+
+        if (result.Orphans.Count > 0)
+        {
+            stdout.WriteLine("Not declared in the template (reported only; never deleted):");
+            foreach (var orphan in result.Orphans)
+            {
+                string kind = orphan.Orphan == EArm.Engine.Providers.OrphanReason.Retained ? "retained" : "undeclared";
+                stdout.WriteLine($"  * {orphan.Id.Id} [{orphan.ResourceType}] (orphan: {kind}){(orphan.GraphId is null ? string.Empty : $" Graph id {orphan.GraphId}")}");
+            }
         }
 
         foreach (var diagnostic in result.Diagnostics)

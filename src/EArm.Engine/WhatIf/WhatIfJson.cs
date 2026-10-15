@@ -15,7 +15,8 @@ namespace EArm.Engine.WhatIf;
 /// <c>mode</c>, <c>changes[]</c> (<c>resourceId</c>, <c>changeType</c>, <c>before</c>, <c>after</c>, <c>delta[]</c>
 /// with <c>path</c> / <c>propertyChangeType</c> / <c>before</c> / <c>after</c> / <c>children</c>,
 /// <c>unsupportedReason</c>) and <c>diagnostics[]</c>, plus EARM's extensions: <c>reasons[]</c> per change,
-/// <c>summary</c>, <c>requiredPermissions[]</c> and <c>unresolvedReferences[]</c>. Secure values are <c>***</c> and
+/// <c>orphan</c> (<c>undeclared</c> / <c>retained</c>) and <c>graphId</c> on the <c>Ignore</c> rows of the orphan report,
+/// <c>summary</c> (with <c>orphans</c>), <c>requiredPermissions[]</c> and <c>unresolvedReferences[]</c>. Secure values are <c>***</c> and
 /// deploy-time values <c>(deploy-time)</c>; <c>ResourceIdOnly</c> drops <c>before</c>, <c>after</c> and
 /// <c>delta</c>. Member order is fixed so the document diffs cleanly.
 /// </summary>
@@ -101,6 +102,7 @@ public static class WhatIfJson
                 ["noChange"] = summary.NoChange,
                 ["ignore"] = summary.Ignore,
                 ["unsupported"] = summary.Unsupported,
+                ["orphans"] = summary.Orphans,
                 ["edges"] = new JsonObject
                 {
                     ["add"] = report.Edges.Add,
@@ -136,6 +138,13 @@ public static class WhatIfJson
             {
                 json["delta"] = BuildDeltas(row.Deltas, JsonPath.Root);
             }
+        }
+
+        if (row.Change.Orphan is { } orphan)
+        {
+            // The orphan report (never deleted): why it is listed, and the live object's id.
+            json["orphan"] = orphan == OrphanReason.Retained ? "retained" : "undeclared";
+            json["graphId"] = row.Change.GraphId;
         }
 
         json["unsupportedReason"] = row.UnsupportedReason;

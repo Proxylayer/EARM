@@ -12,19 +12,25 @@ using EArm.Expressions.Static;
 
 namespace EArm.Engine.Planning;
 
-/// <summary>Counts per change type.</summary>
-public sealed record ChangeSummary(int Create, int Modify, int Delete, int NoChange, int Ignore, int Unsupported)
+/// <summary>Counts per change type. <see cref="Orphans"/> counts the rows of the orphan report, which are <see cref="ChangeType.Ignore"/> rows but are not included in <see cref="Ignore"/>.</summary>
+public sealed record ChangeSummary(int Create, int Modify, int Delete, int NoChange, int Ignore, int Unsupported, int Orphans = 0)
 {
-    public int Total => Create + Modify + Delete + NoChange + Ignore;
+    public int Total => Create + Modify + Delete + NoChange + Ignore + Orphans;
 
     public bool HasChanges => Create + Modify + Delete > 0;
 
     public static ChangeSummary Of(IEnumerable<ResourceChange> changes)
     {
         ArgumentNullException.ThrowIfNull(changes);
-        int create = 0, modify = 0, delete = 0, noChange = 0, ignore = 0, unsupported = 0;
+        int create = 0, modify = 0, delete = 0, noChange = 0, ignore = 0, unsupported = 0, orphans = 0;
         foreach (var change in changes)
         {
+            if (change.IsOrphan)
+            {
+                orphans++;
+                continue;
+            }
+
             switch (change.Type)
             {
                 case ChangeType.Create:
@@ -50,7 +56,7 @@ public sealed record ChangeSummary(int Create, int Modify, int Delete, int NoCha
             }
         }
 
-        return new ChangeSummary(create, modify, delete, noChange, ignore, unsupported);
+        return new ChangeSummary(create, modify, delete, noChange, ignore, unsupported, orphans);
     }
 }
 
@@ -62,7 +68,7 @@ public sealed record ChangeSummary(int Create, int Modify, int Delete, int NoCha
 public sealed class DeploymentPlan
 {
     private readonly Dictionary<ResourceInstance, ResourceChange> _changes = [];
-    private readonly List<ResourceChange> _modeChanges = [];
+    private readonly List<ResourceChange> _orphans = [];
     private readonly Dictionary<ResourceIdentifier, ResourceInstance> _byId;
     private readonly object _gate = new();
 
@@ -142,15 +148,14 @@ public sealed class DeploymentPlan
 
     public IReadOnlyList<DeploymentBatch> Batches => Graph.Batches;
 
-    /// <summary>Changes in batch order, followed by the mode-pass rows; empty in <see cref="PlanMode.Create"/> (the executor computes them).</summary>
+    /// <summary>Changes in batch order, followed by the orphan report rows; empty in <see cref="PlanMode.Create"/> (the executor computes them).</summary>
     public IReadOnlyList<ResourceChange> Changes { get; internal set; } = [];
 
     /// <summary>
-    /// The what-if rows of the mode pass: state entries the template no longer declares, as
-    /// <see cref="ChangeType.Delete"/> in Complete mode and <see cref="ChangeType.Ignore"/> in Incremental mode.
-    /// Also included at the end of <see cref="Changes"/>.
+    /// The what-if rows of the orphan report: live objects no declared resource matches, as <see cref="ChangeType.Ignore"/> rows marked
+    /// <see cref="ResourceChange.Orphan"/> (never deleted). Also included at the end of <see cref="Changes"/>.
     /// </summary>
-    public IReadOnlyList<ResourceChange> ModeChanges { get; private set; } = [];
+    public IReadOnlyList<ResourceChange> Orphans { get; private set; } = [];
 
     /// <summary>Warnings from validation and planning (errors throw <see cref="ValidationFailedException"/>).</summary>
     public IReadOnlyList<Diagnostic> Diagnostics { get; internal set; }
@@ -230,11 +235,11 @@ public sealed class DeploymentPlan
         }
     }
 
-    internal void AddModeChange(ResourceChange change)
+    internal void AddOrphan(ResourceChange change)
     {
         lock (_gate)
         {
-            _modeChanges.Add(change);
+            _orphans.Add(change);
         }
     }
 
@@ -246,7 +251,7 @@ public sealed class DeploymentPlan
         }
     }
 
-    /// <summary>Materialises <see cref="Changes"/> in batch order (then the mode-pass rows) from the recorded per-instance changes.</summary>
+    /// <summary>Materialises <see cref="Changes"/> in batch order (then the orphan report rows) from the recorded per-instance changes.</summary>
     internal void FinishChanges()
     {
         var ordered = new List<ResourceChange>();
@@ -263,8 +268,8 @@ public sealed class DeploymentPlan
                 }
             }
 
-            ModeChanges = _modeChanges.ToList();
-            ordered.AddRange(_modeChanges);
+            Orphans = _orphans.ToList();
+            ordered.AddRange(_orphans);
         }
 
         Changes = ordered;

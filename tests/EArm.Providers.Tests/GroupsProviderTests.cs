@@ -183,24 +183,23 @@ public sealed class GroupsProviderTests
     }
 
     [Fact]
-    public async Task G8_CompleteMode_DeletesTheOrphanSecurityGroup_IntoTheRecycleBin_WithoutADestructiveDeleteWarning()
+    public async Task G8_CompleteMode_NeverDeletesAnUndeclaredGroup_AndSaysGroupsAreNotListed()
     {
         var host = new ProviderHost();
         var first = await host.CreateAsync(host.Resources(Group("orphan", """{ "displayName": "Orphan" }""")));
         Check.Succeeded(first);
 
         var whatIf = await host.WhatIfAsync(host.Resources(Group("other", """{ "displayName": "Other" }""")), DeploymentMode.Complete);
-        // Review 3I (intentional change): security groups wait 30 days in the recycle bin (Learn group-delete), so the delete is not flagged as permanent.
-        Assert.DoesNotContain(whatIf.Plan.Diagnostics, d => d.Code == EngineDiagnosticCodes.DestructiveDelete);
+        Assert.DoesNotContain(whatIf.Plan.Changes, c => c.Type == ChangeType.Delete);
+        Assert.Empty(whatIf.Plan.Orphans);
+        Assert.Contains(whatIf.Plan.Diagnostics, d => d.Code == EngineDiagnosticCodes.OrphanReportIncomplete && d.Message.Contains("'Microsoft.Entra/groups'", StringComparison.Ordinal));
         Check.NoWrites(whatIf);
 
         var run = await host.CreateAsync(host.Resources(Group("other", """{ "displayName": "Other" }""")), DeploymentMode.Complete);
 
         Check.Succeeded(run);
-        Assert.Equal(1, run.Executed.DeletedCount);
-        Assert.DoesNotContain(run.Plan.Diagnostics, d => d.Code == EngineDiagnosticCodes.DestructiveDelete);
-        Assert.Null(host.Directory.Find("/groups", "uniqueName", "orphan"));
-        Assert.Contains(host.Directory.Objects("/directory/deletedItems"), o => o["uniqueName"]!.GetValue<string>() == "orphan");
+        Assert.DoesNotContain(run.Writes, w => w.Method == "DELETE");
+        Assert.NotNull(host.Directory.Find("/groups", "uniqueName", "orphan"));
     }
 
     [Fact]

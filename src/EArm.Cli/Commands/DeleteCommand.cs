@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.CommandLine;
 using System.Globalization;
 using System.IO;
@@ -6,253 +7,272 @@ using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
-using EArm.Graph;
 using EArm.Cli.Hosting;
-using EArm.Engine.State;
+using EArm.Cli.Output;
+using EArm.Core;
+using EArm.Core.Diagnostics;
+using EArm.Core.Loading;
+using EArm.Core.Types;
+using EArm.Engine.Execution;
+using EArm.Engine.KeyVault;
+using EArm.Engine.Planning;
+using EArm.Engine.Providers;
+using EArm.Graph;
 
 namespace EArm.Cli.Commands;
 
 /// <summary>
-/// <c>earm deployment delete -n &lt;name&gt; [--delete-resources] [--delete-adopted] [-y] [--force-unlock]</c> (mirrors
-/// <c>az deployment group delete</c> plus stack semantics): removes the deployment's state file; with
-/// <c>--delete-resources</c> first deletes every object the deployment created, in reverse dependency order, through the Azure
-/// CLI session (exit 3 on a tenant mismatch, 4 when locked, 1 when a delete fails: the remaining entries stay). Objects the
-/// deployment only adopted stay unless <c>--delete-adopted</c> is passed. The lock is taken BEFORE the state is read.
+/// <c>earm deployment delete -f &lt;template&gt; [-p ...] [-n name] [-y] [--continue-on-error]</c>: deletes the objects the template declares, found by
+/// their live keys exactly like <c>what-if</c> finds them (no state is involved), in reverse dependency order, after listing them and asking for
+/// confirmation (<c>-y</c> skips it; a non-interactive console without <c>-y</c> deletes nothing). The signed-in principal and service principals owned by
+/// another organization are never deleted (they are listed as kept). Exit 0 when every listed object was deleted (or kept); 1 when a delete failed (the
+/// rest stops unless <c>--continue-on-error</c>), when it was not confirmed, or for a template that cannot be loaded; 2 on validation errors; 3 when no
+/// credential signs in. <c>-n</c> is only a label.
 /// </summary>
 internal static class DeleteCommand
 {
     public static Command Build()
     {
-        var options = new StateOptions();
-        var deleteResources = new Option<bool>("--delete-resources")
+        var options = new DeploymentOptions();
+        var yes = new Option<bool>("--yes", "-y")
         {
-            Description = "Also delete every object the deployment created from the tenant (reverse dependency order) before removing the state. Adopted objects stay unless --delete-adopted.",
-        };
-
-        var deleteAdopted = new Option<bool>("--delete-adopted")
-        {
-            Description = "With --delete-resources: also delete the objects the deployment adopted (they existed before it managed them).",
-        };
-
-        var forceUnlock = new Option<bool>("--force-unlock")
-        {
-            Description = "Break the deployment's state lock first.",
+            Description = "Do not prompt for confirmation before deleting.",
         };
 
         var continueOnError = new Option<bool>("--continue-on-error")
         {
-            Description = "Keep deleting after a failure (default: stop; the failed object and the ones not yet deleted stay in the state).",
+            Description = "Keep deleting after a failure (default: stop; the objects not yet deleted stay).",
         };
 
-        var command = new Command("delete", "Deletes a deployment: its state file, and with --delete-resources the objects it manages.");
-        options.Add(command, nameRequired: true, withYes: true);
-        command.Options.Add(deleteResources);
-        command.Options.Add(deleteAdopted);
-        command.Options.Add(forceUnlock);
+        var command = new Command("delete", "Deletes the objects a template declares (found by their keys, reverse dependency order) after confirmation.");
+        command.Options.Add(options.TemplateFile);
+        command.Options.Add(options.Parameters);
+        command.Options.Add(options.Name);
+        command.Options.Add(options.Parallelism);
+        command.Options.Add(yes);
         command.Options.Add(continueOnError);
         command.SetAction((parseResult, ct) => RunAsync(
-            options.Read(parseResult),
-            parseResult.GetValue(deleteResources),
-            parseResult.GetValue(forceUnlock),
-            parseResult.GetValue(continueOnError),
+            options.Read(parseResult) with { Yes = parseResult.GetValue(yes), ContinueOnError = parseResult.GetValue(continueOnError) },
             parseResult.InvocationConfiguration.Output,
             parseResult.InvocationConfiguration.Error,
             ConsolePrompt.DefaultReadLine,
-            ct,
-            parseResult.GetValue(deleteAdopted)));
+            ct));
         return command;
     }
 
-    internal static async Task<int> RunAsync(StateInvocation invocation, bool deleteResources, bool forceUnlock, bool continueOnError, TextWriter stdout, TextWriter stderr, Func<string?> readLine, CancellationToken cancellationToken, bool deleteAdopted = false)
+    internal static async Task<int> RunAsync(DeploymentInvocation invocation, TextWriter stdout, TextWriter stderr, Func<string?> readLine, CancellationToken cancellationToken)
     {
-        string name;
+        ArgumentNullException.ThrowIfNull(invocation);
+        using var scrubScope = SecretScrubber.Begin();
+
+        ParameterSet parameters;
         try
         {
-            name = invocation.RequireName();
+            parameters = ValidateCommand.BuildParameterSet(invocation.ParameterTokens, out _);
+        }
+        catch (TemplateLoadException ex)
+        {
+            return FailValidation(invocation, [ex.ToDiagnostic()], stdout, stderr, ExitCodes.Failure);
         }
         catch (ArgumentException ex)
         {
-            return VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.Failure, "InvalidArgument", ex.Message);
+            return FailValidation(invocation, [Diagnostic.Error(ValidateCommand.InvalidArgumentCode, ex.Message)], stdout, stderr, ExitCodes.Failure);
         }
 
-        using var scrubScope = SecretScrubber.Begin();
-        using var loggerFactory = GlobalOptions.CreateLoggerFactory(invocation.LogLevel);
-        var store = StateHost.OpenStore(invocation.StateDir, invocation.TemplateFile, loggerFactory);
+        string name = invocation.EffectiveName;
+        var catalog = ResourceTypeCatalog.Default;
+        TemplateDocument document;
         try
         {
-            // A cheap look first, so a mistyped name does not create a lock file; the state is only trusted once it is read under the lock.
-            if (!File.Exists(store.PathFor(name)))
-            {
-                return VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.Failure, "DeploymentNotFound", $"No deployment named '{name}' in {store.Directory}.");
-            }
+            document = await new TemplateLoader(catalog).LoadAsync(invocation.TemplateFile, parameters, cancellationToken).ConfigureAwait(false);
+        }
+        catch (TemplateLoadException ex)
+        {
+            return FailValidation(invocation, [ex.ToDiagnostic()], stdout, stderr, ExitCodes.Failure);
+        }
 
-            if (forceUnlock)
-            {
-                var former = await store.ForceUnlockAsync(name, cancellationToken).ConfigureAwait(false);
-                if (former is not null)
-                {
-                    stderr.WriteLine($"Broke the state lock of deployment '{name}' held by {former.Describe()}.");
-                }
-            }
+        SecretRegistration.RegisterDocument(document);
+        using var loggerFactory = GlobalOptions.CreateLoggerFactory(invocation.LogLevel);
+        if (!EngineServices.TryCreate(invocation.Connection, loggerFactory, stdout, stderr, invocation.Output, out var created, out int createExit))
+        {
+            return createExit;
+        }
 
-            IAsyncDisposable lease;
+        using var services = created!;
+        try
+        {
+            services.CreatePlanner(new PlannerOptions { DeploymentName = name, Catalog = catalog }).Validate(document, PlanMode.WhatIf);
+        }
+        catch (ValidationFailedException ex)
+        {
+            return FailValidation(invocation, ex.Diagnostics, stdout, stderr, ExitCodes.ValidationFailed);
+        }
+
+        GraphPreflightResult preflight;
+        try
+        {
+            preflight = await services.Preflight.RunAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is GraphTransportException or GraphException)
+        {
+            return VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.AuthOrPreflight, "PreflightFailed", "Preflight failed: " + SecretScrubber.Scrub(ex.Message));
+        }
+
+        if (KeyVaultSecretResolver.HasPendingReferences(document))
+        {
             try
             {
-                lease = await store.LockAsync(name, TimeSpan.Zero, cancellationToken).ConfigureAwait(false);
+                document = await services.CreateKeyVaultResolver().ResolveAsync(document, cancellationToken).ConfigureAwait(false);
+                SecretRegistration.RegisterDocument(document);
             }
-            catch (StateLockedException ex)
+            catch (KeyVaultResolutionException ex)
             {
-                return VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.StateLocked, ex.Code, ex.Message);
+                var definition = document.Parameters.TryGetValue(ex.ParameterName, out var found) ? found : null;
+                return FailValidation(invocation, [Diagnostic.Error(ex.Code, ex.Message, definition?.Path, document.LocationOf(definition?.Path), document.SourcePath)], stdout, stderr, ExitCodes.AuthOrPreflight);
             }
+        }
 
-            await using (lease.ConfigureAwait(false))
+        // The declared objects are found exactly as what-if finds them: by key, read-only.
+        var planner = services.CreatePlanner(new PlannerOptions
+        {
+            DeploymentName = name,
+            TenantId = preflight.TenantId,
+            Tenant = DeploymentEnvironment.TenantFromOrganization(preflight.Organization, preflight.TenantId),
+            Environment = DeploymentEnvironment.Environment(preflight.Cloud),
+            SignedInPrincipalId = preflight.PrincipalObjectId,
+            AppOnlyToken = string.Equals(preflight.PrincipalType, "application", StringComparison.OrdinalIgnoreCase),
+            Parallelism = invocation.Parallelism,
+            Catalog = catalog,
+        });
+
+        DeploymentPlan plan;
+        try
+        {
+            plan = await planner.PlanAsync(document, null, DeploymentMode.Incremental, PlanMode.WhatIf, cancellationToken).ConfigureAwait(false);
+        }
+        catch (ValidationFailedException ex)
+        {
+            return FailValidation(invocation, ex.Diagnostics, stdout, stderr, ExitCodes.ValidationFailed);
+        }
+        catch (UnknownProviderException ex)
+        {
+            return VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.Failure, "UnknownProvider", ex.Message);
+        }
+
+        var targets = TemplateDeleter.FindDeclaredObjects(plan);
+        if (targets.Count == 0)
+        {
+            return VerbOutput.Succeed(invocation.Output, stdout, $"Nothing to delete: none of the objects template '{invocation.TemplateFile}' declares exists in tenant {preflight.TenantId}.", json =>
             {
-                // E-04: the state is read while the lock is held.
-                // Removing only the state file acts on no object: an entry that fails the integrity rules must not keep it from being removed (deleting the objects reads the state strictly).
-                StateFile? state = await store.LoadAsync(name, lenient: !deleteResources, cancellationToken).ConfigureAwait(false);
-                if (state is null)
-                {
-                    return VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.Failure, "DeploymentNotFound", $"No deployment named '{name}' in {store.Directory}.");
-                }
+                json["deployment"] = name;
+                json["deleted"] = 0;
+            });
+        }
 
-                if (!deleteResources)
-                {
-                    string question = string.Create(CultureInfo.InvariantCulture, $"Remove the state of deployment '{name}' ({state.Resources.Count} resource(s))? The objects stay in the tenant.");
-                    if (!invocation.Yes && !ConsolePrompt.Confirm(question, stdout, stderr, readLine))
-                    {
-                        return VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.Failure, "NotConfirmed", "Nothing deleted.");
-                    }
+        if (!invocation.Yes && !Confirm(invocation, targets, preflight.TenantId, stdout, stderr, readLine))
+        {
+            return VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.Failure, "NotConfirmed", "Nothing deleted.");
+        }
 
-                    int left = state.Resources.Count;
-                    await store.DeleteAsync(name, cancellationToken).ConfigureAwait(false);
-                    return VerbOutput.Succeed(invocation.Output, stdout, $"Removed the state of deployment '{name}' ({store.PathFor(name)}); {left} object(s) left in the tenant.", json =>
-                    {
-                        json["deployment"] = name;
-                        json["stateRemoved"] = true;
-                        json["objectsLeftInTenant"] = left;
-                    });
-                }
+        var result = await services.CreateTemplateDeleter().DeleteAsync(plan, targets, invocation.ContinueOnError, cancellationToken).ConfigureAwait(false);
+        return Report(invocation, name, result, stdout, stderr);
+    }
 
-                if (!EngineServices.TryCreate(invocation.Connection, loggerFactory, stdout, stderr, invocation.Output, out var created, out int createExit))
-                {
-                    return createExit;
-                }
+    /// <summary>Lists what will be deleted (and kept) on stderr, so stdout stays the command's one document, and asks.</summary>
+    private static bool Confirm(DeploymentInvocation invocation, IReadOnlyList<DeclaredObject> targets, string tenantId, TextWriter stdout, TextWriter stderr, Func<string?> readLine)
+    {
+        int deletable = targets.Count(t => t.Refusal is null && t.Problem is null);
+        stderr.WriteLine(string.Create(CultureInfo.InvariantCulture, $"Template '{invocation.TemplateFile}' declares {targets.Count} object(s) found in tenant {tenantId}; {deletable} will be DELETED, in this order:"));
+        foreach (var target in targets)
+        {
+            stderr.WriteLine("  " + Describe(target));
+        }
 
-                using var services = created!;
-                GraphPreflightResult preflight;
-                try
-                {
-                    preflight = await services.Preflight.RunAsync(cancellationToken).ConfigureAwait(false);
-                    state.EnsureTenant(preflight.TenantId);
-                }
-                catch (Exception ex) when (ex is GraphTransportException or GraphException or TenantMismatchException)
-                {
-                    return VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.AuthOrPreflight, ex is TenantMismatchException mismatch ? mismatch.Code : "PreflightFailed", SecretScrubber.Scrub(ex.Message));
-                }
+        return ConsolePrompt.Confirm(string.Create(CultureInfo.InvariantCulture, $"Delete these {deletable} object(s)?"), stdout, stderr, readLine);
+    }
 
-                int adoptedCount = state.Resources.Values.Count(e => e.Provenance == StateProvenance.Adopted);
-                int toDelete = deleteAdopted ? state.Resources.Count : state.Resources.Count - adoptedCount;
-                string confirm = string.Create(CultureInfo.InvariantCulture, $"Delete the {toDelete} object(s) managed by deployment '{name}' from tenant {preflight.TenantId} and remove its state?");
-                if (!deleteAdopted && adoptedCount > 0)
-                {
-                    confirm = string.Create(CultureInfo.InvariantCulture, $"Delete the {toDelete} object(s) that deployment '{name}' created in tenant {preflight.TenantId}? The {adoptedCount} adopted object(s) stay (pass --delete-adopted to delete them too), so the state stays as well.");
-                }
+    private static string Describe(DeclaredObject target)
+    {
+        string displayName = target.DisplayName is null ? string.Empty : $" \"{target.DisplayName}\"";
+        string graphId = target.GraphId is null ? string.Empty : $" Graph id {target.GraphId}";
+        string note = target switch
+        {
+            { Problem: { } problem } => $" [cannot be checked: {problem}]",
+            { Refusal: not null } => " [kept: protected]",
+            { Risk: { } risk } => $" [{risk}]",
+            _ => string.Empty,
+        };
+        return $"- {target.Instance.Id.Id} ({target.Instance.Type}){displayName}{graphId}{note}";
+    }
 
-                if (!invocation.Yes && !ConsolePrompt.Confirm(confirm, stdout, stderr, readLine))
-                {
-                    return VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.Failure, "NotConfirmed", "Nothing deleted.");
-                }
+    private static int Report(DeploymentInvocation invocation, string name, TemplateDeleteResult result, TextWriter stdout, TextWriter stderr)
+    {
+        string summary = result.Succeeded
+            ? string.Create(CultureInfo.InvariantCulture, $"Deployment '{name}': deleted {result.DeletedCount} object(s) ({result.AlreadyGoneCount} already gone, {result.RefusedCount} kept).")
+            : string.Create(CultureInfo.InvariantCulture, $"Deployment '{name}': {result.FailedCount} delete(s) failed, {result.SkippedCount} skipped; deleted {result.DeletedCount} object(s) ({result.AlreadyGoneCount} already gone, {result.RefusedCount} kept).");
+        int exit = result.Succeeded ? ExitCodes.Ok : ExitCodes.Failure;
 
-                var guard = new DeleteGuard
+        if (invocation.Output == OutputFormat.Json)
+        {
+            // ONE document: the per-object outcomes and the totals, on success and on failure.
+            var outcomes = new JsonArray();
+            foreach (var outcome in result.Outcomes)
+            {
+                outcomes.Add(new JsonObject
                 {
-                    SignedInPrincipalId = preflight.PrincipalObjectId,
-                    TenantId = preflight.TenantId,
-                    DeleteAdopted = deleteAdopted,
-                };
-                var result = await DeploymentDeleter.DeleteAllAsync(state, store, services.Providers, services.Graph, null, continueOnError, guard, loggerFactory.CreateLogger("EArm.Cli.Delete"), cancellationToken).ConfigureAwait(false);
-                bool json = invocation.Output == OutputFormat.Json;
-                if (!json && invocation.Output != OutputFormat.None)
-                {
-                    foreach (var outcome in result.Outcomes)
-                    {
-                        string line = outcome.Status switch
-                        {
-                            DeleteStatus.Deleted => $"  - {outcome.Entry.Id.Id} (deleted)",
-                            DeleteStatus.AlreadyGone => $"  - {outcome.Entry.Id.Id} (already gone)",
-                            DeleteStatus.Skipped => $"  ? {outcome.Entry.Id.Id} (skipped: {outcome.Error})",
-                            DeleteStatus.Refused => $"  ~ {outcome.Entry.Id.Id} (kept: {outcome.Error})",
-                            _ => $"  ! {outcome.Entry.Id.Id} ({outcome.Error})",
-                        };
-                        (outcome.Succeeded ? stdout : stderr).WriteLine(line);
-                    }
-                }
-
-                string summary;
-                int exit;
-                if (result.Succeeded && result.StateRemoved)
-                {
-                    summary = string.Create(CultureInfo.InvariantCulture, $"Deleted {result.DeletedCount} object(s) ({result.AlreadyGoneCount} already gone) and removed the state of deployment '{name}'.");
-                    exit = ExitCodes.Ok;
-                }
-                else if (result.Succeeded)
-                {
-                    summary = string.Create(CultureInfo.InvariantCulture, $"Deleted {result.DeletedCount} object(s) ({result.AlreadyGoneCount} already gone). {result.RefusedCount} object(s) were kept (adopted, or owned by another resource) and stay in the state of deployment '{name}'; pass --delete-adopted to delete adopted objects.");
-                    exit = ExitCodes.Ok;
-                }
-                else
-                {
-                    summary = string.Create(CultureInfo.InvariantCulture, $"Deployment '{name}': {result.FailedCount} delete(s) failed, {result.SkippedCount} skipped; {state.Resources.Count} entry(ies) remain in the state.");
-                    exit = ExitCodes.Failure;
-                }
-
-                if (json)
-                {
-                    // ONE document: the per-object outcomes and the totals, on success and on failure (review round 2, S2-20).
-                    var outcomes = new JsonArray();
-                    foreach (var outcome in result.Outcomes)
-                    {
-                        outcomes.Add(new JsonObject
-                        {
-                            ["resourceId"] = outcome.Entry.Id.Id,
-                            ["type"] = outcome.Entry.Type,
-                            ["graphId"] = outcome.Entry.GraphId,
-                            ["status"] = outcome.Status.ToString(),
-                            ["error"] = outcome.Error is null ? null : SecretScrubber.Scrub(outcome.Error),
-                            ["errorCode"] = outcome.ErrorCode,
-                        });
-                    }
-
-                    var document = new JsonObject
-                    {
-                        ["status"] = result.Succeeded ? "Succeeded" : "Failed",
-                        ["deployment"] = name,
-                        ["message"] = summary,
-                        ["deleted"] = result.DeletedCount,
-                        ["alreadyGone"] = result.AlreadyGoneCount,
-                        ["kept"] = result.RefusedCount,
-                        ["failed"] = result.FailedCount,
-                        ["skipped"] = result.SkippedCount,
-                        ["stateRemoved"] = result.StateRemoved,
-                        ["remainingEntries"] = state.Resources.Count,
-                        ["outcomes"] = outcomes,
-                    };
-                    stdout.WriteLine(document.ToJsonString(EArm.Cli.Output.JsonOutput.Options(true)));
-                }
-                else if (invocation.Output != OutputFormat.None)
-                {
-                    (exit == ExitCodes.Ok ? stdout : stderr).WriteLine(summary);
-                }
-
-                return exit;
+                    ["resourceId"] = outcome.Target.Instance.Id.Id,
+                    ["type"] = outcome.Target.Instance.Type,
+                    ["graphId"] = outcome.Target.GraphId,
+                    ["status"] = outcome.Status.ToString(),
+                    ["error"] = outcome.Error is null ? null : SecretScrubber.Scrub(outcome.Error),
+                    ["errorCode"] = outcome.ErrorCode,
+                });
             }
+
+            var document = new JsonObject
+            {
+                ["status"] = result.Succeeded ? "Succeeded" : "Failed",
+                ["deployment"] = name,
+                ["message"] = summary,
+                ["deleted"] = result.DeletedCount,
+                ["alreadyGone"] = result.AlreadyGoneCount,
+                ["kept"] = result.RefusedCount,
+                ["failed"] = result.FailedCount,
+                ["skipped"] = result.SkippedCount,
+                ["outcomes"] = outcomes,
+            };
+            stdout.WriteLine(document.ToJsonString(JsonOutput.Options(!invocation.NoPrettyPrint)));
+            return exit;
         }
-        catch (StateException ex)
+
+        if (invocation.Output == OutputFormat.None)
         {
-            return VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.Failure, ex.Code, ex.Message);
+            return exit;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+
+        foreach (var outcome in result.Outcomes)
         {
-            return VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.Failure, "StateIoFailed", $"The state of deployment '{name}' could not be read or written: {SecretScrubber.Scrub(ex.Message)}");
+            string id = outcome.Target.Instance.Id.Id;
+            string line = outcome.Status switch
+            {
+                DeletionStatus.Deleted => $"  - {id} (deleted)",
+                DeletionStatus.AlreadyGone => $"  - {id} (already gone)",
+                DeletionStatus.Skipped => $"  ? {id} (skipped: {outcome.Error})",
+                DeletionStatus.Refused => $"  * {id} (kept: {outcome.Error})",
+                _ => $"  ! {id} ({SecretScrubber.Scrub(outcome.Error ?? "failed")})",
+            };
+            (outcome.Status == DeletionStatus.Failed ? stderr : stdout).WriteLine(line);
         }
+
+        (exit == ExitCodes.Ok ? stdout : stderr).WriteLine(summary);
+        return exit;
+    }
+
+    private static int FailValidation(DeploymentInvocation invocation, IReadOnlyList<Diagnostic> diagnostics, TextWriter stdout, TextWriter stderr, int exitCode)
+    {
+        var report = new ValidationReport { TemplateFile = invocation.TemplateFile };
+        ValidationWriter.Fill(report, diagnostics);
+        ValidationWriter.Write(report, diagnostics, invocation.TemplateFile, invocation.Output, stdout, stderr);
+        return exitCode;
     }
 }

@@ -11,13 +11,15 @@ catalog and the rules an author needs. The permissions each kind needs are in [p
 | Side | Properties | Semantics |
 |---|---|---|
 | **Target** (the object that has the members) | `members` on groups and administrative units, `owners` on applications, service principals and groups | The declared array is the **full desired set** for that target (ARM desired state): missing edges are added, **live edges that are not listed are removed**. An empty array removes everything. Absent = untouched. |
-| **Principal** (the object that is a member or holds the assignment) | `memberOf`, `ownerOf`, `administrativeUnits`, `manager`, `appRoleAssignments`, `directoryRoles` | **Ensure** each declared edge exists; remove only edges **this deployment created earlier** (tracked in the state file) and that are no longer declared. Anything outside the template is never touched. Absent = untouched. |
+| **Principal** (the object that is a member or holds the assignment) | `memberOf`, `ownerOf`, `administrativeUnits`, `manager`, `appRoleAssignments`, `directoryRoles` | **Ensure-only**: each declared edge is added when it is missing; **nothing is ever removed** from the principal's side. An edge that is no longer declared stays (unless a target-side set prunes it, below). The one explicit removal is `manager: null`. Absent = untouched. |
 
 Both sides may be mixed freely: the edge pass computes *desired = target-side sets ∪ principal-side declarations ∪ standalone
 resources*, de-duplicates by edge identity, reads the live state, then adds before it removes. Declaring `user.memberOf` and
-`group.members` for the same pair is one write. Removal happens when (a) the target declares the authoritative set and the edge is absent
-from it, or (b) the edge is recorded in the state for a principal (or a standalone resource) and is no longer declared. `--mode Complete`
-removes all state-recorded edges of a resource before it deletes the resource.
+`group.members` for the same pair is one write. Removal happens only when the target declares the authoritative set and the edge is absent
+from it (and `manager: null`). Nothing is recorded in the state for edges, and no mode removes an edge because it is no longer declared on the
+principal: to take a membership or assignment away, declare the target's full set, delete it yourself, or remove the standalone resource's object
+with `deployment delete`. A retained app role or directory role assignment of a declared principal is listed by the what-if as `orphan: retained`
+([whatif.md](whatif.md#orphan-report)).
 
 `reference()` calls inside edge arrays are evaluated in the edge pass and **do not** add object-pass dependencies, so mutual
 declarations (`user.memberOf` naming a group whose `members` names the user) are never cycles.
@@ -68,9 +70,10 @@ declarations (`user.memberOf` naming a group whose `members` names the user) are
 
 `Microsoft.Entra/appRoleAssignments` and `Microsoft.Entra/roleAssignments` produce the same edge kinds as the principal-side
 properties and are de-duplicated against them. The standalone resource is applied in the object pass, before the edge pass, so a
-principal-side entry for the same assignment finds it in place and neither writes nor records it; the standalone resource *owns* the assignment:
-removing only the principal-side entry changes nothing, removing the standalone resource deletes the assignment in Complete mode and detaches
-it in Incremental mode. Use the standalone form for an assignment you want to name (it has a resource id, appears in `deployment show`) and
+principal-side entry for the same assignment finds it in place and does not write it; the standalone resource *owns* the assignment:
+removing only the principal-side entry changes nothing, and removing the standalone resource from the template leaves the assignment in place in
+both modes (it is listed as `orphan: retained` while the template still declares an assignment of that principal; `deployment delete` with the old
+template removes it). Use the standalone form for an assignment you want to name (it has a resource id, appears in `deployment show`) and
 the principal-side form for the common "this user/group/principal has these roles" declaration.
 
 ## Rules and validation
@@ -91,25 +94,12 @@ wrong kind, an entry that is not an object id, a role or role assignable constra
 deploy-time placeholder when the pass runs. `EdgeApplyFailed` carries the Graph error of a failed `$ref`; `SignedInPrincipalRemoved` warns
 when applying `owners` would remove the signed-in principal. See [diagnostics.md](diagnostics.md) for every code.
 
-An edge that already existed before the template declared it is **not recorded** (the deployment did not create it) and therefore is never
-removed by un-declaring it; only a target-side authoritative set removes foreign edges. Restricted administrative units: assign scoped roles
-**before** adding members.
+Un-declaring a principal-side edge never removes it, whoever created it; only a target-side authoritative set removes edges. Restricted
+administrative units: assign scoped roles **before** adding members.
 
-## What-if and state
+## What-if
 
 - What-if renders edge changes under the declaring resource as `properties.<property>` array deltas (`+ [n]: "<objectId>"`,
-  `- [n]: "<objectId>"`); `manager` is a scalar delta. A `NoChange` object with edge deltas is a `Modify` row. See [whatif.md](whatif.md).
-- The state records the principal-side edges a deployment created, per property, so a later removal needs no lookup:
-
-```json
-"relationships": {
-  "memberOf": ["<groupId>"],
-  "ownerOf": [{ "id": "<appOrSpOrGroupId>", "collection": "applications" }],
-  "administrativeUnits": ["<auId>"],
-  "manager": "<userId>",
-  "appRoleAssignments": [{ "principalId": "…", "resourceId": "…", "appRoleId": "…", "id": "<assignmentId>" }],
-  "directoryRoles": [{ "roleDefinitionId": "…", "directoryScopeId": "/", "id": "<assignmentId>" }]
-}
-```
-
-  Licenses are not recorded (the diff is live against the direct assignments). The state is safe to commit: ids only.
+  `- [n]: "<objectId>"`; a `-` child only comes from a target-side set or `manager: null`); `manager` is a scalar delta. A `NoChange` object with
+  edge deltas is a `Modify` row. See [whatif.md](whatif.md).
+- Edges are read live on every run; nothing about them is recorded or needed from the state. Licenses diff live against the direct assignments.

@@ -1,0 +1,31 @@
+[
+  {
+    "collection": "/users",
+    "entity": {
+      "id": "22222222-0000-0000-0000-000000000001",
+      "userPrincipalName": "ops@contoso.com",
+      "displayName": "Ops",
+      "mailNickname": "ops",
+      "accountEnabled": true
+    }
+  },
+  {
+    "collection": "/identity/conditionalAccess/namedLocations",
+    "entity": {
+      "@odata.type": "#microsoft.graph.ipNamedLocation",
+      "id": "22222222-0000-0000-0000-000000000050",
+      "displayName": "Legacy offices",
+      "isTrusted": false,
+      "ipRanges": [ { "@odata.type": "#microsoft.graph.iPv4CidrRange", "cidrAddress": "192.168.0.0/16" } ]
+    }
+  },
+  {
+    "collection": "/roleManagement/directory/roleAssignments",
+    "entity": {
+      "id": "22222222-0000-0000-0000-000000000060",
+      "principalId": "22222222-0000-0000-0000-000000000001",
+      "roleDefinitionId": "88d8e3e3-8f55-4a1e-953a-9b9898b8876b",
+      "directoryScopeId": "/"
+    }
+  }
+]

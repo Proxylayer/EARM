@@ -88,19 +88,16 @@ public sealed class Review2E_EdgeAppModeTests
     }
 
     [Fact]
-    public async Task TheRecordedOwnerOf_IsKept_WhileAnApplicationTokenSkipsTheProperty()
+    public async Task AnApplicationTokenSkipsOwnerOf_AndWritesNoEdge()
     {
         var host = Host(appOnly: false);
         Check.Succeeded(await host.CreateAsync(host.Resources(Join(App, AliceOwnsApp))));
-        var before = host.StateEntryJson("/providers/Microsoft.Entra/users/alice@contoso.com")?["relationships"]?["ownerOf"]?.ToJsonString();
-        Assert.NotNull(before);
 
         host.AppOnlyToken = true;
         var rerun = await host.CreateAsync(host.Resources(Join(App, AliceOwnsApp)));
 
         Check.Succeeded(rerun);
         Assert.Contains(rerun.Executed.Diagnostics, d => d.Code == EngineDiagnosticCodes.EdgeUnsupportedInAppMode);
-        Assert.Equal(before, host.StateEntryJson("/providers/Microsoft.Entra/users/alice@contoso.com")?["relationships"]?["ownerOf"]?.ToJsonString());
         Assert.DoesNotContain(rerun.Writes, w => w.Path.Contains("$ref", StringComparison.Ordinal));
     }
 

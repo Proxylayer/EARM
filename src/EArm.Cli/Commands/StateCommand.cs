@@ -66,7 +66,7 @@ internal static class StateCommand
 
         var provenance = new Option<string>("--provenance")
         {
-            Description = "created: this deployment created the object, so Complete mode and 'deployment delete --delete-resources' may delete it. adopted: it existed before (never deleted without --delete-adopted).",
+            Description = "created or adopted. Recorded only: nothing deletes by provenance any more (Complete mode never deletes; 'deployment delete' works from the template).",
             Required = true,
         };
         provenance.AcceptOnlyFromAmong(StateProvenances.CreatedText, StateProvenances.AdoptedText);
@@ -263,9 +263,7 @@ internal static class StateCommand
                     });
                 }
 
-                string consequence = wanted == StateProvenance.Created
-                    ? "Complete mode and 'deployment delete --delete-resources' will delete the object (Graph id " + entry.GraphId + ") without --delete-adopted."
-                    : "Complete mode and 'deployment delete --delete-resources' will keep the object (Graph id " + entry.GraphId + ") unless --delete-adopted is passed.";
+                string consequence = "The provenance is recorded only (Graph id " + entry.GraphId + "); nothing deletes by it.";
                 if (!invocation.Yes && !ConsolePrompt.Confirm($"Mark '{entry.Id.Id}' as {normalized}? {consequence}", stdout, stderr, readLine))
                 {
                     return VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.Failure, "NotConfirmed", "Nothing changed.");

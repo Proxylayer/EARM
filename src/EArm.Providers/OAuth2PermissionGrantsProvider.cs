@@ -33,7 +33,7 @@ namespace EArm.Providers;
 /// </para>
 /// </summary>
 [EntraProvider(ResourceType)]
-public sealed class OAuth2PermissionGrantsProvider : ProviderBase
+public sealed class OAuth2PermissionGrantsProvider : ProviderBase, IOrphanCandidateSource
 {
     public const string ResourceType = "Microsoft.Entra/oauth2PermissionGrants";
 
@@ -492,5 +492,30 @@ public sealed class OAuth2PermissionGrantsProvider : ProviderBase
     {
         return JsonObjects.GetId(live)
             ?? throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{TypeName}: Graph returned an object without 'id' for '{desired.Name}'.", desired.Id);
+    }
+
+    // ---- orphan report ----
+
+    /// <summary>The orphan report lists the grants of the clients the declared grants name (reported as retained).</summary>
+    public OrphanScope OrphanScope => OrphanScope.DeclaredPrincipals;
+
+    public async Task<IReadOnlyList<OrphanCandidate>> ListOrphanCandidatesAsync(OrphanQuery query, IGraphClient graph, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        ArgumentNullException.ThrowIfNull(graph);
+        var candidates = new List<OrphanCandidate>();
+        foreach (var clientId in OrphanListing.DistinctKeyValues(query.DeclaredKeys, "clientId"))
+        {
+            var request = new GraphRequest(CollectionPath, query.Api).WithFilter("clientId eq '" + ProviderSupport.EscapeLiteral(clientId) + "'");
+            await foreach (var item in graph.GetAllPagesAsync(request, cancellationToken).ConfigureAwait(false))
+            {
+                if (item is JsonObject grant && JsonObjects.GetId(grant) is { } id && JsonObjects.KeyEquals(JsonObjects.GetString(grant, "clientId"), clientId))
+                {
+                    candidates.Add(new OrphanCandidate(id, id, null, OrphanListing.Describe(grant, "clientId", "resourceId", "consentType", "principalId", "scope")));
+                }
+            }
+        }
+
+        return candidates;
     }
 }

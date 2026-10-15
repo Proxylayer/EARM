@@ -31,8 +31,9 @@ namespace EArm.Engine.Execution;
 /// finishes, everything later is skipped) unless <see cref="ExecuteOptions.ContinueOnError"/>, in which case only
 /// the transitive dependents of a failure are skipped (recorded through the sink before their batch starts, never
 /// attempted, their symbolic names never resolved); then evaluates the outputs. State persistence goes through
-/// <see cref="IStateSink"/>. The end phase (edges, outputs, secure outputs file, mode pass, completion) never observes the
-/// caller's cancellation: it records what already happened and only then reports the cancellation.
+/// <see cref="IStateSink"/>. The end phase (edges, outputs, secure outputs file, orphan report, completion) never observes the
+/// caller's cancellation: it records what already happened and only then reports the cancellation. Nothing the template does not
+/// declare is ever deleted: the orphan report only lists it (<see cref="DeploymentResult.Orphans"/>).
 /// </summary>
 public sealed class DeploymentExecutor
 {
@@ -80,12 +81,9 @@ public sealed class DeploymentExecutor
         private readonly object _diagnosticsGate = new();
         private readonly ConcurrentDictionary<ResourceInstance, List<Diagnostic>> _instanceDiagnostics = new();
         private readonly SemaphoreSlim _secretsFileGate = new(1, 1);
-        private readonly List<ResourceOperation> _modeOperations = [];
-        private readonly List<ResourceChange> _modeChanges = [];
+        private IReadOnlyList<ResourceChange> _orphans = [];
         private bool _oneTimeSecretsWritten;
         private bool _cancelledInEndPhase;
-        private int _deletesDone;
-        private readonly DateTimeOffset _runStart = DateTimeOffset.UtcNow;
 
         public Run(DeploymentExecutor owner, DeploymentPlan plan, ExecuteOptions options)
         {
@@ -129,7 +127,7 @@ public sealed class DeploymentExecutor
 
             // The end phase records work that already happened (objects written to the tenant, one-time secrets, the state of the run): recording
             // never observes the caller's cancellation and is guarded so an I/O failure cannot skip the steps after it (E-03). The steps that WRITE
-            // to the tenant again (edges, Complete-mode deletes) do observe it, between operations: Ctrl-C stops new writes (review round 2, S2-10).
+            // to the tenant again (edges) do observe it, between operations: Ctrl-C stops new writes (review round 2, S2-10).
             var none = CancellationToken.None;
             var outputs = new JsonObject();
             var secureOutputs = new JsonObject();
@@ -159,7 +157,7 @@ public sealed class DeploymentExecutor
                 (outputs, secureOutputs) = EvaluateOutputs(none);
                 secureFile = WriteSecureOutputs(secureOutputs);
 
-                // Mode pass: detach (Incremental) or delete (Complete) what the template no longer declares.
+                // Orphan report (read-only): what the template does not declare is listed, never deleted.
                 // A cancelled or aborted run does not know whether the instance set was applied in full, so it judges nothing.
                 if (!cancelled && !aborted)
                 {
@@ -169,15 +167,15 @@ public sealed class DeploymentExecutor
                     }
                     else
                     {
-                        await GuardedAsync(() => RunModePassAsync(stop, cancellationToken)).ConfigureAwait(false);
+                        await GuardedAsync(() => RunOrphanReportAsync(stop, cancellationToken)).ConfigureAwait(false);
                     }
                 }
 
                 cancelled |= _cancelledInEndPhase;
 
                 FlushInstanceDiagnostics(_plan.Batches.SelectMany(b => b.Instances));
-                operations = _plan.Batches.SelectMany(b => b.Instances).Where(_operations.ContainsKey).Select(i => _operations[i]).Concat(_modeOperations).ToList();
-                changes = _plan.Batches.SelectMany(b => b.Instances).Where(_changes.ContainsKey).Select(i => _changes[i]).Concat(_modeChanges).ToList();
+                operations = _plan.Batches.SelectMany(b => b.Instances).Where(_operations.ContainsKey).Select(i => _operations[i]).ToList();
+                changes = _plan.Batches.SelectMany(b => b.Instances).Where(_changes.ContainsKey).Select(i => _changes[i]).ToList();
                 bool anyFailure = aborted || operations.Any(o => o.Status is OperationStatus.Failed or OperationStatus.Skipped) || DiagnosticsSnapshot().Any(d => d.IsError);
                 status = cancelled ? DeploymentStatus.Cancelled : anyFailure ? DeploymentStatus.Failed : DeploymentStatus.Succeeded;
 
@@ -200,7 +198,7 @@ public sealed class DeploymentExecutor
                 throw new OperationCanceledException("The deployment was cancelled; the state and the secure outputs file record what had already been applied.", cancellationToken);
             }
 
-            var result = new DeploymentResult(_plan.DeploymentName, status, operations, changes, outputs, secureOutputs, DiagnosticsSnapshot(), secureFile, stopwatch.Elapsed);
+            var result = new DeploymentResult(_plan.DeploymentName, status, operations, changes, outputs, secureOutputs, DiagnosticsSnapshot(), secureFile, stopwatch.Elapsed, _orphans);
             EngineLog.Completed(Logger, _plan.DeploymentName, status.ToString(), result.SucceededCount, result.FailedCount, result.SkippedCount, result.IgnoredCount, stopwatch.ElapsedMilliseconds);
             return result;
         }
@@ -343,9 +341,8 @@ public sealed class DeploymentExecutor
 
         /// <summary>
         /// Reconciles the relationship properties of every resource applied in this run (target-side
-        /// sets are authoritative, principal-side declarations are additive with state-tracked removals), records the
-        /// principal-side edges in the state and folds the deltas into the resource's change. A resource whose edges
-        /// cannot be validated or applied is reported as failed (the edges that were added before the failure are still recorded). Skipped
+        /// sets are authoritative, principal-side declarations are ensure-only: they add and never remove) and folds the deltas into the
+        /// resource's change. A resource whose edges cannot be validated or applied is reported as failed. Skipped
         /// entirely (with a warning) when the run stopped at a batch boundary; a no-op for templates without relationship properties.
         /// </summary>
         private async Task RunEdgePassAsync(bool stoppedEarly, CancellationToken cancellationToken)
@@ -353,7 +350,7 @@ public sealed class DeploymentExecutor
             var candidates = _plan.Instances
                 .Where(i => !i.IsSymbolic && !i.IsIgnored && _operations.TryGetValue(i, out var operation) && operation.Status == OperationStatus.Succeeded)
                 .ToList();
-            var declaring = candidates.Where(i => EdgePlanner.DeclaresEdges(i, _options.State)).ToList();
+            var declaring = candidates.Where(EdgePlanner.DeclaresEdges).ToList();
             if (declaring.Count == 0)
             {
                 return;
@@ -393,7 +390,7 @@ public sealed class DeploymentExecutor
             EdgeApplyResult result;
             try
             {
-                edgePlan = await new EdgePlanner(_plan, context, _options.State, PlanMode.Create, createdIds, unreliable).PlanAsync(candidates, cancellationToken).ConfigureAwait(false);
+                edgePlan = await new EdgePlanner(_plan, context, PlanMode.Create, createdIds, unreliable).PlanAsync(candidates, cancellationToken).ConfigureAwait(false);
                 EngineLog.EdgePassStarting(Logger, edgePlan.Rows.Count, edgePlan.Operations.Count);
                 foreach (var diagnostic in edgePlan.Diagnostics)
                 {
@@ -433,21 +430,8 @@ public sealed class DeploymentExecutor
                 var errors = row.Errors.Concat(result.ErrorsFor(row)).ToList();
                 if (errors.Count > 0)
                 {
-                    if (row.RecordsEdges && !row.HasErrors)
-                    {
-                        // Review finding E-11: the edges that were added before another operation of the row failed belong to this
-                        // deployment; record them so that undeclaring them later can remove them.
-                        await _options.StateSink.ResourceEdgesAppliedAsync(instance, EdgePlan.RecordingsFor(row, result), CancellationToken.None).ConfigureAwait(false);
-                    }
-
                     string code = row.HasErrors ? EngineDiagnosticCodes.EdgeValidationFailed : EngineDiagnosticCodes.EdgeApplyFailed;
                     await FailEdgesAsync(instance, code, string.Join(" ", errors), cancellationToken).ConfigureAwait(false);
-                    continue;
-                }
-
-                if (row.RecordsEdges)
-                {
-                    await _options.StateSink.ResourceEdgesAppliedAsync(instance, EdgePlan.RecordingsFor(row, result), CancellationToken.None).ConfigureAwait(false);
                 }
             }
         }
@@ -464,191 +448,37 @@ public sealed class DeploymentExecutor
             await _options.StateSink.ResourceEdgesFailedAsync(instance, message, CancellationToken.None).ConfigureAwait(false);
         }
 
-        // ---- mode pass ----
+        // ---- orphan report ----
 
         /// <summary>
-        /// State entries absent from the expanded instance set: Incremental drops them from the state with a warning;
-        /// Complete deletes the objects in reverse dependency order through their providers (inside the retry
-        /// policy), stopping at the first failure unless <see cref="ExecuteOptions.ContinueOnError"/>. Every delete is checked first
-        /// (<see cref="DeleteGuard"/>): the live object found by KEY must be the pinned one, adopted objects stay unless
-        /// <see cref="ExecuteOptions.DeleteAdopted"/>, and an object that a declared resource owns, the signed-in principal and
-        /// first-party service principals are never deleted. Skipped when the run already stopped at a batch boundary (the instance set
-        /// may not have been applied in full) or when no state was supplied.
+        /// The orphan report after the run (<see cref="OrphanReport"/>): live objects of the declared types that no declared resource matches, listed in
+        /// <see cref="DeploymentResult.Orphans"/> and never deleted (Complete mode: every bounded type; Incremental mode: the retained assignments and grants of the
+        /// declared principals). Read-only. Skipped when the run stopped at a batch boundary: the instance set was not applied in full.
         /// </summary>
-        private async Task RunModePassAsync(bool stoppedEarly, CancellationToken cancellationToken)
+        private async Task RunOrphanReportAsync(bool stoppedEarly, CancellationToken cancellationToken)
         {
-            var state = _options.State;
-            if (state is null)
+            if (stoppedEarly)
             {
+                if (_plan.Mode == DeploymentMode.Complete)
+                {
+                    AddDiagnostic(Diagnostic.Warning(EngineDiagnosticCodes.OrphanReportIncomplete, "The orphan report did not run because an earlier batch failed; undeclared objects were not listed. Nothing is ever deleted by Complete mode."));
+                }
+
                 return;
             }
 
-            var orphans = ModePass.FindOrphans(state, _plan, out var undecided);
-            foreach (var (type, plannedId) in undecided)
+            var result = await new OrphanReport(_plan, _owner._graph).RunAsync(IsSettled, cancellationToken).ConfigureAwait(false);
+            _orphans = result.Rows;
+            foreach (var diagnostic in result.Diagnostics)
             {
-                EngineLog.ModePassUndecided(Logger, type, plannedId);
-            }
-
-            int batchIndex = _plan.Batches.Count + 1;
-            bool stop = stoppedEarly && _plan.Mode == DeploymentMode.Complete;
-            EdgeGraphContext? edgeContext = null;
-            var guard = new DeleteGuard
-            {
-                Catalog = _plan.Catalog,
-                SignedInPrincipalId = _plan.SignedInPrincipalId,
-                TenantId = _plan.TenantId,
-                DeleteAdopted = _options.DeleteAdopted,
-                OwnedGraphIds = OwnedGraphIds(state),
-                State = state,
-            };
-
-            var remaining = new Queue<StateEntry>(orphans);
-            while (remaining.Count > 0)
-            {
-                var entry = remaining.Dequeue();
-                if (cancellationToken.IsCancellationRequested)
-                {
-                    // Ctrl-C: no new delete (the one in flight finished); what is left is recorded as skipped and the run ends Cancelled (review round 2, S2-10).
-                    _cancelledInEndPhase = true;
-                    remaining.Enqueue(entry);
-                    while (remaining.Count > 0)
-                    {
-                        var left = remaining.Dequeue();
-                        _modeOperations.Add(new ResourceOperation(left.Id, left.Type, batchIndex, OperationStatus.Skipped, ChangeType.Delete, ChangeMode.Delete, left.GraphId, "the run was cancelled", EngineDiagnosticCodes.ResourceSkipped, TimeSpan.Zero));
-                    }
-
-                    break;
-                }
-
-                if (_plan.Mode == DeploymentMode.Incremental)
-                {
-                    EngineLog.ResourceDetached(Logger, entry.Id.Id);
-                    _modeChanges.Add(ResourceChange.Ignore(entry.Id, entry.Type, ModePass.DetachReason));
-                    _modeOperations.Add(new ResourceOperation(entry.Id, entry.Type, batchIndex, OperationStatus.Detached, ChangeType.Ignore, ChangeMode.None, entry.GraphId, null, null, TimeSpan.Zero));
-                    AddDiagnostic(Diagnostic.Warning(EngineDiagnosticCodes.ResourceDetached, $"'{entry.Id.Id}' is recorded in the state but no longer declared in the template; it was detached from the state and the object was left in the tenant. It is not managed by this deployment any more: delete it yourself, or declare it again and deploy with --mode Complete to manage it."));
-                    await _options.StateSink.ResourceDetachedAsync(entry, CancellationToken.None).ConfigureAwait(false);
-                    continue;
-                }
-
-                if (stop)
-                {
-                    _modeOperations.Add(new ResourceOperation(entry.Id, entry.Type, batchIndex, OperationStatus.Skipped, ChangeType.Delete, ChangeMode.Delete, entry.GraphId, "an earlier operation failed", EngineDiagnosticCodes.ResourceSkipped, TimeSpan.Zero));
-                    continue;
-                }
-
-                // The delete in flight is never cancelled (its outcome must be known and recorded); the token is checked between entries.
-                var outcome = await StateDeletion.DeleteAsync(entry, _owner._registry, _owner._graph, _plan.RetryPolicy, guard, CancellationToken.None, async check =>
-                {
-                    // The object is verified and about to go: the delete budget first (--max-deletes is a hard limit of the run, whatever the estimate before it said), then the warnings, then the edges this deployment recorded, then the resource itself.
-                    if (!TryReserveDelete())
-                    {
-                        throw new ProviderException(EngineDiagnosticCodes.DeleteLimitExceeded, DeleteLimitMessage(entry.Id.Id), entry.Id);
-                    }
-
-                    EngineLog.DeletingOrphan(Logger, entry.Id.Id, entry.GraphId);
-                    if (check.Provider is IDeleteWarningSource warnings && warnings.DescribeDeleteRisk(entry.ToResourceKey(_plan.Catalog), check.Live!) is { } risk)
-                    {
-                        EngineLog.DeleteWarning(Logger, entry.Id.Id, risk);
-                        AddDiagnostic(Diagnostic.Warning(EngineDiagnosticCodes.DestructiveDelete, $"'{entry.Id.Id}': {risk}"));
-                    }
-
-                    if (entry.Relationships is { Count: > 0 })
-                    {
-                        edgeContext ??= new EdgeGraphContext(_owner._graph, _plan.RetryPolicy, _plan.Resolver, _plan.Instances, Logger, _plan.SignedInPrincipalId) { AppOnlyToken = _plan.AppOnlyToken };
-                        try
-                        {
-                            int removed = await RecordedEdges.RemoveAsync(entry, _plan.Catalog, _plan.EdgeKinds, edgeContext, CancellationToken.None).ConfigureAwait(false);
-                            EngineLog.RecordedEdgesRemoved(Logger, entry.Id.Id, removed);
-                        }
-                        catch (Exception ex) when (ex is GraphException or GraphTransportException)
-                        {
-                            EngineLog.EdgeApplyFailed(Logger, $"remove recorded edges of {entry.Id.Id}", SecretRegistration.Scrub(ex.Message));
-                        }
-                    }
-                }).ConfigureAwait(false);
-
-                if (outcome.Succeeded)
-                {
-                    if (outcome.Status == DeleteStatus.AlreadyGone)
-                    {
-                        EngineLog.OrphanAlreadyGone(Logger, entry.Id.Id);
-                    }
-
-                    _modeChanges.Add(new ResourceChange { Id = entry.Id, ResourceType = entry.Type, Type = ChangeType.Delete, Mode = ChangeMode.Delete, GraphId = entry.GraphId, Reasons = [ModePass.DeleteReason] });
-                    _modeOperations.Add(new ResourceOperation(entry.Id, entry.Type, batchIndex, OperationStatus.Succeeded, ChangeType.Delete, ChangeMode.Delete, entry.GraphId, null, null, outcome.Duration));
-                    await _options.StateSink.ResourceDeletedAsync(entry, CancellationToken.None).ConfigureAwait(false);
-                    continue;
-                }
-
-                string error = SecretRegistration.Scrub(outcome.Error ?? "unknown error");
-                if (outcome.Status == DeleteStatus.Refused)
-                {
-                    EngineLog.DeleteRefused(Logger, entry.Id.Id, error);
-                    AddDiagnostic(Diagnostic.Warning(outcome.ErrorCode ?? EngineDiagnosticCodes.AdoptedObjectNotDeleted, error));
-                    _modeChanges.Add(ResourceChange.Ignore(entry.Id, entry.Type, error));
-                    if (outcome.ErrorCode == EngineDiagnosticCodes.OrphanSharesObject)
-                    {
-                        // A stale duplicate of an object a declared resource now owns: drop the entry, the object is not touched.
-                        _modeOperations.Add(new ResourceOperation(entry.Id, entry.Type, batchIndex, OperationStatus.Detached, ChangeType.Ignore, ChangeMode.None, entry.GraphId, null, null, TimeSpan.Zero));
-                        await _options.StateSink.ResourceDetachedAsync(entry, CancellationToken.None).ConfigureAwait(false);
-                    }
-                    else
-                    {
-                        _modeOperations.Add(new ResourceOperation(entry.Id, entry.Type, batchIndex, OperationStatus.Ignored, ChangeType.Ignore, ChangeMode.None, entry.GraphId, null, outcome.ErrorCode, TimeSpan.Zero));
-                    }
-
-                    continue;
-                }
-
-                EngineLog.DeleteFailed(Logger, entry.Id.Id, error);
-                if (outcome.ErrorCode is EngineDiagnosticCodes.StateEntryMismatch or EngineDiagnosticCodes.ProtectedObject or EngineDiagnosticCodes.StateEntryInvalid or EngineDiagnosticCodes.DeleteLimitExceeded)
-                {
-                    EngineLog.StateEntryMismatch(Logger, entry.Id.Id, error);
-                    AddDiagnostic(Diagnostic.Error(outcome.ErrorCode, error));
-                }
-
-                _modeChanges.Add(ResourceChange.Unsupported(entry.Id, entry.Type, ChangeType.Delete, error));
-                _modeOperations.Add(new ResourceOperation(entry.Id, entry.Type, batchIndex, OperationStatus.Failed, ChangeType.Delete, ChangeMode.Delete, entry.GraphId, error, outcome.ErrorCode ?? EngineDiagnosticCodes.ResourceDeleted, outcome.Duration));
-                await _options.StateSink.ResourceDeleteFailedAsync(entry, error, CancellationToken.None).ConfigureAwait(false);
-                stop = !_options.ContinueOnError || outcome.ErrorCode == EngineDiagnosticCodes.DeleteLimitExceeded;
+                AddDiagnostic(diagnostic);
             }
         }
 
-        /// <summary>Takes one delete from the run's budget (<see cref="ExecuteOptions.MaxDeletes"/>); false when it is used up.</summary>
-        private bool TryReserveDelete()
+        /// <summary>True when the instance was applied (or found unchanged) in this run: its live object is published.</summary>
+        private bool IsSettled(ResourceInstance instance)
         {
-            int done = Interlocked.Increment(ref _deletesDone);
-            return _options.MaxDeletes is not { } max || done <= max;
-        }
-
-        private string DeleteLimitMessage(string resourceId)
-        {
-            return $"{resourceId} was not deleted: the run reached --max-deletes {_options.MaxDeletes}. Deletes are a hard limit of the run, whatever the plan said before it started; check the template and the state, or pass --allow-delete-all (or a higher --max-deletes) to confirm that this is intended.";
-        }
-
-        /// <summary>The Graph ids of the objects declared resources own (read or applied in this run, or pinned in the state): an orphan entry that points at one must not delete it.</summary>
-        private HashSet<string> OwnedGraphIds(StateFile state)
-        {
-            var owned = new HashSet<string>(_graphClaims.Keys, StringComparer.OrdinalIgnoreCase);
-            foreach (var instance in _plan.Instances)
-            {
-                if (instance.IsSymbolic)
-                {
-                    continue;
-                }
-
-                if (_plan.Resolver.TryGetGraphId(instance.Id, out var graphId))
-                {
-                    owned.Add(graphId);
-                }
-
-                if (state.GraphIdOf(instance.Id.Id) is { } pinned)
-                {
-                    owned.Add(pinned);
-                }
-            }
-
-            return owned;
+            return _operations.TryGetValue(instance, out var operation) && operation.Status == OperationStatus.Succeeded;
         }
 
         // ---- one resource ----
@@ -739,14 +569,9 @@ public sealed class DeploymentExecutor
                 return;
             }
 
-            // Reads use the default hint: a 404 here means "create", not "not replicated yet". Identity is resolved live, by key, on every run:
-            // the state is never consulted to find the object (a renamed object is a new one).
+            // Reads use the default hint: a 404 here means "create", not "not replicated yet". Identity is resolved live, by key, on every run
+            // (a renamed object is a new one).
             var existing = await WithRetryAsync(ct => provider.ReadAsync(key, _owner._graph, ct), RetryHint.Default, cancellationToken).ConfigureAwait(false);
-            var previousEntry = _options.State?.Find(instance.Id.Id);
-            if (previousEntry is not null && !string.Equals(existing?.GraphId, previousEntry.GraphId, StringComparison.OrdinalIgnoreCase))
-            {
-                EngineLog.StateDrift(Logger, instance.Id.Id, previousEntry.GraphId, existing is null ? "not found; it will be created again" : $"found under a different id ({existing.GraphId}); the state will be re-pinned");
-            }
 
             if (existing is not null && !TryClaim(instance, existing.GraphId, out var other))
             {
@@ -770,9 +595,6 @@ public sealed class DeploymentExecutor
 
             EngineLog.Applying(Logger, instance.Id.Id, change.Type.ToString(), change.Mode.ToString());
 
-            // Provenance (E-02): an object that was already there and that the state did not (yet) vouch for is adopted, not created.
-            bool takenOver = existing is not null && (previousEntry is null || !string.Equals(previousEntry.GraphId, existing.GraphId, StringComparison.OrdinalIgnoreCase));
-            var provenance = takenOver || previousEntry is null ? StateProvenance.Adopted : previousEntry.Provenance;
             string? afterApplyFailure = null;
             AppliedResource applied;
             switch (change.Type)
@@ -792,7 +614,6 @@ public sealed class DeploymentExecutor
                 {
                     var created = await CreateAsync(provider, instance, key, cancellationToken).ConfigureAwait(false);
                     applied = created.Applied;
-                    provenance = created.Provenance;
                     afterApplyFailure = created.Failure;
                     if (created.AdoptedExisting is { } found && afterApplyFailure is null)
                     {
@@ -805,17 +626,16 @@ public sealed class DeploymentExecutor
 
                 case ChangeType.Modify when change.Mode == ChangeMode.Recreate:
                 {
-                    var recreated = await RecreateAsync(provider, instance, key, existing!, previousEntry, cancellationToken).ConfigureAwait(false);
+                    var recreated = await RecreateAsync(provider, instance, key, existing!, cancellationToken).ConfigureAwait(false);
                     if (recreated.Applied is null)
                     {
-                        // Nothing was replaced (the old object is protected, adopted or over the delete budget): the resource fails and keeps its entry.
+                        // Nothing was replaced (the old object is protected, or the replacement was not confirmed): the resource fails.
                         await FailAsync(instance, batchIndex, recreated.FailureCode ?? EngineDiagnosticCodes.ResourceApplyFailed, recreated.Failure ?? $"{instance.Describe()}: the object could not be replaced.", stopwatch.Elapsed, cancellationToken).ConfigureAwait(false);
                         return;
                     }
 
                     applied = recreated.Applied;
                     afterApplyFailure = recreated.Failure;
-                    provenance = StateProvenance.Created;
                     break;
                 }
 
@@ -837,7 +657,6 @@ public sealed class DeploymentExecutor
                     throw new InvalidOperationException($"{instance.Describe()}: the provider planned an unexpected change type {change.Type}.");
             }
 
-            applied = applied with { Provenance = provenance };
             SecretRegistration.RegisterTainted(applied.Live);
             if (!TryClaim(instance, applied.GraphId, out var claimedBy))
             {
@@ -847,12 +666,6 @@ public sealed class DeploymentExecutor
 
             // A one-time secret exists only in this response: it goes to the owner-only file before anything else can fail (E-03d).
             await PersistOneTimeSecretsAsync(instance, applied).ConfigureAwait(false);
-
-            if (provenance == StateProvenance.Adopted && (change.Type == ChangeType.Create || takenOver || previousEntry is null))
-            {
-                EngineLog.AdoptedExisting(Logger, instance.Id.Id, applied.GraphId);
-                AddInstanceDiagnostic(instance, Diagnostic.Warning(EngineDiagnosticCodes.AdoptedExistingObject, $"'{instance.Id.Id}' adopted the existing {instance.Type} object {applied.GraphId}: it was not created by this deployment, so Complete mode will not delete it (--delete-adopted overrides)."));
-            }
 
             foreach (var warning in applied.Warnings)
             {
@@ -893,12 +706,11 @@ public sealed class DeploymentExecutor
             return other is null;
         }
 
-        /// <summary>The outcome of <see cref="CreateAsync"/>: what exists now, how it came to be, and the failure to report when the object exists but the create did not complete.</summary>
-        /// <param name="Applied">The object (created, found after an ambiguous failure, or adopted).</param>
-        /// <param name="Provenance"><see cref="StateProvenance.Created"/> when this run created it.</param>
+        /// <summary>The outcome of <see cref="CreateAsync"/>: what exists now, and the failure to report when the object exists but the create did not complete.</summary>
+        /// <param name="Applied">The object (created, found after an ambiguous failure, or found under its key after "already exists").</param>
         /// <param name="Failure">Set when the object exists but a later step failed: the object is recorded and the resource is reported failed.</param>
-        /// <param name="AdoptedExisting">Set when the create was answered with "already exists" and the existing object was adopted.</param>
-        private sealed record CreateOutcome(AppliedResource Applied, StateProvenance Provenance, string? Failure, ExistingResource? AdoptedExisting);
+        /// <param name="AdoptedExisting">Set when the create was answered with "already exists" and the existing object was taken over.</param>
+        private sealed record CreateOutcome(AppliedResource Applied, string? Failure, ExistingResource? AdoptedExisting);
 
         /// <summary>The outcome of <see cref="RecreateAsync"/>; <see cref="Applied"/> is null when nothing was replaced.</summary>
         private sealed record RecreateOutcome(AppliedResource? Applied, string? Failure, string? FailureCode);
@@ -914,11 +726,11 @@ public sealed class DeploymentExecutor
         {
             try
             {
-                return new CreateOutcome(await WithRetryAsync(ct => provider.CreateAsync(instance, _owner._graph, ct), instance.RetryHint, cancellationToken, idempotent: provider.CreateIsRepeatable).ConfigureAwait(false), StateProvenance.Created, null, null);
+                return new CreateOutcome(await WithRetryAsync(ct => provider.CreateAsync(instance, _owner._graph, ct), instance.RetryHint, cancellationToken, idempotent: provider.CreateIsRepeatable).ConfigureAwait(false), null, null);
             }
             catch (ProviderException ex) when (ex.Partial is { } partial)
             {
-                return new CreateOutcome(partial, StateProvenance.Created, PartialFailure(instance, partial, ex, "created"), null);
+                return new CreateOutcome(partial, PartialFailure(instance, partial, ex, "created"), null);
             }
             catch (GraphException ex) when (ex.IsAlreadyExists)
             {
@@ -929,7 +741,7 @@ public sealed class DeploymentExecutor
                     throw;
                 }
 
-                return new CreateOutcome(new AppliedResource(instance.Id, existing.GraphId, existing.Raw, key), StateProvenance.Adopted, null, existing);
+                return new CreateOutcome(new AppliedResource(instance.Id, existing.GraphId, existing.Raw, key), null, existing);
             }
             catch (Exception ex) when (ProviderReads.IsAmbiguousWriteFailure(ex))
             {
@@ -943,7 +755,7 @@ public sealed class DeploymentExecutor
                 string error = SecretRegistration.Scrub(ex.Message);
                 EngineLog.CreateOutcomeUncertain(Logger, instance.Id.Id, error, found.GraphId);
                 AddInstanceDiagnostic(instance, Diagnostic.Warning(EngineDiagnosticCodes.CreateOutcomeUncertain, $"'{instance.Id.Id}': the create ended with an unknown outcome ({error}); the object exists (Graph id {found.GraphId}), so the create is counted as done. Values only returned at creation (a secret) are not available for it."));
-                return new CreateOutcome(new AppliedResource(instance.Id, found.GraphId, found.Raw, key), ProvenanceOfFound(found), null, null);
+                return new CreateOutcome(new AppliedResource(instance.Id, found.GraphId, found.Raw, key), null, null);
             }
             catch (Exception ex) when (ex is GraphException or GraphTransportException or ProviderException { Partial: null })
             {
@@ -957,7 +769,7 @@ public sealed class DeploymentExecutor
                 var partial = new AppliedResource(instance.Id, found.GraphId, found.Raw, key);
                 string failure = $"{instance.Describe()}: the object was created (Graph id {found.GraphId}) and is recorded in the state, but the create did not complete: {SecretRegistration.Scrub(ex.Message)}. Run the deployment again to finish it.";
                 AddInstanceDiagnostic(instance, Diagnostic.Warning(EngineDiagnosticCodes.ResourceApplyFailed, $"'{instance.Id.Id}': the object exists in the tenant (Graph id {found.GraphId}) although the create failed; it was recorded in the state."));
-                return new CreateOutcome(partial, ProvenanceOfFound(found), failure, null);
+                return new CreateOutcome(partial, failure, null);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -972,7 +784,7 @@ public sealed class DeploymentExecutor
 
                 var partial = new AppliedResource(instance.Id, found.GraphId, found.Raw, key);
                 string failure = $"{instance.Describe()}: the deployment was cancelled while the object was being created; it exists (Graph id {found.GraphId}) and is recorded in the state, but the create may not have completed. Run the deployment again to finish it.";
-                return new CreateOutcome(partial, ProvenanceOfFound(found), failure, null);
+                return new CreateOutcome(partial, failure, null);
             }
         }
 
@@ -1057,17 +869,6 @@ public sealed class DeploymentExecutor
             }
         }
 
-        /// <summary>
-        /// Whether an object found under the key after an uncertain create was created by this run: it carries a <c>createdDateTime</c> from (about) this run, or Graph
-        /// did not report one (then the create is trusted). An older object was not created by us and is adopted (review round 2, S2-17).
-        /// </summary>
-        private StateProvenance ProvenanceOfFound(ExistingResource found)
-        {
-            return ProviderReads.CreatedDateTimeOf(found.Raw) is { } createdOn && createdOn < _runStart - TimeSpan.FromMinutes(5)
-                ? StateProvenance.Adopted
-                : StateProvenance.Created;
-        }
-
         private static string PartialFailure(ResourceInstance instance, AppliedResource partial, ProviderException ex, string verb)
         {
             return $"{instance.Describe()}: the object was {verb} (Graph id {partial.GraphId}) and is recorded in the state, but a later step failed: {SecretRegistration.Scrub(ex.Message)}. Run the deployment again to finish it.";
@@ -1084,7 +885,7 @@ public sealed class DeploymentExecutor
 
             if (followUp.Type != ChangeType.Modify || followUp.Mode != ChangeMode.Patch || followUp.HasError)
             {
-                AddInstanceDiagnostic(instance, Diagnostic.Warning(EngineDiagnosticCodes.AdoptedExistingObject, $"'{instance.Id.Id}': the adopted object differs from the template in a way that cannot be changed in place ({followUp.UnsupportedReason ?? string.Join("; ", followUp.Reasons)}); it was left as it is. Run 'deployment what-if' to see the difference."));
+                AddInstanceDiagnostic(instance, Diagnostic.Warning(EngineDiagnosticCodes.ImmutablePropertyChanged, $"'{instance.Id.Id}': the existing object differs from the template in a way that cannot be changed in place ({followUp.UnsupportedReason ?? string.Join("; ", followUp.Reasons)}); it was left as it is. Run 'deployment what-if' to see the difference."));
                 return adopted;
             }
 
@@ -1101,69 +902,39 @@ public sealed class DeploymentExecutor
         }
 
         /// <summary>
-        /// Replaces an object whose immutable properties changed. The old object is deleted like any state-driven delete (<see cref="StateDeletion.CheckAsync"/>:
-        /// an adopted object is only replaced with <c>--delete-adopted</c>, the signed-in principal and first-party service principals never, the object found must be
-        /// the recorded one) and counts against <c>--max-deletes</c> (review round 2, S2-03). When the replacement has another key than the old object (the key
-        /// properties are the immutable ones), the new object is created FIRST and the old one deleted second, so a failed create keeps
-        /// the old object and its state entry (E-06). When both share one key (same identity) the old object must go first.
+        /// Replaces an object whose immutable properties changed: the old object (found by key, so the replacement has the same key and identity) is deleted first,
+        /// then the object is created again. Guarded like every delete (<see cref="DeleteGuards"/>: never the signed-in principal or a service principal owned by
+        /// another organization) and only done when confirmed (<see cref="ExecuteOptions.ApprovedRecreates"/>); otherwise nothing is deleted or created.
         /// </summary>
-        private async Task<RecreateOutcome> RecreateAsync(IResourceProvider provider, ResourceInstance instance, ResourceKey key, ExistingResource existing, StateEntry? previousEntry, CancellationToken cancellationToken)
+        private async Task<RecreateOutcome> RecreateAsync(IResourceProvider provider, ResourceInstance instance, ResourceKey key, ExistingResource existing, CancellationToken cancellationToken)
         {
-            var oldEntry = RecreateRules.OldEntryFor(instance, existing, key, previousEntry);
-
-            // Every guard of a delete from the state applies to the object that is about to be replaced.
-            var guard = new DeleteGuard
+            if (DeleteGuards.Refusal(instance.Id.Id, instance.Type, existing, _plan.SignedInPrincipalId, _plan.TenantId) is { } refusal)
             {
-                Catalog = _plan.Catalog,
-                SignedInPrincipalId = _plan.SignedInPrincipalId,
-                TenantId = _plan.TenantId,
-                DeleteAdopted = _options.DeleteAdopted,
-                State = _options.State,
-            };
-            var check = await StateDeletion.CheckAsync(oldEntry, _owner._registry, _owner._graph, _plan.RetryPolicy, guard, cancellationToken).ConfigureAwait(false);
-            bool oldIsGone = false;
-            if (check.Blocked is { } blocked)
-            {
-                if (blocked.Status != DeleteStatus.AlreadyGone)
-                {
-                    return new RecreateOutcome(null, RecreateRules.RefusalMessage(instance, oldEntry, blocked), blocked.ErrorCode ?? EngineDiagnosticCodes.ResourceApplyFailed);
-                }
-
-                oldIsGone = true;
+                return new RecreateOutcome(null, DeploymentPlanner.RecreateRefusal(instance, refusal), EngineDiagnosticCodes.ProtectedObject);
             }
 
-            if (!oldIsGone && !TryReserveDelete())
+            if (_options.ApprovedRecreates is { } approved && !approved.Contains(instance.Id.Id))
             {
-                string limit = DeleteLimitMessage(oldEntry.Id.Id);
-                return new RecreateOutcome(null, $"{instance.Describe()}: {limit} Nothing was changed.", EngineDiagnosticCodes.DeleteLimitExceeded);
+                return new RecreateOutcome(null, $"{instance.Describe()}: an immutable property changed, so the object ({existing.GraphId}) must be deleted and created again, but that replacement was not confirmed. Confirm it at the prompt or pass -y. Nothing was changed.", EngineDiagnosticCodes.RecreateNotConfirmed);
             }
 
-            if (oldIsGone || ProviderReads.KeyMatches(key, existing.Raw, out _))
+            if (provider is IDeleteWarningSource warnings && warnings.DescribeDeleteRisk(key, existing) is { } risk)
             {
-                if (!oldIsGone)
-                {
-                    await DeleteOldAsync(provider, instance, key, check.Live ?? existing, cancellationToken).ConfigureAwait(false);
-                }
-
-                var recreated = await CreateAsync(provider, instance, key, cancellationToken).ConfigureAwait(false);
-                return new RecreateOutcome(recreated.Applied, recreated.Failure, null);
+                EngineLog.DeleteWarning(Logger, instance.Id.Id, risk);
+                AddInstanceDiagnostic(instance, Diagnostic.Warning(EngineDiagnosticCodes.DestructiveDelete, $"'{instance.Id.Id}': {risk}"));
             }
 
-            var replacement = await CreateAsync(provider, instance, key, cancellationToken).ConfigureAwait(false);
             try
             {
-                await DeleteOldAsync(provider, instance, key, check.Live ?? existing, cancellationToken).ConfigureAwait(false);
+                await DeleteOldAsync(provider, instance, key, existing, cancellationToken).ConfigureAwait(false);
             }
             catch (GraphException ex) when (ex.IsNotFound)
             {
-                // Already gone: nothing left to clean up.
-            }
-            catch (Exception ex) when (ex is GraphException or GraphTransportException or ProviderException)
-            {
-                return new RecreateOutcome(replacement.Applied, $"{instance.Describe()}: the replacement was created (Graph id {replacement.Applied.GraphId}) but the old object ({existing.GraphId}) could not be deleted: {SecretRegistration.Scrub(ex.Message)}. Delete it manually.", null);
+                // Already gone: nothing left to delete.
             }
 
-            return new RecreateOutcome(replacement.Applied, replacement.Failure, null);
+            var recreated = await CreateAsync(provider, instance, key, cancellationToken).ConfigureAwait(false);
+            return new RecreateOutcome(recreated.Applied, recreated.Failure, null);
         }
 
         private Task DeleteOldAsync(IResourceProvider provider, ResourceInstance instance, ResourceKey key, ExistingResource old, CancellationToken cancellationToken)

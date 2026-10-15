@@ -84,7 +84,7 @@ public sealed class AppRoleAssignmentScenarioTests
     // ---- edge: create / rerun / undeclare ----
 
     [Fact]
-    public async Task User_AssignedASugarRole_PostsOnceUnderTheResource_AndRecordsTheAssignmentId()
+    public async Task User_AssignedASugarRole_PostsOnceUnderTheResource()
     {
         var t = NewTenant();
 
@@ -96,14 +96,10 @@ public sealed class AppRoleAssignmentScenarioTests
         Assert.Equal(aliceId, Check.Body(post)["principalId"]!.GetValue<string>());
         Assert.Equal(t.ResourceId, Check.Body(post)["resourceId"]!.GetValue<string>());
         Assert.Equal(UserRoleId, Check.Body(post)["appRoleId"]!.GetValue<string>());
-        var record = Assert.IsType<JsonObject>(Assert.Single(Records(t.Host, AliceId)!));
-        Assert.Equal(t.Host.Directory.Objects(AssignedTo(t.ResourceId)).Single()["id"]!.GetValue<string>(), record["id"]!.GetValue<string>());
-        Assert.Equal(t.ResourceId, record["resourceId"]!.GetValue<string>());
-        Assert.Equal(UserRoleId, record["appRoleId"]!.GetValue<string>());
     }
 
     [Fact]
-    public async Task Rerun_WritesNothing_AndUndeclaringTheItem_DeletesTheTrackedAssignmentById()
+    public async Task Rerun_WritesNothing_AndUndeclaringAnItem_RemovesNothing()
     {
         var t = NewTenant();
         var document = t.Host.Resources(Alice(Assignments(Item(ResourceAppId, "Orders.Both"), ById(t.ResourceId, UserRoleId))));
@@ -114,23 +110,18 @@ public sealed class AppRoleAssignmentScenarioTests
 
         Check.Succeeded(rerun);
         Check.NoWrites(rerun);
-        Assert.Equal(2, Records(t.Host, AliceId)!.Count);
 
+        // appRoleAssignments on the principal are ensure-only: what is no longer declared stays.
         var onlyOne = await t.Host.CreateAsync(t.Host.Resources(Alice(Assignments(ById(t.ResourceId, UserRoleId)))));
 
         Check.Succeeded(onlyOne);
-        var delete = Assert.Single(onlyOne.Writes);
-        Assert.Equal("DELETE", delete.Method);
-        Assert.StartsWith(AssignedTo(t.ResourceId) + "/", delete.Path, StringComparison.Ordinal);
-        Assert.Single(Records(t.Host, AliceId)!);
-        var remaining = Assert.Single(t.Host.Directory.Objects(AssignedTo(t.ResourceId)));
-        Assert.Equal(UserRoleId, remaining["appRoleId"]!.GetValue<string>());
+        Check.NoWrites(onlyOne);
+        Assert.Equal(2, t.Host.Directory.Count(AssignedTo(t.ResourceId)));
 
         var none = await t.Host.CreateAsync(t.Host.Resources(Alice()));
         Check.Succeeded(none);
-        Assert.Equal("DELETE", Assert.Single(none.Writes).Method);
-        Assert.Null(Records(t.Host, AliceId));
-        Assert.Empty(t.Host.Directory.Objects(AssignedTo(t.ResourceId)));
+        Check.NoWrites(none);
+        Assert.Equal(2, t.Host.Directory.Count(AssignedTo(t.ResourceId)));
     }
 
     [Fact]
@@ -545,17 +536,18 @@ public sealed class AppRoleAssignmentScenarioTests
         Check.Succeeded(await t.Host.CreateAsync(t.Host.Resources(template)));
         t.Host.Fake.Failures.Add("DELETE", "appRoleAssignedTo", request => new GraphException(HttpStatusCode.NotFound, "Request_ResourceNotFound", "Resource does not exist.", request.Hint));
 
-        var gone = await t.Host.DeleteAllAsync();
+        var gone = await t.Host.DeleteDeclaredAsync(t.Host.Resources(template));
 
         Assert.Equal(0, gone.FailedCount);
 
         // A second tenant: a 403 on the delete is a failed deletion, not silently ignored.
         var u = NewTenant();
         string user2 = u.Host.Directory.AddUser("bob@contoso.com", "Bob")["id"]!.GetValue<string>();
-        Check.Succeeded(await u.Host.CreateAsync(u.Host.Resources(Templates.Resource(AssignmentType, Guid.NewGuid().ToString("D"), "{ \"principalId\": \"" + user2 + "\", \"resourceId\": \"" + u.ResourceId + "\", \"appRoleId\": \"" + UserRoleId + "\" }"))));
+        var second = u.Host.Resources(Templates.Resource(AssignmentType, Guid.NewGuid().ToString("D"), "{ \"principalId\": \"" + user2 + "\", \"resourceId\": \"" + u.ResourceId + "\", \"appRoleId\": \"" + UserRoleId + "\" }"));
+        Check.Succeeded(await u.Host.CreateAsync(second));
         u.Host.Fake.Failures.Forbid("appRoleAssignedTo", "DELETE");
 
-        var denied = await u.Host.DeleteAllAsync();
+        var denied = await u.Host.DeleteDeclaredAsync(second);
 
         Assert.Equal(1, denied.FailedCount);
     }

@@ -307,9 +307,9 @@ public sealed class Review2F_CliWiringTests
     }
 
     [Fact]
-    public async Task WhatIfTakesNoLock_ButCreateAndDeleteDo()
+    public async Task WhatIfTakesNoLock_ButCreateDoes()
     {
-        using var sandbox = new CliSandbox(nameof(WhatIfTakesNoLock_ButCreateAndDeleteDo));
+        using var sandbox = new CliSandbox(nameof(WhatIfTakesNoLock_ButCreateDoes));
         sandbox.UsePreflightOk();
         string template = sandbox.WriteEmptyTemplate();
         await sandbox.WriteStateAsync(StateFile.CreateNew("empty", CliSandbox.Tenant, DateTimeOffset.UtcNow));
@@ -320,14 +320,12 @@ public sealed class Review2F_CliWiringTests
         var whatIfAlias = await CliRunner.RunAsync(Deploy(sandbox, template, "create", "--what-if"));
         sandbox.UsePreflightOk();
         var create = await CliRunner.RunAsync(Deploy(sandbox, template, "create", "-y", "--lock-timeout", "0"));
-        var delete = await CliRunner.RunAsync("deployment", "delete", "-n", "empty", "-y", "--state-dir", sandbox.StateDir);
 
         Assert.Equal(0, whatIf.ExitCode);
         Assert.Equal(0, whatIfAlias.ExitCode);
         Assert.Contains("without taking its lock", whatIf.StandardError, StringComparison.Ordinal);
         Assert.Equal(4, create.ExitCode);
-        Assert.Equal(4, delete.ExitCode);
-        Assert.True(File.Exists(sandbox.StatePath("empty")), "a locked delete must not remove the state");
+        Assert.True(File.Exists(sandbox.StatePath("empty")));
     }
 
     // ---- --on-soft-deleted-conflict ----
@@ -507,65 +505,54 @@ public sealed class Review2F_CliWiringTests
         Assert.Equal("Contoso", Output("tenantName"));
     }
 
-    private static StateEntry UserEntry(string upn, string graphId)
+    private static string UsersTemplate(CliSandbox sandbox)
     {
-        return new StateEntry
-        {
-            Id = EArm.Core.ResourceIdentifier.Create("Microsoft.Entra/users", upn),
-            Type = "Microsoft.Entra/users",
-            ApiVersion = "2026-10-01-preview",
-            Key = new Dictionary<string, string> { ["userPrincipalName"] = upn },
-            GraphId = graphId,
-            LastWriteOn = DateTimeOffset.UtcNow,
-        };
+        return sandbox.WriteTemplate("users.entra.json", "\"resources\": [ "
+            + "{ \"type\": \"Microsoft.Entra/users\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"me@contoso.com\", \"properties\": { \"displayName\": \"Me\" } }, "
+            + "{ \"type\": \"Microsoft.Entra/users\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"other@contoso.com\", \"properties\": { \"displayName\": \"Other\" } } ]");
+    }
+
+    private static string OutcomeOf(CliResult result, string upn)
+    {
+        return result.Json["outcomes"]!.AsArray().Single(o => o!["resourceId"]!.GetValue<string>().EndsWith("/" + upn, StringComparison.Ordinal))!["status"]!.GetValue<string>();
     }
 
     [Fact]
-    public async Task TheSignedInPrincipalFromTheToken_IsNeverDeletedByCompleteMode()
+    public async Task TheSignedInPrincipalFromTheToken_IsNeverDeletedByDeploymentDelete()
     {
-        using var sandbox = new CliSandbox(nameof(TheSignedInPrincipalFromTheToken_IsNeverDeletedByCompleteMode));
+        using var sandbox = new CliSandbox(nameof(TheSignedInPrincipalFromTheToken_IsNeverDeletedByDeploymentDelete));
         var directory = new FakeDirectory();
         sandbox.Handler.Directory = directory;
         const string me = "7e570000-0000-4000-8000-0000000000aa";
         sandbox.Tokens.ObjectId = me;
         directory.AddUser("me@contoso.com", "Me", u => u["id"] = me);
-        var other = directory.AddUser("other@contoso.com", "Other");
-        string template = sandbox.WriteEmptyTemplate();
-        var state = StateFile.CreateNew("empty", CliSandbox.Tenant, DateTimeOffset.UtcNow);
-        state.Upsert(UserEntry("me@contoso.com", me));
-        state.Upsert(UserEntry("other@contoso.com", other["id"]!.GetValue<string>()));
-        state.CompleteRun(true, "Incremental", "sha256:previous", DateTimeOffset.UtcNow);
-        await sandbox.WriteStateAsync(state);
+        directory.AddUser("other@contoso.com", "Other");
+        string template = UsersTemplate(sandbox);
 
-        var result = await CliRunner.RunAsync(Deploy(sandbox, template, "create", "-y", "--mode", "Complete", "--allow-delete-all", "--continue-on-error"));
+        var result = await CliRunner.RunAsync(Deploy(sandbox, template, "delete", "-y"));
 
-        Assert.Equal(1, result.ExitCode);
+        Assert.Equal(0, result.ExitCode);
         Assert.NotNull(directory.Find("/users", "userPrincipalName", "me@contoso.com"));
         Assert.Null(directory.Find("/users", "userPrincipalName", "other@contoso.com"));
-        Assert.Contains("ProtectedObject", result.StandardOutput + result.StandardError, StringComparison.Ordinal);
-        Assert.Equal("Failed", StatusOf(result, "me@contoso.com"));
-        Assert.Equal("Succeeded", StatusOf(result, "other@contoso.com"));
-        Assert.Contains("/providers/Microsoft.Entra/users/me@contoso.com", ReadState(sandbox, "empty")["resources"]!.AsObject().Select(p => p.Key));
-        Assert.DoesNotContain("/providers/Microsoft.Entra/users/other@contoso.com", ReadState(sandbox, "empty")["resources"]!.AsObject().Select(p => p.Key));
+        Assert.Equal("Refused", OutcomeOf(result, "me@contoso.com"));
+        Assert.Equal("Deleted", OutcomeOf(result, "other@contoso.com"));
+        Assert.Equal(1, result.Json["kept"]!.GetValue<int>());
+        Assert.Contains("signed-in principal", result.StandardOutput, StringComparison.Ordinal);
     }
 
     [Fact]
-    public async Task AnObjectThatIsNotTheSignedInPrincipal_IsDeletedByCompleteMode()
+    public async Task AnObjectThatIsNotTheSignedInPrincipal_IsDeletedByDeploymentDelete()
     {
-        // The control of the test above: with another oid in the token the very same entry is deleted, so it is the principal id that protects it.
-        using var sandbox = new CliSandbox(nameof(AnObjectThatIsNotTheSignedInPrincipal_IsDeletedByCompleteMode));
+        // The control of the test above: with another oid in the token the very same user is deleted, so it is the principal id that protects it.
+        using var sandbox = new CliSandbox(nameof(AnObjectThatIsNotTheSignedInPrincipal_IsDeletedByDeploymentDelete));
         var directory = new FakeDirectory();
         sandbox.Handler.Directory = directory;
         const string me = "7e570000-0000-4000-8000-0000000000aa";
         sandbox.Tokens.ObjectId = "7e570000-0000-4000-8000-0000000000bb";
         directory.AddUser("me@contoso.com", "Me", u => u["id"] = me);
-        string template = sandbox.WriteEmptyTemplate();
-        var state = StateFile.CreateNew("empty", CliSandbox.Tenant, DateTimeOffset.UtcNow);
-        state.Upsert(UserEntry("me@contoso.com", me));
-        state.CompleteRun(true, "Incremental", "sha256:previous", DateTimeOffset.UtcNow);
-        await sandbox.WriteStateAsync(state);
+        string template = UsersTemplate(sandbox);
 
-        var result = await CliRunner.RunAsync(Deploy(sandbox, template, "create", "-y", "--mode", "Complete", "--allow-delete-all"));
+        var result = await CliRunner.RunAsync(Deploy(sandbox, template, "delete", "-y"));
 
         Assert.Equal(0, result.ExitCode);
         Assert.Null(directory.Find("/users", "userPrincipalName", "me@contoso.com"));

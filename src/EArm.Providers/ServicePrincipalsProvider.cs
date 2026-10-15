@@ -39,7 +39,7 @@ namespace EArm.Providers;
 /// </para>
 /// </summary>
 [EntraProvider(ResourceType)]
-public sealed class ServicePrincipalsProvider : ProviderBase
+public sealed class ServicePrincipalsProvider : ProviderBase, IOrphanCandidateSource
 {
     public const string ResourceType = "Microsoft.Entra/servicePrincipals";
 
@@ -403,5 +403,33 @@ public sealed class ServicePrincipalsProvider : ProviderBase
     {
         return JsonObjects.GetId(live)
             ?? throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{TypeName}: Graph returned an object without 'id' for '{desired.Name}'.", desired.Id);
+    }
+
+    // ---- orphan report ----
+
+    /// <summary>The orphan report looks at the service principals of the applications the template declares.</summary>
+    public OrphanScope OrphanScope => OrphanScope.ChildrenOfDeclaredParents;
+
+    public string? OrphanParentType => ApplicationsProvider.ResourceType;
+
+    public async Task<IReadOnlyList<OrphanCandidate>> ListOrphanCandidatesAsync(OrphanQuery query, IGraphClient graph, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        ArgumentNullException.ThrowIfNull(graph);
+        var candidates = new List<OrphanCandidate>();
+        foreach (var parent in query.Parents)
+        {
+            if (JsonObjects.GetString(parent.Live, "appId") is not { Length: > 0 } appId)
+            {
+                continue;
+            }
+
+            if (await ServicePrincipalLookup.FindByAppIdAsync(graph, appId, query.Api, RetryHint.Default, cancellationToken).ConfigureAwait(false) is { } found)
+            {
+                candidates.Add(new OrphanCandidate(found.Id, found.AppId, null, $"service principal of application '{parent.Name}'"));
+            }
+        }
+
+        return candidates;
     }
 }

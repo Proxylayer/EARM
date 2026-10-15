@@ -89,8 +89,6 @@ public sealed class ReplicationWaitAfterCreateTests
 
         Assert.True(result.Succeeded, string.Join("\n", result.Operations.Select(o => o.Error)));
         Assert.Equal(1, host.Directory.Count(Collection));
-        Assert.Equal(StateProvenance.Adopted, state.Find(UnitId("au1"))!.Provenance);
-        Assert.Contains(result.Diagnostics, d => d.Code == EngineDiagnosticCodes.AdoptedExistingObject);
         Assert.Equal(2, host.ReplicationDelays.Delays.Count);
     }
 

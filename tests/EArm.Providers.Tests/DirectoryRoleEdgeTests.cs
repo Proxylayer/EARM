@@ -46,7 +46,7 @@ public sealed class DirectoryRoleEdgeTests
     }
 
     [Fact]
-    public async Task E1_AGroup_GetsOneListAndOnePost_AndTheRecordCarriesTheAssignmentId()
+    public async Task E1_AGroup_GetsOneListAndOnePost()
     {
         var host = NewHost();
 
@@ -59,18 +59,13 @@ public sealed class DirectoryRoleEdgeTests
         Assert.Equal(RetryHint.ExpectReplicationLag, post.Hint);
         Assert.Equal("{\"@odata.type\":\"#microsoft.graph.unifiedRoleAssignment\",\"roleDefinitionId\":\"" + BuiltInRoles.GlobalReader + "\",\"principalId\":\"" + groupId + "\",\"directoryScopeId\":\"/\"}", post.Body!.ToJsonString());
         Assert.Single(run.Writes, w => w.Path.Contains("roleAssignments", StringComparison.Ordinal));
-        var record = Assert.IsType<JsonObject>(Assert.Single(Records(host, GroupId)!));
-        Assert.Equal(BuiltInRoles.GlobalReader, record["roleDefinitionId"]!.GetValue<string>());
-        Assert.Equal(groupId, record["principalId"]!.GetValue<string>());
-        Assert.Equal("/", record["directoryScopeId"]!.GetValue<string>());
-        Assert.Equal(host.Directory.Objects(BuiltInRoles.AssignmentsPath).Single()["id"]!.GetValue<string>(), record["id"]!.GetValue<string>());
         var delta = Assert.Single(run.Change("test-admins").Deltas, d => d.Path.ToString() == "properties.directoryRoles");
         Assert.Equal(PropertyChangeType.Array, delta.Kind);
         Assert.Single(delta.Children!);
     }
 
     [Fact]
-    public async Task E2_Rerun_WritesNothing_AndKeepsTheRecord()
+    public async Task E2_Rerun_WritesNothing()
     {
         var host = NewHost();
         var document = host.Resources(Group(DirectoryRoles(GlobalReaderRole)));
@@ -80,7 +75,6 @@ public sealed class DirectoryRoleEdgeTests
 
         Check.Succeeded(rerun);
         Check.NoWrites(rerun);
-        Assert.Single(Records(host, GroupId)!);
     }
 
     [Fact]
@@ -103,37 +97,16 @@ public sealed class DirectoryRoleEdgeTests
     }
 
     [Fact]
-    public async Task E4_UndeclaringTheItem_DeletesTheTrackedAssignmentById()
+    public async Task E4_UndeclaringTheItem_IsEnsureOnly_TheAssignmentStays()
     {
         var host = NewHost();
         Check.Succeeded(await host.CreateAsync(host.Resources(Group(DirectoryRoles(GlobalReaderRole)))));
-        string recordedId = Records(host, GroupId)![0]!["id"]!.GetValue<string>();
 
         var run = await host.CreateAsync(host.Resources(Group()));
 
         Check.Succeeded(run);
-        var write = Assert.Single(run.Writes);
-        Assert.Equal("DELETE", write.Method);
-        Assert.Equal($"{BuiltInRoles.AssignmentsPath}/{recordedId}", write.Path);
-        Assert.Null(Records(host, GroupId));
-        Assert.Empty(host.Directory.Objects(BuiltInRoles.AssignmentsPath));
-    }
-
-    [Fact]
-    public async Task E5_CompleteMode_RemovesTheRecordedRoleEdgeBeforeDeletingTheGroup()
-    {
-        var host = NewHost();
-        Check.Succeeded(await host.CreateAsync(host.Resources(Group(DirectoryRoles(GlobalReaderRole)))));
-        string groupId = host.IdOf("/groups", "uniqueName", "test-admins");
-
-        var run = await host.CreateAsync(host.Resources(string.Empty), DeploymentMode.Complete);
-
-        Check.Succeeded(run);
-        var writes = run.Writes.ToList();
-        int edgeDelete = writes.FindIndex(w => w.Method == "DELETE" && w.Path.StartsWith(BuiltInRoles.AssignmentsPath + "/", StringComparison.Ordinal));
-        int groupDelete = writes.FindIndex(w => w.Method == "DELETE" && w.Path == $"/groups/{groupId}");
-        Assert.True(edgeDelete >= 0 && groupDelete >= 0, "both deletes were issued");
-        Assert.True(edgeDelete < groupDelete, "the role edge goes before the group");
+        Check.NoWrites(run);
+        Assert.Single(host.Directory.Objects(BuiltInRoles.AssignmentsPath));
     }
 
     [Fact]
@@ -156,7 +129,7 @@ public sealed class DirectoryRoleEdgeTests
     }
 
     [Fact]
-    public async Task E7_TwoUnitScopedRolesOnAUser_AreRecordedWithIds_AndUndeclaringOneRemovesExactlyThat()
+    public async Task E7_TwoUnitScopedRolesOnAUser_ArePosted_AndUndeclaringOneRemovesNothing()
     {
         var host = NewHost();
         string both = Join(Au(), RoleDef(), Alice(DirectoryRoles(
@@ -173,21 +146,14 @@ public sealed class DirectoryRoleEdgeTests
         Assert.Equal(2, posts.Count);
         Assert.Contains(posts, p => Check.Body(p)["roleDefinitionId"]!.GetValue<string>() == customRoleId && Check.Body(p)["directoryScopeId"]!.GetValue<string>() == $"/administrativeUnits/{auId}" && p.Hint == RetryHint.ExpectReplicationLag);
         Assert.Contains(posts, p => Check.Body(p)["roleDefinitionId"]!.GetValue<string>() == BuiltInRoles.UserAdministrator && Check.Body(p)["directoryScopeId"]!.GetValue<string>() == $"/administrativeUnits/{auId}");
-        var records = Records(host, AliceId)!;
-        Assert.Equal(2, records.Count);
-        Assert.All(records, r => Assert.NotNull(r!["id"]));
-        Assert.All(records, r => Assert.Equal($"/administrativeUnits/{auId}", r!["directoryScopeId"]!.GetValue<string>()));
-
         var rerun = await host.CreateAsync(host.Resources(both));
         Check.Succeeded(rerun);
         Check.NoWrites(rerun);
 
         var onlyCustom = await host.CreateAsync(host.Resources(Join(Au(), RoleDef(), Alice(DirectoryRoles("{ \"role\": \"Orders Support\", \"administrativeUnit\": \"Orders AU\" }")))));
         Check.Succeeded(onlyCustom);
-        var delete = Assert.Single(onlyCustom.Writes);
-        Assert.Equal("DELETE", delete.Method);
-        var remaining = Assert.Single(host.Directory.Objects(BuiltInRoles.AssignmentsPath), a => string.Equals(a["principalId"]!.GetValue<string>(), aliceId, StringComparison.OrdinalIgnoreCase));
-        Assert.Equal(customRoleId, remaining["roleDefinitionId"]!.GetValue<string>());
+        Check.NoWrites(onlyCustom);
+        Assert.Equal(2, host.Directory.Objects(BuiltInRoles.AssignmentsPath).Count(a => string.Equals(a["principalId"]!.GetValue<string>(), aliceId, StringComparison.OrdinalIgnoreCase)));
     }
 
     [Fact]
@@ -210,12 +176,13 @@ public sealed class DirectoryRoleEdgeTests
     public async Task DeleteAll_RemovesAssignmentsThenUnitsThenRoleDefinitions()
     {
         var host = NewHost();
-        var deployed = await host.CreateAsync(host.Resources(Join(Alice(), Au(), RoleDef(), Standalone(AliceRef + ", \"role\": \"Orders Support\", \"administrativeUnit\": \"Orders AU\"", "[guid('alice', 'scoped')]", DependsOnRole() + ", " + DependsOnUnit()))));
+        var document = host.Resources(Join(Alice(), Au(), RoleDef(), Standalone(AliceRef + ", \"role\": \"Orders Support\", \"administrativeUnit\": \"Orders AU\"", "[guid('alice', 'scoped')]", DependsOnRole() + ", " + DependsOnUnit())));
+        var deployed = await host.CreateAsync(document);
         Check.Succeeded(deployed);
         Assert.Single(host.Directory.Objects(BuiltInRoles.AssignmentsPath));
         host.ClearRequests();
 
-        var deletion = await host.DeleteAllAsync();
+        var deletion = await host.DeleteDeclaredAsync(document);
 
         Assert.Equal(0, deletion.FailedCount);
         Assert.Equal(4, deletion.DeletedCount);

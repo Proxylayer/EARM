@@ -3,8 +3,8 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using System.Text.Json.Nodes;
-using System.Threading;
 using System.Threading.Tasks;
+using System.Threading;
 using EArm.Graph;
 using EArm.Core;
 using EArm.Core.Diagnostics;
@@ -37,13 +37,12 @@ namespace EArm.Providers;
 /// by another credential of the application (live, or declared elsewhere in the same deployment), and a 21st
 /// credential. The live siblings come from the list read of <see cref="ReadAsync"/> (kept per parent); the declared
 /// siblings are registered per <see cref="PlanOptions"/> instance, which the planner and the executor each create
-/// per pass. A rename is a new resource (the id changes): the old credential is detached (Incremental) or deleted by
-/// the mode pass (Complete) after the apply pass, so a rename that keeps issuer and subject is refused until the old
-/// credential is gone.
+/// per pass. A rename is a new resource (the id changes): the old credential stays (Complete mode reports it as an orphan; it is
+/// never deleted), so a rename that keeps issuer and subject is refused until the old credential is deleted.
 /// </para>
 /// </summary>
 [EntraProvider(ResourceType)]
-public sealed class FederatedIdentityCredentialsProvider : ProviderBase
+public sealed class FederatedIdentityCredentialsProvider : ProviderBase, IOrphanCandidateSource
 {
     public const string ResourceType = "Microsoft.Entra/applications/federatedIdentityCredentials";
 
@@ -540,5 +539,31 @@ public sealed class FederatedIdentityCredentialsProvider : ProviderBase
                 return (duplicateOf, others);
             }
         }
+    }
+
+    // ---- orphan report ----
+
+    /// <summary>The orphan report lists the federated identity credentials of the applications the template declares.</summary>
+    public OrphanScope OrphanScope => OrphanScope.ChildrenOfDeclaredParents;
+
+    public string? OrphanParentType => Definition.ParentType;
+
+    public async Task<IReadOnlyList<OrphanCandidate>> ListOrphanCandidatesAsync(OrphanQuery query, IGraphClient graph, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        ArgumentNullException.ThrowIfNull(graph);
+        var candidates = new List<OrphanCandidate>();
+        foreach (var parent in query.Parents)
+        {
+            foreach (var credential in await ListSiblingsAsync(graph, CollectionPath + "/" + GraphPath.Segment(parent.GraphId), query.Api, cancellationToken).ConfigureAwait(false))
+            {
+                if (credential.Id is { Length: > 0 } id)
+                {
+                    candidates.Add(new OrphanCandidate(id, credential.Name, parent.Name, credential.Subject is null ? null : $"subject '{credential.Subject}'"));
+                }
+            }
+        }
+
+        return candidates;
     }
 }

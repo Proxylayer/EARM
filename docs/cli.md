@@ -10,7 +10,7 @@ earm
 │   ├── create          apply a template
 │   ├── show            a deployment's state (and --refresh: drift)
 │   ├── list            deployments recorded in the state directory
-│   ├── delete          remove a deployment's state (and --delete-resources: its objects)
+│   ├── delete          delete the objects a template declares (by live key)
 │   └── operation list  per-resource operations of the last run
 ├── auth
 │   ├── login           sign in interactively (browser or device code)
@@ -52,11 +52,11 @@ Environment: `EARM_STATE_DIR`, `EARM_AUTH`, `EARM_TENANT_ID`, `EARM_CLIENT_ID`, 
 | Code | Meaning |
 |---|---|
 | 0 | Success (for `what-if`: no changes, or changes without `--exit-code-on-changes`). |
-| 1 | Deployment or operation failure; a template, parameter file or state file that cannot be loaded; a malformed argument or a usage error; a type without a provider; a refusal (confirmation declined, non-interactive without `--yes`); an **unexpected error**, printed as one line `Unexpected error (<type>): <message>` (the full exception only with `--debug` / `EARM_DEBUG=1`), a file access problem (`Access denied: ...`, `A file operation failed ...`) or running out of memory. |
+| 1 | Deployment or operation failure; a template, parameter file or state file that cannot be loaded; a malformed argument or a usage error; a type without a provider; a refusal (confirmation declined, non-interactive without `--yes`, a replacement that was not confirmed: `RecreateNotConfirmed`); an **unexpected error**, printed as one line `Unexpected error (<type>): <message>` (the full exception only with `--debug` / `EARM_DEBUG=1`), a file access problem (`Access denied: ...`, `A file operation failed ...`) or running out of memory. |
 | 2 | Validation failure: the template has errors (offline validation, expansion or the dependency graph). |
 | 3 | Authentication, preflight or tenant failure: no credential signs in, a Graph token that is rejected, a state for another tenant, an unreadable Key Vault reference. |
 | 4 | The deployment's state is locked by another run (`--lock-timeout` elapsed). |
-| 5 | `what-if --exit-code-on-changes` found a Create, Modify or Delete (or an edge add or remove). |
+| 5 | `what-if --exit-code-on-changes` found a Create, Modify or Delete (or an edge add or remove). Orphan report rows never count: they are reported, never written. |
 
 ## Output, errors and prompts
 
@@ -142,8 +142,7 @@ dependency order, recording every resource in the state after each operation.
 | Option | Verb | Meaning |
 |---|---|---|
 | `-n`, `--name <name>` | both | Deployment name (the state file name). Default: the template file name without `.entra.json`. Letters, digits, `.`, `_`, `-`; up to 128 characters. `validate` is offline, has no deployment name and does not accept `-n`. |
-| `--mode Incremental\|Complete` | both | Incremental (default): create or update the declared resources; resources that vanished from the template are detached from the state with a warning. Complete: additionally **delete** the state-managed objects the template no longer declares, in reverse dependency order (security groups are deleted permanently, with a warning). |
-| `--delete-adopted` | both | Complete mode: also delete state entries that were *adopted* (the object existed before the deployment managed it: found by key without a state entry, or pinned with `state adopt`). Default: adopted objects are never deleted; the run keeps their entries and warns `AdoptedObjectNotDeleted`. |
+| `--mode Incremental\|Complete` | both | Incremental (default): create or update the declared resources; nothing else is touched. Complete: the same writes, plus a read-only **orphan report** of the live objects of the declared types that the template does not declare (bounded per type: see [whatif.md](whatif.md#orphan-report)). Complete mode **never deletes**; to remove declared objects use `deployment delete`. Both modes report the retained role / app role assignments and grants of the principals the template declares (`orphan: retained`). |
 | `--parallelism <n>` | both | Resources read or applied concurrently inside a dependency batch. Default 4. At least 1: a smaller value is a usage error (exit 1). |
 | `--allow-ca-enforce` | both | Allow Conditional Access policies with `state: enabled` (default: report-only or disabled only). |
 | `--on-soft-deleted-conflict error\|restore` | both | What to do when a key to create is held by a soft-deleted object: fail with a hint (default), or restore it and continue. Nothing is ever purged. |
@@ -152,12 +151,10 @@ dependency order, recording every resource in the state after each operation.
 | `--no-pretty-print` | both | Compact JSON for `-o json`. |
 | `--what-if` | `create` | Alias of `deployment what-if`. |
 | `-c`, `--confirm-with-what-if` | `create` | Print the what-if, ask `Are you sure you want to execute the deployment? (y/n):`, then apply the same plan. |
-| `-y`, `--yes` | `create` | Skip the confirmation that `--confirm-with-what-if` asks (the deployment is applied right after the what-if). Plain `create` never prompts. With `-c` and no `-y`, standard input must be interactive: the question is read from it. |
+| `-y`, `--yes` | `create` | Skip the confirmations: the one `--confirm-with-what-if` asks (the deployment is applied right after the what-if), and the one a plain `create` asks before it **replaces** objects (an immutable property changed: delete, then create again). Without `-y`, standard input must be interactive for either question; a non-interactive `create` that would replace objects fails before any write (`RecreateNotConfirmed`, exit 1). A plain `create` without replacements never prompts. |
 | `--continue-on-error` | `create` | Keep deploying resources that do not depend on a failed one (default: stop at the batch boundary). |
 | `--reveal-secure-outputs` | `create` | Print `securestring` / `secureObject` outputs in clear text instead of `***`. |
 | `--secure-outputs-file <path>` | `create` | Write the secure outputs in clear text to a file with owner-only permissions. The file is checked **before** anything is deployed (a directory, a missing folder, a read-only file or a symbolic link stops the run: exit 1, "Deployment not started."). One-time secrets (a password credential's `secretText`, a generated user password) are written to it **immediately** after the apply that produced them, under the reserved top-level key `oneTimeSecrets` (by resource id), so a crash, Ctrl+C or failed state save cannot lose them. A rerun **merges** into an existing file (keys that are not superseded stay) and never replaces it with a smaller one; a run with no secure values does not touch the file at all. |
-| `--allow-delete-all` | `create` | Complete mode: confirm a deployment whose template declares **no resources** while the state manages some, or that would delete more than `--max-deletes` objects. Required even with `-y`. |
-| `--max-deletes <n>` | `create` | The most objects a run deletes without `--allow-delete-all` (default 25; zero or more, a negative value is a usage error): Complete-mode orphans (adopted entries do not count unless `--delete-adopted`), entries of types whose resource names are only known at deployment time (counted as possible deletions: the refusal says "may include"), and the old objects of **recreates** (an immutable property changed on a type that is deleted and created again; the what-if row says so, and with `-c` they count against the limit). The estimate is made before the run; the same number is also enforced **during** the run as a hard limit (`DeleteLimitExceeded`), so a mode pass can never delete more than was confirmed. |
 | `--force-unlock` | `create` | Break the deployment's state lock first. |
 | `--lock-timeout <seconds>` | `create` | Wait for another run's lock this long (default 10; zero or more, a negative value is a usage error), then exit 4. |
 
@@ -167,23 +164,46 @@ Graph id that is not a GUID, an entry whose `key` is not the key its resource id
 (exit 3 on a mismatch) and resolves Key Vault parameter references (exit 3). `what-if` never locks: it reads the state as an unlocked snapshot and says so on
 stderr. Rendering is described in [whatif.md](whatif.md), the pipeline in [engine.md](engine.md).
 
-A Complete-mode `create` that would delete objects lists them (resource id, type, live `displayName` when it can be read, `[adopted]`) and asks
-`Delete them as part of this deployment? (y/n):` unless `-y` (with `-c` the what-if rows are the list and its prompt is the confirmation); on a
-non-interactive standard input without `-y` it stops with exit 1 and "Deployment not started.". A template that declares no resources while the state
-manages some, and a run that would delete more than `--max-deletes` objects, are refused unless `--allow-delete-all` is passed, with or without `-y`. The list also shows the entries of types whose resource names are only known at deployment time as `[may be deleted]`, and with `-c` the objects a recreate replaces (`[replaced: deleted and created again]`); a recreate of an object this deployment did not create is refused without `--delete-adopted`.
+**Replacements need confirmation.** A `create` that would replace objects (an immutable property changed on a type that is deleted and created again:
+assignments, grants, credentials, named location kinds...) lists them on stderr (resource id, type, Graph id) and asks `Replace them? (y/n):` unless `-y`.
+To know them before anything is written, a `create` without `-y` reads every resource first (the same read-only pass as `what-if`; not printed unless
+`-c`, where the what-if rows are the list and its prompt is the confirmation). On a non-interactive standard input without `-y` it stops with exit 1,
+`RecreateNotConfirmed` and "Deployment not started.". A replacement the run only discovers while it runs (its input resolved during the run) and that was not
+confirmed fails that resource without deleting anything. The signed-in principal and service principals owned by another organization are never replaced
+(`ProtectedObject`). **Nothing the template does not declare is ever deleted** by `create`, in either mode.
 
-With `-o json` the standard output of a verb that fails **before** it has anything else to report (a preflight failure, exit 3; an unreadable state; a state lock, exit 4; a delete-limit refusal of a plain `create`) is **one JSON document** `{ "status": "Failed", "diagnostics": [ { "severity": "Error", "code": "...", "message": "..." } ] }` instead of prose on stderr; a multi-line message uses `\n` line breaks. A decline of a confirmation prompt, and a refusal after the what-if document of `-c` was written, stay on stderr (the document already on stdout is the one document).
+The deployment result (`-o json`) carries `orphans[]`: `{ "resourceId", "type", "graphId", "orphan": "undeclared" | "retained", "reason" }` for the live objects of
+the orphan report (the table output lists them under "Not declared in the template (reported only; never deleted)"). Orphans do not affect the status or the
+exit code. The former `detached` and `deleted` counts are gone.
 
-### `deployment show`, `list`, `delete`, `operation list`
+With `-o json` the standard output of a verb that fails **before** it has anything else to report (a preflight failure, exit 3; an unreadable state; a state lock, exit 4; a replacement refusal of a plain `create`) is **one JSON document** `{ "status": "Failed", "diagnostics": [ { "severity": "Error", "code": "...", "message": "..." } ] }` instead of prose on stderr; a multi-line message uses `\n` line breaks. A decline of a confirmation prompt, and a refusal after the what-if document of `-c` was written, stay on stderr (the document already on stdout is the one document).
+
+### `deployment delete`
+
+`earm deployment delete -f <template> [-p …] [-n <name>] [-y] [--continue-on-error] [--parallelism <n>]` deletes the objects the template declares. They are
+found exactly as `what-if` finds them, **by their live keys** (no state is involved; `-n` is only a label), and deleted in **reverse dependency order**
+(the reverse of the dependency batches: children and assignments before their parents). Resources whose condition is false, whose name is only known at
+deployment time or that do not exist are skipped. The list (resource id, type, `displayName`, Graph id, `[kept: protected]`, a delete-risk note such as "deleted
+permanently") goes to stderr with `Delete these <n> object(s)? (y/n):`; `-y` skips the question, and a non-interactive standard input without `-y` deletes nothing
+(exit 1, "Nothing deleted."). Every object is re-read by its key right before it is deleted and must be the one that was listed. The signed-in principal and service
+principals owned by another organization (Microsoft first-party or multi-tenant apps) are **never deleted**: they are reported as kept, which is not a failure.
+A failure stops the rest (reported as skipped) unless `--continue-on-error`. Exit 0 when every listed object was deleted, already gone or kept; 1 when a delete
+failed, the confirmation was declined or the template cannot be loaded; 2 on validation errors; 3 when no credential signs in. A declared object that could not be
+read is a failure of that object.
+
+With `-o json`: `{ "status", "deployment", "message", "deleted", "alreadyGone", "kept", "failed", "skipped", "outcomes": [ { "resourceId", "type", "graphId", "status", "error", "errorCode" } ] }`
+(`status` of an outcome: `Deleted`, `AlreadyGone`, `Refused`, `Failed`, `Skipped`); nothing to delete is `{ "status": "Succeeded", "message": "Nothing to delete: ...", "deployment", "deleted": 0 }`.
+The deployment's state file is not read or changed.
+
+### `deployment show`, `list`, `operation list`
 
 | Verb | Syntax | Notes |
 |---|---|---|
 | `show` | `-n <name> [-f <template>] [--refresh]` | The state summary: last run, tenant, resources with their Graph ids and their provenance (`created` or `adopted`; JSON: `resources.<id>.provenance`). `--refresh` re-reads every object through its provider and reports drift (`InSync`, `Missing`, `Replaced`) without changing the state; needs a session (exit 3 on a tenant mismatch). |
 | `list` | `[-n <name>] [-f <template>]` | Every deployment with a state file in the state directory. `-n` keeps only the deployment of that name (case-insensitive exact match); an unknown name lists nothing (an empty `deployments` array with `-o json`), prints `No deployment named '<name>' ...` on stderr and still exits 0. A state file that cannot be read shows its error on its own row. |
-| `delete` | `-n <name> [-f <template>] [-y] [--delete-resources] [--delete-adopted] [--force-unlock] [--continue-on-error]` | Removes the state file; the objects stay in the tenant. `--delete-resources` first deletes every state-managed object **that the deployment created** in reverse dependency order (adopted objects stay, and with them their entries and the state file, unless `--delete-adopted`; every object is re-read by its key and must be the pinned one, and the signed-in principal and first-party service principals are never deleted) (needs a session; a failure keeps the entry and exits 1). Asks for confirmation unless `-y`. |
 | `operation list` | `-n <name> [-f <template>]` | The per-resource operations of the last run, from the state. |
 
-With `-o json` every one of these verbs (and the `state` verbs below) writes **exactly one JSON document**, on success and on failure: a failure (unknown deployment `DeploymentNotFound`, an unreadable state, a tenant mismatch, a failed preflight) is `{ "status": "Failed", "diagnostics": [ { "severity", "code", "message" } ] }` with the same exit code as the table output. `delete` reports `{ "status", "deployment", "message", "deleted", "alreadyGone", "kept", "failed", "skipped", "stateRemoved", "remainingEntries", "outcomes": [ { "resourceId", "type", "graphId", "status", "error", "errorCode" } ] }`; deleting only the state reports `{ "status", "deployment", "stateRemoved": true, "objectsLeftInTenant" }`. Deleting only the state reads the file leniently, so an entry that fails the integrity rules never keeps a state file from being removed; deleting the objects reads it strictly.
+With `-o json` every one of these verbs (and the `state` verbs below) writes **exactly one JSON document**, on success and on failure: a failure (unknown deployment `DeploymentNotFound`, an unreadable state, a tenant mismatch, a failed preflight) is `{ "status": "Failed", "diagnostics": [ { "severity", "code", "message" } ] }` with the same exit code as the table output.
 
 `-f` only **locates** the state directory (`.earm/state` next to the template); `--state-dir` overrides it.
 
@@ -193,15 +213,13 @@ State files record each resource's `apiVersion`. The `apiVersion` relabel (`2026
 
 ## `permissions`
 
-`earm permissions -f <template> [-p …] [--mode app|delegated] [-n <deployment>] [-o table|json]`. Offline. Lists the Graph permissions (and, for
+`earm permissions -f <template> [-p …] [--mode app|delegated] [-o table|json]`. Offline. Lists the Graph permissions (and, for
 `--mode delegated`, the Entra roles of which the user needs one per group) the template needs, grouped by permission with the resources that
 need it and why. Exit 0; 2 when the template has validation errors; 1 when it cannot be loaded. Details and the manifest tables:
 [permissions.md](permissions.md).
 
-A `deployment create --mode Complete` run also deletes the objects the state records but the template no longer declares, which needs the delete
-permissions of their types. `-n <deployment>` (with `--state-dir`, default `.earm/state` next to the template) reads that state, adds those delete
-permissions (reason `Complete mode`) and says in a note how many objects it found; no sign-in is needed. Without `-n` a note says that the
-list is incomplete for Complete mode.
+The list covers both deployment modes: Complete mode never deletes, it only reads the declared types for its orphan report, which the permissions
+above already allow. `deployment delete` needs the same permissions as managing the declared types.
 
 ## `schema`
 
@@ -250,7 +268,7 @@ Exit 0, or 1 when a file cannot be read or written, the settings are not valid J
 |---|---|---|
 | `unlock` | `-n <name> [-f <template>]` | Breaks a stale lock (`<state-dir>/<name>.lock`) left by a run that died. A lock whose holder is a process of this host that no longer runs is taken over automatically **at once** (no waiting); any other lock older than one hour without a heartbeat is also taken over automatically. A lock is only ever released or refreshed by the run that took it: after `unlock` the old run does not delete or rewrite the lock of whoever took the lock next. |
 | `forget` | `-n <name> --resource-id <id> [-f <template>] [-y]` | Drops one resource from the state; the object stays in the tenant and is adopted again by the next deployment. Exit 4 when locked. It reads the state **leniently**, so it also removes an entry that fails the integrity rules (`StateEntryInvalid`), which every other verb refuses to load. |
-| `set-provenance` | `-n <name> --resource-id <id> --provenance created\|adopted [-f <template>] [-y]` | Marks one entry of the state as `created` (this deployment created the object: Complete mode and `deployment delete --delete-resources` may delete it) or `adopted` (never deleted without `--delete-adopted`). The resource id must already be in the state (an unknown id is refused, exit 1; the verb never invents an entry). Asks for confirmation unless `-y`. Exit 4 when locked. This is the fix for a state file written before provenance was recorded: its entries have no `provenance`, read as adopted, and a Complete-mode run keeps them with `AdoptedObjectNotDeleted` ("no provenance record (an older state file)"); mark the ones EARM created: `earm state set-provenance -n orders-prod --resource-id /providers/Microsoft.Entra/groups/orders-admins --provenance created`. |
+| `set-provenance` | `-n <name> --resource-id <id> --provenance created\|adopted [-f <template>] [-y]` | Marks one entry of the state as `created` or `adopted`. Nothing reads the provenance any more (Complete mode never deletes and `deployment delete` works from the template); the verb remains until the state subsystem is removed. The resource id must already be in the state (an unknown id is refused, exit 1; the verb never invents an entry). Asks for confirmation unless `-y`. Exit 4 when locked. Example: `earm state set-provenance -n orders-prod --resource-id /providers/Microsoft.Entra/groups/orders-admins --provenance created`. |
 | `adopt` | see below | Brings an existing object under a template. |
 
 ### `state adopt`

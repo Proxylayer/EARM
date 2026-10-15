@@ -28,10 +28,12 @@ namespace EArm.Cli.Commands;
 /// state load (exit 1 on an unreadable state) → preflight (exit 3 when no credential signs in) → tenant
 /// pin (exit 3) → Key Vault parameter references (exit 3) → plan (exit 2 on
 /// validation errors, exit 1 when a type has no provider) → render the what-if (exit 5 with
-/// <c>--exit-code-on-changes</c>) and/or execute with the state sink (exit 1 on failure). The lock comes BEFORE the state is
-/// read, so two runs never plan against the same stale state (review finding E-04). A Complete-mode run that would delete
-/// objects asks for confirmation (without <c>-y</c>), and one that deletes everything or more than <c>--max-deletes</c> objects
-/// needs <c>--allow-delete-all</c> (review finding I-06).
+/// <c>--exit-code-on-changes</c>; orphan report rows never count) and/or execute with the state sink (exit 1 on failure). The lock
+/// comes BEFORE the state is read, so two runs never plan against the same stale state (review finding E-04). Nothing the template
+/// does not declare is ever deleted (Complete mode only reports it). A run that replaces objects (an immutable property changed:
+/// delete, then create again) asks for confirmation unless <c>-y</c>; without <c>-y</c> on a non-interactive console it fails
+/// (exit 1, <c>RecreateNotConfirmed</c>) before anything is written. To know the replacements up front, a create without <c>-y</c>
+/// plans with the read-only what-if pass first (not rendered unless <c>-c</c>).
 /// </summary>
 internal static class DeploymentRunner
 {
@@ -101,7 +103,9 @@ internal static class DeploymentRunner
 
         using var services = created!;
         bool needsWhatIf = invocation.WhatIf || invocation.ConfirmWithWhatIf;
-        var planMode = needsWhatIf ? PlanMode.WhatIf : PlanMode.Create;
+
+        // Without -y the replacements must be known (and confirmed) before anything is written: the plan reads every resource first (read-only).
+        var planMode = needsWhatIf || !invocation.Yes ? PlanMode.WhatIf : PlanMode.Create;
 
         // 2. Offline validation first (validate before preflight), so a broken template is
         //    reported without a sign-in. Key Vault references are resolved after preflight (step 6), so
@@ -198,7 +202,7 @@ internal static class DeploymentRunner
                 }
             }
 
-            // 7. Plan (pinned ids from the state; mode-pass rows in what-if).
+            // 7. Plan (identity by live key; orphan report rows in what-if).
             var planner = services.CreatePlanner(new PlannerOptions
             {
                 DeploymentName = name,
@@ -209,7 +213,6 @@ internal static class DeploymentRunner
                 AppOnlyToken = string.Equals(preflight.PrincipalType, "application", StringComparison.OrdinalIgnoreCase),
                 Parallelism = invocation.Parallelism,
                 AllowCaEnforce = invocation.AllowCaEnforce,
-                DeleteAdopted = invocation.DeleteAdopted,
                 OnSoftDeletedConflict = invocation.OnSoftDeletedConflict,
                 Catalog = catalog,
             });
@@ -239,32 +242,17 @@ internal static class DeploymentRunner
                     return invocation.ExitCodeOnChanges && report.HasChanges ? ExitCodes.WhatIfChangesDetected : ExitCodes.Ok;
                 }
 
-                // The blast-radius limits apply even to -y, so they come before the confirmation prompt.
-                // The what-if document is already on stdout (the one document of this run): a refusal from here on is reported on stderr only.
-                if (CheckDeleteLimits(invocation, plan, state, stdout, stderr, documentWritten: true) is { } limitExit)
-                {
-                    return limitExit;
-                }
-
+                // The what-if document is already on stdout (the one document of this run): a refusal is reported on stderr only.
+                // Confirming the what-if confirms the replacements it shows.
                 if (!invocation.Yes && !ConsolePrompt.Confirm("Are you sure you want to execute the deployment?", stdout, stderr, readLine))
                 {
                     stderr.WriteLine("Deployment not started.");
                     return ExitCodes.Failure;
                 }
             }
-            else
+            else if (!invocation.Yes && ConfirmReplacements(invocation, plan, stdout, stderr, readLine) is { } refusedExit)
             {
-                if (CheckDeleteLimits(invocation, plan, state, stdout, stderr, documentWritten: false) is { } limitExit)
-                {
-                    return limitExit;
-                }
-
-                if (!await ConfirmDeletionsAsync(invocation, plan, state, services, preflight.TenantId, stdout, stderr, readLine, cancellationToken).ConfigureAwait(false))
-                {
-                    // The listing of what would be deleted is already on stdout: the refusal stays on stderr.
-                    stderr.WriteLine("Deployment not started.");
-                    return ExitCodes.Failure;
-                }
+                return refusedExit;
             }
 
             // 9. Execute with the state sink (saved after every resource).
@@ -277,10 +265,11 @@ internal static class DeploymentRunner
             {
                 Parallelism = invocation.Parallelism,
                 ContinueOnError = invocation.ContinueOnError,
-                DeleteAdopted = invocation.DeleteAdopted,
                 RevealSecureOutputs = invocation.RevealSecureOutputs,
                 SecureOutputsFile = invocation.SecureOutputsFile,
-                MaxDeletes = invocation.AllowDeleteAll ? null : invocation.MaxDeletes,
+
+                // -y confirms every replacement; otherwise only the ones the user saw and confirmed (a replacement found later in the run is refused).
+                ApprovedRecreates = invocation.Yes ? null : Replacements(plan).Select(change => change.Id.Id).ToHashSet(StringComparer.OrdinalIgnoreCase),
                 StateSink = sink,
                 State = state,
             }, cancellationToken).ConfigureAwait(false);
@@ -305,131 +294,45 @@ internal static class DeploymentRunner
         }
     }
 
-    // ---- delete blast radius (I-06; review round 2 S2-03, S2-12) ----
+    // ---- replacements (delete and create again) ----
 
-    /// <summary>
-    /// What a run would delete: the orphan entries the plan can judge now, the entries of types it cannot judge yet (a resource of that type has a deploy-time name, so the
-    /// mode pass may delete some of them once the names resolve: an upper bound), and the objects it replaces (a recreate deletes the old object). Recreates are only known
-    /// from a what-if plan (<c>-c</c>); the executor enforces <c>--max-deletes</c> as a hard limit whatever this estimate says.
-    /// </summary>
-    private sealed record DeletionEstimate(IReadOnlyList<StateEntry> Orphans, IReadOnlyList<StateEntry> Maybe, IReadOnlyList<ResourceChange> Recreates)
+    /// <summary>The planned replacements: an immutable property changed on a type that is deleted and created again (what-if plans only).</summary>
+    private static IReadOnlyList<ResourceChange> Replacements(DeploymentPlan plan)
     {
-        public int Total => Orphans.Count + Maybe.Count + Recreates.Count;
-    }
-
-    private static DeletionEstimate EstimateDeletions(DeploymentInvocation invocation, DeploymentPlan plan, StateFile? state)
-    {
-        IReadOnlyList<StateEntry> orphans = [];
-        IReadOnlyList<StateEntry> maybe = [];
-        if (invocation.Mode == DeploymentMode.Complete && state is { Resources.Count: > 0 })
-        {
-            bool Eligible(StateEntry entry)
-            {
-                return invocation.DeleteAdopted || entry.Provenance == StateProvenance.Created;
-            }
-
-            orphans = ModePass.FindOrphans(state, plan, out _).Where(Eligible).ToList();
-            maybe = ModePass.FindUndecided(state, plan).Where(Eligible).ToList();
-        }
-
-        var recreates = plan.Changes.Where(change => change is { Type: ChangeType.Modify, Mode: ChangeMode.Recreate, HasError: false }).ToList();
-        return new DeletionEstimate(orphans, maybe, recreates);
+        return plan.Changes.Where(change => change is { Type: ChangeType.Modify, Mode: ChangeMode.Recreate, HasError: false }).ToList();
     }
 
     /// <summary>
-    /// A Complete-mode template that declares no resources while the state has some, or a run that would delete more than <c>--max-deletes</c> objects (orphans, entries of
-    /// types whose names are still deploy-time, and objects replaced by a recreate), needs <c>--allow-delete-all</c> (a mistyped template path or an emptied file must not wipe
-    /// a deployment, even with <c>-y</c>). Returns the exit code when the run must not start.
+    /// Lists the objects a run replaces (on stderr: stdout stays the run's one document) and asks for confirmation; returns the exit code when the run must
+    /// not start: not confirmed, or standard input is not interactive (then <c>-y</c> is required). <c>null</c> when nothing is replaced or the user agreed.
     /// </summary>
-    private static int? CheckDeleteLimits(DeploymentInvocation invocation, DeploymentPlan plan, StateFile? state, TextWriter stdout, TextWriter stderr, bool documentWritten)
+    private static int? ConfirmReplacements(DeploymentInvocation invocation, DeploymentPlan plan, TextWriter stdout, TextWriter stderr, Func<string?> readLine)
     {
-        if (invocation.AllowDeleteAll)
+        var replacements = Replacements(plan);
+        if (replacements.Count == 0)
         {
             return null;
-        }
-
-        var estimate = EstimateDeletions(invocation, plan, state);
-        bool declaresNothing = invocation.Mode == DeploymentMode.Complete && state is { Resources.Count: > 0 } && plan.Instances.Count == 0;
-        if (!declaresNothing && estimate.Total <= invocation.MaxDeletes)
-        {
-            return null;
-        }
-
-        string replaced = estimate.Recreates.Count == 0 ? string.Empty : string.Create(CultureInfo.InvariantCulture, $" ({estimate.Recreates.Count} of them replaced: deleted and created again)");
-        string reason;
-        if (declaresNothing)
-        {
-            reason = $"the template declares no resources, but deployment '{plan.DeploymentName}' manages {state!.Resources.Count} object(s)";
-        }
-        else if (estimate.Maybe.Count > 0)
-        {
-            reason = string.Create(CultureInfo.InvariantCulture, $"it would delete up to {estimate.Total} object(s){replaced} (this may include {estimate.Maybe.Count} entry(ies) of types whose resource names are only known at deployment time), more than --max-deletes {invocation.MaxDeletes}");
-        }
-        else
-        {
-            reason = string.Create(CultureInfo.InvariantCulture, $"it would delete {estimate.Total} object(s){replaced}, more than --max-deletes {invocation.MaxDeletes}");
-        }
-
-        string what = invocation.Mode == DeploymentMode.Complete ? "Complete-mode deployment" : "deployment";
-        string message = $"Refusing the {what}: {reason}. Check the template and the deployment name; pass --allow-delete-all to confirm that this is intended.\nDeployment not started.";
-        return VerbOutput.Fail(documentWritten ? OutputFormat.Table : invocation.Output, stdout, stderr, ExitCodes.Failure, EngineDiagnosticCodes.DeleteLimitExceeded, message);
-    }
-
-    /// <summary>Lists what a run deletes (Complete-mode orphans, entries that may be deleted, objects that are replaced) and asks (unless <c>-y</c>); true when the run may start.</summary>
-    private static async Task<bool> ConfirmDeletionsAsync(DeploymentInvocation invocation, DeploymentPlan plan, StateFile? state, EngineServices services, string tenantId, TextWriter stdout, TextWriter stderr, Func<string?> readLine, CancellationToken cancellationToken)
-    {
-        var estimate = EstimateDeletions(invocation, plan, state);
-        if (estimate.Total == 0 || invocation.Yes)
-        {
-            return true;
         }
 
         const int Shown = 50;
-        string headline = estimate.Maybe.Count == 0
-            ? string.Create(CultureInfo.InvariantCulture, $"Complete mode will DELETE {estimate.Orphans.Count + estimate.Recreates.Count} object(s) from tenant {tenantId}, because the template no longer declares them:")
-            : string.Create(CultureInfo.InvariantCulture, $"Complete mode will DELETE {estimate.Orphans.Count + estimate.Recreates.Count} object(s) from tenant {tenantId}, and may delete up to {estimate.Maybe.Count} more (entries of types whose resource names are only known at deployment time), because the template no longer declares them:");
-        stdout.WriteLine(headline);
-        var listed = estimate.Orphans.Select(entry => (entry, may: false)).Concat(estimate.Maybe.Select(entry => (entry, may: true))).ToList();
-        foreach (var (entry, may) in listed.Take(Shown))
+        stderr.WriteLine(string.Create(CultureInfo.InvariantCulture, $"The deployment replaces {replacements.Count} object(s): an immutable property changed, so each one is DELETED and created again (with a new object id):"));
+        foreach (var change in replacements.Take(Shown))
         {
-            string? displayName = await LiveDisplayNameAsync(services, entry, cancellationToken).ConfigureAwait(false);
-            string adopted = entry.Provenance == StateProvenance.Adopted ? " [adopted]" : string.Empty;
-            string maybeNote = may ? " [may be deleted]" : string.Empty;
-            stdout.WriteLine($"  - {entry.Id.Id} ({entry.Type}){(displayName is null ? string.Empty : $" \"{displayName}\"")}{adopted}{maybeNote}");
+            stderr.WriteLine($"  - {change.Id.Id} ({change.ResourceType}){(change.GraphId is null ? string.Empty : $" Graph id {change.GraphId}")}");
         }
 
-        if (listed.Count > Shown)
+        if (replacements.Count > Shown)
         {
-            stdout.WriteLine(string.Create(CultureInfo.InvariantCulture, $"  ... and {listed.Count - Shown} more"));
+            stderr.WriteLine(string.Create(CultureInfo.InvariantCulture, $"  ... and {replacements.Count - Shown} more"));
         }
 
-        foreach (var change in estimate.Recreates.Take(Shown))
-        {
-            stdout.WriteLine($"  - {change.Id.Id} ({change.ResourceType}) [replaced: deleted and created again]");
-        }
-
-        return ConsolePrompt.Confirm("Delete them as part of this deployment?", stdout, stderr, readLine);
-    }
-
-    /// <summary>The live <c>displayName</c> of the object a state entry points at, when it can be read cheaply (best effort).</summary>
-    private static async Task<string?> LiveDisplayNameAsync(EngineServices services, StateEntry entry, CancellationToken cancellationToken)
-    {
-        if (!services.Providers.TryGet(entry.Type, out var provider))
+        if (ConsolePrompt.Confirm("Replace them?", stdout, stderr, readLine))
         {
             return null;
         }
 
-        try
-        {
-            var live = await provider.ReadAsync(entry.ToResourceKey(ResourceTypeCatalog.Default), services.Graph, cancellationToken).ConfigureAwait(false);
-            return live is not null && string.Equals(live.GraphId, entry.GraphId, StringComparison.OrdinalIgnoreCase)
-                ? EArm.Engine.Providers.JsonObjects.GetString(live.Raw, "displayName")
-                : null;
-        }
-        catch (Exception ex) when (ex is ProviderException or GraphException or GraphTransportException)
-        {
-            return null;
-        }
+        string message = string.Create(CultureInfo.InvariantCulture, $"The deployment would replace {replacements.Count} object(s) (delete and create again) and that was not confirmed; pass -y to confirm (required when standard input is not interactive).\nDeployment not started.");
+        return VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.Failure, EngineDiagnosticCodes.RecreateNotConfirmed, message);
     }
 
     private static int FailValidation(DeploymentInvocation invocation, IReadOnlyList<Diagnostic> diagnostics, TextWriter stdout, TextWriter stderr, int exitCode)

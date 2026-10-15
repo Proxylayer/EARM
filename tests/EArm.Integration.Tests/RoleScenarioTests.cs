@@ -64,9 +64,8 @@ public sealed class RoleScenarioTests : IntegrationTestBase
         AssertCreated(await Fixture.Cli.CreateAsync(run, Ct), "create after drift");
         Assert.Equal(3, (await ListAssignmentsAsync(group.RequireId())).Count);
 
-        // Complete mode with nothing declared: assignments go before the role, the unit and the group.
-        var emptyRun = run.WithTemplate(TemplateEditor.Write(Path.Combine(Fixture.ScratchDirectory, "variants"), "roles-empty.entra.json", TemplateEditor.Empty(TemplateEditor.Load(run.TemplateFile))));
-        AssertCreated(await Fixture.Cli.CreateAsync(emptyRun, Ct, "--mode", "Complete"), "Complete with an empty template");
+        // deployment delete: assignments go before the role, the unit and the group.
+        AssertExit(0, await Fixture.Cli.DeleteAllAsync(run, Ct), "deployment delete");
         Assert.Null(await FindOneAsync(RoleDefinitions, "displayName", Fixture.Name("role")));
         Assert.Null(await FindOneAsync(AdministrativeUnits, "displayName", Fixture.Name("au")));
         Assert.Null(await GroupByNameAsync(Fixture.Name("rgrp"), "id"));
@@ -105,14 +104,13 @@ public sealed class RoleScenarioTests : IntegrationTestBase
         var repaired = Assert.Single(await Graph.ListAsync(new GraphRequest("/oauth2PermissionGrants").WithFilter($"clientId eq '{servicePrincipalId}'"), Ct));
         Assert.Equal(["User.Read"], (repaired.Text("scope") ?? string.Empty).Split(' ', StringSplitOptions.RemoveEmptyEntries));
 
-        var emptyRun = run.WithTemplate(TemplateEditor.Write(Path.Combine(Fixture.ScratchDirectory, "variants"), "grants-empty.entra.json", TemplateEditor.Empty(TemplateEditor.Load(run.TemplateFile))));
-        AssertCreated(await Fixture.Cli.CreateAsync(emptyRun, Ct, "--mode", "Complete"), "Complete with an empty template");
+        AssertExit(0, await Fixture.Cli.DeleteAllAsync(run, Ct), "deployment delete");
         Assert.Empty(await Graph.ListAsync(new GraphRequest("/oauth2PermissionGrants").WithFilter($"clientId eq '{servicePrincipalId}'"), Ct));
         Assert.Null(await Graph.GetObjectAsync(new GraphRequest("/servicePrincipals/" + servicePrincipalId), Ct));
     }
 
     [Fact]
-    public async Task It_Roles_OrdersSampleVariantCompleteModeDeleteRoundTrip()
+    public async Task It_Roles_OrdersSampleVariantCompleteModeAndDeleteRoundTrip()
     {
         Fixture.Require(Needs.Domain | Needs.ConditionalAccess | Needs.Roles);
         string contextId = await Fixture.AllocateContextIdAsync(Ct);
@@ -139,16 +137,15 @@ public sealed class RoleScenarioTests : IntegrationTestBase
         int managed = state.Resources.Count;
         Assert.True(managed >= 15, $"Expected at least 15 state entries, found {managed}.");
 
-        // Complete mode with nothing declared deletes everything the deployment manages, in reverse dependency order.
-        var emptyRun = run.WithTemplate(TemplateEditor.Write(Path.Combine(Fixture.ScratchDirectory, "variants"), "orders-empty.entra.json", TemplateEditor.Empty(TemplateEditor.Load(run.TemplateFile))));
-        var completePreview = await Fixture.Cli.WhatIfAsync(emptyRun, Ct, "--mode", "Complete", "--exit-code-on-changes");
-        AssertExit(5, completePreview, "Complete what-if");
-        Assert.Equal(managed, completePreview.Changes.Count(c => (string?)c["changeType"] == "Delete"));
+        // Complete mode never deletes: with the full template it changes nothing and lists no orphan of its own objects.
+        var completePreview = await Fixture.Cli.WhatIfAsync(run, Ct, "--mode", "Complete", "--exit-code-on-changes");
+        AssertExit(0, completePreview, "Complete what-if");
+        Assert.DoesNotContain(completePreview.Changes, c => (string?)c["changeType"] == "Delete");
 
-        var complete = await Fixture.Cli.CreateAsync(emptyRun, Ct, "--mode", "Complete");
-        AssertCreated(complete, "Complete create");
-        Assert.Equal(managed, (int?)complete.Json["deleted"]);
-        Assert.Equal(0, (await Fixture.Store.LoadAsync(run.Name, Ct))?.Resources.Count ?? 0);
+        // deployment delete removes everything the template declares, in reverse dependency order.
+        var deleted = await Fixture.Cli.DeleteAllAsync(run, Ct);
+        AssertExit(0, deleted, "deployment delete");
+        Assert.True((int?)deleted.Json["deleted"] >= 15, "Expected at least 15 deleted objects: " + deleted.StandardOutput);
 
         Assert.Null(await ApplicationByNameAsync(Fixture.Name("api"), "id"));
         Assert.Null(await UserAsync(Fixture.Upn("bg"), "id"));

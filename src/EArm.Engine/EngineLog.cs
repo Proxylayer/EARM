@@ -52,23 +52,11 @@ internal static partial class EngineLog
 
     // ---- state ----
 
-    [LoggerMessage(EventId = 2040, Level = LogLevel.Warning, Message = "Drift: the state pins {ResourceId} to Graph id {StateGraphId} but the live object was {Outcome}")]
-    public static partial void StateDrift(ILogger logger, string resourceId, string stateGraphId, string outcome);
-
-    [LoggerMessage(EventId = 2041, Level = LogLevel.Warning, Message = "{ResourceId} is recorded in the state but no longer declared in the template; detached from the state (use --mode Complete to delete it)")]
-    public static partial void ResourceDetached(ILogger logger, string resourceId);
-
-    [LoggerMessage(EventId = 2042, Level = LogLevel.Information, Message = "Deleting {ResourceId} (Graph id {GraphId}): not declared in the template (Complete mode)")]
-    public static partial void DeletingOrphan(ILogger logger, string resourceId, string graphId);
-
-    [LoggerMessage(EventId = 2043, Level = LogLevel.Information, Message = "{ResourceId} was already gone from the tenant; removed from the state")]
-    public static partial void OrphanAlreadyGone(ILogger logger, string resourceId);
+    [LoggerMessage(EventId = 2042, Level = LogLevel.Information, Message = "Deleting {ResourceId} (Graph id {GraphId}) (deployment delete)")]
+    public static partial void Deleting(ILogger logger, string resourceId, string graphId);
 
     [LoggerMessage(EventId = 2044, Level = LogLevel.Error, Message = "Deleting {ResourceId} failed: {Error}")]
     public static partial void DeleteFailed(ILogger logger, string resourceId, string error);
-
-    [LoggerMessage(EventId = 2045, Level = LogLevel.Warning, Message = "The mode pass cannot decide about state entries of type {Type}: a resource of that type still has a deploy-time name ({PlannedId}); those entries are kept")]
-    public static partial void ModePassUndecided(ILogger logger, string type, string plannedId);
 
     [LoggerMessage(EventId = 2046, Level = LogLevel.Debug, Message = "State saved to {Path} ({ResourceCount} resource(s))")]
     public static partial void StateSaved(ILogger logger, string path, int resourceCount);
@@ -105,9 +93,6 @@ internal static partial class EngineLog
     [LoggerMessage(EventId = 2065, Level = LogLevel.Debug, Message = "Recorded edge of {ResourceId} skipped: {Reason}")]
     public static partial void RecordedEdgeSkipped(ILogger logger, string resourceId, string reason);
 
-    [LoggerMessage(EventId = 2066, Level = LogLevel.Information, Message = "Removed {Count} recorded edge(s) of {ResourceId} before deleting it")]
-    public static partial void RecordedEdgesRemoved(ILogger logger, string resourceId, int count);
-
     [LoggerMessage(EventId = 2067, Level = LogLevel.Warning, Message = "Deleting {ResourceId}: {Warning}")]
     public static partial void DeleteWarning(ILogger logger, string resourceId, string warning);
 
@@ -118,9 +103,6 @@ internal static partial class EngineLog
 
     [LoggerMessage(EventId = 2071, Level = LogLevel.Warning, Message = "State entry mismatch for {ResourceId}: {Reason}")]
     public static partial void StateEntryMismatch(ILogger logger, string resourceId, string reason);
-
-    [LoggerMessage(EventId = 2072, Level = LogLevel.Warning, Message = "{ResourceId} adopted the existing object {GraphId}: it was not created by this deployment")]
-    public static partial void AdoptedExisting(ILogger logger, string resourceId, string graphId);
 
     [LoggerMessage(EventId = 2073, Level = LogLevel.Warning, Message = "The create of {ResourceId} ended with an unknown outcome ({Error}); the object exists (Graph id {GraphId}), so the create is counted as done")]
     public static partial void CreateOutcomeUncertain(ILogger logger, string resourceId, string error, string graphId);

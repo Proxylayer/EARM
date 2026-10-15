@@ -5,7 +5,7 @@ namespace EArm.Engine.Planning;
 
 /// <summary>
 /// The apply and delete order Phases are a tie-breaker inside a dependency batch (explicit
-/// and implicit dependencies decide the batches); the delete order is the reverse, for the Complete-mode pass.
+/// and implicit dependencies decide the batches); the delete order is the reverse, for 'deployment delete' (TemplateDeleter).
 /// </summary>
 public static class ApplyPhases
 {

@@ -104,8 +104,6 @@ public sealed class EdgePassTests
 
         public string AuId => Host.IdOf("/directory/administrativeUnits", "displayName", "Test AU");
 
-        public JsonObject? AliceRelationships => Host.StateEntryJson(EdgePassTests.AliceId)?["relationships"] as JsonObject;
-
         public static string T1Template => Join(App, Sp, Alice(MemberOfGroup + ", " + MemberOfAllStaff), Group(MembersSpAndAlice), Au);
 
         public static string T2Template => Join(App, Sp, Alice(MemberOfGroup), Group(MembersSpAndAlice), Au);
@@ -164,7 +162,7 @@ public sealed class EdgePassTests
     // ---- T1 .. T9 ----
 
     [Fact]
-    public async Task T1_Create_AddsEveryEdgeOnce_FromBothSides_AndRecordsPrincipalSideRelationships()
+    public async Task T1_Create_AddsEveryEdgeOnce_FromBothSides()
     {
         var tenant = new EdgeTenant();
 
@@ -181,15 +179,6 @@ public sealed class EdgePassTests
         Assert.Contains(edgeWrites, w => w.Method == "PUT" && w.Path == $"/users/{tenant.AliceId}/manager/$ref");
         Assert.Equal(2, tenant.Host.Directory.References($"/groups/{tenant.GroupId}/members").Count);
 
-        var relationships = tenant.AliceRelationships;
-        Assert.NotNull(relationships);
-        Assert.Equal(2, relationships["memberOf"]!.AsArray().Count);
-        var ownerOf = Assert.Single(relationships["ownerOf"]!.AsArray());
-        Assert.Equal(tenant.AppId, ownerOf!["id"]!.GetValue<string>());
-        Assert.Equal("applications", ownerOf["collection"]!.GetValue<string>());
-        Assert.Single(relationships["administrativeUnits"]!.AsArray());
-        Assert.Equal(tenant.BossId, relationships["manager"]!.GetValue<string>());
-
         var groupChange = run.Change("test-group");
         var membersDelta = Assert.Single(groupChange.Deltas, d => d.Path.ToString() == "properties.members");
         Assert.Equal(PropertyChangeType.Array, membersDelta.Kind);
@@ -198,7 +187,7 @@ public sealed class EdgePassTests
     }
 
     [Fact]
-    public async Task T1b_Rerun_IssuesNoEdgeWrites_AndKeepsTheRecords()
+    public async Task T1b_Rerun_IssuesNoEdgeWrites()
     {
         var tenant = await EdgeTenant.UpToAsync(1);
 
@@ -206,21 +195,20 @@ public sealed class EdgePassTests
 
         Check.Succeeded(run);
         Assert.Empty(EdgeWrites(run));
-        Assert.Equal(2, tenant.AliceRelationships!["memberOf"]!.AsArray().Count);
     }
 
     [Fact]
-    public async Task T2_UndeclaringATrackedMemberOf_IssuesExactlyOneDelete()
+    public async Task T2_UndeclaringAMemberOf_IsEnsureOnly_TheMembershipStays()
     {
         var tenant = await EdgeTenant.UpToAsync(1);
 
+        var whatIf = await tenant.WhatIfAsync(EdgeTenant.T2Template);
         var run = await tenant.DeployAsync(EdgeTenant.T2Template);
 
+        Assert.DoesNotContain(whatIf.Change("alice@contoso.com").Deltas.SelectMany(d => d.Children ?? []), c => c.Kind == PropertyChangeType.Delete);
         Check.Succeeded(run);
-        var write = Assert.Single(EdgeWrites(run));
-        Assert.Equal("DELETE", write.Method);
-        Assert.Equal($"/groups/{tenant.AllStaffId}/members/{tenant.AliceId}/$ref", write.Path);
-        Assert.Single(tenant.AliceRelationships!["memberOf"]!.AsArray());
+        Assert.Empty(EdgeWrites(run));
+        Assert.Contains(tenant.AliceId, tenant.Host.Directory.References($"/groups/{tenant.AllStaffId}/members"));
     }
 
     [Fact]
@@ -274,7 +262,7 @@ public sealed class EdgePassTests
     }
 
     [Fact]
-    public async Task T6_ManagerNull_DeletesTheManagerReference_AndTheRecord()
+    public async Task T6_ManagerNull_DeletesTheManagerReference()
     {
         var tenant = await EdgeTenant.UpToAsync(4);
 
@@ -284,11 +272,10 @@ public sealed class EdgePassTests
         var write = Assert.Single(EdgeWrites(run));
         Assert.Equal("DELETE", write.Method);
         Assert.Equal($"/users/{tenant.AliceId}/manager/$ref", write.Path);
-        Assert.Null(tenant.AliceRelationships!["manager"]);
     }
 
     [Fact]
-    public async Task T7_OwnersReplace_RemovingTheSignedInPrincipal_Warns_AndMergesTheTrackedRemoval()
+    public async Task T7_OwnersReplace_RemovingTheSignedInPrincipal_Warns()
     {
         var tenant = await EdgeTenant.UpToAsync(6);
         tenant.Host.Directory.SignedInUserId = tenant.AliceId;
@@ -300,7 +287,6 @@ public sealed class EdgePassTests
         var writes = EdgeWrites(run);
         Assert.Equal(1, writes.Count(w => w.Method == "DELETE" && w.Path == $"/applications/{tenant.AppId}/owners/{tenant.AliceId}/$ref"));
         Assert.Equal(1, writes.Count(w => w.Method == "POST" && w.Path == $"/applications/{tenant.AppId}/owners/$ref"));
-        Assert.Null(tenant.AliceRelationships!["ownerOf"]);
     }
 
     [Fact]
@@ -321,7 +307,7 @@ public sealed class EdgePassTests
     }
 
     [Fact]
-    public async Task T8b_WhatIf_AgainstTheDeployedTenant_ShowsTheTrackedRemoval()
+    public async Task T8b_WhatIf_AgainstTheDeployedTenant_PlansNoRemovalOfAnUndeclaredMemberOf()
     {
         var tenant = await EdgeTenant.UpToAsync(7);
         string template = Join(AppOwnedByBob, Sp, Alice(MemberOfGroup, manager: "null", ownerOf: false), Group(MembersAlice), Group2, Au);
@@ -330,31 +316,8 @@ public sealed class EdgePassTests
 
         Check.NoWrites(run);
         var aliceRow = WhatIfJson.Build(run.Plan)["changes"]!.AsArray().First(c => c!["resourceId"]!.GetValue<string>().EndsWith("alice@contoso.com", StringComparison.Ordinal))!;
-        Assert.Equal("Modify", aliceRow["changeType"]!.GetValue<string>());
-        var memberOf = aliceRow["delta"]!.AsArray().First(d => d!["path"]!.GetValue<string>() == "properties.memberOf")!;
-        Assert.Contains(memberOf["children"]!.AsArray(), c => c!["propertyChangeType"]!.GetValue<string>() == "Delete");
-    }
-
-    [Fact]
-    public async Task T9_CompleteMode_RemovesRecordedEdgesBeforeDeletingTheUser()
-    {
-        var tenant = await EdgeTenant.UpToAsync(7);
-        string aliceId = tenant.AliceId;
-        string template = Join(AppOwnedByBob, Sp, Group(null), Group2, Au);
-
-        var run = await tenant.DeployAsync(template, DeploymentMode.Complete);
-
-        Check.Succeeded(run);
-        var writes = run.Writes.ToList();
-        int userDelete = writes.FindIndex(w => w.Method == "DELETE" && w.Path == $"/users/{aliceId}");
-        int groupRef = writes.FindIndex(w => w.Method == "DELETE" && w.Path == $"/groups/{tenant.GroupId}/members/{aliceId}/$ref");
-        int group2Ref = writes.FindIndex(w => w.Method == "DELETE" && w.Path == $"/groups/{tenant.Group2Id}/members/{aliceId}/$ref");
-        int auRef = writes.FindIndex(w => w.Method == "DELETE" && w.Path == $"/directory/administrativeUnits/{tenant.AuId}/members/{aliceId}/$ref");
-        Assert.True(userDelete >= 0, "the user was deleted");
-        Assert.True(groupRef >= 0 && groupRef < userDelete, "group membership removed before the user");
-        Assert.True(group2Ref >= 0 && group2Ref < userDelete, "group 2 membership removed before the user");
-        Assert.True(auRef >= 0 && auRef < userDelete, "AU membership removed before the user");
-        Assert.Null(tenant.Host.StateEntryJson(AliceId));
+        var deltas = aliceRow["delta"]?.AsArray() ?? [];
+        Assert.DoesNotContain(deltas.SelectMany(d => d!["children"]?.AsArray() ?? []), c => c!["propertyChangeType"]!.GetValue<string>() == "Delete");
     }
 
     // ---- beyond the lifecycle ----
@@ -395,18 +358,17 @@ public sealed class EdgePassTests
     public async Task NotFoundOnRemove_CountsAsRemoved()
     {
         var host = new ProviderHost();
-        string groupId = host.Directory.AddGroup("existing", "Existing")["id"]!.GetValue<string>();
-        var first = await host.CreateAsync(host.Resources(Templates.Resource("Microsoft.Entra/users", "carol@contoso.com", "{ \"displayName\": \"Carol\", \"memberOf\": [\"" + groupId + "\"] }")));
+        string carolId = host.Directory.AddUser("carol@contoso.com", "Carol")["id"]!.GetValue<string>();
+        var first = await host.CreateAsync(host.Resources(Group("\"" + carolId + "\"")));
         Check.Succeeded(first);
-        string carolId = host.IdOf("/users", "userPrincipalName", "carol@contoso.com");
-        Assert.Single(host.StateEntryJson("/providers/Microsoft.Entra/users/carol@contoso.com")!["relationships"]!["memberOf"]!.AsArray());
+        string groupId = host.IdOf("/groups", "uniqueName", "test-group");
         host.Fake.Failures.Add("DELETE", $"/members/{carolId}/$ref", r => new GraphException(HttpStatusCode.NotFound, "Request_ResourceNotFound", "Resource not found.", r.Hint));
 
-        var run = await host.CreateAsync(host.Resources(Templates.Resource("Microsoft.Entra/users", "carol@contoso.com", "{ \"displayName\": \"Carol\", \"memberOf\": [] }")));
+        // The target side is authoritative: an empty members list removes carol, and the 404 counts as removed.
+        var run = await host.CreateAsync(host.Resources(Group(string.Empty)));
 
         Check.Succeeded(run);
         Assert.Single(run.Writes, w => w.Method == "DELETE" && w.Path == $"/groups/{groupId}/members/{carolId}/$ref");
-        Assert.Null(host.StateEntryJson("/providers/Microsoft.Entra/users/carol@contoso.com")!["relationships"]?["memberOf"]);
     }
 
     [Fact]
@@ -446,9 +408,6 @@ public sealed class EdgePassTests
         Assert.Contains(run.Requests, r => r.Method == "GET" && r.Path == "/directoryObjects/" + appId);
         var write = Assert.Single(EdgeWrites(run));
         Assert.Equal($"/applications/{appId}/owners/$ref", write.Path);
-        var ownerOf = Assert.Single(host.StateEntryJson("/providers/Microsoft.Entra/users/carol@contoso.com")!["relationships"]!["ownerOf"]!.AsArray());
-        Assert.Equal(appId, ownerOf!["id"]!.GetValue<string>());
-        Assert.Equal("applications", ownerOf["collection"]!.GetValue<string>());
     }
 
     [Fact]

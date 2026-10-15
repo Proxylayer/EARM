@@ -1,7 +1,9 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json.Nodes;
-using System.Threading;
 using System.Threading.Tasks;
+using System.Threading;
 using EArm.Graph;
 using EArm.Engine.Edges;
 using EArm.Engine.Providers;
@@ -69,31 +71,41 @@ public static class AppRoleAssignmentsLookup
     /// </summary>
     public static async Task<JsonObject?> FindAssignmentAsync(IGraphClient graph, string resourceId, string principalId, string appRoleId, GraphApi api, RetryHint hint, CancellationToken cancellationToken)
     {
+        var assignments = await ReadPrincipalAssignmentsAsync(graph, principalId, api, hint, cancellationToken).ConfigureAwait(false);
+        return assignments.FirstOrDefault(assignment => AppRoleAssignmentsRules.Matches(assignment, principalId, appRoleId)
+            && JsonObjects.KeyEquals(JsonObjects.GetString(assignment, "resourceId"), resourceId));
+    }
+
+    /// <summary>
+    /// Every app role assignment <paramref name="principalId"/> holds, from the principal side: <c>GET /{users|groups|servicePrincipals}/{principalId}/appRoleAssignments?$top=999</c>
+    /// (every page). Empty when the principal does not exist (or is not replicated yet under the default hint).
+    /// </summary>
+    public static async Task<IReadOnlyList<JsonObject>> ReadPrincipalAssignmentsAsync(IGraphClient graph, string principalId, GraphApi api, RetryHint hint, CancellationToken cancellationToken)
+    {
         ArgumentNullException.ThrowIfNull(graph);
+        var assignments = new List<JsonObject>();
         try
         {
             string? collection = await PrincipalCollectionAsync(graph, principalId, api, hint, cancellationToken).ConfigureAwait(false);
             if (collection is null)
             {
-                return null;
+                return assignments;
             }
 
             var request = new GraphRequest("/" + collection + "/" + GraphPath.Segment(principalId) + "/appRoleAssignments", api, hint: hint).WithTop(999);
             await foreach (var item in graph.GetAllPagesAsync(request, cancellationToken).ConfigureAwait(false))
             {
-                if (item is JsonObject assignment
-                    && AppRoleAssignmentsRules.Matches(assignment, principalId, appRoleId)
-                    && JsonObjects.KeyEquals(JsonObjects.GetString(assignment, "resourceId"), resourceId))
+                if (item is JsonObject assignment && JsonObjects.KeyEquals(JsonObjects.GetString(assignment, "principalId"), principalId))
                 {
-                    return assignment;
+                    assignments.Add(assignment);
                 }
             }
         }
         catch (GraphException ex) when (ex.IsNotFound && !ex.IsReplication)
         {
-            return null;
+            assignments.Clear();
         }
 
-        return null;
+        return assignments;
     }
 }

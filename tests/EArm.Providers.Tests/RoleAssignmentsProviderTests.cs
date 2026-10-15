@@ -225,17 +225,25 @@ public sealed class RoleAssignmentsProviderTests
     }
 
     [Fact]
-    public async Task S10_CompleteMode_DeletesTheAssignmentById()
+    public async Task S10_CompleteModeNeverDeletesTheAssignment_DeploymentDeleteDeletesItById()
     {
         var host = NewHost();
-        Check.Succeeded(await host.CreateAsync(host.Resources(Join(Alice(), Standalone(AliceRef + ", \"role\": \"Global Reader\"")))));
+        var document = host.Resources(Join(Alice(), Standalone(AliceRef + ", \"role\": \"Global Reader\"")));
+        Check.Succeeded(await host.CreateAsync(document));
 
         var run = await host.CreateAsync(host.Resources(Alice()), DeploymentMode.Complete);
 
         Check.Succeeded(run);
-        var write = Assert.Single(run.Writes);
-        Assert.Equal("DELETE", write.Method);
-        Assert.StartsWith(BuiltInRoles.AssignmentsPath + "/", write.Path, StringComparison.Ordinal);
+        Check.NoWrites(run);
+        Assert.Single(host.Directory.Objects(BuiltInRoles.AssignmentsPath));
+
+        host.ClearRequests();
+        var deletion = await host.DeleteDeclaredAsync(document);
+
+        Assert.True(deletion.Succeeded);
+        var first = host.Fake.Writes[0];
+        Assert.Equal("DELETE", first.Method);
+        Assert.StartsWith(BuiltInRoles.AssignmentsPath + "/", first.Path, StringComparison.Ordinal);
         Assert.Empty(host.Directory.Objects(BuiltInRoles.AssignmentsPath));
     }
 
@@ -281,7 +289,7 @@ public sealed class RoleAssignmentsProviderTests
     }
 
     [Fact]
-    public async Task W2_WhatIf_AgainstADeployedTenant_ShowsTheCreateAndAdoptionRows()
+    public async Task W2_WhatIf_AgainstADeployedTenant_ShowsTheCreateRow_AndTheOldTupleAsRetained()
     {
         var host = NewHost();
         string aliceRole(string role)
@@ -296,10 +304,18 @@ public sealed class RoleAssignmentsProviderTests
         var run = await host.WhatIfAsync(host.Resources(Join(Alice(), Group(DirectoryRoles("{ \"role\": \"Global Reader\" }")), aliceRole("Security Reader"), groupAssignment)));
 
         Check.NoWrites(run);
-        var assignments = run.Changes.Where(c => c.ResourceType == AssignmentType).ToList();
+        var assignments = run.Changes.Where(c => c.ResourceType == AssignmentType && !c.IsOrphan).ToList();
         Assert.Equal(2, assignments.Count);
         Assert.Single(assignments, c => c.Type == ChangeType.Create);
         Assert.Single(assignments, c => c.Type == ChangeType.NoChange);
         Assert.Equal(ChangeType.NoChange, run.Change("test-admins").Type);
+
+        // alice's Global Reader assignment is no longer declared (her role changed): it is retained and reported, never removed.
+        var retained = Assert.Single(run.Plan.Orphans);
+        Assert.Equal(OrphanReason.Retained, retained.Orphan);
+        string aliceId = host.IdOf("/users", "userPrincipalName", "alice@contoso.com");
+        var live = host.Directory.FindById(retained.GraphId!)!;
+        Assert.Equal(aliceId, live["principalId"]!.GetValue<string>());
+        Assert.Equal(BuiltInRoles.GlobalReader, live["roleDefinitionId"]!.GetValue<string>());
     }
 }

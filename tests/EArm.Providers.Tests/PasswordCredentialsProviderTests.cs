@@ -454,27 +454,22 @@ public sealed class PasswordCredentialsProviderTests
         string appId = host.IdOf("/applications", "uniqueName", AppName);
         string keyId = run.Op(SecretName).GraphId!;
 
+        // Complete mode never deletes: the credential the template no longer declares stays (its type is not declared, so it is not even listed).
         var complete = await host.CreateAsync(host.Resources(App()), DeploymentMode.Complete);
         Check.Succeeded(complete);
-        Assert.Equal(ChangeType.Delete, complete.Op(SecretName).ChangeType);
-        Assert.Equal(OperationStatus.Succeeded, complete.Op(SecretName).Status);
-        var write = Assert.Single(complete.Writes);
-        Assert.Equal("POST", write.Method);
-        Assert.Equal("/applications/" + appId + "/removePassword", write.Path);
-        Assert.Equal(keyId, Check.Body(write)["keyId"]!.GetValue<string>());
-        Assert.Empty(host.Directory.FindById(appId)!["passwordCredentials"]!.AsArray());
-        Assert.Equal(1, host.Directory.Count("/applications"));
-        Assert.False(complete.State!.Resources.ContainsKey(SecretId));
+        Check.NoWrites(complete);
+        Assert.Contains(host.Directory.FindById(appId)!["passwordCredentials"]!.AsArray(), c => c!["keyId"]!.GetValue<string>() == keyId);
 
         var deleteHost = new ProviderHost();
-        var deployed = await deleteHost.CreateAsync(deleteHost.Resources(Template(), Outputs));
+        var declared = deleteHost.Resources(Template(), Outputs);
+        var deployed = await deleteHost.CreateAsync(declared);
         appId = deleteHost.IdOf("/applications", "uniqueName", AppName);
         keyId = deployed.Op(SecretName).GraphId!;
         deleteHost.ClearRequests();
 
-        var deletion = await deleteHost.DeleteAllAsync();
+        var deletion = await deleteHost.DeleteDeclaredAsync(declared);
 
-        Assert.True(deletion.Succeeded, string.Join("; ", deletion.Outcomes.Select(o => o.Entry.Id.Id + "=" + o.Status + " " + o.Error)));
+        Assert.True(deletion.Succeeded, string.Join("; ", deletion.Outcomes.Select(o => o.Target.Instance.Id.Id + "=" + o.Status + " " + o.Error)));
         var writes = deleteHost.Fake.Writes;
         Assert.Equal(2, writes.Count);
         Assert.Equal("POST", writes[0].Method);

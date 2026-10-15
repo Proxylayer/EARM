@@ -1,0 +1,44 @@
+Deployment 'orphans-complete' (Incremental) on tenant 11111111-1111-1111-1111-111111111111
+
+Resource and property changes are indicated with these symbols:
+  + Create
+  ~ Modify
+  - Delete
+  = NoChange
+  * Ignore
+  ? Value only known at deployment time
+  ! Change cannot be applied as planned
+
+The deployment would make the following changes:
+
+  + /providers/Microsoft.Entra/conditionalAccess/namedLocations/Contoso offices [Microsoft.Entra/conditionalAccess/namedLocations]
+      name: "Contoso offices"
+      type: "Microsoft.Entra/conditionalAccess/namedLocations"
+      apiVersion: "2026-10-01-preview"
+      properties:
+        @odata.type: "#microsoft.graph.ipNamedLocation"
+        isTrusted: true
+        ipRanges: [
+          0:
+            cidrAddress: "10.0.0.0/8"
+            @odata.type: "#microsoft.graph.iPv4CidrRange"
+        ]
+
+  + /providers/Microsoft.Entra/roleAssignments/83d54051-352a-5a0a-8f33-4f6dbe6a70ec [Microsoft.Entra/roleAssignments]
+      name: "83d54051-352a-5a0a-8f33-4f6dbe6a70ec"
+      type: "Microsoft.Entra/roleAssignments"
+      apiVersion: "2026-10-01-preview"
+      properties:
+        principalId: "22222222-0000-0000-0000-000000000001"
+        directoryScopeId: "/"
+        roleDefinitionId: "f2ef992c-3afb-46b9-b7cf-a126ee74c451"
+
+  * /providers/Microsoft.Entra/roleAssignments/22222222-0000-0000-0000-000000000060 [Microsoft.Entra/roleAssignments] (orphan: retained)
+      (retained: no longer declared; still grants access (principalId '22222222-0000-0000-0000-000000000001', roleDefinitionId '88d8e3e3-8f55-4a1e-953a-9b9898b8876b', directoryScopeId '/'). Assignments are never removed: delete it yourself if the access should end.)
+
+Resource changes: 2 to create, 0 to modify, 0 to delete, 0 unchanged, 0 ignored.
+Edges: 0 to add, 0 to remove.
+Orphans: 1 live object(s) not declared in the template (reported only; never deleted).
+Required permissions: Directory.Read.All, Policy.Read.All, Policy.ReadWrite.ConditionalAccess, RoleManagement.ReadWrite.Directory.
+
+warning AssignmentRetained: '/providers/Microsoft.Entra/roleAssignments/22222222-0000-0000-0000-000000000060' (Graph id 22222222-0000-0000-0000-000000000060) is not declared by the template but still grants access (principalId '22222222-0000-0000-0000-000000000001', roleDefinitionId '88d8e3e3-8f55-4a1e-953a-9b9898b8876b', directoryScopeId '/'); EARM never removes it. Delete it yourself if the access should end.

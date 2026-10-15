@@ -226,9 +226,9 @@ public sealed class OutputWriterTests
         return new ResourceOperation(ResourceIdentifier.Create(Fixture.AppType, name), Fixture.AppType, 1, status, change, null, "G-" + name, error, error is null ? null : "ResourceApplyFailed", TimeSpan.FromMilliseconds(250));
     }
 
-    private static DeploymentResult Result(IReadOnlyList<ResourceOperation> operations, JsonObject? outputs = null, IReadOnlyList<Diagnostic>? diagnostics = null, string? secureFile = null, DeploymentStatus status = DeploymentStatus.Succeeded)
+    private static DeploymentResult Result(IReadOnlyList<ResourceOperation> operations, JsonObject? outputs = null, IReadOnlyList<Diagnostic>? diagnostics = null, string? secureFile = null, DeploymentStatus status = DeploymentStatus.Succeeded, IReadOnlyList<ResourceChange>? orphans = null)
     {
-        return new DeploymentResult("demo", status, operations, [], outputs ?? new JsonObject(), new JsonObject(), diagnostics ?? [], secureFile, TimeSpan.FromMilliseconds(2500));
+        return new DeploymentResult("demo", status, operations, [], outputs ?? new JsonObject(), new JsonObject(), diagnostics ?? [], secureFile, TimeSpan.FromMilliseconds(2500), orphans);
     }
 
     [Fact]
@@ -241,10 +241,9 @@ public sealed class OutputWriterTests
                 Op("failed", OperationStatus.Failed, error: "Graph 403 denied"),
                 Op("skipped", OperationStatus.Skipped),
                 Op("ignored", OperationStatus.Ignored),
-                Op("detached", OperationStatus.Detached),
-                Op("removed", OperationStatus.Succeeded, ChangeType.Delete),
             ],
-            status: DeploymentStatus.Failed);
+            status: DeploymentStatus.Failed,
+            orphans: [ResourceChange.OrphanRow(ResourceIdentifier.Create(Fixture.AppType, "legacy"), Fixture.AppType, "G-legacy", OrphanReason.Undeclared, "not declared in the template")]);
         using var stdout = new StringWriter();
         using var stderr = new StringWriter();
 
@@ -252,10 +251,17 @@ public sealed class OutputWriterTests
 
         string o = stdout.ToString();
         string e = stderr.ToString();
-        Assert.Contains("Deployment 'demo' Failed in 2.5 s: 2 succeeded, 1 failed, 1 skipped, 1 ignored, 1 detached, 1 deleted.", o, StringComparison.Ordinal);
+        Assert.Contains("Deployment 'demo' Failed in 2.5 s: 2 succeeded, 1 failed, 1 skipped, 1 ignored, 1 orphan(s) reported.", o, StringComparison.Ordinal);
         Assert.Contains("(Create)", o, StringComparison.Ordinal);
         Assert.Contains("(condition false)", o, StringComparison.Ordinal);
-        Assert.Contains("(not in template; detached from state)", o, StringComparison.Ordinal);
+        Assert.Contains("Not declared in the template (reported only; never deleted):", o, StringComparison.Ordinal);
+        Assert.Contains("* /providers/Microsoft.Entra/applications/legacy [Microsoft.Entra/applications] (orphan: undeclared) Graph id G-legacy", o, StringComparison.Ordinal);
+        var json = DeploymentResultWriter.ToJson(result);
+        Assert.False(json.ContainsKey("detached"));
+        Assert.False(json.ContainsKey("deleted"));
+        var orphan = Assert.Single(json["orphans"]!.AsArray())!;
+        Assert.Equal("undeclared", orphan["orphan"]!.GetValue<string>());
+        Assert.Equal("G-legacy", orphan["graphId"]!.GetValue<string>());
         Assert.Contains("(Skipped)", o, StringComparison.Ordinal);
         Assert.Contains("! /providers/Microsoft.Entra/applications/failed (Graph 403 denied)", e, StringComparison.Ordinal);
         Assert.DoesNotContain("failed (Graph", o, StringComparison.Ordinal);

@@ -268,29 +268,25 @@ public sealed class ConditionalAccessPoliciesProviderTests
     }
 
     [Fact]
-    public async Task CompleteMode_DeletesThePolicyBeforeTheLocation_AndSoDoesDeleteAll()
+    public async Task CompleteMode_DeletesNothing_AndDeploymentDelete_DeletesThePolicyBeforeTheLocation()
     {
         var host = new ProviderHost();
         var first = await host.CreateAsync(host.Resources(IpLocation() + ", " + Policy(LocationConditions, dependsOn: DependsOnLocation)));
         Check.Succeeded(first);
-        string locId = host.IdOf(LocPath, "displayName", LocName);
-        string polId = host.IdOf(PolPath, "displayName", PolName);
 
+        // Complete mode never deletes: a template that no longer declares the policy and the location leaves both in place.
         var complete = await host.CreateAsync(host.Resources(string.Empty), DeploymentMode.Complete);
 
         Check.Succeeded(complete);
-        var writes = complete.Writes;
-        Assert.Equal(2, writes.Count);
-        Assert.All(writes, w => Assert.Equal("DELETE", w.Method));
-        Assert.Equal(PolPath + "/" + polId, writes[0].Path);
-        Assert.Equal(LocPath + "/" + locId, writes[1].Path);
-        Assert.Equal(0, host.Directory.Count(PolPath));
-        Assert.Equal(0, host.Directory.Count(LocPath));
+        Check.NoWrites(complete);
+        Assert.Equal(1, host.Directory.Count(PolPath));
+        Assert.Equal(1, host.Directory.Count(LocPath));
 
         var other = new ProviderHost();
-        await other.CreateAsync(other.Resources(IpLocation() + ", " + Policy(LocationConditions, dependsOn: DependsOnLocation)));
+        var document = other.Resources(IpLocation() + ", " + Policy(LocationConditions, dependsOn: DependsOnLocation));
+        await other.CreateAsync(document);
         other.ClearRequests();
-        var deletion = await other.DeleteAllAsync();
+        var deletion = await other.DeleteDeclaredAsync(document);
         Assert.True(deletion.Succeeded);
         Assert.Equal(2, other.Fake.Writes.Count);
         Assert.StartsWith(PolPath + "/", other.Fake.Writes[0].Path, StringComparison.Ordinal);

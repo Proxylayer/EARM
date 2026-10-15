@@ -123,10 +123,10 @@ public sealed partial class Review4K_ExecutorTests
         Assert.Equal(StateFile.StatusFailed, (await StateOfAsync(host)).LastStatus);
     }
 
-    // ---- DE03: a cancelled run judges nothing in the mode pass ----
+    // ---- DE03: a cancelled run judges nothing (no orphan report), and Complete mode never deletes anyway ----
 
     [Fact]
-    public async Task ACancelledRun_NeverRunsTheModePass_SoNoOrphanIsDeleted()
+    public async Task ACancelledRun_DeletesNoUndeclaredObject()
     {
         var host = new ProviderHost();
         Check.Succeeded(await host.CreateAsync(host.Resources(Group("orphan"))));
@@ -145,75 +145,7 @@ public sealed partial class Review4K_ExecutorTests
     // ---- DE06 / DE07 / DE08 / DE25: recording what already happened never observes the cancelled token ----
 
     [Fact]
-    public async Task ADetachRecorded_JustAsTheRunIsCancelled_IsStillRecorded_AndTheRestIsLeftAlone()
-    {
-        var host = new ProviderHost();
-        Check.Succeeded(await host.CreateAsync(host.Resources(Group("orphan-a") + ", " + Group("orphan-b"))));
-        using var source = CancellationTokenSource.CreateLinkedTokenSource(Ct);
-        var logger = new HookLogger<DeploymentExecutor>(id =>
-        {
-            // The line "... detached from the state" is written right before the detach is recorded.
-            if (id.Id == 2041)
-            {
-                source.Cancel();
-            }
-        });
-        TokenStrictSink? strict = null;
-
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => ExecuteAsync(host, host.Resources(Group("keep")), logger: logger, token: source.Token, wrapSink: sink => strict = new TokenStrictSink(sink)));
-
-        Assert.Single(strict!.Calls, c => c.StartsWith("Detached:", StringComparison.Ordinal));
-        Assert.Contains("Completed:Cancelled", strict.Calls);
-        var state = await StateOfAsync(host);
-        Assert.Equal(1, new[] { "orphan-a", "orphan-b" }.Count(n => state.Find(GroupResourceId(n)) is not null));
-    }
-
-    [Fact]
-    public async Task ADeleteRecorded_JustAsTheRunIsCancelled_IsStillRecorded_AndTheNextOrphanIsNotDeleted()
-    {
-        var host = new ProviderHost();
-        Check.Succeeded(await host.CreateAsync(host.Resources(Group("orphan-a") + ", " + Group("orphan-b"))));
-        using var source = CancellationTokenSource.CreateLinkedTokenSource(Ct);
-        var hooked = new HookedGraphClient(host.Fake) { After = (method, _) => method == "DELETE" ? source.CancelAsync() : Task.CompletedTask };
-        TokenStrictSink? strict = null;
-
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => ExecuteAsync(host, host.Resources(Group("keep")), DeploymentMode.Complete, graph: hooked, token: source.Token, wrapSink: sink => strict = new TokenStrictSink(sink)));
-
-        Assert.Single(strict!.Calls, c => c.StartsWith("Deleted:", StringComparison.Ordinal));
-        Assert.Contains("Completed:Cancelled", strict.Calls);
-        Assert.Equal(1, host.Directory.Count("/groups") - 1);
-        var state = await StateOfAsync(host);
-        Assert.Equal(1, new[] { "orphan-a", "orphan-b" }.Count(n => state.Find(GroupResourceId(n)) is not null));
-    }
-
-    [Fact]
-    public async Task ADeleteFailureRecorded_JustAsTheRunIsCancelled_IsStillRecorded()
-    {
-        var host = new ProviderHost();
-        Check.Succeeded(await host.CreateAsync(host.Resources(Group("orphan-a"))));
-        using var source = CancellationTokenSource.CreateLinkedTokenSource(Ct);
-        var hooked = new HookedGraphClient(host.Fake)
-        {
-            Before = async (method, request) =>
-            {
-                if (method == "DELETE")
-                {
-                    await source.CancelAsync();
-                    throw new GraphException(HttpStatusCode.Forbidden, "Authorization_RequestDenied", "denied", request.Hint);
-                }
-            },
-        };
-        TokenStrictSink? strict = null;
-
-        var outcome = await ExecuteAsync(host, host.Resources(Group("keep")), DeploymentMode.Complete, graph: hooked, token: source.Token, wrapSink: sink => strict = new TokenStrictSink(sink));
-
-        Assert.Contains("DeleteFailed:" + GroupResourceId("orphan-a"), strict!.Calls);
-        Assert.Contains(outcome.Result.Operations, o => o.Status == OperationStatus.Failed && o.Id.Id == GroupResourceId("orphan-a"));
-        Assert.NotNull((await StateOfAsync(host)).Find(GroupResourceId("orphan-a")));
-    }
-
-    [Fact]
-    public async Task TheEdgesAddedBeforeACancellation_AreRecorded_WithoutTheCancelledToken()
+    public async Task TheEdgesAddedBeforeACancellation_StayAdded_AndTheFailureIsRecorded_WithoutTheCancelledToken()
     {
         var host = new ProviderHost();
         string first = host.Directory.AddGroup("team-a", "Team A")["id"]!.GetValue<string>();
@@ -226,12 +158,9 @@ public sealed partial class Review4K_ExecutorTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => ExecuteAsync(host, document, graph: hooked, token: source.Token, wrapSink: sink => strict = new TokenStrictSink(sink)));
 
         Assert.Equal(1, host.Directory.References("/groups/" + first + "/members").Count + host.Directory.References("/groups/" + second + "/members").Count);
-        Assert.Contains("EdgesApplied:" + DirectoryTemplates.AliceId, strict!.Calls);
-        Assert.Contains("EdgesFailed:" + DirectoryTemplates.AliceId, strict.Calls);
-        var recorded = (await StateOfAsync(host)).Find(DirectoryTemplates.AliceId)!.Relationships;
-        Assert.NotNull(recorded);
-        Assert.Single(recorded!["memberOf"]!.AsArray());
+        Assert.Contains("EdgesFailed:" + DirectoryTemplates.AliceId, strict!.Calls);
     }
+
     // ---- DE40: a row with validation errors records no edges ----
 
     [Fact]
@@ -266,90 +195,4 @@ public sealed partial class Review4K_ExecutorTests
         Assert.InRange(hooked.MaxInFlight, minObserved, maxObserved);
     }
 
-    // ---- DE12 / DE14 / DE15: what an orphan may not delete ----
-
-    [Fact]
-    public async Task AnOrphanThatIsTheSignedInPrincipal_IsAProtectedObject_AndAnErrorDiagnostic()
-    {
-        var host = new ProviderHost();
-        Check.Succeeded(await host.CreateAsync(host.Resources(Group("me"))));
-        string id = host.IdOf("/groups", "uniqueName", "me");
-        host.SignedInPrincipalId = id.ToUpperInvariant();
-
-        var run = await host.CreateAsync(host.Resources(Group("keep")), DeploymentMode.Complete);
-
-        Assert.NotNull(host.Directory.Find("/groups", "uniqueName", "me"));
-        Assert.DoesNotContain(run.Writes, w => w.Method == "DELETE");
-        var diagnostic = Assert.Single(run.Executed.Diagnostics, d => d.Code == EngineDiagnosticCodes.ProtectedObject);
-        Assert.True(diagnostic.IsError);
-        Assert.Contains(run.Executed.Operations, o => o.Id.Id == GroupResourceId("me") && o.Status == OperationStatus.Failed && o.ErrorCode == EngineDiagnosticCodes.ProtectedObject);
-    }
-
-    private static async Task<(ProviderHost Host, string KeepId)> HostWithStaleDuplicateAsync()
-    {
-        var host = new ProviderHost();
-        Check.Succeeded(await host.CreateAsync(host.Resources(Group("keep"))));
-        string keepId = host.IdOf("/groups", "uniqueName", "keep");
-
-        // A stale entry of another resource id points at the object "keep" owns.
-        var state = (await host.LoadStateAsync())!;
-        var keep = state.Find(GroupResourceId("keep"))!;
-        state.Upsert(keep with { Id = ResourceIdentifier.Create(GroupType, "old"), Key = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["uniqueName"] = "old" } });
-        await host.Store.SaveAsync(state, Ct);
-        return (host, keepId);
-    }
-
-    [Fact]
-    public async Task AnOrphanThatPointsAtAnObjectADeclaredResourceClaimedInThisRun_IsDetached_NotDeleted()
-    {
-        var (host, keepId) = await HostWithStaleDuplicateAsync();
-
-        var run = await host.CreateAsync(host.Resources(Group("keep")), DeploymentMode.Complete);
-
-        Check.Succeeded(run);
-        Assert.DoesNotContain(run.Writes, w => w.Method == "DELETE");
-        Assert.NotNull(host.Directory.Find("/groups", "uniqueName", "keep"));
-        var old = run.Executed.Operations.Single(o => o.Id.Id == GroupResourceId("old"));
-        Assert.Equal(OperationStatus.Detached, old.Status);
-        Assert.Contains(run.Executed.Diagnostics, d => d.Code == EngineDiagnosticCodes.OrphanSharesObject);
-        Assert.Null((await StateOfAsync(host)).Find(GroupResourceId("old")));
-        Assert.Equal(keepId, (await StateOfAsync(host)).Find(GroupResourceId("keep"))!.GraphId);
-    }
-
-    [Fact]
-    public async Task AnOrphanThatPointsAtAnObjectTheStatePinsForADeclaredResource_IsDetached_EvenWhenThatResourceWasSkipped()
-    {
-        var (host, keepId) = await HostWithStaleDuplicateAsync();
-
-        // "keep" depends on "bad", which fails: "keep" is skipped, never claims its object, but the state still pins it to "keep".
-        host.Fake.Failures.Forbid("uniqueName='bad'", "PATCH");
-        var document = host.Resources(App("bad") + ", " + Group("keep", extraResource: Templates.DependsOn(AppType, "bad")));
-
-        var run = await host.CreateAsync(document, DeploymentMode.Complete, continueOnError: true);
-
-        Assert.DoesNotContain(run.Writes, w => w.Method == "DELETE");
-        Assert.Equal(OperationStatus.Skipped, run.Executed.Operations.Single(o => o.Id.Id == GroupResourceId("keep")).Status);
-        var old = run.Executed.Operations.Single(o => o.Id.Id == GroupResourceId("old"));
-        Assert.Equal(OperationStatus.Detached, old.Status);
-        Assert.Contains(run.Executed.Diagnostics, d => d.Code == EngineDiagnosticCodes.OrphanSharesObject);
-        Assert.NotNull(host.Directory.Find("/groups", "uniqueName", "keep"));
-        Assert.Equal(keepId, (await StateOfAsync(host)).Find(GroupResourceId("keep"))!.GraphId);
-    }
-
-    // ---- DE49: the batch of a mode-pass operation ----
-
-    [Fact]
-    public async Task AModePassOperation_IsNumberedAfterTheLastBatch()
-    {
-        var host = new ProviderHost();
-        Check.Succeeded(await host.CreateAsync(host.Resources(Group("orphan"))));
-
-        var run = await host.CreateAsync(host.Resources(Group("keep")), DeploymentMode.Complete);
-
-        Check.Succeeded(run);
-        var deleted = run.Executed.Operations.Single(o => o.Id.Id == GroupResourceId("orphan"));
-        Assert.Equal(OperationStatus.Succeeded, deleted.Status);
-        Assert.Equal(run.Plan.Batches.Count + 1, deleted.Batch);
-        Assert.All(run.Executed.Operations.Where(o => o.Id.Id != GroupResourceId("orphan")), o => Assert.True(o.Batch <= run.Plan.Batches.Count));
-    }
 }

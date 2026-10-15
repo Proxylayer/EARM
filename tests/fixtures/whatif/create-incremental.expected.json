@@ -126,6 +126,7 @@
     "noChange": 0,
     "ignore": 1,
     "unsupported": 0,
+    "orphans": 0,
     "edges": {
       "add": 3,
       "remove": 0

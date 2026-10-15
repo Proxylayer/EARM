@@ -180,47 +180,13 @@ public sealed class DeploymentCommandTests
         Assert.Equal(0, table.ExitCode);
         Assert.Contains("Deployment 'named' (Incremental) on tenant " + CliSandbox.Tenant, table.StandardOutput);
         Assert.Contains("Resource changes: 0 to create, 0 to modify, 0 to delete, 0 unchanged, 0 ignored.", table.StandardOutput);
-        Assert.Contains("The template declares no resources and the state records none.", table.StandardOutput);
+        Assert.Contains("The template declares no resources.", table.StandardOutput);
 
         Assert.False(File.Exists(sandbox.StatePath("empty")), "what-if never writes a state");
         Assert.False(File.Exists(sandbox.LockPath("empty")), "what-if never locks");
         // Per run: one GET /organization (the preflight; it also feeds tenant()); what-if never writes.
         Assert.Equal(2, sandbox.RecordedCommands().Count);
         Assert.All(sandbox.RecordedCommands(), c => Assert.StartsWith("GET ", c, StringComparison.Ordinal));
-    }
-
-    [Fact]
-    public async Task WhatIf_OrphanedStateEntry_IsIgnoreRowInIncremental_AndDeleteRowInComplete()
-    {
-        using var sandbox = new CliSandbox(nameof(WhatIf_OrphanedStateEntry_IsIgnoreRowInIncremental_AndDeleteRowInComplete));
-        sandbox.UsePreflightOk(extraResponses: GroupResponses);
-        string template = sandbox.WriteEmptyTemplate();
-        await sandbox.WriteStateAsync(OrphanState("empty"));
-
-        var incremental = await CliRunner.RunAsync(Args(sandbox, "deployment", "what-if", "-f", template, "-o", "json", "--exit-code-on-changes"));
-        sandbox.UsePreflightOk(extraResponses: GroupResponses);
-        var complete = await CliRunner.RunAsync(Args(sandbox, "deployment", "what-if", "-f", template, "-o", "json", "--mode", "Complete", "--exit-code-on-changes"));
-        sandbox.UsePreflightOk(extraResponses: GroupResponses);
-        var completeText = await CliRunner.RunAsync(Args(sandbox, "deployment", "what-if", "-f", template, "--mode", "Complete"));
-
-        Assert.Equal(0, incremental.ExitCode);
-        var ignore = Assert.Single(incremental.Json["changes"]!.AsArray());
-        Assert.Equal("/providers/Microsoft.Entra/groups/old-group", ignore!["resourceId"]!.GetValue<string>());
-        Assert.Equal("Ignore", ignore["changeType"]!.GetValue<string>());
-        Assert.Contains(ModePass.DetachReasonWhatIf, ignore["reasons"]!.AsArray().Select(r => r!.GetValue<string>()));
-        Assert.Contains(incremental.Diagnostics, d => d!["code"]!.GetValue<string>() == EngineDiagnosticCodes.ResourceDetached && d["level"]!.GetValue<string>() == "Warning");
-        Assert.Equal(1, incremental.Json["summary"]!["ignore"]!.GetValue<int>());
-
-        Assert.Equal(5, complete.ExitCode);
-        var delete = Assert.Single(complete.Json["changes"]!.AsArray());
-        Assert.Equal("Delete", delete!["changeType"]!.GetValue<string>());
-        Assert.Equal(1, complete.Json["summary"]!["delete"]!.GetValue<int>());
-        Assert.Equal("Complete", complete.Json["mode"]!.GetValue<string>());
-
-        Assert.Equal(0, completeText.ExitCode);
-        Assert.Contains("  - /providers/Microsoft.Entra/groups/old-group", completeText.StandardOutput);
-        Assert.True(File.Exists(sandbox.StatePath("empty")), "what-if leaves the state alone");
-        Assert.Single(JsonNode.Parse(await File.ReadAllTextAsync(sandbox.StatePath("empty"), Ct))!["resources"]!.AsObject());
     }
 
     // ---- create ----
@@ -375,28 +341,6 @@ public sealed class DeploymentCommandTests
         Assert.False(File.Exists(sandbox.LockPath("empty")));
     }
 
-    [Fact]
-    public async Task Create_Incremental_DetachesOrphanedEntries()
-    {
-        using var sandbox = new CliSandbox(nameof(Create_Incremental_DetachesOrphanedEntries));
-        sandbox.UsePreflightOk();
-        string template = sandbox.WriteEmptyTemplate();
-        await sandbox.WriteStateAsync(OrphanState("empty"));
-
-        var result = await CliRunner.RunAsync(Args(sandbox, "deployment", "create", "-f", template, "-y", "-o", "json"));
-
-        Assert.Equal(0, result.ExitCode);
-        Assert.Equal("Succeeded", result.Json["status"]!.GetValue<string>());
-        Assert.Equal(1, result.Json["detached"]!.GetValue<int>());
-        var operation = Assert.Single(result.Json["operations"]!.AsArray());
-        Assert.Equal("Detached", operation!["status"]!.GetValue<string>());
-        Assert.Contains(result.Json["diagnostics"]!.AsArray(), d => d!["code"]!.GetValue<string>() == EngineDiagnosticCodes.ResourceDetached);
-        var state = JsonNode.Parse(await File.ReadAllTextAsync(sandbox.StatePath("empty"), Ct))!.AsObject();
-        Assert.Empty(state["resources"]!.AsObject());
-        Assert.Equal("Succeeded", state["lastStatus"]!.GetValue<string>());
-        Assert.Single(state["operations"]!.AsArray());
-    }
-
     // ---- state directory resolution ----
 
     [Fact]
@@ -441,7 +385,7 @@ public sealed class DeploymentCommandTests
             },
             {
                 new[] { "deployment", "delete", "--help" },
-                new[] { "--name", "--template-file", "--yes", "--delete-resources", "--force-unlock", "--continue-on-error", "--state-dir" }
+                new[] { "--template-file", "--parameters", "--name", "--parallelism", "--yes", "--continue-on-error", "--state-dir" }
             },
             {
                 new[] { "deployment", "show", "--help" },

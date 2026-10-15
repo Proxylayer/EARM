@@ -65,7 +65,7 @@ public sealed class ConditionalAccessScenarioTests : IntegrationTestBase
         Assert.Contains("192.0.2.0/24", updatedRanges);
         Assert.DoesNotContain("203.0.113.0/24", updatedRanges);
 
-        AssertExit(0, await Fixture.Cli.DeleteAllAsync(run.Name, Ct), "delete --delete-resources");
+        AssertExit(0, await Fixture.Cli.DeleteAllAsync(changed, Ct), "deployment delete");
         Assert.Null(await FindOneAsync(NamedLocations, "displayName", ipName));
         Assert.Null(await FindOneAsync(NamedLocations, "displayName", countryName));
     }
@@ -112,13 +112,13 @@ public sealed class ConditionalAccessScenarioTests : IntegrationTestBase
         Assert.Contains("--allow-ca-enforce", refused.Combined, StringComparison.Ordinal);
         Assert.Equal("enabledForReportingButNotEnforced", (await FindOneAsync(Policies, "displayName", policyName))!.Text("state"));
 
-        AssertExit(0, await Fixture.Cli.DeleteAllAsync(run.Name, Ct), "delete --delete-resources");
+        AssertExit(0, await Fixture.Cli.DeleteAllAsync(run, Ct), "deployment delete");
         Assert.Null(await FindOneAsync(Policies, "displayName", policyName));
         Assert.Null(await FindOneAsync(NamedLocations, "displayName", Fixture.Name("ca-loc")));
     }
 
     [Fact]
-    public async Task It_ConditionalAccess_StrengthAndContextLifecycleWithCompleteModeDeleteOrder()
+    public async Task It_ConditionalAccess_StrengthAndContextLifecycleWithDeleteOrder()
     {
         Fixture.Require(Needs.ConditionalAccess);
         string contextId = await Fixture.AllocateContextIdAsync(Ct);
@@ -156,13 +156,13 @@ public sealed class ConditionalAccessScenarioTests : IntegrationTestBase
         Assert.Equal(["fido2"], (await FindOneAsync(Strengths, "displayName", strengthName))!.Strings("allowedCombinations").ToArray());
         AssertNoChanges(await Fixture.Cli.WhatIfAsync(narrowed, Ct, "--exit-code-on-changes"), "what-if after the lifecycle");
 
-        // Complete mode with nothing declared: the policy must go before the strength and the context it references.
-        var emptyRun = narrowed.WithTemplate(TemplateEditor.Write(Path.Combine(Fixture.ScratchDirectory, "variants"), "castrength-empty.entra.json", TemplateEditor.Empty(TemplateEditor.Load(run.TemplateFile))));
-        var complete = await Fixture.Cli.CreateAsync(emptyRun, Ct, "--mode", "Complete");
-        AssertCreated(complete, "Complete with an empty template");
+        // deployment delete: the policy must go before the strength and the context it references.
+        var deleted = await Fixture.Cli.DeleteAllAsync(narrowed, Ct);
+        AssertExit(0, deleted, "deployment delete");
 
-        var deleteOrder = complete.Operations
-            .Where(o => (string?)o["changeType"] == "Delete")
+        var deleteOrder = (deleted.Json["outcomes"]?.AsArray() ?? [])
+            .OfType<JsonObject>()
+            .Where(o => (string?)o["status"] == "Deleted")
             .Select(o => (string?)o["resourceId"] ?? string.Empty)
             .ToList();
         int policyIndex = deleteOrder.FindIndex(id => id.EndsWith("/policies/" + policyName, StringComparison.OrdinalIgnoreCase));

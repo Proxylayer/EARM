@@ -10,7 +10,6 @@ using EArm.Core.Json;
 using EArm.Core.Types;
 using EArm.Engine.Planning;
 using EArm.Engine.Providers;
-using EArm.Engine.State;
 using EArm.Expressions;
 using EArm.Expressions.Values;
 using GraphApi = EArm.Graph.GraphApi;
@@ -25,8 +24,9 @@ namespace EArm.Engine.Edges;
 /// <list type="bullet">
 /// <item>a target-side property (<c>members</c>, <c>owners</c>) is the authoritative set for that target: live
 /// edges not declared (on either side) are removed;</item>
-/// <item>a principal-side property (<c>memberOf</c>, <c>ownerOf</c>, <c>administrativeUnits</c>) ensures its edges
-/// exist and removes only the edges the state records for that principal and that are no longer declared;</item>
+/// <item>a principal-side property (<c>memberOf</c>, <c>ownerOf</c>, <c>administrativeUnits</c>) is ensure-only: it adds
+/// the declared edges that are missing and never removes anything (undeclaring an edge leaves it in place; a target-side
+/// declaration of the same target still prunes it);</item>
 /// <item><c>manager</c> is single-valued: a value replaces, <c>null</c> removes, absent leaves it untouched.</item>
 /// </list>
 /// Validation errors (dynamic targets, invalid ids, placeholders at create time, conflicting extras) are attached
@@ -37,7 +37,6 @@ public sealed class EdgePlanner
     private readonly DeploymentPlan _plan;
     private readonly EdgeGraphContext _context;
     private readonly EdgeKindRegistry _kinds;
-    private readonly StateFile? _state;
     private readonly PlanMode _mode;
     private readonly IReadOnlySet<string> _createdGraphIds;
     private readonly IReadOnlyList<ResourceInstance> _unreliableDeclarers;
@@ -52,24 +51,20 @@ public sealed class EdgePlanner
     /// declarations (<c>memberOf</c>, <c>ownerOf</c>, <c>administrativeUnits</c>) are unknown, so a target-side set such a resource could belong to is never pruned
     /// (adds still happen). Without this, one failed principal under <c>--continue-on-error</c> would have its live memberships and ownerships removed.
     /// </param>
-    public EdgePlanner(DeploymentPlan plan, EdgeGraphContext context, StateFile? state, PlanMode mode, IReadOnlySet<string>? createdGraphIds = null, IReadOnlyList<ResourceInstance>? unreliableDeclarers = null)
+    public EdgePlanner(DeploymentPlan plan, EdgeGraphContext context, PlanMode mode, IReadOnlySet<string>? createdGraphIds = null, IReadOnlyList<ResourceInstance>? unreliableDeclarers = null)
     {
         ArgumentNullException.ThrowIfNull(plan);
         ArgumentNullException.ThrowIfNull(context);
         _plan = plan;
         _context = context;
         _kinds = plan.EdgeKinds;
-        _state = state;
         _mode = mode;
         _createdGraphIds = createdGraphIds ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         _unreliableDeclarers = unreliableDeclarers ?? [];
     }
 
-    /// <summary>
-    /// True when the instance takes part in the edge pass: it declares a relationship property of an edge kind, or
-    /// the state records edges for it (which may have to be removed).
-    /// </summary>
-    public static bool DeclaresEdges(ResourceInstance instance, StateFile? state)
+    /// <summary>True when the instance takes part in the edge pass: it declares a relationship property of an edge kind.</summary>
+    public static bool DeclaresEdges(ResourceInstance instance)
     {
         ArgumentNullException.ThrowIfNull(instance);
         if (instance.Declaration.Properties is JsonObject properties)
@@ -83,7 +78,7 @@ public sealed class EdgePlanner
             }
         }
 
-        return !instance.IsSymbolic && state?.Find(instance.Id.Id)?.Relationships is { Count: > 0 };
+        return false;
     }
 
     public async Task<EdgePlan> PlanAsync(IReadOnlyList<ResourceInstance> candidates, CancellationToken cancellationToken)
@@ -118,7 +113,7 @@ public sealed class EdgePlanner
                 }
                 else if (property.Spec.Side == RelationshipSide.Principal)
                 {
-                    await PlanPrincipalSideAsync(row, property, authoritative, cancellationToken).ConfigureAwait(false);
+                    await PlanPrincipalSideAsync(row, property, cancellationToken).ConfigureAwait(false);
                 }
                 else if (row.SelfId is null)
                 {
@@ -150,66 +145,40 @@ public sealed class EdgePlanner
             return null;
         }
 
-        var recorded = _state?.Find(instance.Id.Id)?.Relationships;
         bool declaresAny = instance.Declaration.Properties is JsonObject raw && specs.Any(s => JsonObjects.TryGetIgnoreCase(raw, s.Property, out _));
-        if (!declaresAny && recorded is null)
+        if (!declaresAny)
         {
             return null;
         }
 
         var row = new EdgeRow(instance) { SelfId = GraphIdOf(instance) };
         var evaluated = new JsonObject();
-        if (declaresAny)
+        try
         {
-            try
-            {
-                evaluated = Evaluate(instance);
-            }
-            catch (ExpressionException ex)
-            {
-                row.Errors.Add($"{instance.Describe()}: {ex.MessageWithOffset}");
-            }
+            evaluated = Evaluate(instance);
+        }
+        catch (ExpressionException ex)
+        {
+            row.Errors.Add($"{instance.Describe()}: {ex.MessageWithOffset}");
         }
 
         foreach (var spec in specs)
         {
             EdgeKinds.TryFromRelationship(spec.Kind, out var kind);
             bool declared = JsonObjects.TryGetIgnoreCase(evaluated, spec.Property, out var value);
-            JsonObjects.TryGetIgnoreCase(recorded, spec.Property, out var previous);
-            if (!declared && previous is null)
+            if (!declared)
             {
                 continue;
             }
 
             if (!_kinds.TryGet(kind, out var handler))
             {
-                if (declared)
-                {
-                    _diagnostics.Add(Diagnostic.Warning(EngineDiagnosticCodes.EdgeKindNotSupported, $"{instance.Describe()}: properties.{spec.Property} ({kind}) is not applied by this version of the executor; the property was ignored.", instance.Declaration.Path.Append("properties").Append(spec.Property)));
-                }
-
+                _diagnostics.Add(Diagnostic.Warning(EngineDiagnosticCodes.EdgeKindNotSupported, $"{instance.Describe()}: properties.{spec.Property} ({kind}) is not applied by this version of the executor; the property was ignored.", instance.Declaration.Path.Append("properties").Append(spec.Property)));
                 continue;
             }
 
-            var property = new EdgePropertyPlan(spec, handler, declared);
+            var property = new EdgePropertyPlan(spec, handler, isDeclared: true);
             row.Properties[spec.Property] = property;
-
-            if (previous is not null)
-            {
-                foreach (var record in previous is JsonArray records ? records.ToList() : [previous])
-                {
-                    property.PreviousRecords.Add(record);
-                    if (row.SelfId is not null && await handler.FromRecordAsync(record, row.SelfId, instance.Api, _context, cancellationToken).ConfigureAwait(false) is { } edge)
-                    {
-                        property.PreviouslyRecorded.Add(edge);
-                    }
-                }
-            }
-
-            if (!declared)
-            {
-                continue;
-            }
 
             var basePath = JsonPath.Of("properties", spec.Property);
             if (handler.IsSingleValued)
@@ -537,7 +506,11 @@ public sealed class EdgePlanner
 
     // ---- principal side ----
 
-    private async Task PlanPrincipalSideAsync(EdgeRow row, EdgePropertyPlan property, Dictionary<string, AuthoritativeSet> sets, CancellationToken cancellationToken)
+    /// <summary>
+    /// A principal-side property is ensure-only: every declared edge that is missing is added; nothing is ever removed from the principal's side (an edge
+    /// that is no longer declared stays, unless a target-side declaration of that target prunes it).
+    /// </summary>
+    private async Task PlanPrincipalSideAsync(EdgeRow row, EdgePropertyPlan property, CancellationToken cancellationToken)
     {
         var handler = property.Handler;
         var api = row.Declarer.Api;
@@ -550,7 +523,7 @@ public sealed class EdgePlanner
 
         if (row.SelfId is null)
         {
-            // The principal does not exist yet (what-if create): every declared edge is an add; nothing is recorded yet.
+            // The principal does not exist yet (what-if create): every declared edge is an add.
             foreach (var declaration in property.Declarations)
             {
                 property.Children.Add(EdgeRow.CreateChild(declaration));
@@ -560,7 +533,6 @@ public sealed class EdgePlanner
         }
 
         EdgePrincipalState? principal = null;
-        var declaredTargets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var declaration in property.Declarations)
         {
             if (declaration.IsUnknown)
@@ -569,7 +541,6 @@ public sealed class EdgePlanner
                 continue;
             }
 
-            declaredTargets.Add(Edge.NormalizeId(declaration.OtherId!));
             if (declaration.GovernedByTarget)
             {
                 continue;
@@ -597,37 +568,6 @@ public sealed class EdgePlanner
             declaration.TargetCollection ??= target.Collection;
             AddOperation(declaration.Edge!, EdgeAction.Add, handler, api, null, [row]);
             property.Children.Add(EdgeRow.CreateChild(declaration));
-        }
-
-        // Edges this deployment recorded for the principal and that are no longer declared.
-        foreach (var recorded in property.PreviouslyRecorded)
-        {
-            string targetKey = Edge.NormalizeId(recorded.TargetId);
-            if (declaredTargets.Contains(targetKey))
-            {
-                continue;
-            }
-
-            if (sets.TryGetValue(SetKey(handler.Kind, recorded.TargetId), out var set) && set.Desired.ContainsKey(Edge.NormalizeId(row.SelfId)))
-            {
-                // Still desired from the target's side: the authoritative set governs it.
-                continue;
-            }
-
-            principal ??= await ReadPrincipalAsync(handler, row.SelfId, row.Declarer.Type, api, cancellationToken).ConfigureAwait(false);
-            if (!principal.Edges.TryGetValue(targetKey, out var liveExtra))
-            {
-                // Already gone: nothing to remove, nothing left to record.
-                property.GoneRecorded.Add(handler.IdentityOf(recorded));
-                continue;
-            }
-
-            var operation = AddOperation(recorded, EdgeAction.Remove, handler, api, liveExtra, [row]);
-            property.Children.Add(EdgeRow.DeleteChild(recorded.TargetId));
-            if (operation is not null && handler.WarnOnSignedInPrincipalRemoval)
-            {
-                await WarnIfSignedInPrincipalAsync(operation, row, api, cancellationToken).ConfigureAwait(false);
-            }
         }
     }
 

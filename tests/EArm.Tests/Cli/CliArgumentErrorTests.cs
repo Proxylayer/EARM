@@ -129,18 +129,18 @@ public sealed class CliArgumentErrorTests
     }
 
     [Fact]
-    public async Task DeploymentDelete_WithoutAName_OrOfAGhost_ExitsOne_AndTheOutputSwitchIsRejectedWhenUnknown()
+    public async Task DeploymentDelete_WithoutATemplate_OrOfAMissingOne_ExitsOne_AndTheOutputSwitchIsRejectedWhenUnknown()
     {
-        using var sandbox = new CliSandbox(nameof(DeploymentDelete_WithoutAName_OrOfAGhost_ExitsOne_AndTheOutputSwitchIsRejectedWhenUnknown));
+        using var sandbox = new CliSandbox(nameof(DeploymentDelete_WithoutATemplate_OrOfAMissingOne_ExitsOne_AndTheOutputSwitchIsRejectedWhenUnknown));
 
-        var noName = await CliRunner.RunAsync("deployment", "delete", "--state-dir", sandbox.StateDir, "-y");
-        var ghost = await CliRunner.RunAsync("deployment", "delete", "-n", "ghost", "--state-dir", sandbox.StateDir, "-y");
+        var noTemplate = await CliRunner.RunAsync("deployment", "delete", "-n", "dep", "-y");
+        var ghost = await CliRunner.RunAsync("deployment", "delete", "-f", Path.Combine(sandbox.Root, "ghost.entra.json"), "-y");
         var badOutput = await CliRunner.RunAsync("deployment", "list", "--state-dir", sandbox.StateDir, "-o", "xml");
 
-        Assert.Equal(1, noName.ExitCode);
-        Assert.Contains("--name", noName.StandardError, StringComparison.Ordinal);
+        Assert.Equal(1, noTemplate.ExitCode);
+        Assert.Contains("--template-file", noTemplate.StandardError, StringComparison.Ordinal);
         Assert.Equal(1, ghost.ExitCode);
-        Assert.Contains("No deployment named 'ghost'", ghost.StandardError, StringComparison.Ordinal);
+        Assert.Contains("ghost.entra.json", ghost.StandardError + ghost.StandardOutput, StringComparison.Ordinal);
         Assert.Equal(1, badOutput.ExitCode);
         Assert.Contains("xml", badOutput.StandardError, StringComparison.Ordinal);
     }

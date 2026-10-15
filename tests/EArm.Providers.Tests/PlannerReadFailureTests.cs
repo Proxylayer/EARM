@@ -37,38 +37,6 @@ public sealed class PlannerReadFailureTests
     }
 
     [Fact]
-    public async Task ACompleteModeOrphanThatCannotBeRead_IsAnUnsupportedDeleteRow_NotAnAbort()
-    {
-        var host = new ProviderHost();
-        Check.Succeeded(await host.CreateAsync(host.Resources(Group())));
-        host.Fake.Failures.Forbid("/groups", "GET");
-
-        var whatIf = await host.WhatIfAsync(host.Resources(string.Empty), DeploymentMode.Complete);
-
-        var row = Assert.Single(whatIf.Plan.Changes, c => c.Type == ChangeType.Delete);
-        Assert.True(row.HasError);
-        Assert.Contains("could not be read", row.UnsupportedReason, StringComparison.Ordinal);
-        Check.NoWrites(whatIf);
-    }
-
-    [Fact]
-    public async Task AnOrphanThatNoLongerExistsInTheTenant_IsDetachedNotDeleted_AndAnIncrementalOrphanIsKept()
-    {
-        var host = new ProviderHost();
-        Check.Succeeded(await host.CreateAsync(host.Resources(Group())));
-        await host.Fake.DeleteAsync(new EArm.Graph.GraphRequest("/groups/" + host.IdOf("/groups", "uniqueName", "test-admins")), ProviderHost.Ct);
-
-        var complete = await host.WhatIfAsync(host.Resources(string.Empty), DeploymentMode.Complete);
-        var incremental = await host.WhatIfAsync(host.Resources(string.Empty), DeploymentMode.Incremental);
-
-        var gone = Assert.Single(complete.Plan.Changes);
-        Assert.Equal(ChangeType.Ignore, gone.Type);
-        Assert.Contains("no longer in the tenant", string.Join(";", gone.Reasons), StringComparison.Ordinal);
-        Assert.Contains(incremental.Plan.Diagnostics, d => d.Code == EngineDiagnosticCodes.ResourceDetached);
-        Check.NoWrites(complete);
-    }
-
-    [Fact]
     public async Task AnExistingResourceLookup_ThatFails_LeavesTheReferenceUnresolved_WithAnExplanation()
     {
         var host = new ProviderHost();

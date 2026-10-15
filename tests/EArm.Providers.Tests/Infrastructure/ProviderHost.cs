@@ -220,11 +220,12 @@ internal sealed class ProviderHost
         return new Run(plan, result, state, RequestsSince(before));
     }
 
-    /// <summary><c>deployment delete --delete-resources</c> over the recorded state.</summary>
-    public async Task<DeploymentDeleteResult> DeleteAllAsync(bool deleteAdopted = false)
+    /// <summary><c>deployment delete</c>: the objects <paramref name="document"/> declares, found by key, deleted in reverse dependency order.</summary>
+    public async Task<TemplateDeleteResult> DeleteDeclaredAsync(TemplateDocument document, bool continueOnError = false)
     {
-        var state = await LoadStateAsync() ?? throw new InvalidOperationException("No state recorded.");
-        return await DeploymentDeleter.DeleteAllAsync(state, Store, Registry, Fake, UseRetry ? Retry : null, false, new DeleteGuard { DeleteAdopted = deleteAdopted }, Logs.For<DeploymentExecutor>(), Ct);
+        var plan = await Planner().PlanAsync(document, null, DeploymentMode.Incremental, PlanMode.WhatIf, Ct);
+        var targets = TemplateDeleter.FindDeclaredObjects(plan);
+        return await new TemplateDeleter(Registry, Fake, Logs.For<TemplateDeleter>()).DeleteAsync(plan, targets, continueOnError, Ct);
     }
 
     // ---- state and directory helpers ----

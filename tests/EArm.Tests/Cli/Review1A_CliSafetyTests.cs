@@ -92,169 +92,35 @@ public sealed class Review1A_CliSafetyTests
         return sandbox.RecordedCommands().Count(c => c.StartsWith("DELETE ", StringComparison.Ordinal));
     }
 
-    // ---- I-06: Complete-mode blast radius ----
+    // ---- Complete mode never deletes (it replaced the I-06 blast-radius limits) ----
 
     [Fact]
-    public async Task Complete_ATemplateWithoutResources_AndANonEmptyState_NeedsAllowDeleteAll_EvenWithYes()
+    public async Task Complete_WithAnEmptyTemplate_AndANonEmptyState_DeletesNothing_AndNeedsNoFlag()
     {
-        using var sandbox = new CliSandbox(nameof(Complete_ATemplateWithoutResources_AndANonEmptyState_NeedsAllowDeleteAll_EvenWithYes));
-        sandbox.UsePreflightOk(extraResponses: Get("/groups", "g1", Id('a', 1)) + "," + Delete("/groups", Id('a', 1)));
+        using var sandbox = new CliSandbox(nameof(Complete_WithAnEmptyTemplate_AndANonEmptyState_DeletesNothing_AndNeedsNoFlag));
+        sandbox.UsePreflightOk();
         string template = sandbox.WriteEmptyTemplate("wipe.entra.json");
         await SeedAsync(sandbox, "wipe", GroupEntry("g1", Id('a', 1)));
 
-        var result = await CliRunner.RunAsync(Args(sandbox, "deployment", "create", "-f", template, "--mode", "Complete", "-y"));
-
-        Assert.Equal(1, result.ExitCode);
-        Assert.Contains("--allow-delete-all", result.StandardError, StringComparison.Ordinal);
-        Assert.Contains("declares no resources", result.StandardError, StringComparison.Ordinal);
-        Assert.Contains("Deployment not started.", result.StandardError, StringComparison.Ordinal);
-        Assert.Equal(0, Deletes(sandbox));
-        var state = (await sandbox.Store.LoadAsync("wipe", Ct))!;
-        Assert.Single(state.Resources);
-        Assert.Equal(StateFile.StatusSucceeded, state.LastStatus);
-        Assert.False(File.Exists(sandbox.LockPath("wipe")));
-    }
-
-    [Fact]
-    public async Task Complete_WithAllowDeleteAll_AndYes_DeletesTheOrphans()
-    {
-        using var sandbox = new CliSandbox(nameof(Complete_WithAllowDeleteAll_AndYes_DeletesTheOrphans));
-        sandbox.UsePreflightOk(extraResponses: Get("/groups", "g1", Id('a', 1)) + "," + Delete("/groups", Id('a', 1)));
-        string template = sandbox.WriteEmptyTemplate("wipe.entra.json");
-        await SeedAsync(sandbox, "wipe", GroupEntry("g1", Id('a', 1)));
-
-        var result = await CliRunner.RunAsync(Args(sandbox, "deployment", "create", "-f", template, "--mode", "Complete", "-y", "--allow-delete-all", "-o", "json"));
+        var result = await CliRunner.RunAsync(Args(sandbox, "deployment", "create", "-f", template, "--mode", "Complete", "-y", "-o", "json"));
 
         Assert.Equal(0, result.ExitCode);
-        Assert.Equal(1, Deletes(sandbox));
-        Assert.Equal(1, result.Json["deleted"]!.GetValue<int>());
-        Assert.Empty((await sandbox.Store.LoadAsync("wipe", Ct))!.Resources);
-    }
-
-    [Fact]
-    public async Task Complete_MoreDeletesThanMaxDeletes_NeedsAllowDeleteAll_AndTheLimitIsInclusive()
-    {
-        using var sandbox = new CliSandbox(nameof(Complete_MoreDeletesThanMaxDeletes_NeedsAllowDeleteAll_AndTheLimitIsInclusive));
-        string template = KeepTemplate(sandbox);
-        await SeedAsync(sandbox, "keep", GroupEntry("g1", Id('a', 1)), GroupEntry("g2", Id('a', 2)), GroupEntry("g3", Id('a', 3)));
-        sandbox.UsePreflightOk();
-
-        var refused = await CliRunner.RunAsync(Args(sandbox, "deployment", "create", "-f", template, "--mode", "Complete", "-y", "--max-deletes", "2"));
-
-        Assert.Equal(1, refused.ExitCode);
-        Assert.Contains("3 object(s), more than --max-deletes 2", refused.StandardError, StringComparison.Ordinal);
         Assert.Equal(0, Deletes(sandbox));
-
-        sandbox.UsePreflightOk(extraResponses: string.Join(",", new[] { 1, 2, 3 }.Select(n => Get("/groups", "g" + n, Id('a', n)) + "," + Delete("/groups", Id('a', n)))));
-        var atTheLimit = await CliRunner.RunAsync(Args(sandbox, "deployment", "create", "-f", template, "--mode", "Complete", "-y", "--max-deletes", "3", "-o", "json"));
-
-        Assert.Equal(0, atTheLimit.ExitCode);
-        Assert.Equal(3, atTheLimit.Json["deleted"]!.GetValue<int>());
+        Assert.Empty(result.Json["orphans"]!.AsArray());
+        Assert.False(result.Json.ContainsKey("deleted"));
     }
 
-    [Fact]
-    public async Task Complete_AdoptedEntries_DoNotCountTowardsMaxDeletes_AndAreNeverDeletedByDefault()
+    [Theory]
+    [InlineData("--max-deletes", "3")]
+    [InlineData("--allow-delete-all", null)]
+    [InlineData("--delete-adopted", null)]
+    public void TheRemovedDeleteFlags_AreUnknownOptions(string flag, string? value)
     {
-        using var sandbox = new CliSandbox(nameof(Complete_AdoptedEntries_DoNotCountTowardsMaxDeletes_AndAreNeverDeletedByDefault));
-        string template = KeepTemplate(sandbox);
-        await SeedAsync(sandbox, "keep", GroupEntry("g1", Id('a', 1), StateProvenance.Adopted), GroupEntry("g2", Id('a', 2), StateProvenance.Adopted), GroupEntry("g3", Id('a', 3)));
-        sandbox.UsePreflightOk(extraResponses: Get("/groups", "g3", Id('a', 3)) + "," + Delete("/groups", Id('a', 3)));
+        string[] args = value is null ? ["deployment", "create", "-f", "t.json", flag] : ["deployment", "create", "-f", "t.json", flag, value];
 
-        var result = await CliRunner.RunAsync(Args(sandbox, "deployment", "create", "-f", template, "--mode", "Complete", "-y", "--max-deletes", "1", "-o", "json"));
+        var parse = Program.BuildRootCommand().Parse(args);
 
-        Assert.Equal(0, result.ExitCode);
-        Assert.Equal(1, Deletes(sandbox));
-        Assert.Equal(2, result.Diagnostics.Count(d => d!["code"]!.GetValue<string>() == EngineDiagnosticCodes.AdoptedObjectNotDeleted));
-        var state = (await sandbox.Store.LoadAsync("keep", Ct))!;
-        Assert.Equal(2, state.Resources.Count);
-        Assert.All(state.Resources.Values, e => Assert.Equal(StateProvenance.Adopted, e.Provenance));
-    }
-
-    [Fact]
-    public async Task Complete_DeleteAdopted_DeletesTheAdoptedEntriesToo()
-    {
-        using var sandbox = new CliSandbox(nameof(Complete_DeleteAdopted_DeletesTheAdoptedEntriesToo));
-        string template = KeepTemplate(sandbox);
-        await SeedAsync(sandbox, "keep", GroupEntry("g1", Id('a', 1), StateProvenance.Adopted));
-        sandbox.UsePreflightOk(extraResponses: Get("/groups", "g1", Id('a', 1)) + "," + Delete("/groups", Id('a', 1)));
-
-        var result = await CliRunner.RunAsync(Args(sandbox, "deployment", "create", "-f", template, "--mode", "Complete", "-y", "--delete-adopted", "-o", "json"));
-
-        Assert.Equal(0, result.ExitCode);
-        Assert.Equal(1, Deletes(sandbox));
-        Assert.Empty((await sandbox.Store.LoadAsync("keep", Ct))!.Resources);
-    }
-
-    [Fact]
-    public async Task Complete_WithoutYes_ListsWhatWillBeDeleted_AndAsks()
-    {
-        using var sandbox = new CliSandbox(nameof(Complete_WithoutYes_ListsWhatWillBeDeleted_AndAsks));
-        string template = KeepTemplate(sandbox);
-        await SeedAsync(sandbox, "keep", GroupEntry("g1", Id('a', 1)), GroupEntry("g2", Id('a', 2), StateProvenance.Adopted));
-        var invocation = new DeploymentInvocation
-        {
-            TemplateFile = template,
-            Mode = DeploymentMode.Complete,
-            DeleteAdopted = true,
-            Output = OutputFormat.Json,
-            StateDir = sandbox.StateDir,
-            Connection = sandbox.Connection,
-        };
-        sandbox.UsePreflightOk(extraResponses: Get("/groups", "g1", Id('a', 1)) + "," + Get("/groups", "g2", Id('a', 2)));
-        using var declinedOut = new StringWriter();
-        using var declinedErr = new StringWriter();
-
-        int declined = await DeploymentRunner.CreateAsync(invocation, declinedOut, declinedErr, () => "n", Ct);
-
-        Assert.Equal(1, declined);
-        string listing = declinedOut.ToString();
-        Assert.Contains("Complete mode will DELETE 2 object(s)", listing, StringComparison.Ordinal);
-        Assert.Contains("/providers/Microsoft.Entra/groups/g1 (Microsoft.Entra/groups)", listing, StringComparison.Ordinal);
-        Assert.Contains("\"Live g1\"", listing, StringComparison.Ordinal);
-        Assert.Contains("/providers/Microsoft.Entra/groups/g2 (Microsoft.Entra/groups) \"Live g2\" [adopted]", listing, StringComparison.Ordinal);
-        Assert.Contains("Deployment not started.", declinedErr.ToString(), StringComparison.Ordinal);
-        Assert.Equal(0, Deletes(sandbox));
-        Assert.Equal(2, (await sandbox.Store.LoadAsync("keep", Ct))!.Resources.Count);
-
-        sandbox.UsePreflightOk(extraResponses: Get("/groups", "g1", Id('a', 1)) + "," + Get("/groups", "g2", Id('a', 2)) + "," + Get("/groups", "g1", Id('a', 1)) + "," + Delete("/groups", Id('a', 1)) + "," + Get("/groups", "g2", Id('a', 2)) + "," + Delete("/groups", Id('a', 2)));
-        using var acceptedOut = new StringWriter();
-        using var acceptedErr = new StringWriter();
-
-        int accepted = await DeploymentRunner.CreateAsync(invocation, acceptedOut, acceptedErr, () => "y", Ct);
-
-        Assert.Equal(0, accepted);
-        Assert.Equal(2, Deletes(sandbox));
-    }
-
-    [Fact]
-    public async Task Complete_WithoutYes_OnRedirectedStdin_RefusesWithTheYesHint_AndDeletesNothing()
-    {
-        Assert.SkipUnless(Console.IsInputRedirected, "standard input is interactive in this test host; the prompt would block.");
-        using var sandbox = new CliSandbox(nameof(Complete_WithoutYes_OnRedirectedStdin_RefusesWithTheYesHint_AndDeletesNothing));
-        string template = KeepTemplate(sandbox);
-        await SeedAsync(sandbox, "keep", GroupEntry("g1", Id('a', 1)));
-        sandbox.UsePreflightOk(extraResponses: Get("/groups", "g1", Id('a', 1)));
-
-        var result = await CliRunner.RunAsync(Args(sandbox, "deployment", "create", "-f", template, "--mode", "Complete"));
-
-        Assert.Equal(1, result.ExitCode);
-        Assert.Contains("pass --yes to confirm", result.StandardError, StringComparison.Ordinal);
-        Assert.Contains("Deployment not started.", result.StandardError, StringComparison.Ordinal);
-        Assert.Equal(0, Deletes(sandbox));
-    }
-
-    [Fact]
-    public async Task Incremental_NeverNeedsTheDeleteFlags()
-    {
-        using var sandbox = new CliSandbox(nameof(Incremental_NeverNeedsTheDeleteFlags));
-        string template = sandbox.WriteEmptyTemplate("inc.entra.json");
-        await SeedAsync(sandbox, "inc", GroupEntry("g1", Id('a', 1)));
-        sandbox.UsePreflightOk();
-
-        var result = await CliRunner.RunAsync(Args(sandbox, "deployment", "create", "-f", template, "-y", "-o", "json"));
-
-        Assert.Equal(0, result.ExitCode);
-        Assert.Equal(1, result.Json["detached"]!.GetValue<int>());
+        Assert.NotEmpty(parse.Errors);
     }
 
     // ---- E-03a ----
@@ -415,45 +281,6 @@ public sealed class Review1A_CliSafetyTests
         Assert.Equal(StateProvenance.Adopted, state.Find("/providers/Microsoft.Entra/applications/orders-api")!.Provenance);
         Assert.Equal(StateProvenance.Adopted, state.Find(assignment)!.Provenance);
         Assert.Equal("AzC8ELHhY0eVMkKAOQtymW1jTUZZ8qNOvDUlRZfSNxQ-1", state.GraphIdOf(assignment));
-    }
-
-    [Fact]
-    public async Task DeleteResources_KeepsAdoptedObjects_UnlessDeleteAdoptedIsPassed()
-    {
-        using var sandbox = new CliSandbox(nameof(DeleteResources_KeepsAdoptedObjects_UnlessDeleteAdoptedIsPassed));
-        await SeedAsync(sandbox, "dep", AppEntry("alpha", Id('a', 1)), AppEntry("bravo", Id('a', 2), StateProvenance.Adopted));
-        sandbox.UsePreflightOk(extraResponses: Get("/applications", "alpha", Id('a', 1)) + "," + Delete("/applications", Id('a', 1)));
-
-        var first = await CliRunner.RunAsync(Args(sandbox, "deployment", "delete", "-n", "dep", "-y", "--delete-resources"));
-
-        Assert.Equal(0, first.ExitCode);
-        Assert.Equal(1, Deletes(sandbox));
-        Assert.Contains("(kept:", first.StandardOutput + first.StandardError, StringComparison.Ordinal);
-        Assert.Contains("--delete-adopted", first.StandardOutput, StringComparison.Ordinal);
-        var left = (await sandbox.Store.LoadAsync("dep", Ct))!;
-        Assert.Equal(["/providers/Microsoft.Entra/applications/bravo"], left.Resources.Keys.ToList());
-
-        sandbox.UsePreflightOk(extraResponses: Get("/applications", "bravo", Id('a', 2)) + "," + Delete("/applications", Id('a', 2)));
-        var second = await CliRunner.RunAsync(Args(sandbox, "deployment", "delete", "-n", "dep", "-y", "--delete-resources", "--delete-adopted"));
-
-        Assert.Equal(0, second.ExitCode);
-        Assert.False(File.Exists(sandbox.StatePath("dep")));
-    }
-
-    [Fact]
-    public async Task DeleteResources_NeverDeletesAnObjectTheStateEntryDoesNotDescribe()
-    {
-        using var sandbox = new CliSandbox(nameof(DeleteResources_NeverDeletesAnObjectTheStateEntryDoesNotDescribe));
-        await SeedAsync(sandbox, "dep", AppEntry("alpha", Id('a', 1)));
-
-        // The key "alpha" now belongs to another object than the one the state pins, and the pinned object is a different application altogether.
-        sandbox.UsePreflightOk(extraResponses: Get("/applications", "alpha", Id('f', 9)) + "," + Get("/applications/" + Id('a', 1), "something-else", Id('a', 1)).Replace("(uniqueName='something-else')", string.Empty, StringComparison.Ordinal));
-        var result = await CliRunner.RunAsync(Args(sandbox, "deployment", "delete", "-n", "dep", "-y", "--delete-resources"));
-
-        Assert.Equal(1, result.ExitCode);
-        Assert.Equal(0, Deletes(sandbox));
-        Assert.Contains(Id('f', 9), result.StandardError, StringComparison.Ordinal);
-        Assert.True(File.Exists(sandbox.StatePath("dep")));
     }
 
     [Fact]

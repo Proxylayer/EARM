@@ -5,8 +5,8 @@ namespace EArm.Cli.Commands;
 
 /// <summary>
 /// The <c>earm deployment</c> command group (mirrors <c>az deployment group</c>): <c>validate</c> (offline),
-/// <c>what-if</c> and <c>create</c> (online, through Microsoft Graph with the signed-in identity), and the state-backed <c>show</c>,
-/// <c>list</c>, <c>delete</c> and <c>operation list</c>.
+/// <c>what-if</c>, <c>create</c> and <c>delete</c> (online, through Microsoft Graph with the signed-in identity; <c>delete</c> removes the
+/// objects a template declares), and the state-backed <c>show</c>, <c>list</c> and <c>operation list</c>.
 /// </summary>
 internal static class DeploymentCommand
 {

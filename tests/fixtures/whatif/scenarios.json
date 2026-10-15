@@ -48,29 +48,29 @@
     "expectedJson": "modify-resource-id-only.expected.json"
   },
   {
-    "name": "delete-complete",
-    "deploymentName": "delete-complete",
+    "name": "orphans-complete",
+    "deploymentName": "orphans-complete",
     "mode": "Complete",
     "resultFormat": "FullResourcePayloads",
     "tenantId": "11111111-1111-1111-1111-111111111111",
-    "template": "delete-complete.entra.json",
-    "seed": "delete-complete.seed.json",
-    "state": "delete-complete.state.json",
+    "template": "orphans-complete.entra.json",
+    "seed": "orphans-complete.seed.json",
+    "state": null,
     "parameters": {},
-    "expectedText": "delete-complete.expected.txt",
-    "expectedJson": "delete-complete.expected.json"
+    "expectedText": "orphans-complete.expected.txt",
+    "expectedJson": "orphans-complete.expected.json"
   },
   {
-    "name": "detach-incremental",
-    "deploymentName": "detach-incremental",
+    "name": "retained-incremental",
+    "deploymentName": "orphans-complete",
     "mode": "Incremental",
     "resultFormat": "FullResourcePayloads",
     "tenantId": "11111111-1111-1111-1111-111111111111",
-    "template": "detach-incremental.entra.json",
-    "seed": "detach-incremental.seed.json",
-    "state": "detach-incremental.state.json",
+    "template": "orphans-complete.entra.json",
+    "seed": "orphans-complete.seed.json",
+    "state": null,
     "parameters": {},
-    "expectedText": "detach-incremental.expected.txt",
-    "expectedJson": "detach-incremental.expected.json"
+    "expectedText": "retained-incremental.expected.txt",
+    "expectedJson": "retained-incremental.expected.json"
   }
 ]

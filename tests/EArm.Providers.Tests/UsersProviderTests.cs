@@ -409,22 +409,21 @@ public sealed class UsersProviderTests
     }
 
     [Fact]
-    public async Task S11_CompleteMode_DeletesUsersById_AndToleratesNotFound()
+    public async Task S11_DeploymentDelete_DeletesUsersById_AndSkipsOnesThatDoNotExist()
     {
         var host = new ProviderHost();
         host.Directory.AddUser("ivan@contoso.com", "Ivan", u => u["id"] = UserIvanId);
-        await SeedStateAsync(host, UserEntry("ivan@contoso.com", UserIvanId), UserEntry("zed@contoso.com", UserGoneId));
 
-        var run = await host.CreateAsync(host.Resources(string.Empty), DeploymentMode.Complete);
+        var deletion = await host.DeleteDeclaredAsync(host.Resources(User("ivan@contoso.com", "\"displayName\": \"Ivan\"") + ", " + User("zed@contoso.com", "\"displayName\": \"Zed\"")));
 
-        Check.Succeeded(run);
-        Assert.Contains(run.Writes, w => w.Method == "DELETE" && w.Path == "/users/" + UserIvanId);
+        Assert.True(deletion.Succeeded);
+        Assert.Contains(host.Fake.Writes, w => w.Method == "DELETE" && w.Path == "/users/" + UserIvanId);
 
-        // The object that is already gone is found gone by the key re-read (review finding S-01a): no DELETE is sent for it, the entry is dropped.
-        Assert.DoesNotContain(run.Writes, w => w.Method == "DELETE" && w.Path == "/users/" + UserGoneId);
+        // A declared user that does not exist is not listed at all: nothing is sent for it.
+        Assert.DoesNotContain(host.Fake.Writes, w => w.Method == "DELETE" && w.Path == "/users/" + UserGoneId);
         Assert.Null(host.Directory.Find("/users", "userPrincipalName", "ivan@contoso.com"));
-        Assert.All(run.Executed.Operations.Where(o => o.ChangeType == ChangeType.Delete), o => Assert.Equal(OperationStatus.Succeeded, o.Status));
-        Assert.Equal(2, run.Executed.Operations.Count(o => o.ChangeType == ChangeType.Delete));
+        var outcome = Assert.Single(deletion.Outcomes);
+        Assert.Equal(DeletionStatus.Deleted, outcome.Status);
     }
 
     public static TheoryData<string, string[]> PermissionCases => new()

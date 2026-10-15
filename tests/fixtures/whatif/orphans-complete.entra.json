@@ -1,0 +1,15 @@
+{
+  "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": { "description": "Golden fixture: the orphan report. The tenant holds a named location the template does not declare (listed in Complete mode, never deleted) and a role assignment of the declared principal whose tuple the template no longer declares (retained: listed in both modes)." },
+  "resources": [
+    {
+      "type": "Microsoft.Entra/conditionalAccess/namedLocations", "apiVersion": "2026-10-01-preview", "name": "Contoso offices",
+      "properties": { "@odata.type": "#microsoft.graph.ipNamedLocation", "isTrusted": true, "ipRanges": [ { "cidrAddress": "10.0.0.0/8" } ] }
+    },
+    {
+      "type": "Microsoft.Entra/roleAssignments", "apiVersion": "2026-10-01-preview", "name": "[guid('ops-reader', 'global-reader')]",
+      "properties": { "principalId": "22222222-0000-0000-0000-000000000001", "role": "Global Reader", "directoryScopeId": "/" }
+    }
+  ]
+}

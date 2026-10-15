@@ -196,15 +196,12 @@ public sealed class DeploymentPlanner
         resolver.ExistingLookup = LookupExistingAsync;
 
         // 6. What-if: read and plan every batch; nothing is written. Then the edge pass rows
-        //    (read-only) and the mode pass rows.
+        //    (read-only) and the orphan report rows (read-only; nothing is ever deleted).
         if (planMode == PlanMode.WhatIf)
         {
-            await PlanBatchesAsync(plan, state, cancellationToken).ConfigureAwait(false);
-            await PlanEdgesAsync(plan, state, cancellationToken).ConfigureAwait(false);
-            if (state is not null)
-            {
-                await PlanModePassAsync(plan, state, cancellationToken).ConfigureAwait(false);
-            }
+            await PlanBatchesAsync(plan, cancellationToken).ConfigureAwait(false);
+            await PlanEdgesAsync(plan, cancellationToken).ConfigureAwait(false);
+            await PlanOrphansAsync(plan, cancellationToken).ConfigureAwait(false);
         }
 
         plan.FinishChanges();
@@ -246,7 +243,7 @@ public sealed class DeploymentPlanner
 
     // ---- what-if pass ----
 
-    private async Task PlanBatchesAsync(DeploymentPlan plan, StateFile? state, CancellationToken cancellationToken)
+    private async Task PlanBatchesAsync(DeploymentPlan plan, CancellationToken cancellationToken)
     {
         var parallel = new ParallelOptions { MaxDegreeOfParallelism = plan.Parallelism, CancellationToken = cancellationToken };
         var reads = new ReadContext();
@@ -255,7 +252,7 @@ public sealed class DeploymentPlanner
             // Instances whose name is still symbolic afterwards (their input does not exist yet) are planned as creates below.
             SymbolicNames.Resolve(plan, batch, _logger);
 
-            await Parallel.ForEachAsync(batch.Instances, parallel, (instance, ct) => new ValueTask(PlanInstanceAsync(plan, instance, state, reads, ct))).ConfigureAwait(false);
+            await Parallel.ForEachAsync(batch.Instances, parallel, (instance, ct) => new ValueTask(PlanInstanceAsync(plan, instance, reads, ct))).ConfigureAwait(false);
 
             // The warnings of the reads, in the order of the batch (the tasks above finish in any order): the what-if output must not depend on timing.
             foreach (var instance in batch.Instances)
@@ -276,12 +273,12 @@ public sealed class DeploymentPlanner
         public ConcurrentDictionary<ResourceInstance, List<Diagnostic>> Diagnostics { get; } = new();
     }
 
-    private async Task PlanInstanceAsync(DeploymentPlan plan, ResourceInstance instance, StateFile? state, ReadContext reads, CancellationToken cancellationToken)
+    private async Task PlanInstanceAsync(DeploymentPlan plan, ResourceInstance instance, ReadContext reads, CancellationToken cancellationToken)
     {
         ResourceChange change;
         try
         {
-            change = await PlanInstanceCoreAsync(plan, instance, state, reads, cancellationToken).ConfigureAwait(false);
+            change = await PlanInstanceCoreAsync(plan, instance, reads, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -306,7 +303,7 @@ public sealed class DeploymentPlanner
         plan.RecordChange(instance, change);
     }
 
-    private async Task<ResourceChange> PlanInstanceCoreAsync(DeploymentPlan plan, ResourceInstance instance, StateFile? state, ReadContext reads, CancellationToken cancellationToken)
+    private async Task<ResourceChange> PlanInstanceCoreAsync(DeploymentPlan plan, ResourceInstance instance, ReadContext reads, CancellationToken cancellationToken)
     {
         if (instance.Condition is null)
         {
@@ -351,9 +348,8 @@ public sealed class DeploymentPlanner
             };
         }
 
-        // Identity is resolved live, by key, on every run: the state is never consulted to find the object (a renamed object is a new one).
+        // Identity is resolved live, by key, on every run (a renamed object is a new one).
         var existing = await WithRetryAsync(ct => provider.ReadAsync(key, _graph, ct), RetryHint.Default, cancellationToken).ConfigureAwait(false);
-        var previousEntry = state?.Find(instance.Id.Id);
         var warnings = new List<Diagnostic>();
         if (existing is not null)
         {
@@ -367,18 +363,13 @@ public sealed class DeploymentPlanner
                 return ResourceChange.Unsupported(instance.Id, instance.Type, ChangeType.Modify, message);
             }
 
-            if (previousEntry is null || !string.Equals(previousEntry.GraphId, existing.GraphId, StringComparison.OrdinalIgnoreCase))
-            {
-                warnings.Add(Diagnostic.Warning(EngineDiagnosticCodes.AdoptedExistingObject, $"'{instance.Id.Id}' would adopt the existing {instance.Type} object {existing.GraphId}: it was not created by this deployment, so Complete mode will not delete it (--delete-adopted overrides)."));
-            }
-
             plan.Resolver.Publish(instance.Id, existing.Raw, existing.GraphId, instance.PlannedId);
         }
 
         var plannedChange = provider.Plan(instance, existing, plan.Options);
         if (existing is not null && plannedChange is { Type: ChangeType.Modify, Mode: ChangeMode.Recreate, HasError: false })
         {
-            plannedChange = await GuardRecreateAsync(plan, instance, key, existing, previousEntry, plannedChange, warnings, cancellationToken).ConfigureAwait(false);
+            plannedChange = GuardRecreate(plan, instance, existing, plannedChange, warnings);
         }
 
         warnings.AddRange(ProviderWarningReasons.DiagnosticsOf(instance, plannedChange));
@@ -391,31 +382,27 @@ public sealed class DeploymentPlanner
     }
 
     /// <summary>
-    /// A recreate deletes the existing object: the what-if applies the guards of a delete (adopted without <c>--delete-adopted</c>, the signed-in principal, a first-party service
-    /// principal, a key that does not lead to the recorded object) and says in the row that the object is deleted.
+    /// A recreate deletes the existing object: the what-if applies the guards of every delete (<see cref="DeleteGuards"/>: never the signed-in principal or a service
+    /// principal owned by another organization) and says in the row that the object is deleted. A deployment asks for confirmation of every recreate (<c>-y</c>).
     /// </summary>
-    private async Task<ResourceChange> GuardRecreateAsync(DeploymentPlan plan, ResourceInstance instance, ResourceKey key, ExistingResource existing, StateEntry? previousEntry, ResourceChange change, List<Diagnostic> warnings, CancellationToken cancellationToken)
+    private static ResourceChange GuardRecreate(DeploymentPlan plan, ResourceInstance instance, ExistingResource existing, ResourceChange change, List<Diagnostic> warnings)
     {
-        var oldEntry = RecreateRules.OldEntryFor(instance, existing, key, previousEntry);
-        var guard = new DeleteGuard
+        if (DeleteGuards.Refusal(instance.Id.Id, instance.Type, existing, plan.SignedInPrincipalId, plan.TenantId) is { } refusal)
         {
-            Catalog = plan.Catalog,
-            SignedInPrincipalId = plan.SignedInPrincipalId,
-            TenantId = plan.TenantId,
-            DeleteAdopted = _options.DeleteAdopted,
-            State = plan.Options.State,
-        };
-        var check = await StateDeletion.CheckAsync(oldEntry, _registry, _graph, _options.RetryPolicy, guard, cancellationToken).ConfigureAwait(false);
-        if (check.Blocked is { } blocked && blocked.Status != DeleteStatus.AlreadyGone)
-        {
-            string message = RecreateRules.RefusalMessage(instance, oldEntry, blocked);
-            warnings.Add(Diagnostic.Error(blocked.ErrorCode ?? EngineDiagnosticCodes.ResourceApplyFailed, message));
+            string message = RecreateRefusal(instance, refusal);
+            warnings.Add(Diagnostic.Error(EngineDiagnosticCodes.ProtectedObject, message));
             return change with { UnsupportedReason = message, Reasons = [.. change.Reasons, message] };
         }
 
         string note = $"the existing object ({existing.GraphId}) is DELETED and created again";
-        warnings.Add(Diagnostic.Warning(EngineDiagnosticCodes.DestructiveDelete, $"{instance.Id.Id}: {note}; it counts as a delete (--max-deletes)."));
+        warnings.Add(Diagnostic.Warning(EngineDiagnosticCodes.DestructiveDelete, $"{instance.Id.Id}: {note}; a deployment asks for confirmation (-y) before it replaces an object."));
         return change with { Reasons = [.. change.Reasons, note] };
+    }
+
+    /// <summary>The refusal text when the old object of a recreate may not be deleted (nothing is created or changed in that case).</summary>
+    internal static string RecreateRefusal(ResourceInstance instance, string refusal)
+    {
+        return $"{instance.Describe()}: an immutable property changed, so the object must be deleted and created again, but {refusal} Nothing was changed.";
     }
 
     // ---- edge pass (what-if rows) ----
@@ -426,12 +413,12 @@ public sealed class DeploymentPlanner
     /// array deltas under the declaring resource's row (a <c>NoChange</c> row becomes <c>Modify</c>). Validation
     /// errors mark the row unsupported. No-op for templates without relationship properties.
     /// </summary>
-    private async Task PlanEdgesAsync(DeploymentPlan plan, StateFile? state, CancellationToken cancellationToken)
+    private async Task PlanEdgesAsync(DeploymentPlan plan, CancellationToken cancellationToken)
     {
         var candidates = plan.Instances
             .Where(i => !i.IsSymbolic && !i.IsIgnored && plan.ChangeFor(i) is { HasError: false, Type: ChangeType.Create or ChangeType.Modify or ChangeType.NoChange })
             .ToList();
-        if (!candidates.Any(i => EdgePlanner.DeclaresEdges(i, state)))
+        if (!candidates.Any(EdgePlanner.DeclaresEdges))
         {
             return;
         }
@@ -443,12 +430,12 @@ public sealed class DeploymentPlanner
             // Resources whose row is an error (or that are otherwise not planned) are unknown declarers: the target-side sets they could belong to are not pruned in the what-if either.
             var candidateSet = new HashSet<ResourceInstance>(candidates);
             var unreliable = plan.Instances.Where(i => !i.IsSymbolic && !i.IsIgnored && !candidateSet.Contains(i)).ToList();
-            edgePlan = await new EdgePlanner(plan, context, state, PlanMode.WhatIf, null, unreliable).PlanAsync(candidates, cancellationToken).ConfigureAwait(false);
+            edgePlan = await new EdgePlanner(plan, context, PlanMode.WhatIf, null, unreliable).PlanAsync(candidates, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is GraphException or GraphTransportException or ProviderException or ExpressionException)
         {
             EngineLog.ReadFailed(_logger, "edge pass", ex.Message);
-            foreach (var instance in candidates.Where(i => EdgePlanner.DeclaresEdges(i, state)))
+            foreach (var instance in candidates.Where(EdgePlanner.DeclaresEdges))
             {
                 if (plan.ChangeFor(instance) is { } change)
                 {
@@ -473,147 +460,41 @@ public sealed class DeploymentPlanner
         }
     }
 
-    // ---- mode pass (what-if rows) ----
+    // ---- orphan report (what-if rows) ----
 
     /// <summary>
-    /// State entries the template no longer declares become <c>Ignore</c> rows ("will be detached")
-    /// in Incremental mode and <c>Delete</c> rows in Complete mode (with the live object as <c>before</c>); an entry
-    /// whose object is already gone is an <c>Ignore</c> row in both modes.
+    /// The orphan report (<see cref="OrphanReport"/>): live objects of the declared types that no declared resource matches, as <see cref="ChangeType.Ignore"/>
+    /// rows marked <see cref="ResourceChange.Orphan"/>. Complete mode lists every bounded type; Incremental mode only the assignments and grants of the declared
+    /// principals that are retained. Read-only, like the rest of the what-if; nothing is ever deleted.
     /// </summary>
-    private async Task PlanModePassAsync(DeploymentPlan plan, StateFile state, CancellationToken cancellationToken)
+    private async Task PlanOrphansAsync(DeploymentPlan plan, CancellationToken cancellationToken)
     {
-        var orphans = ModePass.FindOrphans(state, plan, out var undecided);
-        var diagnostics = new List<Diagnostic>();
-        foreach (var (type, plannedId) in undecided)
+        var result = await new OrphanReport(plan, _graph).RunAsync(instance => IsSettled(plan, instance), cancellationToken).ConfigureAwait(false);
+        foreach (var row in result.Rows)
         {
-            EngineLog.ModePassUndecided(_logger, type, plannedId);
-            diagnostics.Add(Diagnostic.Warning(EngineDiagnosticCodes.ResourceDetached, $"State entries of type '{type}' were not checked against the template: the name of '{plannedId}' is only known at deployment time."));
+            plan.AddOrphan(row);
         }
 
-        var guard = new DeleteGuard
+        if (result.Diagnostics.Count > 0)
         {
-            Catalog = plan.Catalog,
-            SignedInPrincipalId = plan.SignedInPrincipalId,
-            TenantId = plan.TenantId,
-            DeleteAdopted = _options.DeleteAdopted,
-            OwnedGraphIds = OwnedGraphIds(plan, state),
-            State = state,
-        };
-
-        foreach (var entry in orphans)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (plan.Mode == DeploymentMode.Incremental)
-            {
-                plan.AddModeChange(ResourceChange.Ignore(entry.Id, entry.Type, ModePass.DetachReasonWhatIf));
-                diagnostics.Add(Diagnostic.Warning(EngineDiagnosticCodes.ResourceDetached, $"'{entry.Id.Id}' is recorded in the state but no longer declared in the template; a deployment will detach it from the state and leave the object in the tenant (use --mode Complete to delete it)."));
-                continue;
-            }
-
-            plan.AddModeChange(await PlanDeleteAsync(plan, entry, guard, diagnostics, cancellationToken).ConfigureAwait(false));
-        }
-
-        if (diagnostics.Count > 0)
-        {
-            plan.AddDiagnostics(diagnostics);
+            plan.AddDiagnostics(result.Diagnostics);
         }
     }
 
-    /// <summary>The Graph ids of the objects the declared resources own (published by the what-if reads, or pinned in the state).</summary>
-    private static HashSet<string> OwnedGraphIds(DeploymentPlan plan, StateFile state)
+    /// <summary>True when the what-if knows the live identity of the instance: it was read without error and found (published), or its key is resolved and nothing exists under it.</summary>
+    private static bool IsSettled(DeploymentPlan plan, ResourceInstance instance)
     {
-        var owned = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var instance in plan.Instances)
+        if (plan.ChangeFor(instance) is not { HasError: false } change)
         {
-            if (instance.IsSymbolic)
-            {
-                continue;
-            }
-
-            if (plan.Resolver.TryGetGraphId(instance.Id, out var graphId))
-            {
-                owned.Add(graphId);
-            }
-
-            if (state.GraphIdOf(instance.Id.Id) is { } pinned)
-            {
-                owned.Add(pinned);
-            }
+            return false;
         }
 
-        return owned;
-    }
-
-    private async Task<ResourceChange> PlanDeleteAsync(DeploymentPlan plan, StateEntry entry, DeleteGuard guard, List<Diagnostic> diagnostics, CancellationToken cancellationToken)
-    {
-        if (!_registry.TryGet(entry.Type, out _))
+        if (plan.Resolver.TryGetGraphId(instance.Id, out _))
         {
-            return ResourceChange.Unsupported(entry.Id, entry.Type, ChangeType.Delete, $"No resource provider is registered for '{entry.Type}'; the object cannot be deleted by this version.");
+            return true;
         }
 
-        // The same checks as the deployment: the object is re-read by KEY and must be the pinned one; adopted objects and objects a declared resource owns stay.
-        StateDeletion.DeleteCheck check;
-        try
-        {
-            check = await StateDeletion.CheckAsync(entry, _registry, _graph, _options.RetryPolicy, guard, cancellationToken).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (ProviderException ex)
-        {
-            return ResourceChange.Unsupported(entry.Id, entry.Type, ChangeType.Delete, SecretRegistration.Scrub(ex.Message));
-        }
-        catch (Exception ex) when (ex is GraphException or GraphTransportException)
-        {
-            string message = SecretRegistration.Scrub(ex.Message);
-            EngineLog.ReadFailed(_logger, entry.Id.Id, message);
-            return ResourceChange.Unsupported(entry.Id, entry.Type, ChangeType.Delete, $"'{entry.Id.Id}' could not be read: {message}");
-        }
-
-        if (check.Blocked is { } blocked)
-        {
-            switch (blocked.Status)
-            {
-                case DeleteStatus.AlreadyGone:
-                    return ResourceChange.Ignore(entry.Id, entry.Type, "not in template and no longer in the tenant; will be detached from state");
-
-                case DeleteStatus.Refused:
-                    diagnostics.Add(Diagnostic.Warning(blocked.ErrorCode ?? EngineDiagnosticCodes.AdoptedObjectNotDeleted, blocked.Error ?? "not deleted"));
-                    return blocked.ErrorCode == EngineDiagnosticCodes.OrphanSharesObject
-                        ? ResourceChange.Ignore(entry.Id, entry.Type, "not in template, but its Graph id belongs to a declared resource; will be detached from state, the object is not deleted")
-                        : ResourceChange.Ignore(entry.Id, entry.Type, "not in template; adopted object, not deleted (pass --delete-adopted to delete it)");
-
-                default:
-                    diagnostics.Add(Diagnostic.Error(blocked.ErrorCode ?? EngineDiagnosticCodes.StateEntryMismatch, blocked.Error ?? "not deleted"));
-                    return ResourceChange.Unsupported(entry.Id, entry.Type, ChangeType.Delete, blocked.Error ?? "the state entry does not describe the live object");
-            }
-        }
-
-        var existing = check.Live!;
-        var reasons = new List<string> { "not in template; Complete mode deletes it" };
-        if (entry.Provenance == StateProvenance.Adopted)
-        {
-            reasons.Add("adopted object: deleted because --delete-adopted was given");
-        }
-
-        if (check.Provider is IDeleteWarningSource warnings && warnings.DescribeDeleteRisk(entry.ToResourceKey(plan.Catalog), existing) is { } risk)
-        {
-            reasons.Add(risk);
-            diagnostics.Add(Diagnostic.Warning(EngineDiagnosticCodes.DestructiveDelete, $"'{entry.Id.Id}': {risk}"));
-        }
-
-        return new ResourceChange
-        {
-            Id = entry.Id,
-            ResourceType = entry.Type,
-            Type = ChangeType.Delete,
-            Mode = ChangeMode.Delete,
-            Before = JsonDiff.RenderObject(existing.Properties),
-            GraphId = existing.GraphId,
-            Reasons = reasons,
-        };
+        return change.Type == ChangeType.Create && instance.IsEvaluated && plan.Registry.Get(instance.Type).ResolveKey(instance).IsResolved;
     }
 
     // ---- existing-resource lookups ----

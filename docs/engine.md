@@ -9,7 +9,7 @@ in [edges.md](edges.md), the required Graph permissions in [permissions.md](perm
 ## Pipeline
 
 ```
-load ──► validate ──► expand ──► graph ──► [per batch: resolve symbolic names ──► key ──► read ──► plan ──► apply] ──► edge pass ──► outputs ──► mode pass
+load ──► validate ──► expand ──► graph ──► [per batch: resolve symbolic names ──► key ──► read ──► plan ──► apply] ──► edge pass ──► outputs ──► orphan report
  Core      Core +      Engine     Engine     Engine (planner: read + plan only; executor: + apply)                      Engine        Engine      Engine
            Expressions
 ```
@@ -82,9 +82,10 @@ load ──► validate ──► expand ──► graph ──► [per batch: r
    `reference()` calls touched, and an output whose value is (or contains) that `null` is reported as `null` with
    the `SecretNotAvailableOnRerun` warning and left out of the secure outputs file. The run still succeeds. Change
    `rotationTag` to rotate the credential and obtain a new secret.
-9. **Mode pass** (`ModePass`, after the outputs): state entries whose resource id is not among the expanded
-   instances are detached (Incremental) or deleted (Complete). See [State](#state-earmenginestate) below.
-   Before a pinned Graph id is trusted anywhere, `ProviderReads` checks it against the key (step 6) and a delete re-reads the object by key (State).
+9. **Orphan report** (`OrphanReport`, after the outputs; read-only): the live objects of the declared types that no declared
+   resource matches by key are listed in `DeploymentResult.Orphans` (`ResourceChange.Orphan`: `Undeclared` in Complete mode, `Retained` for
+   assignments and grants of declared principals in both modes). **Nothing is ever deleted**: Complete mode only reports. See
+   [Orphan report](#orphan-report-and-deployment-delete) below and [whatif.md](whatif.md#orphan-report).
 
 ### Failure handling
 
@@ -96,8 +97,8 @@ load ──► validate ──► expand ──► graph ──► [per batch: r
   the start of its batch, before symbolic names are resolved: it is never attempted, its name is never
   re-evaluated (a symbolic dependent keeps its symbolic id in the result) and it never counts as a failure.
 - A `create` that comes back "already exists" (`GraphException.IsAlreadyExists`) is idempotent success: the
-  object is re-read by key and **adopted** (state provenance `adopted`, warning `AdoptedExistingObject`).
-- A `create` that comes back "already exists" also applies the declared properties **in the same run** (one extra PATCH where the provider supports it and the difference can be patched in place; otherwise `AdoptedExistingObject` says the object differs and a rerun or the what-if shows how).
+  object is re-read by key and taken over (identity is the key: there is no created / adopted distinction).
+- A `create` that comes back "already exists" also applies the declared properties **in the same run** (one extra PATCH where the provider supports it and the difference can be patched in place; otherwise an `ImmutablePropertyChanged` warning says the object differs and a rerun or the what-if shows how).
 - A `create` with an **ambiguous outcome** (a timeout, a transport error, any 5xx: the write may have been committed) is not repeated and not
   simply failed: the object is looked up by key, and because Graph replicates a new object with some delay the **executor itself waits out
   replication** (`ReplicationWait`, a constructor argument of `DeploymentExecutor`: the read is repeated every 5 s until the object is found or
@@ -106,34 +107,33 @@ load ──► validate ──► expand ──► graph ──► [per batch: r
   or not the plan carries a retry policy (the CLI's never does: `HttpGraphClient` retries each call itself); with a policy each read goes through
   it with `RetryHint.Default`, so throttling and transient failures are still waited out but the replication window is never waited twice. The
   reads are not cancellable (an object found is recorded, not orphaned); a Ctrl+C cuts the wait short to one last read. The same wait applies to
-  a create answered "already exists" before the object is adopted. A create whose ambiguous failure hid no commit therefore reports its error
+  a create answered "already exists" before the object is taken over. A create whose ambiguous failure hid no commit therefore reports its error
   only after the window. When the object exists the create counts as done (warning
-  `CreateOutcomeUncertain`; a value Graph only returns at creation, such as a secret, is not available for it), otherwise the original error is reported. The provenance is `created`
-  unless Graph reports a `createdDateTime` that is more than 5 minutes older than the start of the run: then the object was not created by this run and is `adopted` (`AdoptedExistingObject`).
+  `CreateOutcomeUncertain`; a value Graph only returns at creation, such as a secret, is not available for it), otherwise the original error is reported.
   The executor never repeats a create blindly **at any level**: its own retry policy (`RetryPolicy.ExecuteAsync(..., idempotent: false)`) only waits out a 429, replication lag and a token refresh for a provider write
   (create, update), never a 5xx or a lost connection; reads and deletes stay repeatable. The edge pass sends an add (`POST`) the same way, and **reads the edge back** when its answer was lost: an edge that turns out to exist
-  (and was not there when the pass planned it) counts as created by this run and is recorded in the state. A `$batch` is sent once (the client retries failed sub-requests itself); every failure is read per item from
+  (and was not there when the pass planned it) counts as added. A `$batch` is sent once (the client retries failed sub-requests itself); every failure is read per item from
   `BatchResponse.Error`.
 - **A failure after the primary write.** A provider that writes in several steps (create the object, then owners, licenses, a restore...) and fails after the first hands the partial result over
   (`ProviderException.Partial`: `UsersProvider` does it when `assignLicense` fails after `POST /users`); for any other provider the executor looks the object up by key after a failed create. Either way the
   object, its provenance and its one-time secret (a generated password) are **recorded in the state and the secure outputs file** and the resource is reported failed (`ResourceApplyFailed`,
   "recorded in the state"); a rerun converges instead of conflicting with an object nobody recorded.
 - **Unexpected exceptions.** Anything not handled above (a null reference, a format error, an HTTP timeout that is not the caller's cancellation) fails **that one resource** (`ResourceApplyFailed`, `unexpected error (<type>)`):
-  parallel siblings are never cancelled by it, and the end phase (edge pass, outputs, secure outputs file, mode pass, completion record) still runs. An exception of the engine itself outside any resource aborts the run the same
-  way: the unstarted resources are recorded as skipped, the mode pass judges nothing, the run ends `Failed` with an error diagnostic, and the state is **never left `Running`**.
-- **Replacing** an object whose immutable properties changed (`ChangeMode.Recreate`; the composite-key types roleAssignments, appRoleAssignments,
-  oauth2PermissionGrants) creates the new object **first** and deletes the old one second, so a failed create keeps the old object and its state entry. Only when
-  the new object has the same key as the old one (same identity) the old one must go first. A replacement whose old object cannot be deleted is reported as a
-  failed resource (the new entry is recorded; delete the old object manually). A pinned object that has another key than the template is only ever replaced
-  when the state records it as `created` and its recorded key still matches (otherwise it is distrusted, see State). **The delete of the old object is a state-driven delete like any other**
-  (`StateDeletion.CheckAsync`, see the trust model below): an object the state does not vouch for (found by key, no entry, or `adopted`) is only replaced with `--delete-adopted` (otherwise the resource fails
-  `AdoptedObjectNotDeleted` and **nothing is created or deleted**), the signed-in principal and a first-party service principal that was not created by the deployment are never replaced, and every replacement counts against
-  `--max-deletes` (`ExecuteOptions.MaxDeletes`, a hard limit of the run: `DeleteLimitExceeded`). The what-if row of a recreate says that the existing object is DELETED and created again (warning `DestructiveDelete`)
-  and is an error row when the guard would refuse it; with `-c` it counts toward `--max-deletes` and is listed in the confirmation.
+  parallel siblings are never cancelled by it, and the end phase (edge pass, outputs, secure outputs file, orphan report, completion record) still runs. An exception of the engine itself outside any resource aborts the run the same
+  way: the unstarted resources are recorded as skipped, the orphan report judges nothing, the run ends `Failed` with an error diagnostic, and the state is **never left `Running`**.
+- **Replacing** an object whose immutable properties changed (`ChangeMode.Recreate`: credentials, federated identity credentials, named location kinds,
+  every-property-immutable types) deletes the old object, then creates it again. The old object was found by the key, so the replacement has the same key and
+  identity; there is no create-first variant. (A changed **tuple** of an assignment or grant is not a replacement: the tuple is the identity, so it is a new
+  object, created, and the old one is retained and reported, see the orphan report.) A replacement is guarded like every delete (`DeleteGuards`): the signed-in principal
+  and a service principal owned by another organization are never replaced (`ProtectedObject`; nothing is deleted or created, the what-if row is an error row). It
+  also needs **confirmation**: `ExecuteOptions.ApprovedRecreates` lists the resource ids the user confirmed (`null` = all, the CLI's `-y`); a replacement of any other
+  resource fails with `RecreateNotConfirmed` before anything is deleted. The CLI plans with the read-only what-if pass first when `-y` is not given, lists the
+  replacements and asks (non-interactive without `-y`: exit 1 before any write). The what-if row of a recreate says that the existing object is DELETED and created
+  again (warning `DestructiveDelete`); a provider's `IDeleteWarningSource` risk is warned before the delete.
 - **The end phase records what happened regardless of the caller's cancellation, and stops writing when asked to.** After the last batch the executor runs the edge pass, evaluates the outputs, merges the secure
-  outputs file, runs the mode pass and records the completion; **recording** (state saves, one-time secrets, the completion) uses `CancellationToken.None`, so a Ctrl+C or a failed state write cannot skip the steps
-  after it. The steps that **write to the tenant again** (the edge pass, the Complete-mode deletes) check the caller's token **between operations**: the one in flight finishes and is recorded, nothing new is
-  started (the edge operations not started are recorded as failed "cancelled", the remaining orphans as skipped), and the run ends `Cancelled`. A cancelled run ends with `lastStatus: Cancelled` (never stuck at `Running`), the unstarted resources recorded as skipped, and then throws
+  outputs file, runs the orphan report and records the completion; **recording** (state saves, one-time secrets, the completion) uses `CancellationToken.None`, so a Ctrl+C or a failed state write cannot skip the steps
+  after it. The step that **writes to the tenant again** (the edge pass) checks the caller's token **between operations**: the one in flight finishes and is recorded, nothing new is
+  started (the edge operations not started are recorded as failed "cancelled"), and the run ends `Cancelled`. A cancelled run ends with `lastStatus: Cancelled` (never stuck at `Running`), the unstarted resources recorded as skipped, and then throws
   `OperationCanceledException`. An `IOException` / `UnauthorizedAccessException` from a state save (retried 5 times with a growing pause first) fails
   that resource (`StateSaveFailed`: the object may exist without an entry) or adds a `StateSaveFailed` error diagnostic; it never crashes the run.
 - **One-time secrets**: when `--secure-outputs-file` is set, a password credential's `secretText` (and a generated user password) is merged into the file
@@ -271,8 +271,8 @@ mutual declarations (`user.memberOf` ↔ `group.members`) are never cycles.
   `ResolveItemAsync` (a declared item → the other side's id, collection, extras; placeholders and invalid items),
   `ReadTargetAsync` (existence, dynamic flag, collection, and the principals attached when asked),
   `ReadPrincipalAsync` (the targets a principal is attached to, read from the principal's side),
-  `AddRequest` / `RemoveRequest` (`BatchRequest`s), `RecordEntry` / `FromRecordAsync` (state format),
-  `IdentityOf` (de-duplication key; previous state records are matched to declarations by it), `GraphIdsOf` (the
+  `AddRequest` / `RemoveRequest` (`BatchRequest`s), `RecordEntry` / `FromRecordAsync` (no longer called: edges are not
+  recorded; they go with the state subsystem), `IdentityOf` (de-duplication key), `GraphIdsOf` (the
   object ids on both sides, for the replication-lag hint; defaults to target + principal), and the flags
   `IsSingleValued`, `RejectsDynamicTargets`, `WarnOnSignedInPrincipalRemoval`, `Phase`.
 - **`EdgeDeclaration`**: one entry of one relationship property of one instance (declarer, property, index,
@@ -284,8 +284,7 @@ mutual declarations (`user.memberOf` ↔ `group.members`) are never cycles.
 
 ### Algorithm (`EdgePlanner` → `EdgePlan` → `EdgeExecutor`)
 
-1. **Collect**: for every applied (or, in what-if, planned) instance that declares an edge property or has
-   `relationships` recorded in the state: re-evaluate `properties`, keep the relationship subset, normalise each
+1. **Collect**: for every applied (or, in what-if, planned) instance that declares an edge property: re-evaluate `properties`, keep the relationship subset, normalise each
    entry through the kind's handler. Duplicates inside one array collapse; an unknown handler kind yields the
    `EdgeKindNotSupported` warning.
 2. **Authoritative sets** (target side: `groups.members`, `owners`, `administrativeUnits.members`): desired set =
@@ -303,11 +302,11 @@ mutual declarations (`user.memberOf` ↔ `group.members`) are never cycles.
    `@odata.type`; `GET /{users|servicePrincipals}/{p}/ownedObjects`), the target is read once (existence, dynamic
    flag, `ownerOf` target collection from the template or `GET /directoryObjects/{id}?$select=id`), missing edges
    are added. Nothing outside the template is removed.
-4. **Tracked removals**: every edge recorded in the principal's state entry that is no longer declared is removed,
-   unless an authoritative target-side set of this template still desires it. Only edges that still exist are
-   removed (the principal read decides); a removal that 404s counts as done.
+4. **Principal side is ensure-only**: a principal-side edge that is no longer declared is **never removed**, whoever created it. Only
+   an authoritative target-side set (step 2) prunes. (Earlier versions removed the edges a deployment had recorded in its state; there are
+   no records any more.)
 5. **`manager`** (single-valued): a declared id replaces the live manager (`PUT /users/{u}/manager/$ref`), an
-   explicit `null` removes it (`DELETE`), an absent property leaves it untouched (no tracked removal).
+   explicit `null` removes it (`DELETE`), an absent property leaves it untouched.
 6. **De-duplication**: operations are keyed by `IdentityOf(edge)`; the same edge declared from both sides (or by
    a standalone resource, part B) is one write attributed to every declaring row. The same identity with
    non-equivalent extras is a validation error on every declaring row.
@@ -324,8 +323,7 @@ mutual declarations (`user.memberOf` ↔ `group.members`) are never cycles.
    signed-in principal from `owners` raises `SignedInPrincipalRemoved`. When an earlier batch failed (fail-fast)
    the pass does not run and `EdgePassSkipped` is reported.
 
-9. **Reads Graph does not allow** (warnings, never failures; the property is left alone: no operations, no deltas, and
-   the state keeps its previous record of it):
+9. **Reads Graph does not allow** (warnings, never failures; the property is left alone: no operations, no deltas):
    - **`ownerOf` on a user with an application (app-only) token.** `GET /users/{id}/ownedObjects` has no application
      permission (Learn: user-list-ownedobjects). When preflight reports the principal type `application` (the token has no
      `scp` claim; `PlannerOptions.AppOnlyToken`), the planner does not attempt the read: the row carries an
@@ -335,29 +333,8 @@ mutual declarations (`user.memberOf` ↔ `group.members`) are never cycles.
    - **`manager` read answers 403.** `GET /users/{id}/manager` can be refused for an identity without `User.Read.All`:
      `ManagerReadForbidden` warning, the manager relationship is neither read nor written for that user, the run goes on.
 
-Templates without relationship properties (and without recorded relationships in the state) never enter the pass:
-no reads, no diagnostics.
-
-### State format (`relationships`)
-
-Only principal-side edges this deployment created are recorded, per property, after the pass succeeds
-(`IStateSink.ResourceEdgesAppliedAsync`); target-side authoritative sets are a live diff every run and record
-nothing. An edge that already existed before the template declared it is not recorded (it was not created by the
-deployment) and is therefore never removed by undeclaring it.
-
-```json
-"relationships": {
-  "memberOf": ["<groupId>", "<groupId>"],
-  "ownerOf": [{ "id": "<appOrSpOrGroupId>", "collection": "applications" }],
-  "administrativeUnits": ["<auId>"],
-  "manager": "<userId>"
-}
-```
-
-(`ownerOf` keeps the Graph collection so a later removal needs no type lookup; a bare id is still accepted and
-resolved through `directoryObjects`.) Part B kinds record objects carrying the Graph assignment id. In Complete
-mode the executor removes a deleted resource's recorded edges (`RecordedEdges.RemoveAsync`) before the object
-itself; a 404 or failure there is logged and never blocks the delete.
+Templates without relationship properties never enter the pass: no reads, no diagnostics. Edges are not recorded in the
+state (a state file written by an earlier version may still carry `relationships`; nothing reads them).
 
 ### Adding a kind (app role assignments, directory roles)
 
@@ -406,23 +383,15 @@ write an entry that carries a secret (`SecretJson`) or a deploy-time placeholder
   directory objects, an opaque token (`[A-Za-z0-9_=-]`) for role assignments, app role assignments and OAuth2 permission grants, `c1`..`c99` for
   authentication contexts; anything else (`me`, `../x`) fails the load with a clear error. **An entry's `key` is the key its resource id implies** (`StateKeyRules`): a name-keyed type carries exactly its `nameMapsTo` property
   with the last name segment as value (an application may add its `appId`), a GUID-named type exactly its catalog key properties; an entry that says otherwise (`key: { "securityEnabled": "true" }` on a group with
-  a victim's id) fails the load with `StateEntryInvalid` naming the entry, and the same check runs again before every state-driven delete. An entry without any key gets the derived key. The ids recorded under `relationships`
+  a victim's id) fails the load with `StateEntryInvalid` naming the entry,. An entry without any key gets the derived key. The ids recorded under `relationships`
   (target ids, assignment ids, principal/resource/role ids, scopes) are shape-checked at load too. (2) **A pinned read is verified** (`ProviderReads.ReadVerifiedAsync`,
   executor and planner): the returned object's key properties (`uniqueName`, `appId`, `userPrincipalName`, `displayName`, the composite members) must match the
   desired key, case-insensitively; a mismatch discards the pinned result, warns `StateEntryMismatch` and looks the object up by key instead, so an object
-  with another key is never PATCHed. (3) **Every state-driven delete re-reads the object by KEY** (`StateDeletion`, shared by the Complete-mode pass,
-  `deployment delete --delete-resources` and what-if): the live id must equal the pinned id (mismatch, or an object under the pinned id that the key does not
-  find: the entry stays and the resource fails with `StateEntryMismatch` naming the resource id, the pinned id and the live id; neither found: `AlreadyGone`), an
-  entry that points at the signed-in principal, or a service principal with a foreign `appOwnerOrganizationId` (a first-party or multi-tenant app), is refused
-  (`ProtectedObject`), and a child's recorded parent id must match its parent's own entry. (4) **Adoption is recorded**: every entry has `provenance`
-  (`created` | `adopted`; serialised as `"provenance"`). An object that existed before the deployment managed it (found by key without a state entry, an "already
-  exists" race, `state adopt`) is `adopted` and warned about (`AdoptedExistingObject`, also in what-if); an entry without the field (written by an earlier
-  version) reads as `adopted`, so nothing is ever deleted that the state cannot vouch for. **Complete mode and `deployment delete --delete-resources` skip adopted
-  entries** (`AdoptedObjectNotDeleted`: the entry stays, the run still succeeds) unless `--delete-adopted`. `schemaVersion` stays 1 (the field is optional).
-  (4b) **An entry may carry a fingerprint**: `createdDateTime` (the object's Graph `createdDateTime` when it was created or adopted). When the entry and the live read both carry it and they differ, the object is not the one the entry was written for: a state-driven delete refuses it (`StateEntryMismatch`) and a pinned read ignores it. (5) **One object, one resource**: resource ids compare case-insensitively (Graph matches its keys that way; GUID-shaped names are lower-cased), so
+  with another key is never PATCHed. (3) **No delete reads the state** (Complete mode only reports; `deployment delete` and the old object of a recreate are
+  found by key, and the signed-in principal and service principals with a foreign `appOwnerOrganizationId` are never deleted: `DeleteGuards`, `ProtectedObject`).
+  (4) Entries still carry `provenance` (`created` | `adopted`) and an optional `createdDateTime`; nothing reads them any more. `schemaVersion` stays 1. (5) **One object, one resource**: resource ids compare case-insensitively (Graph matches its keys that way; GUID-shaped names are lower-cased), so
   `MyApp` → `myapp` is a rename of one resource, not a delete and a create; two declarations whose ids differ only by case are a `DuplicateResourceId`
-  error; two declarations that resolve to the same Graph object fail the second at apply time (`DuplicateGraphObject`); an orphan entry whose Graph id belongs
-  to a declared resource is detached, never deleted (`OrphanSharesObject`).
+  error; two declarations that resolve to the same Graph object fail the second at apply time (`DuplicateGraphObject`).
 - **A rename outside the template** (a user's UPN, a group, named location or policy `displayName` changed in the portal): the pinned object no longer has the key and nothing else has it. The resource **fails** with
   `StateEntryMismatch` ("object <id> was renamed outside the template ... restore the name, or run `earm state forget`") instead of planning a create that would duplicate the object and orphan the original; the what-if shows an
   error row. (Composite-keyed types have no rename: a key that differs is a new object, as before.)
@@ -457,9 +426,9 @@ write an entry that carries a secret (`SecretJson`) or a deploy-time placeholder
   another tenant throws `TenantMismatchException` (exit 3). A state without a tenant adopts the current one.
 - **Sink** (`FileStateSink : IStateSink`): `BeginAsync` marks the run `Running` (operations cleared); every
   `ResourceAppliedAsync` upserts the entry and **saves after every resource**; `ResourceFailedAsync` records the
-  (redacted) error and keeps the previous entry; skipped/ignored resources and the mode pass are recorded too;
-  `ResourceEdgesAppliedAsync` replaces the entry's `relationships` after the edge pass and `ResourceEdgesFailedAsync`
-  records an edge failure (the entry keeps its previous records); `CompletedAsync` sets `lastStatus` /
+  (redacted) error and keeps the previous entry; skipped/ignored resources are recorded too;
+  `ResourceEdgesFailedAsync` records an edge failure (edges themselves are no longer recorded: the executor never calls `ResourceEdgesAppliedAsync`,
+  `ResourceDetachedAsync` or `ResourceDeletedAsync` any more); `CompletedAsync` sets `lastStatus` /
   `lastDeployedOn` / `lastMode` / `lastTemplateHash`. A crash leaves `lastStatus: Running` and the entries written so far.
   **Recording is not cancellable**: every record after `BeginAsync` describes work that already happened, so the sink
   saves it under its own 30-second bound (`FileStateSink.PersistTimeout`) and the executor passes `CancellationToken.None`;
@@ -482,23 +451,9 @@ write an entry that carries a secret (`SecretJson`) or a deploy-time placeholder
   back on the next run). The executor also passes the pinned Graph id to
   `ReadAsync` (`ExecuteOptions.State`); a 404 on the pinned id is drift: the provider falls back to the key, the
   resource is planned as `Create` if nothing is found, and the sink re-pins the entry.
-- **Mode pass** (`ModePass`, executor and planner): orphans = entries whose id is not among the expanded instances
-  (`condition: false` instances still count as declared; types with a still-symbolic instance are left alone with a
-  warning). Incremental: `Ignore` row "not in template; will be detached from state" (what-if) / detached with a
-  `ResourceDetached` warning (create). Complete: `Delete` rows with the live object as `before` (an object already
-  gone is an `Ignore` row), applied in **reverse dependency order** from the entries' `dependsOn` with
-  `ApplyPhases.DeleteOrderOf` as tie-breaker, each through the provider's `DeleteAsync` inside the retry policy
-  (`StateDeletion`, after the safety checks above and after its recorded edges were removed); a 404 counts as deleted; the first failure stops the
-  pass unless `--continue-on-error`. Adopted entries are skipped (an `Ignore` row "adopted object, not deleted" in what-if) unless `--delete-adopted`.
-  The CLI additionally asks for confirmation before a Complete-mode run that deletes (without `-y`), and requires `--allow-delete-all` when the template declares
-  no resources while the state manages some, or when more than `--max-deletes` (default 25) objects would be deleted. A provider implementing `IDeleteWarningSource` (groups: distribution lists and mail-enabled security groups, which Learn does not list as restorable; security and
-  Microsoft 365 groups wait 30 days in the recycle bin and do not warn) adds a `DestructiveDelete` warning to the what-if row and the run.
-- **`deployment delete --delete-resources`** (`DeploymentDeleter`): deletes every entry in the same order, saving
-  after each (independent of the caller's cancellation, so a Ctrl+C never loses what was deleted), then removes the state file; without the flag only the file goes. A run interrupted by a cancellation or a failure saves
-  `lastStatus: Cancelled` / `Failed` before it throws: never `Running`. Without the flag the state is read leniently so a bad entry cannot keep the file from being removed.
-- **The delete budget.** `ExecuteOptions.MaxDeletes` (the CLI's `--max-deletes` unless `--allow-delete-all`) is a hard limit of the run: every real delete (an orphan, the old object of a recreate; not one the guard refuses) takes one from
-  it, and the next one fails `DeleteLimitExceeded` and stops the mode pass. The CLI's estimate before the run (`DeploymentRunner`) counts the orphans it can judge, **the entries of types that still have a symbolic-named resource
-  (`ModePass.FindUndecided`: they may be deleted once the names resolve; refusal text "may include", confirmation `[may be deleted]`)**, and with `-c` the recreates.
+- **No delete is driven by the state.** Complete mode only reports undeclared objects, and `deployment delete` finds the declared objects by
+  key from the template (see [Orphan report and `deployment delete`](#orphan-report-and-deployment-delete)). The state is write-only for the
+  engine apart from the extra data of unchanged resources; it goes away with the state subsystem.
 
 ### State trust model
 
@@ -507,14 +462,34 @@ object belongs to a deployment. What EARM does about that, and what it cannot do
 
 | What | Defence |
 |---|---|
-| Re-pointing an entry (`id`) at somebody else's object | The entry's `key` must be the key its resource id implies (load error `StateEntryInvalid`); a state-driven delete re-reads the object by that key and requires the live id to be the pinned one; the optional `createdDateTime` fingerprint must match; the signed-in principal and first-party service principals (that the deployment did not create) are never deleted; adopted entries are never deleted without `--delete-adopted`; `--max-deletes` and the confirmation bound the damage. |
-| Recorded edge ids (`relationships`) | Shape-checked at load; before an assignment recorded by id (a directory role, an app role assignment) is removed on the strength of the state alone, `GET` it by id and require the principal, role/resource and scope to be the recorded ones. |
+| Re-pointing an entry (`id`) at somebody else's object | The entry's `key` must be the key its resource id implies (load error `StateEntryInvalid`). Identity is resolved live by key, and nothing is deleted on the strength of an entry: Complete mode only reports, `deployment delete` works from the template. |
+| Recorded edge ids (`relationships`) | Shape-checked at load; never read (principal-side edges are ensure-only, nothing is removed because it was recorded). |
 | A pinned id that does not match the key | Ignored (the object is looked up by key); never PATCHed; a renamed object fails the resource (`StateEntryMismatch`). |
-| **An attacker who writes a *consistent* entry** (the true key and id of a real object, `provenance: created`, a copied `createdDateTime`) | **Not preventable by a file.** The entry says "this deployment created that object"; EARM cannot know otherwise. The damage is bounded to what the deployment may delete anyway (not the signed-in principal, not an adopted object that the state admits to be adopted, within `--max-deletes`, after the confirmation of a Complete-mode run unless `-y`). |
+| **An attacker who writes a *consistent* entry** (the true key and id of a real object, `provenance: created`, a copied `createdDateTime`) | Harmless for deletes: no delete reads the state. |
 
-Therefore: keep the state in a **trusted location** (a private, access-controlled storage or a repository branch with review), do not take state files from pull requests of untrusted authors, run `deployment what-if` (which shows every
-delete) before a Complete-mode `create`, and protect `.earm/state` the way you protect the pipeline that deploys: for a Git repository add `.earm/state/` to **CODEOWNERS** so a change of a state file needs the review of the deployment owners,
+Therefore: keep the state in a **trusted location** (a private, access-controlled storage or a repository branch with review), do not take state files from pull requests of untrusted authors, and protect `.earm/state` the way you protect the pipeline that deploys: for a Git repository add `.earm/state/` to **CODEOWNERS** so a change of a state file needs the review of the deployment owners,
 and protect the branch that the deployment runs from. A tampered file that fails the integrity rules is refused loudly; a consistent forgery is only visible in review.
+
+## Orphan report and `deployment delete`
+
+**Complete mode never deletes.** `OrphanReport` (`EArm.Engine.Planning`, run by the planner in what-if and by the executor after the outputs) lists, for every type the
+template declares whose provider implements `IOrphanCandidateSource`, the live objects in a bounded scope (`OrphanScope`):
+`Collection` (Conditional Access policies, named locations, custom authentication strengths, custom role definitions, administrative units, authentication contexts),
+`ChildrenOfDeclaredParents` (federated identity credentials and password credentials of the declared applications, the service principals of the declared applications)
+and `DeclaredPrincipals` (role assignments, app role assignments, OAuth2 permission grants of the principals / clients the declared resources of the type name). A
+candidate whose Graph id no declared resource of the type holds is an orphan: an `Ignore` row marked `ResourceChange.Orphan` (`Undeclared`; `Retained` for the
+`DeclaredPrincipals` scope, with an `AssignmentRetained` warning). Incremental mode runs only the `DeclaredPrincipals` scope (the old tuple of a changed assignment is
+retained and still grants access, so the what-if says so). A type is skipped with `OrphanReportIncomplete` when one of its declared resources is not settled in the
+run (what-if: an error row or an unresolved key; executor: not succeeded) or its listing fails; applications, groups and users are tenant-wide and never listed (an
+`Info` diagnostic). Orphans are in `DeploymentPlan.Orphans` (what-if) and `DeploymentResult.Orphans` (create); they never count as changes.
+
+**`deployment delete`** (`TemplateDeleter`, `EArm.Engine.Execution`): the CLI plans the template in what-if mode (identity by live key, read-only), then
+`TemplateDeleter.FindDeclaredObjects(plan)` lists the declared objects that exist, in **reverse dependency order** (the batches reversed, ties by
+`ApplyPhases.DeleteOrderOf` and resource id), each with its `displayName`, the guard's refusal (`DeleteGuards`: the signed-in principal and service principals
+owned by another organization are kept) and the provider's `IDeleteWarningSource` risk (groups: distribution lists and mail-enabled security groups, which Learn
+does not list as restorable). After the confirmation `DeleteAsync` re-reads each object by key (it must be the listed one), deletes it through the provider inside
+the retry policy (a 404 counts as gone) and stops at the first failure unless `continueOnError`; a delete in flight is never cancelled, a Ctrl+C skips the rest.
+No state is read or written.
 
 ## Key Vault parameter references (`EArm.Engine.KeyVault`)
 

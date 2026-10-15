@@ -51,7 +51,7 @@ namespace EArm.Providers;
 /// </para>
 /// </summary>
 [EntraProvider(ResourceType)]
-public sealed class PasswordCredentialsProvider : ProviderBase
+public sealed class PasswordCredentialsProvider : ProviderBase, IOrphanCandidateSource
 {
     public const string ResourceType = "Microsoft.Entra/applications/passwordCredentials";
 
@@ -600,5 +600,30 @@ public sealed class PasswordCredentialsProvider : ProviderBase
             Reasons = [message],
             UnsupportedReason = message,
         };
+    }
+
+    // ---- orphan report ----
+
+    /// <summary>The orphan report lists the password credentials of the applications the template declares (Graph id = <c>keyId</c>).</summary>
+    public OrphanScope OrphanScope => OrphanScope.ChildrenOfDeclaredParents;
+
+    public string? OrphanParentType => Definition.ParentType;
+
+    public async Task<IReadOnlyList<OrphanCandidate>> ListOrphanCandidatesAsync(OrphanQuery query, IGraphClient graph, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        ArgumentNullException.ThrowIfNull(graph);
+        var candidates = new List<OrphanCandidate>();
+        foreach (var parent in query.Parents)
+        {
+            var live = await ReadParentAsync(graph, ParentPathById(parent.GraphId), query.Api, RetryHint.Default, cancellationToken).ConfigureAwait(false);
+            foreach (var credential in PasswordCredentialsRules.Summarize(live?[PasswordCredentialsRules.PasswordCredentialsProperty]))
+            {
+                string name = credential.DisplayName is { Length: > 0 } displayName ? PasswordCredentialName.Parse(displayName).Base : credential.KeyId;
+                candidates.Add(new OrphanCandidate(credential.KeyId, string.IsNullOrEmpty(name) ? credential.KeyId : name, parent.Name, credential.DisplayName is null ? null : $"displayName '{credential.DisplayName}'"));
+            }
+        }
+
+        return candidates;
     }
 }
