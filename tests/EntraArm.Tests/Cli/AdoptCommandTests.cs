@@ -565,12 +565,7 @@ public sealed class AdoptCommandTests
 
     private static List<JsonObject> Calls(CliSandbox sandbox)
     {
-        if (!File.Exists(sandbox.ArgvFile))
-        {
-            return [];
-        }
-
-        return File.ReadAllLines(sandbox.ArgvFile).Where(l => l.Length > 0).Select(l => JsonNode.Parse(l)!.AsObject()).ToList();
+        return sandbox.ReadArgvLines().Select(l => JsonNode.Parse(l)!.AsObject()).ToList();
     }
 
     private static string ArgvText(JsonObject call)

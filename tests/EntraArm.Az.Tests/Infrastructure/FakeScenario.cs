@@ -77,6 +77,9 @@ internal sealed class FakeResponse
     [JsonPropertyName("sleepSeconds")]
     public double? SleepSeconds { get; set; }
 
+    [JsonPropertyName("barrier")]
+    public FakeBarrier? Barrier { get; set; }
+
     /// <summary>Exit 0 with the JSON text on stdout.</summary>
     public static FakeResponse Json(string json)
     {
@@ -130,4 +133,27 @@ internal sealed class FakeResponse
         SleepSeconds = seconds;
         return this;
     }
+
+    /// <summary>
+    /// Holds the first <paramref name="parties"/> fake processes until that many are inside the replay window at the same
+    /// time (exit 97 after <paramref name="timeoutSeconds"/> otherwise): a deterministic proof of real concurrency.
+    /// </summary>
+    public FakeResponse WithBarrier(int parties, double timeoutSeconds = 30)
+    {
+        Barrier = new FakeBarrier { Parties = parties, TimeoutSeconds = timeoutSeconds };
+        return this;
+    }
 }
+
+/// <summary>Cross-process rendezvous scripted into a <see cref="FakeResponse"/>.</summary>
+internal sealed class FakeBarrier
+{
+    [JsonPropertyName("parties")]
+    public int Parties { get; set; }
+
+    [JsonPropertyName("timeoutSeconds")]
+    public double TimeoutSeconds { get; set; }
+}
+
+/// <summary>Snapshot of the fake's concurrency gauge file.</summary>
+internal readonly record struct FakeAzGauge(int Current, int MaxConcurrent, int Arrivals);

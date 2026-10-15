@@ -18,10 +18,102 @@
     stdout goes through Write-Output, stderr through [Console]::Error.WriteLine, the exit code through "exit". The host
     runs with Set-StrictMode -Version Latest and $ErrorActionPreference = 'Stop'; every variable here carries a "fake"
     prefix so dynamic scoping never picks up a host variable by accident, and nothing global is touched.
+
+    Several fakes run at the same time (PwshAzRunner.MaxParallel > 1), so every read-modify-write of the shared files
+    (argv file, state file, concurrency gauge) happens under ONE named System.Threading.Mutex derived from the argv
+    file path (the state file path when there is no argv file). Files are opened with FileShare.ReadWrite|Delete and
+    the open is retried on IOException (50 x 20 ms), so a concurrent reader in the test host never blocks a writer
+    and vice versa. Each argv record is written as ONE line with a single Write call. See tests/fake-az/README.md.
 #>
 
 $fakeUtf8NoBom = [System.Text.UTF8Encoding]::new($false)
 $fakeArgv = [string[]]@($args | ForEach-Object { [string]$_ })
+
+$fakeShare = [System.IO.FileShare]([int][System.IO.FileShare]::ReadWrite -bor [int][System.IO.FileShare]::Delete)
+
+function Open-FakeFile {
+    # Opens a shared file; retries sharing violations (IOException other than missing file/dir) 50 x 20 ms.
+    param([string] $Path, [System.IO.FileMode] $Mode, [System.IO.FileAccess] $Access)
+    for ($attempt = 1; ; $attempt++) {
+        try {
+            return [System.IO.FileStream]::new($Path, $Mode, $Access, $fakeShare)
+        }
+        catch [System.IO.FileNotFoundException] { throw }
+        catch [System.IO.DirectoryNotFoundException] { throw }
+        catch [System.IO.IOException] {
+            if ($attempt -ge 50) { throw }
+            Start-Sleep -Milliseconds 20
+        }
+    }
+}
+
+function Add-FakeLine {
+    # Appends one line with a single Write call (no partial line is ever visible to a reader).
+    param([string] $Path, [string] $Line)
+    $bytes = $fakeUtf8NoBom.GetBytes($Line + "`n")
+    $stream = Open-FakeFile -Path $Path -Mode ([System.IO.FileMode]::Append) -Access ([System.IO.FileAccess]::Write)
+    try {
+        $stream.Write($bytes, 0, $bytes.Length)
+        $stream.Flush()
+    }
+    finally {
+        $stream.Dispose()
+    }
+}
+
+function Read-FakeText {
+    # Whole-file text, or $null when the file does not exist.
+    param([string] $Path)
+    if (-not [System.IO.File]::Exists($Path)) { return $null }
+    try {
+        $stream = Open-FakeFile -Path $Path -Mode ([System.IO.FileMode]::Open) -Access ([System.IO.FileAccess]::Read)
+    }
+    catch [System.IO.FileNotFoundException] { return $null }
+    try {
+        $reader = [System.IO.StreamReader]::new($stream, $fakeUtf8NoBom)
+        return $reader.ReadToEnd()
+    }
+    finally {
+        $stream.Dispose()
+    }
+}
+
+function Write-FakeText {
+    # Replaces the file content (used for the gauge, always under the mutex).
+    param([string] $Path, [string] $Text)
+    $bytes = $fakeUtf8NoBom.GetBytes($Text)
+    $stream = Open-FakeFile -Path $Path -Mode ([System.IO.FileMode]::Create) -Access ([System.IO.FileAccess]::Write)
+    try {
+        $stream.Write($bytes, 0, $bytes.Length)
+        $stream.Flush()
+    }
+    finally {
+        $stream.Dispose()
+    }
+}
+
+function New-FakeMutex {
+    param([string] $KeyPath)
+    $full = [System.IO.Path]::GetFullPath($KeyPath)
+    if ([OperatingSystem]::IsWindows()) { $full = $full.ToLowerInvariant() }
+    $hash = [System.Security.Cryptography.SHA256]::HashData([System.Text.Encoding]::UTF8.GetBytes($full))
+    return [System.Threading.Mutex]::new($false, 'EntraArmFakeAz-' + [System.Convert]::ToHexString($hash, 0, 16))
+}
+
+function Invoke-FakeLocked {
+    # Runs $Action holding the cross-process mutex. An abandoned mutex (a holder killed by a runner timeout) is ours.
+    param([System.Threading.Mutex] $Mutex, [scriptblock] $Action)
+    $acquired = $false
+    try {
+        try { $acquired = $Mutex.WaitOne([TimeSpan]::FromSeconds(60)) }
+        catch [System.Threading.AbandonedMutexException] { $acquired = $true }
+        if (-not $acquired) { throw 'fake-az: could not acquire the cross-process mutex within 60 s' }
+        return (& $Action)
+    }
+    finally {
+        if ($acquired) { $Mutex.ReleaseMutex() }
+    }
+}
 
 function Get-FakeArgvValue {
     param([string[]] $Argv, [string] $Name)
@@ -99,6 +191,15 @@ if ($fakeLinkDir -and $fakeBodyFile) {
 
 # ---- 3. Record the invocation ------------------------------------------------------------------------------------------
 $fakeArgvFile = $env:ENTRAARM_FAKE_AZ_ARGV_FILE
+$fakeStateFile = $env:ENTRAARM_FAKE_AZ_STATE_FILE
+if (-not $fakeStateFile) {
+    $fakeStateFile = if ($fakeArgvFile) { "$fakeArgvFile.state" } elseif ($env:ENTRAARM_FAKE_AZ_FIXTURE) { "$($env:ENTRAARM_FAKE_AZ_FIXTURE).state" } else { $null }
+}
+$fakeMutex = $null
+$fakeLockKey = if ($fakeArgvFile) { $fakeArgvFile } else { $fakeStateFile }
+if ($fakeLockKey) {
+    $fakeMutex = New-FakeMutex -KeyPath $fakeLockKey
+}
 if ($fakeArgvFile) {
     $fakeRecord = [ordered]@{
         argv     = $fakeArgv
@@ -113,7 +214,7 @@ if ($fakeArgvFile) {
         cwd      = (Get-Location).Path
     }
     $fakeLine = ConvertTo-Json -InputObject $fakeRecord -Compress -Depth 8
-    [System.IO.File]::AppendAllText($fakeArgvFile, $fakeLine + "`n", $fakeUtf8NoBom)
+    [void](Invoke-FakeLocked -Mutex $fakeMutex -Action { Add-FakeLine -Path $fakeArgvFile -Line $fakeLine })
 }
 
 # ---- 4. Load the fixture -----------------------------------------------------------------------------------------------
@@ -148,42 +249,46 @@ foreach ($fakePath in $fakeFixturePaths) {
     }
 }
 
-# ---- 5. Select the first unconsumed matching response ------------------------------------------------------------------
-$fakeStateFile = $env:ENTRAARM_FAKE_AZ_STATE_FILE
-if (-not $fakeStateFile) {
-    $fakeStateFile = if ($fakeArgvFile) { "$fakeArgvFile.state" } else { "$fakeFixture.state" }
-}
-$fakeConsumed = @{}
-if ([System.IO.File]::Exists($fakeStateFile)) {
-    foreach ($fakeStateLine in [System.IO.File]::ReadAllLines($fakeStateFile)) {
-        if ($fakeStateLine -match '^\d+$') {
-            $fakeConsumed[[int]$fakeStateLine] = $true
+# ---- 5. Select the first unconsumed matching response (atomic: read state, pick, append index under the mutex) -----------
+$fakeSelectAction = {
+    $fakeConsumed = @{}
+    $fakeStateText = Read-FakeText -Path $fakeStateFile
+    if ($null -ne $fakeStateText) {
+        foreach ($fakeStateLine in $fakeStateText.Split("`n")) {
+            $fakeStateLine = $fakeStateLine.Trim()
+            if ($fakeStateLine -match '^\d+$') {
+                $fakeConsumed[[int]$fakeStateLine] = $true
+            }
         }
     }
-}
 
-$fakeSelected = -1
-for ($fakeIndex = 0; $fakeIndex -lt $fakeResponses.Count; $fakeIndex++) {
-    if ($fakeConsumed.ContainsKey($fakeIndex)) {
-        continue
+    $fakePicked = -1
+    for ($fakeIndex = 0; $fakeIndex -lt $fakeResponses.Count; $fakeIndex++) {
+        if ($fakeConsumed.ContainsKey($fakeIndex)) {
+            continue
+        }
+        $fakeCandidate = $fakeResponses[$fakeIndex]
+        $fakeMatch = $null
+        if ($fakeCandidate -is [System.Collections.IDictionary] -and $fakeCandidate.Contains('match')) {
+            $fakeMatch = $fakeCandidate['match']
+        }
+        if (Test-FakeMatch -Match $fakeMatch -Argv $fakeArgv -Body ([string]$fakeBody)) {
+            $fakePicked = $fakeIndex
+            break
+        }
     }
-    $fakeCandidate = $fakeResponses[$fakeIndex]
-    $fakeMatch = $null
-    if ($fakeCandidate -is [System.Collections.IDictionary] -and $fakeCandidate.Contains('match')) {
-        $fakeMatch = $fakeCandidate['match']
+
+    if ($fakePicked -ge 0) {
+        Add-FakeLine -Path $fakeStateFile -Line ([string]$fakePicked)
     }
-    if (Test-FakeMatch -Match $fakeMatch -Argv $fakeArgv -Body ([string]$fakeBody)) {
-        $fakeSelected = $fakeIndex
-        break
-    }
+    return $fakePicked
 }
+$fakeSelected = [int](Invoke-FakeLocked -Mutex $fakeMutex -Action $fakeSelectAction)
 
 if ($fakeSelected -lt 0) {
     [Console]::Error.WriteLine('fake-az: no fixture response left for ' + ($fakeArgv -join ' '))
     exit 99
 }
-[System.IO.File]::AppendAllText($fakeStateFile, "$fakeSelected`n", $fakeUtf8NoBom)
-
 # ---- 6. Replay it -------------------------------------------------------------------------------------------------------
 $fakeResponse = $fakeResponses[$fakeSelected]
 if ($fakeResponse -isnot [System.Collections.IDictionary]) {
@@ -191,11 +296,65 @@ if ($fakeResponse -isnot [System.Collections.IDictionary]) {
     exit 98
 }
 
-if ($fakeResponse.Contains('sleepSeconds') -and $null -ne $fakeResponse['sleepSeconds']) {
-    $fakeSleep = [double]$fakeResponse['sleepSeconds']
-    if ($fakeSleep -gt 0) {
-        Start-Sleep -Milliseconds ([int]($fakeSleep * 1000))
+# Concurrency gauge "<current> <max> <arrivals>" in "<argv file>.gauge": how many fakes are inside the replay window
+# (between selection and the end of the sleep/barrier) at once. Updated under the mutex.
+$fakeGaugeFile = if ($fakeArgvFile) { "$fakeArgvFile.gauge" } else { $null }
+$fakeUpdateGauge = {
+    param([int] $DeltaCurrent, [int] $DeltaArrivals)
+    $text = Read-FakeText -Path $fakeGaugeFile
+    $current = 0; $max = 0; $arrivals = 0
+    if ($text) {
+        $parts = $text.Trim().Split(' ')
+        if ($parts.Count -ge 3) { $current = [int]$parts[0]; $max = [int]$parts[1]; $arrivals = [int]$parts[2] }
     }
+    $current += $DeltaCurrent
+    $arrivals += $DeltaArrivals
+    if ($current -gt $max) { $max = $current }
+    Write-FakeText -Path $fakeGaugeFile -Text "$current $max $arrivals`n"
+    return $arrivals
+}
+$fakeArrival = 0
+$fakeBarrierFailed = $false
+if ($fakeGaugeFile) {
+    $fakeArrival = [int](Invoke-FakeLocked -Mutex $fakeMutex -Action { & $fakeUpdateGauge -DeltaCurrent 1 -DeltaArrivals 1 })
+}
+try {
+    # Optional barrier: the first <parties> arrivals wait until <parties> fakes are inside at the same time, which proves
+    # (deterministically, without sleeping a guessed duration) that the runner really runs calls concurrently. Fakes
+    # arriving later pass straight through. A barrier that is not met within timeoutSeconds (default 30) exits 97.
+    if ($fakeGaugeFile -and $fakeResponse.Contains('barrier') -and $fakeResponse['barrier'] -is [System.Collections.IDictionary]) {
+        $fakeBarrier = $fakeResponse['barrier']
+        $fakeParties = [int]$fakeBarrier['parties']
+        $fakeBarrierTimeout = if ($fakeBarrier.Contains('timeoutSeconds') -and $null -ne $fakeBarrier['timeoutSeconds']) { [double]$fakeBarrier['timeoutSeconds'] } else { 30.0 }
+        if ($fakeArrival -le $fakeParties) {
+            $fakeDeadline = [DateTime]::UtcNow.AddSeconds($fakeBarrierTimeout)
+            while ($true) {
+                $fakeArrivals = [int](Invoke-FakeLocked -Mutex $fakeMutex -Action { & $fakeUpdateGauge -DeltaCurrent 0 -DeltaArrivals 0 })
+                if ($fakeArrivals -ge $fakeParties) { break }
+                if ([DateTime]::UtcNow -ge $fakeDeadline) {
+                    [Console]::Error.WriteLine("fake-az: barrier of $fakeParties parties not met within $fakeBarrierTimeout s (only $fakeArrivals arrived)")
+                    $fakeBarrierFailed = $true
+                    break
+                }
+                Start-Sleep -Milliseconds 20
+            }
+        }
+    }
+
+    if ($fakeResponse.Contains('sleepSeconds') -and $null -ne $fakeResponse['sleepSeconds']) {
+        $fakeSleep = [double]$fakeResponse['sleepSeconds']
+        if ($fakeSleep -gt 0) {
+            Start-Sleep -Milliseconds ([int]($fakeSleep * 1000))
+        }
+    }
+}
+finally {
+    if ($fakeGaugeFile) {
+        [void](Invoke-FakeLocked -Mutex $fakeMutex -Action { & $fakeUpdateGauge -DeltaCurrent -1 -DeltaArrivals 0 })
+    }
+}
+if ($fakeBarrierFailed) {
+    exit 97
 }
 
 if ($fakeResponse.Contains('stderr') -and $null -ne $fakeResponse['stderr'] -and ([string]$fakeResponse['stderr']).Length -gt 0) {

@@ -64,13 +64,14 @@ internal sealed record FakeAzRecord(
 
     public static IReadOnlyList<FakeAzRecord> ReadAll(string path)
     {
-        if (!File.Exists(path))
+        var text = FakeAzFiles.ReadSettledText(path);
+        if (text is null)
         {
             return [];
         }
 
         var records = new List<FakeAzRecord>();
-        foreach (var line in File.ReadLines(path, FakeAzContext.Utf8NoBom))
+        foreach (var line in text.Split('\n'))
         {
             if (string.IsNullOrWhiteSpace(line))
             {

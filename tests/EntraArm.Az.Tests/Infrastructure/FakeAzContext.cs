@@ -118,6 +118,23 @@ internal sealed class FakeAzContext : IDisposable
         return FakeAzRecord.ReadAll(ArgvFile);
     }
 
+    /// <summary>
+    /// The fake's concurrency gauge (<c>&lt;argv file&gt;.gauge</c>): how many fakes were inside their replay window at
+    /// once (<see cref="FakeAzGauge.MaxConcurrent"/>) and how many arrived in total. Zeroes when no fake wrote one.
+    /// </summary>
+    public FakeAzGauge ReadGauge()
+    {
+        var text = FakeAzFiles.ReadSettledText(ArgvFile + ".gauge");
+        var parts = (text ?? string.Empty).Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 3)
+        {
+            return new FakeAzGauge(0, 0, 0);
+        }
+
+        var culture = System.Globalization.CultureInfo.InvariantCulture;
+        return new FakeAzGauge(int.Parse(parts[0], culture), int.Parse(parts[1], culture), int.Parse(parts[2], culture));
+    }
+
     /// <summary>Files left in the temp directory other than the extracted host script.</summary>
     public IReadOnlyList<string> LeftoverProtocolFiles()
     {

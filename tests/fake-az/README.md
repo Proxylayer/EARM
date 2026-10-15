@@ -44,6 +44,36 @@ change the fixture between calls on the same runner instance).
 | `ENTRAARM_FAKE_AZ_STATE_FILE` | Where the fake remembers which responses were consumed (one zero-based index per line) so a fixture sequence survives across process launches. Default: `<argv file>.state` (or `<fixture>.state` without an argv file). Tests delete it between cases. |
 | `ENTRAARM_FAKE_AZ_LINK_DIR` | Optional. When set and the call carries `--body @<dir>/body-<id>.json`, the fake hard-links `req-<id>.json`, `body-<id>.json` and `out-<id>.json` from that directory into this one (pre-creating the output file, which the host then rewrites in place). The links outlive the runner's delete, so a test can read them back and assert the runner zeroed the files first. Relies on the `req-/body-/out-<id>.json` naming of `AzRequestFiles`. |
 
+## Concurrency contract (mutex, sharing, retry)
+
+`PwshAzRunner` runs up to `AzOptions.MaxParallel` fake processes at once, all appending to the same argv file and
+consuming from the same state file, while the test host may read them. The fake is therefore written to this contract
+(a plain `File.AppendAllText` opens with `FileShare.Read`, so a second concurrent writer fails with "The process cannot
+access the file ... because it is being used by another process", which the host reports as exit 70):
+
+- **One named mutex per fixture.** `System.Threading.Mutex` named `EntraArmFakeAz-<first 16 bytes of SHA-256, hex>` of the
+  full (lower-cased on Windows) path of the argv file, or of the state file when there is no argv file; no `Global\` prefix.
+  Every read-modify-write of the argv file, the state file and the gauge happens while holding it (wait up to 60 s; an
+  abandoned mutex, left by a holder the runner killed on a timeout, is treated as acquired).
+- **Shared opens + bounded retry.** Files are opened with `FileShare.ReadWrite | FileShare.Delete`; an `IOException` on open
+  (other than file/directory not found) is retried 50 x 20 ms before it propagates.
+- **One record = one write.** Each argv record is the compact JSON plus `\n`, written with a single `Write` call in append mode,
+  so a reader never sees an interleaved or half-written middle line.
+- **Atomic response consumption.** Reading the consumed indexes, choosing the first unconsumed matching response and appending
+  its index to the state file is one critical section: two concurrent calls never consume the same response.
+- **Concurrency gauge.** While the mutex is held the fake also maintains `<argv file>.gauge` = `<current> <max> <arrivals>` (a
+  line): `current` counts fakes inside the replay window (between response selection and the end of the sleep/barrier),
+  `max` is the highest value `current` ever reached, `arrivals` the total number of fakes that got that far.
+  `FakeAzContext.ReadGauge()` returns it. `max` is a lower bound of the runner's real parallelism, so asserting `max <= MaxParallel`
+  can never false-fail.
+- **Barrier (deterministic concurrency proof).** A response may carry `"barrier": { "parties": 2, "timeoutSeconds": 30 }`
+  (`FakeResponse.WithBarrier`). The first `parties` fakes to arrive wait until `parties` fakes have arrived, so a test proves
+  real concurrency without guessing sleep durations; later arrivals pass straight through. A barrier not met in time writes
+  `fake-az: barrier of N parties not met ...` to stderr and exits 97 (so a serialising runner fails loudly). `parties` must not
+  exceed `MaxParallel`.
+- **Readers** (`FakeAzFiles.ReadSettledText`, `CliSandbox.ReadArgvLines`) open with `FileShare.ReadWrite | FileShare.Delete`,
+  retry sharing violations, and re-read (50 x 20 ms) while the last line has no terminating `\n`.
+
 ## Fixture format
 
 ```json
@@ -55,7 +85,8 @@ change the fixture between calls on the same runner instance).
       "stdoutJson": { "id": "11111111-2222-3333-4444-555555555555", "displayName": "Ünïcødé" },  // re-serialised by ConvertTo-Json: compact, key order kept, non-ASCII raw
       "stdout":     "",          // alternative to stdoutJson (only used when stdoutJson is absent/null): raw text
       "stderr":     "",
-      "sleepSeconds": 0          // fractional seconds allowed; the sleep happens after the call was recorded
+      "sleepSeconds": 0,         // fractional seconds allowed; the sleep happens after the call was recorded
+      "barrier": { "parties": 2, "timeoutSeconds": 30 }   // optional: see "Concurrency contract"; exit 97 when not met
     },
     {
       "exitCode": 1,

@@ -161,15 +161,48 @@ internal sealed class CliSandbox : IDisposable
     /// <summary>The argv of every az invocation the fake recorded (one line per call).</summary>
     public IReadOnlyList<string> RecordedCommands()
     {
-        if (!File.Exists(ArgvFile))
-        {
-            return [];
-        }
-
-        return File.ReadAllLines(ArgvFile)
-            .Where(l => l.Length > 0)
+        return ReadArgvLines()
             .Select(l => string.Join(' ', System.Text.Json.Nodes.JsonNode.Parse(l)!["argv"]!.AsArray().Select(a => a!.GetValue<string>())))
             .ToList();
+    }
+
+    /// <summary>
+    /// The non-empty lines of the fake's argv file. Opened with FileShare.ReadWrite|Delete and re-read (50 x 20 ms) while the
+    /// last line is still unterminated, so a reader never trips over a fake that is mid-append.
+    /// </summary>
+    public IReadOnlyList<string> ReadArgvLines()
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            string text;
+            try
+            {
+                using var stream = new FileStream(ArgvFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                using var reader = new StreamReader(stream, Utf8NoBom);
+                text = reader.ReadToEnd();
+            }
+            catch (FileNotFoundException)
+            {
+                return [];
+            }
+            catch (DirectoryNotFoundException)
+            {
+                return [];
+            }
+            catch (IOException) when (attempt < 50)
+            {
+                System.Threading.Thread.Sleep(20);
+                continue;
+            }
+
+            if (text.Length > 0 && text[^1] != '\n' && attempt < 50)
+            {
+                System.Threading.Thread.Sleep(20);
+                continue;
+            }
+
+            return text.Split('\n').Select(static l => l.TrimEnd('\r')).Where(static l => l.Length > 0).ToList();
+        }
     }
 
     public void Dispose()

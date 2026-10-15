@@ -212,12 +212,27 @@ public sealed class AzRunnerLifecycleTests
         context.Options.MaxParallel = 2;
         using var runner = context.CreateRunner();
 
+        // Deterministic concurrency proof instead of timing: the first two fake processes rendezvous at a cross-process
+        // barrier (exit 97 if the runner never gets two of them running at once), the fake's gauge records how many were
+        // inside at the same time, and the runner's semaphore caps that at MaxParallel.
+        var scenario = new FakeScenario();
+        for (var i = 0; i < 4; i++)
+        {
+            scenario.Add(FakeResponse.Json("{\"id\":\"u" + i + "\"}").WithBarrier(parties: 2));
+        }
+
+        context.UseScenario(scenario);
+
         var tasks = Enumerable.Range(0, 4)
             .Select(i => runner.RunAsync(AzRequest.Rest("GET", V1 + "/users/u" + i), Ct))
             .ToArray();
         var results = await Task.WhenAll(tasks);
 
         Assert.All(results, r => Assert.True(r.Succeeded, "stderr: " + r.StandardError));
+        var gauge = context.ReadGauge();
+        Assert.Equal(4, gauge.Arrivals);
+        Assert.Equal(0, gauge.Current);
+        Assert.Equal(2, gauge.MaxConcurrent);
         var records = context.ReadRecords();
         Assert.Equal(4, records.Count);
         Assert.Equal(
