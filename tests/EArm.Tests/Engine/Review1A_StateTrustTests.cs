@@ -23,10 +23,9 @@ public sealed class Review1A_StateTrustTests
     // ---- S-01b: a pinned id must still name the object the key names ----
 
     [Fact]
-    public async Task PinnedIdOfAnotherObject_IsIgnored_TheObjectWithTheKeyIsUsed_AndTheOtherObjectIsNeverPatched()
+    public async Task ARecordedIdOfAnotherObject_IsNeverRead_TheObjectWithTheKeyIsUsed_AndTheOtherObjectIsNeverPatched()
     {
-        // Review round 2 (S2-04): when NOTHING has the key the pinned object was renamed, and the resource fails instead of creating a duplicate (see
-        // Review3H_StateIntegrityTests); here an object that has the key exists, so the pinned id is ignored and that object is used.
+        // Identity is resolved live by key: the recorded id is never consulted, so the object that has the key is used.
         var host = new EngineHost();
         var victim = host.Directory.AddApplication("victim", "Victim");
         host.Directory.AddApplication("mine", "Mine");
@@ -40,16 +39,14 @@ public sealed class Review1A_StateTrustTests
         Assert.DoesNotContain(host.Fake.Writes, w => w.Path.Contains(victimId, StringComparison.Ordinal) || w.Path.Contains("victim", StringComparison.Ordinal));
         Assert.Equal("Victim", victim["displayName"]!.GetValue<string>());
         Assert.Equal(2, host.Directory.Count("/applications"));
-        var warning = Assert.Single(result.Diagnostics, d => d.Code == EngineDiagnosticCodes.StateEntryMismatch);
-        Assert.Contains(victimId, warning.Message, StringComparison.Ordinal);
-        Assert.Contains(AppId("mine"), warning.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(host.Fake.Requests, r => r.Path.Contains(victimId, StringComparison.Ordinal));
         var op = Assert.Single(result.Operations);
         Assert.Equal(ChangeType.Modify, op.ChangeType);
         Assert.NotEqual(victimId, state.GraphIdOf(AppId("mine")));
     }
 
     [Fact]
-    public async Task WhatIf_PinnedIdOfAnotherObject_UsesTheObjectWithTheKey_WithAMismatchWarning()
+    public async Task WhatIf_ARecordedIdOfAnotherObject_UsesTheObjectWithTheKey()
     {
         var host = new EngineHost();
         var victim = host.Directory.AddApplication("victim", "Victim");
@@ -61,7 +58,7 @@ public sealed class Review1A_StateTrustTests
 
         var change = Assert.Single(plan.Changes);
         Assert.Equal(ChangeType.Modify, change.Type);
-        Assert.Contains(plan.Diagnostics, d => d.Code == EngineDiagnosticCodes.StateEntryMismatch);
+        Assert.DoesNotContain(host.Fake.Requests, r => r.Path.Contains(IdOf(victim), StringComparison.Ordinal));
         Assert.Empty(host.Fake.Writes);
     }
 
@@ -83,26 +80,21 @@ public sealed class Review1A_StateTrustTests
     // ---- S-01a: the state is only a hint for deletes ----
 
     [Fact]
-    public async Task Complete_OrphanPinnedToAnotherObject_IsNotDeleted_TheEntryStays_AndTheMismatchIsReported()
+    public async Task Complete_OrphanRecordedWithAnotherObjectsId_IsNeverDeleted_ItsKeyFindsNothing()
     {
         var host = new EngineHost();
         var victim = host.Directory.AddApplication("victim", "Victim");
         var state = NewState();
         state.Upsert(Entry(AppId("ghost"), Fixture.AppType, IdOf(victim), "uniqueName", "ghost"));
 
-        var (_, result, store) = await ExecuteAsync(host, state, Empty(), DeploymentMode.Complete);
+        var (_, result, _) = await ExecuteAsync(host, state, Empty(), DeploymentMode.Complete);
 
-        Assert.False(result.Succeeded);
-        var op = Assert.Single(result.Operations);
-        Assert.Equal(OperationStatus.Failed, op.Status);
-        Assert.Equal(EngineDiagnosticCodes.StateEntryMismatch, op.ErrorCode);
-        Assert.Contains(AppId("ghost"), op.Error, StringComparison.Ordinal);
-        Assert.Contains(IdOf(victim), op.Error, StringComparison.Ordinal);
+        // The object is looked up by the entry's key (never by the recorded id): nothing has the key "ghost", so it is already gone and the victim is untouched.
+        Assert.True(result.Succeeded, string.Join("\n", result.Operations.Select(o => o.Error)));
         Assert.DoesNotContain(host.Fake.Writes, w => w.Method == "DELETE");
         Assert.Equal(1, host.Directory.Count("/applications"));
-        Assert.NotNull(state.Find(AppId("ghost")));
-        Assert.Contains(result.Diagnostics, d => d.Code == EngineDiagnosticCodes.StateEntryMismatch && d.IsError);
-        Assert.Contains(AppId("ghost"), store.DocumentOf(EngineHost.DeploymentName), StringComparison.Ordinal);
+        Assert.Equal("Victim", victim["displayName"]!.GetValue<string>());
+        Assert.DoesNotContain(host.Fake.Requests, r => r.Path.Contains(IdOf(victim), StringComparison.Ordinal));
     }
 
     [Fact]
@@ -126,7 +118,7 @@ public sealed class Review1A_StateTrustTests
     }
 
     [Fact]
-    public async Task WhatIf_Complete_MismatchedOrphan_IsAnUnsupportedRow_NotADelete()
+    public async Task WhatIf_Complete_OrphanRecordedWithAnotherObjectsId_IsNotADelete()
     {
         var host = new EngineHost();
         var victim = host.Directory.AddApplication("victim", "Victim");
@@ -136,10 +128,10 @@ public sealed class Review1A_StateTrustTests
         var plan = await host.WhatIfAsync(Empty(), state, DeploymentMode.Complete);
 
         var row = Assert.Single(plan.ModeChanges);
-        Assert.True(row.HasError);
-        Assert.Contains(IdOf(victim), row.UnsupportedReason, StringComparison.Ordinal);
+        Assert.False(row.HasError);
+        Assert.NotEqual(ChangeType.Delete, row.Type);
         Assert.Null(row.Before);
-        Assert.Contains(plan.Diagnostics, d => d.Code == EngineDiagnosticCodes.StateEntryMismatch);
+        Assert.Empty(host.Fake.Writes);
     }
 
     [Fact]
@@ -198,7 +190,7 @@ public sealed class Review1A_StateTrustTests
     }
 
     [Fact]
-    public async Task DeploymentDeleter_UsesTheSameChecks_AMismatchedEntryIsKept()
+    public async Task DeploymentDeleter_UsesTheSameChecks_AnEntryWhoseKeyFindsNothing_NeverDeletesItsRecordedObject()
     {
         var host = new EngineHost();
         var victim = host.Directory.AddApplication("victim", "Victim");
@@ -210,13 +202,11 @@ public sealed class Review1A_StateTrustTests
 
         var result = await DeploymentDeleter.DeleteAllAsync(state, store, host.Registry, host.Graph, host.Retry, continueOnError: true, DeleteGuard.Default, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, Ct);
 
-        Assert.False(result.Succeeded);
+        Assert.True(result.Succeeded);
         Assert.Equal(1, result.DeletedCount);
-        Assert.Equal(1, result.FailedCount);
-        Assert.Equal(EngineDiagnosticCodes.StateEntryMismatch, result.Outcomes.Single(o => o.Status == DeleteStatus.Failed).ErrorCode);
+        Assert.Equal(1, result.AlreadyGoneCount);
         Assert.Equal(1, host.Directory.Count("/applications"));
         Assert.Equal("Victim", host.Directory.Objects("/applications").Single()["displayName"]!.GetValue<string>());
-        Assert.NotNull(state.Find(AppId("ghost")));
         Assert.Null(state.Find(AppId("mine")));
     }
 

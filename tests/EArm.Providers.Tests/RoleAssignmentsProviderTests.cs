@@ -65,7 +65,7 @@ public sealed class RoleAssignmentsProviderTests
     }
 
     [Fact]
-    public async Task S2_Rerun_IsNoChange_ReadByPinnedId_AndTheCanonicalFormAdoptsTheLiveAssignment()
+    public async Task S2_Rerun_IsNoChange_ReadByComposite_AndTheCanonicalFormAdoptsTheLiveAssignment()
     {
         var host = NewHost();
         var template = Join(Alice(), Standalone(AliceRef + ", \"role\": \"Global Reader\""));
@@ -78,7 +78,7 @@ public sealed class RoleAssignmentsProviderTests
         Check.Succeeded(rerun);
         Check.NoWrites(rerun);
         Assert.Equal(ChangeType.NoChange, rerun.Op(standaloneId).ChangeType);
-        Assert.Contains(rerun.Requests, r => r.Method == "GET" && r.Path == $"{BuiltInRoles.AssignmentsPath}/{id}");
+        Assert.DoesNotContain(rerun.Requests, r => r.Method == "GET" && r.Path == $"{BuiltInRoles.AssignmentsPath}/{id}");
 
         var canonical = await host.CreateAsync(host.Resources(Join(Alice(), Standalone(AliceRef + ", \"roleDefinitionId\": \"[roleTemplate('Global Reader')]\", \"directoryScopeId\": \"/\"", name: "[guid('alice', 'canonical')]"))));
         Check.Succeeded(canonical);
@@ -136,7 +136,7 @@ public sealed class RoleAssignmentsProviderTests
     }
 
     [Fact]
-    public async Task S5_ACompositeChangeUnderTheSameName_IsPostThenDelete()
+    public async Task S5_ACompositeChangeUnderTheSameName_CreatesANewAssignment_AndRetainsTheOldOne()
     {
         var host = NewHost();
         var first = await host.CreateAsync(host.Resources(Join(Alice(), Standalone(AliceRef + ", \"role\": \"Global Reader\""))));
@@ -146,18 +146,15 @@ public sealed class RoleAssignmentsProviderTests
 
         var run = await host.CreateAsync(host.Resources(Join(Alice(), Standalone(AliceRef + ", \"role\": \"Security Reader\""))));
 
+        // Identity is the live tuple: a changed tuple is another assignment. The old one is retained (never removed by a changed declaration).
         Check.Succeeded(run);
         var op = run.Op(standaloneId);
-        Assert.Equal(ChangeType.Modify, op.ChangeType);
-        Assert.Equal(ChangeMode.Recreate, op.Mode);
-        var writes = run.Writes;
-        Assert.Equal(2, writes.Count);
-        // Review finding E-06: the replacement is created FIRST and the old assignment deleted second, so a failed create keeps the old one.
-        Assert.Equal("POST", writes[0].Method);
-        Assert.Equal(BuiltInRoles.SecurityReader, Check.Body(writes[0])["roleDefinitionId"]!.GetValue<string>());
-        Assert.Equal("DELETE", writes[1].Method);
-        Assert.Equal($"{BuiltInRoles.AssignmentsPath}/{oldId}", writes[1].Path);
+        Assert.Equal(ChangeType.Create, op.ChangeType);
+        var write = Assert.Single(run.Writes);
+        Assert.Equal("POST", write.Method);
+        Assert.Equal(BuiltInRoles.SecurityReader, Check.Body(write)["roleDefinitionId"]!.GetValue<string>());
         Assert.NotEqual(oldId, run.Entry(standaloneId).GraphId);
+        Assert.Contains(host.Directory.Objects(BuiltInRoles.AssignmentsPath), o => o["id"]!.GetValue<string>() == oldId);
     }
 
     [Fact]
@@ -284,7 +281,7 @@ public sealed class RoleAssignmentsProviderTests
     }
 
     [Fact]
-    public async Task W2_WhatIf_AgainstADeployedTenant_ShowsTheRecreateAndAdoptionRows()
+    public async Task W2_WhatIf_AgainstADeployedTenant_ShowsTheCreateAndAdoptionRows()
     {
         var host = NewHost();
         string aliceRole(string role)
@@ -299,9 +296,10 @@ public sealed class RoleAssignmentsProviderTests
         var run = await host.WhatIfAsync(host.Resources(Join(Alice(), Group(DirectoryRoles("{ \"role\": \"Global Reader\" }")), aliceRole("Security Reader"), groupAssignment)));
 
         Check.NoWrites(run);
-        var recreate = run.Changes.First(c => c.ResourceType == AssignmentType && c.Type == ChangeType.Modify);
-        Assert.Contains(recreate.Deltas, d => d.Path.ToString() == "properties.roleDefinitionId");
+        var assignments = run.Changes.Where(c => c.ResourceType == AssignmentType).ToList();
+        Assert.Equal(2, assignments.Count);
+        Assert.Single(assignments, c => c.Type == ChangeType.Create);
+        Assert.Single(assignments, c => c.Type == ChangeType.NoChange);
         Assert.Equal(ChangeType.NoChange, run.Change("test-admins").Type);
-        Assert.Equal(ChangeType.NoChange, run.Changes.First(c => c.ResourceType == AssignmentType && c.Type != ChangeType.Modify).Type);
     }
 }

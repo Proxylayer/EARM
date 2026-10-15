@@ -167,20 +167,14 @@ public static class PasswordCredentialsRules
     }
 
     /// <summary>
-    /// The credential the resource stands for: the one the state pinned (<paramref name="recordedKeyId"/>) when it
-    /// still exists, otherwise the same-name credential with the latest expiry (the newest one).
+    /// The credential the resource stands for: the same-name credential with the latest expiry (the newest one).
     /// </summary>
-    public static PasswordCredentialSummary? Select(IEnumerable<PasswordCredentialSummary> sameName, string? recordedKeyId)
+    public static PasswordCredentialSummary? Select(IEnumerable<PasswordCredentialSummary> sameName)
     {
         ArgumentNullException.ThrowIfNull(sameName);
         PasswordCredentialSummary? newest = null;
         foreach (var credential in sameName)
         {
-            if (recordedKeyId is not null && KeyIdEquals(credential.KeyId, recordedKeyId))
-            {
-                return credential;
-            }
-
             if (newest is null || Later(credential.EndDateTime, newest.EndDateTime))
             {
                 newest = credential;

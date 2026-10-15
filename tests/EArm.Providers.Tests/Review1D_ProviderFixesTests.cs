@@ -382,7 +382,7 @@ public sealed class Review1D_ProviderFixesTests
             Values = new System.Collections.Generic.Dictionary<string, string> { ["clientId"] = clientId, ["resourceId"] = resourceId, ["consentType"] = "AllPrincipals" },
         };
 
-        var found = await provider.ReadAsync(key, null, host.Fake, ProviderHost.Ct);
+        var found = await provider.ReadAsync(key, host.Fake, ProviderHost.Ct);
 
         Assert.NotNull(found);
         Assert.Equal(wanted["id"]!.GetValue<string>(), found!.GraphId);

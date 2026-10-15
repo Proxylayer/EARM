@@ -11,6 +11,7 @@ using EArm.Engine.Planning;
 using EArm.Engine.Providers;
 using EArm.Engine.State;
 using EArm.Providers.Tests.Infrastructure;
+using EArm.TestSupport;
 using Xunit;
 using GraphApi = EArm.Graph.GraphApi;
 
@@ -188,7 +189,7 @@ public sealed class NamedLocationsProviderTests
     }
 
     [Fact]
-    public async Task TwoLiveLocationsWithTheSameName_AreAmbiguous_WithAnAdoptHint()
+    public async Task TwoLiveLocationsWithTheSameName_AreAmbiguous_WithARenameHint()
     {
         var host = new ProviderHost();
         host.Directory.Add(LocPath, new JsonObject { ["@odata.type"] = "#microsoft.graph.ipNamedLocation", ["displayName"] = LocName, ["isTrusted"] = false, ["ipRanges"] = new JsonArray() });
@@ -199,12 +200,12 @@ public sealed class NamedLocationsProviderTests
         var op = run.Op("namedLocations");
         Assert.Equal(OperationStatus.Failed, op.Status);
         Assert.Contains("2 named locations have displayName", op.Error, StringComparison.Ordinal);
-        Assert.Contains("earm state adopt --resource-id " + LocResourceId + " --object-id", op.Error, StringComparison.Ordinal);
+        Assert.Contains("rename or delete the others", op.Error, StringComparison.Ordinal);
         Check.NoWrites(run);
 
         var provider = host.Provider(LocType);
         var key = new ResourceKey { Type = LocType, Values = new Dictionary<string, string> { ["displayName"] = LocName } };
-        var ex = await Assert.ThrowsAsync<ProviderException>(() => provider.ReadAsync(key, null, host.Fake, ProviderHost.Ct));
+        var ex = await Assert.ThrowsAsync<ProviderException>(() => provider.ReadAsync(key, host.Fake, ProviderHost.Ct));
         Assert.Equal(ProviderException.AmbiguousMatch, ex.Code);
         Assert.All(host.Directory.Objects(LocPath).Select(o => o["id"]!.GetValue<string>()), id => Assert.Contains(id, ex.Message, StringComparison.Ordinal));
     }
@@ -222,7 +223,7 @@ public sealed class NamedLocationsProviderTests
     }
 
     [Fact]
-    public async Task PinnedId_IsReadFirst_AndA404FallsBackToTheNameFilter_RePinning()
+    public async Task Rerun_ReadsByTheNameFilter_AndAReplacedObjectIsFoundByName_RePinning()
     {
         var host = new ProviderHost();
         await host.CreateAsync(host.Resources(IpLocation()));
@@ -230,8 +231,8 @@ public sealed class NamedLocationsProviderTests
 
         var rerun = await host.CreateAsync(host.Resources(IpLocation()));
         Assert.All(rerun.Executed.Operations, o => Assert.Equal(ChangeType.NoChange, o.ChangeType));
-        Assert.Equal("GET " + LocPath + "/" + id, rerun.Requests[0].ToString());
-        Assert.DoesNotContain(rerun.Requests, r => r.UrlParameters is not null && r.UrlParameters.ContainsKey("$filter"));
+        Assert.Equal("GET " + LocPath + "?$filter=displayName eq 'Contoso offices'", rerun.Requests[0].ToString());
+        Assert.DoesNotContain(rerun.Requests, r => r.Path == LocPath + "/" + id);
 
         await host.Fake.DeleteAsync(new GraphRequest(LocPath + "/" + id, GraphApi.V1), ProviderHost.Ct);
         var replacement = host.Directory.Add(LocPath, new JsonObject { ["@odata.type"] = "#microsoft.graph.ipNamedLocation", ["displayName"] = LocName, ["isTrusted"] = false, ["ipRanges"] = new JsonArray(new JsonObject { ["@odata.type"] = "#microsoft.graph.iPv4CidrRange", ["cidrAddress"] = "10.0.0.0/8" }, new JsonObject { ["@odata.type"] = "#microsoft.graph.iPv6CidrRange", ["cidrAddress"] = "2001:db8::/32" }) });
@@ -241,8 +242,7 @@ public sealed class NamedLocationsProviderTests
 
         Check.Succeeded(drift);
         Assert.Equal(ChangeType.NoChange, drift.Executed.Operations.Single().ChangeType);
-        Assert.Equal("GET " + LocPath + "/" + id, drift.Requests[0].ToString());
-        Assert.Equal("GET " + LocPath + "?$filter=displayName eq 'Contoso offices'", drift.Requests[1].ToString());
+        Assert.Equal("GET " + LocPath + "?$filter=displayName eq 'Contoso offices'", drift.Requests[0].ToString());
         Assert.Equal(newId, drift.State!.Resources.Values.Single().GraphId);
     }
 
@@ -256,14 +256,14 @@ public sealed class NamedLocationsProviderTests
         var provider = host.Provider(LocType);
         var entry = new StateEntry { Id = ResourceIdentifier.Create(LocType, LocName), Type = LocType, ApiVersion = ProviderHost.ApiVersion, Key = new Dictionary<string, string> { ["displayName"] = LocName }, GraphId = id };
 
-        var ex = await Assert.ThrowsAsync<ProviderException>(() => provider.DeleteAsync(entry, host.Fake, ProviderHost.Ct));
+        var ex = await Assert.ThrowsAsync<ProviderException>(() => provider.DeleteAsync(DeleteTarget.KeyOf(entry), DeleteTarget.LiveOf(entry), host.Fake, ProviderHost.Ct));
 
         Assert.Equal(NamedLocationsProvider.ReferencedByPolicy, ex.Code);
         Assert.Contains("referenced by one or more", ex.Message, StringComparison.Ordinal);
         Assert.Contains("conditions.locations", ex.Message, StringComparison.Ordinal);
 
         host.ClearRequests();
-        await provider.DeleteAsync(entry with { GraphId = "missing" }, host.Fake, ProviderHost.Ct);
+        await provider.DeleteAsync(DeleteTarget.KeyOf(entry with { GraphId = "missing" }), DeleteTarget.LiveOf(entry with { GraphId = "missing" }), host.Fake, ProviderHost.Ct);
         var write = Assert.Single(host.Fake.Writes);
         Assert.Equal("DELETE", write.Method);
     }

@@ -1,5 +1,3 @@
-using EArm.Engine.State;
-
 namespace EArm.Engine.Providers;
 
 /// <summary>
@@ -10,9 +8,8 @@ namespace EArm.Engine.Providers;
 public interface IDeleteWarningSource
 {
     /// <summary>
-    /// A warning for deleting the object recorded by <paramref name="entry"/>, or <c>null</c> when the delete is
-    /// reversible. <paramref name="existing"/> is the live object when the caller has read it (what-if), else
-    /// <c>null</c>; implementations fall back to the entry's <see cref="StateEntry.Extra"/>.
+    /// A warning for deleting the live object <paramref name="live"/> found under <paramref name="key"/>, or <c>null</c> when the delete is
+    /// reversible.
     /// </summary>
-    string? DescribeDeleteRisk(StateEntry entry, ExistingResource? existing);
+    string? DescribeDeleteRisk(ResourceKey key, ExistingResource live);
 }

@@ -118,7 +118,7 @@ internal static class ShowCommand
 
             try
             {
-                var existing = await provider.ReadAsync(entry.ToResourceKey(catalog), entry.GraphId, services.Graph, cancellationToken).ConfigureAwait(false);
+                var existing = await provider.ReadAsync(entry.ToResourceKey(catalog), services.Graph, cancellationToken).ConfigureAwait(false);
                 drift[pair.Key] = existing switch
                 {
                     null => new DriftReport(DriftReport.Missing, null, "not found in the tenant"),

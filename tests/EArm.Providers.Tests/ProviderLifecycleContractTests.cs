@@ -103,7 +103,7 @@ public sealed class ProviderLifecycleContractTests
         var provider = host.Provider(TypeOf(name));
         var empty = new ResourceKey { Type = TypeOf(name), Values = new Dictionary<string, string>() };
 
-        var ex = await Record.ExceptionAsync(() => provider.ReadAsync(empty, null, host.Fake, ProviderHost.Ct));
+        var ex = await Record.ExceptionAsync(() => provider.ReadAsync(empty, host.Fake, ProviderHost.Ct));
 
         Assert.NotNull(ex);
         Assert.IsNotType<NullReferenceException>(ex);

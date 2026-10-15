@@ -411,26 +411,6 @@ public sealed class Review1A_RunSafetyTests
     }
 
     [Fact]
-    public async Task ReplacingACompositeKeyedObject_CreatesTheNewOneFirst_AndDeletesTheOldOneSecond()
-    {
-        var host = new EngineHost();
-        string name = Gid(901);
-        var (_, oldId, newPrincipal, state) = SeedReplacement(host, name);
-
-        var (_, result, _) = await ExecuteAsync(host, state, RoleAssignment(name, newPrincipal));
-
-        Assert.True(result.Succeeded, string.Join("\n", result.Operations.Select(o => o.Error)));
-        var writes = host.Fake.Writes.Select(w => w.Method).ToList();
-        Assert.Equal(["POST", "DELETE"], writes);
-        Assert.Contains(oldId, host.Fake.Writes[1].Path, StringComparison.Ordinal);
-        var remaining = Assert.Single(host.Directory.Objects("/roleManagement/directory/roleAssignments"));
-        Assert.Equal(newPrincipal, remaining["principalId"]!.GetValue<string>());
-        Assert.Equal(IdOf(remaining), state.GraphIdOf("/providers/Microsoft.Entra/roleAssignments/" + name));
-        Assert.Equal(ChangeMode.Recreate, Assert.Single(result.Operations).Mode);
-        Assert.DoesNotContain(result.Diagnostics, d => d.Code == EngineDiagnosticCodes.StateEntryMismatch);
-    }
-
-    [Fact]
     public async Task ReplacingAnObject_WhenTheCreateFails_KeepsTheOldObjectAndItsStateEntry()
     {
         var host = new EngineHost();
@@ -448,7 +428,7 @@ public sealed class Review1A_RunSafetyTests
     }
 
     [Fact]
-    public async Task ReplacingAnObject_ThatThisDeploymentDidNotCreate_IsNotReplaced_TheStateEntryIsDistrusted()
+    public async Task AChangedCompositeKey_IsANewObject_TheOldOneIsNeverReplaced()
     {
         var host = new EngineHost();
         string name = Gid(903);
@@ -458,9 +438,9 @@ public sealed class Review1A_RunSafetyTests
 
         var (_, result, _) = await ExecuteAsync(host, state, RoleAssignment(name, newPrincipal));
 
-        // An adopted (or edited) entry whose object does not match is never replaced: a second assignment is created and the first is left alone.
+        // Identity is the live tuple: a changed tuple is another assignment, created; the old one is left alone whatever the state recorded.
         Assert.DoesNotContain(host.Fake.Writes, w => w.Method == "DELETE");
-        Assert.Contains(result.Diagnostics, d => d.Code == EngineDiagnosticCodes.StateEntryMismatch);
+        Assert.Equal(ChangeType.Create, Assert.Single(result.Operations).ChangeType);
         Assert.Equal(2, host.Directory.Count("/roleManagement/directory/roleAssignments"));
         Assert.Contains(host.Directory.Objects("/roleManagement/directory/roleAssignments"), a => IdOf(a) == oldId);
     }

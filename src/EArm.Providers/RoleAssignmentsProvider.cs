@@ -9,7 +9,6 @@ using EArm.Core;
 using EArm.Core.Types;
 using EArm.Engine;
 using EArm.Engine.Providers;
-using EArm.Engine.State;
 using EArm.Expressions.Values;
 using GraphApi = EArm.Graph.GraphApi;
 
@@ -18,7 +17,7 @@ namespace EArm.Providers;
 /// <summary>
 /// <c>Microsoft.Entra/roleAssignments</c>, permanent active directory role assignments. The resource name is a deterministic GUID the author picks with <c>guid(...)</c>; the Graph
 /// object is found by the composite key (<c>roleDefinitionId</c>, <c>principalId</c>, <c>directoryScopeId</c>) and
-/// its id pinned in the state. Sugar accepted in <c>properties</c>: <c>role</c> (a role template id, a built-in
+/// read live on every run. Sugar accepted in <c>properties</c>: <c>role</c> (a role template id, a built-in
 /// display name resolved from <see cref="WellKnownIds.RoleTemplates"/>, a custom role's display name looked up in
 /// the tenant, or a custom role id) → <c>roleDefinitionId</c>, and <c>administrativeUnit</c> (a unit's id or
 /// displayName) → <c>directoryScopeId: /administrativeUnits/{id}</c>; <c>directoryScopeId</c> defaults to <c>/</c>.
@@ -27,7 +26,7 @@ namespace EArm.Providers;
 /// Requests per operation:
 /// <list type="bullet">
 /// <item><b>Prepare</b> (before the key): <c>[GET /roleManagement/directory/roleDefinitions?$filter=displayName eq '…']</c> for a custom role name, <c>[GET /directory/administrativeUnits?$filter=displayName eq '…']</c> for a unit name, then <c>GET /directoryObjects/{principalId}?$select=id</c> (the principal's kind) and, for a group, <c>GET /groups/{principalId}?$select=id,isAssignableToRole</c>; all under the instance's retry hint. An unknown role or unit name, a missing principal, a group that is not role-assignable or any other kind of object is <see cref="ProviderException"/> (<see cref="InvalidAssignment"/>): an unsupported what-if row, a failed create.</item>
-/// <item><b>Read</b>: <c>GET /roleManagement/directory/roleAssignments/{pinnedId}</c> (state id, when known) → <c>GET /roleManagement/directory/roleAssignments?$filter=principalId eq '{principalId}'</c> (every page) matched client-side on <c>roleDefinitionId</c> + <c>directoryScopeId</c>.</item>
+/// <item><b>Read</b>: <c>GET /roleManagement/directory/roleAssignments?$filter=principalId eq '{principalId}'</c> (every page) matched client-side on <c>roleDefinitionId</c> + <c>directoryScopeId</c>.</item>
 /// <item><b>Create</b>: <c>POST /roleManagement/directory/roleAssignments { "@odata.type": "#microsoft.graph.unifiedRoleAssignment", roleDefinitionId, principalId, directoryScopeId }</c> under the instance's retry hint. A 400 "A conflicting object with one or more of the specified property values is present in the directory" is idempotent success: the assignment is re-read by composite and adopted.</item>
 /// <item><b>Update</b>: never (every property is immutable; the planner asks for a recreate).</item>
 /// <item><b>Delete</b>: <c>DELETE /roleManagement/directory/roleAssignments/{id}</c>; a 404 is "already gone".</item>
@@ -215,21 +214,12 @@ public sealed class RoleAssignmentsProvider : ProviderBase
 
     // ---- read ----
 
-    public override async Task<ExistingResource?> ReadAsync(ResourceKey key, string? stateId, IGraphClient graph, CancellationToken cancellationToken)
+    public override async Task<ExistingResource?> ReadAsync(ResourceKey key, IGraphClient graph, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(key);
         ArgumentNullException.ThrowIfNull(graph);
 
         var (roleDefinitionId, principalId, scope) = RequireComposite(key, null);
-        if (stateId is not null)
-        {
-            var pinned = await graph.GetAsync(new GraphRequest(RoleAssignmentsLookup.AssignmentPath(stateId), key.Api), cancellationToken).ConfigureAwait(false) as JsonObject;
-            if (pinned is not null)
-            {
-                return Existing(pinned);
-            }
-        }
-
         var found = await RoleAssignmentsLookup.FindAssignmentAsync(graph, principalId, roleDefinitionId, scope, key.Api, RetryHint.Default, cancellationToken).ConfigureAwait(false);
         return found is null ? null : Existing(found);
     }
@@ -284,14 +274,15 @@ public sealed class RoleAssignmentsProvider : ProviderBase
 
     // ---- delete ----
 
-    public override async Task DeleteAsync(StateEntry entry, IGraphClient graph, CancellationToken cancellationToken)
+    public override async Task DeleteAsync(ResourceKey key, ExistingResource live, IGraphClient graph, CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(entry);
+        ArgumentNullException.ThrowIfNull(key);
+        ArgumentNullException.ThrowIfNull(live);
         ArgumentNullException.ThrowIfNull(graph);
-        var api = entry.ToResourceKey(Catalog).Api;
+        var api = key.Api;
         try
         {
-            await graph.DeleteAsync(new GraphRequest(RoleAssignmentsLookup.AssignmentPath(entry.GraphId), api), cancellationToken).ConfigureAwait(false);
+            await graph.DeleteAsync(new GraphRequest(RoleAssignmentsLookup.AssignmentPath(live.GraphId), api), cancellationToken).ConfigureAwait(false);
         }
         catch (GraphException ex) when (ex.IsNotFound)
         {

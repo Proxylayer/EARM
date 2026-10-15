@@ -421,7 +421,7 @@ internal static class DeploymentRunner
 
         try
         {
-            var live = await provider.ReadAsync(entry.ToResourceKey(ResourceTypeCatalog.Default), null, services.Graph, cancellationToken).ConfigureAwait(false);
+            var live = await provider.ReadAsync(entry.ToResourceKey(ResourceTypeCatalog.Default), services.Graph, cancellationToken).ConfigureAwait(false);
             return live is not null && string.Equals(live.GraphId, entry.GraphId, StringComparison.OrdinalIgnoreCase)
                 ? EArm.Engine.Providers.JsonObjects.GetString(live.Raw, "displayName")
                 : null;

@@ -118,7 +118,7 @@ public sealed class UsersProviderTests
     }
 
     [Fact]
-    public async Task S2_GeneratedPassword_IsASecureOutput_AndTheRerunReadsThePinnedIdWithNoWrites()
+    public async Task S2_GeneratedPassword_IsASecureOutput_AndTheRerunReadsByUpnWithNoWrites()
     {
         var host = new ProviderHost();
         const string output = "\"bobInitialPassword\": { \"type\": \"securestring\", \"value\": \"[reference('bob@contoso.com').passwordProfile.password]\" }";
@@ -158,10 +158,10 @@ public sealed class UsersProviderTests
         Check.Succeeded(rerun);
         Check.NoWrites(rerun);
         Assert.DoesNotContain(rerun.Requests, r => r.Body is not null && r.Body.ToJsonString().Contains("passwordProfile", StringComparison.Ordinal));
-        var pinned = rerun.Requests.First(r => r.Method == "GET" && r.Path.StartsWith("/users/", StringComparison.Ordinal));
-        Assert.Equal("/users/" + entry.GraphId, pinned.Path);
-        Assert.Contains("licenseAssignmentStates", pinned.UrlParameters!["$select"], StringComparison.Ordinal);
-        Assert.Contains("jobTitle", pinned.UrlParameters["$select"], StringComparison.Ordinal);
+        var byUpn = rerun.Requests.First(r => r.Method == "GET" && r.Path.StartsWith("/users/", StringComparison.Ordinal));
+        Assert.Equal("/users/bob@contoso.com", byUpn.Path);
+        Assert.Contains("licenseAssignmentStates", byUpn.UrlParameters!["$select"], StringComparison.Ordinal);
+        Assert.Contains("jobTitle", byUpn.UrlParameters["$select"], StringComparison.Ordinal);
     }
 
     [Fact]
@@ -337,7 +337,7 @@ public sealed class UsersProviderTests
     private const string UserGoneId = "0a0a0a0a-0000-4000-8000-0000000000a3";
 
     [Fact]
-    public async Task S8_UpnChangeOfThePinnedUser_IsUnsupported()
+    public async Task S8_UpnChange_IsANewUser_TheRenamedOneIsNeverTouched()
     {
         var host = new ProviderHost();
         var old = host.Directory.AddUser("old@contoso.com", "Renamed", u => u["id"] = UserOldId);
@@ -345,14 +345,13 @@ public sealed class UsersProviderTests
 
         var whatIf = await host.WhatIfAsync(host.Resources(User("new@contoso.com", "\"displayName\": \"Renamed\"")));
 
-        // Review finding S-01b: a pinned object whose key (the UPN) is not the desired one is never planned against (that would PATCH an object the key
-        // does not name). Review round 2 (S2-04): and when nothing has the desired key either, the pinned user was RENAMED outside the template: a create would duplicate
-        // the account and orphan the original, so the row is an error (StateEntryMismatch) that says so.
+        // Identity is the live key (ARM rule): the recorded object is never consulted, so a user renamed outside the template is not the declared one.
+        // The declared UPN is looked up live and, absent, is a create; the renamed user is never read by its id or planned against.
         var change = whatIf.Change("new@contoso.com");
-        Assert.True(change.HasError);
-        Assert.Contains("renamed outside the template", change.UnsupportedReason, StringComparison.Ordinal);
-        Assert.Contains(whatIf.Plan.Diagnostics, d => d.Code == EArm.Engine.EngineDiagnosticCodes.StateEntryMismatch && d.IsError && d.Message.Contains("old@contoso.com", StringComparison.Ordinal));
-        Assert.Equal("/users/" + UserOldId, whatIf.Requests[0].Path);
+        Assert.False(change.HasError);
+        Assert.Equal(ChangeType.Create, change.Type);
+        Assert.Equal("/users/new@contoso.com", whatIf.Requests[0].Path);
+        Assert.DoesNotContain(whatIf.Requests, r => r.Path == "/users/" + UserOldId);
     }
 
     [Fact]

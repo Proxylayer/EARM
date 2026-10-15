@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
@@ -130,24 +131,17 @@ public sealed class Review3I_GroupSoftDeleteTests
     public void OnlyTheAdoptOnlyKindsAreReportedAsPermanentlyDeleted()
     {
         var provider = new ProviderHost().Provider<GroupsProvider>(Type);
-        StateEntry Entry(string kind) => new()
-        {
-            Id = EArm.Core.ResourceIdentifier.Create(Type, "g"),
-            Type = Type,
-            ApiVersion = ProviderHost.ApiVersion,
-            GraphId = "g1",
-            Extra = new JsonObject { ["kind"] = kind },
-        };
-
-        Assert.Null(provider.DescribeDeleteRisk(Entry("security"), null));
-        Assert.Null(provider.DescribeDeleteRisk(Entry("microsoft365"), null));
-        Assert.NotNull(provider.DescribeDeleteRisk(Entry("distribution"), null));
-        Assert.NotNull(provider.DescribeDeleteRisk(Entry("mailEnabledSecurity"), null));
+        var key = new ResourceKey { Type = Type, Values = new Dictionary<string, string> { ["uniqueName"] = "g" } };
+        ExistingResource Live(JsonObject raw) => new("g1", raw, raw);
 
         var distribution = new JsonObject { ["mailEnabled"] = true, ["securityEnabled"] = false, ["groupTypes"] = new JsonArray() };
+        var mailEnabledSecurity = new JsonObject { ["mailEnabled"] = true, ["securityEnabled"] = true, ["groupTypes"] = new JsonArray() };
         var security = new JsonObject { ["mailEnabled"] = false, ["securityEnabled"] = true, ["groupTypes"] = new JsonArray() };
-        Assert.Contains("distribution list", provider.DescribeDeleteRisk(Entry("security"), new ExistingResource("g1", distribution, distribution))!, StringComparison.Ordinal);
-        Assert.Null(provider.DescribeDeleteRisk(Entry("distribution"), new ExistingResource("g1", security, security)));
+        var unified = new JsonObject { ["mailEnabled"] = true, ["securityEnabled"] = false, ["groupTypes"] = new JsonArray("Unified") };
+        Assert.Contains("distribution list", provider.DescribeDeleteRisk(key, Live(distribution))!, StringComparison.Ordinal);
+        Assert.NotNull(provider.DescribeDeleteRisk(key, Live(mailEnabledSecurity)));
+        Assert.Null(provider.DescribeDeleteRisk(key, Live(security)));
+        Assert.Null(provider.DescribeDeleteRisk(key, Live(unified)));
     }
 
     [Fact]

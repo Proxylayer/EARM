@@ -11,6 +11,7 @@ using EArm.Engine;
 using EArm.Engine.Providers;
 using EArm.Expressions.Values;
 using EArm.Providers.Tests.Infrastructure;
+using EArm.TestSupport;
 using Xunit;
 
 namespace EArm.Providers.Tests;
@@ -62,8 +63,8 @@ public sealed class UsersProviderGapTests
         var host = new ProviderHost();
         var provider = host.Provider(Type);
 
-        var noKey = await Assert.ThrowsAsync<ProviderException>(() => provider.ReadAsync(new ResourceKey { Type = Type, Values = new Dictionary<string, string>() }, null, host.Fake, ProviderHost.Ct));
-        var missing = await provider.ReadAsync(new ResourceKey { Type = Type, Values = new Dictionary<string, string> { ["userPrincipalName"] = "ghost@contoso.com" } }, null, host.Fake, ProviderHost.Ct);
+        var noKey = await Assert.ThrowsAsync<ProviderException>(() => provider.ReadAsync(new ResourceKey { Type = Type, Values = new Dictionary<string, string>() }, host.Fake, ProviderHost.Ct));
+        var missing = await provider.ReadAsync(new ResourceKey { Type = Type, Values = new Dictionary<string, string> { ["userPrincipalName"] = "ghost@contoso.com" } }, host.Fake, ProviderHost.Ct);
 
         Assert.Equal(EngineDiagnosticCodes.ResourceKeyUnresolved, noKey.Code);
         Assert.Contains("carries no userPrincipalName", noKey.Message, StringComparison.Ordinal);
@@ -96,7 +97,7 @@ public sealed class UsersProviderGapTests
         host.Directory.AddUser("alice@contoso.com", "Alice");
         var provider = host.Provider<UsersProvider>(Type);
         var key = new ResourceKey { Type = Type, Values = new Dictionary<string, string> { ["userPrincipalName"] = "alice@contoso.com" } };
-        var existing = (await provider.ReadAsync(key, null, host.Fake, ProviderHost.Ct))!;
+        var existing = (await provider.ReadAsync(key, host.Fake, ProviderHost.Ct))!;
         var renamedRaw = (JsonObject)existing.Raw.DeepClone();
         renamedRaw["userPrincipalName"] = "alicia@contoso.com";
         var renamed = existing with { Raw = renamedRaw };
@@ -211,10 +212,10 @@ public sealed class UsersProviderGapTests
         var provider = host.Provider(Type);
         host.Fake.Failures.Add("DELETE", "/users/", request => new GraphException(HttpStatusCode.NotFound, "Request_ResourceNotFound", "gone", request.Hint), times: 1);
 
-        await provider.DeleteAsync(entry, host.Fake, ProviderHost.Ct);
+        await provider.DeleteAsync(DeleteTarget.KeyOf(entry), DeleteTarget.LiveOf(entry), host.Fake, ProviderHost.Ct);
 
         host.Fake.Failures.Forbid("/users/", "DELETE");
-        var denied = await Assert.ThrowsAsync<GraphException>(() => provider.DeleteAsync(entry, host.Fake, ProviderHost.Ct));
+        var denied = await Assert.ThrowsAsync<GraphException>(() => provider.DeleteAsync(DeleteTarget.KeyOf(entry), DeleteTarget.LiveOf(entry), host.Fake, ProviderHost.Ct));
         Assert.True(denied.IsForbidden);
     }
 

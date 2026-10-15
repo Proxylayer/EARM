@@ -12,7 +12,6 @@ using EArm.Core.Secrets;
 using EArm.Core.Types;
 using EArm.Engine;
 using EArm.Engine.Providers;
-using EArm.Engine.State;
 using EArm.Expressions.Values;
 using GraphApi = EArm.Graph.GraphApi;
 
@@ -24,7 +23,7 @@ namespace EArm.Providers;
 /// <para>
 /// Requests per operation (every read selects <see cref="ManagedProperties"/>):
 /// <list type="bullet">
-/// <item><b>Read</b>: <c>GET /users/{pinnedId}</c> (state id, when known) → <c>GET /users/{upn}</c>; a 404 is "does not exist". When the user holds licenses, <c>GET /subscribedSkus</c> once per run resolves <c>skuPartNumber</c>.</item>
+/// <item><b>Read</b>: <c>GET /users/{upn}</c>; a 404 is "does not exist". When the user holds licenses, <c>GET /subscribedSkus</c> once per run resolves <c>skuPartNumber</c>.</item>
 /// <item><b>Create</b>: the soft-delete probe <c>GET /directory/deletedItems/microsoft.graph.user?$filter=userPrincipalName eq '…'</c> (advanced query; a 400 falls back to listing) → on a hit either <c>ProviderException(SoftDeletedConflict)</c> or, with <c>--on-soft-deleted-conflict restore</c>, <c>POST /directory/deletedItems/{id}/restore</c> + <c>PATCH /users/{id}</c> (declared properties, never the password) + <c>GET /users/{id}</c>; otherwise <c>POST /users</c>; then <c>POST /users/{id}/assignLicense</c> when <c>assignedLicenses</c> is declared.</item>
 /// <item><b>Update</b>: <c>PATCH /users/{id}</c> (merge body; never <c>passwordProfile</c>, <c>userPrincipalName</c> or <c>id</c>) → <c>GET /users/{id}</c> → <c>POST /users/{id}/assignLicense</c> for the add/remove delta of the direct assignments.</item>
 /// <item><b>Delete</b>: <c>DELETE /users/{id}</c> (soft delete, 30-day recycle bin; the UPN stays reserved); a 404 is "already gone".</item>
@@ -46,8 +45,8 @@ namespace EArm.Providers;
 /// entry only records <c>extra.generatedPassword</c> (<c>true</c> when this run generated it), never the value.
 /// </para>
 /// <para>
-/// <c>userPrincipalName</c> is immutable: a live user whose UPN differs from the name (a pinned id that was renamed
-/// outside EARM) is an unsupported change. A <c>userType</c> change is allowed but reported as a reason.
+/// <c>userPrincipalName</c> is immutable: a live user whose UPN differs from the name is an unsupported change (the user
+/// is read by UPN, so a user renamed outside EARM is simply not found: renaming is a new object). A <c>userType</c> change is allowed but reported as a reason.
 /// <c>assignedLicenses</c> (action-backed) is reconciled against the <b>direct</b> assignments only
 /// (<see cref="UsersLicensing.DirectAssignments"/>: <c>licenseAssignmentStates[].assignedByGroup == null</c>), so
 /// group-inherited licenses are never removed from the user side; a non-empty declaration requires
@@ -188,24 +187,14 @@ public sealed class UsersProvider : ProviderBase
 
     // ---- read ----
 
-    public override async Task<ExistingResource?> ReadAsync(ResourceKey key, string? stateId, IGraphClient graph, CancellationToken cancellationToken)
+    public override async Task<ExistingResource?> ReadAsync(ResourceKey key, IGraphClient graph, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(key);
         ArgumentNullException.ThrowIfNull(graph);
 
-        JsonObject? live = null;
         var select = _selects.For(key, ManagedProperties);
-        if (stateId is not null)
-        {
-            live = await GetUserAsync(graph, EntityPath(stateId), key.Api, RetryHint.Default, select, cancellationToken).ConfigureAwait(false);
-        }
-
-        if (live is null)
-        {
-            string upn = ProviderSupport.SingleKey(key, UsersRules.UserPrincipalName);
-
-            live = await GetUserAsync(graph, EntityPath(upn), key.Api, RetryHint.Default, select, cancellationToken).ConfigureAwait(false);
-        }
+        string upn = ProviderSupport.SingleKey(key, UsersRules.UserPrincipalName);
+        var live = await GetUserAsync(graph, EntityPath(upn), key.Api, RetryHint.Default, select, cancellationToken).ConfigureAwait(false);
 
         if (live is null)
         {
@@ -496,14 +485,15 @@ public sealed class UsersProvider : ProviderBase
 
     // ---- delete ----
 
-    public override async Task DeleteAsync(StateEntry entry, IGraphClient graph, CancellationToken cancellationToken)
+    public override async Task DeleteAsync(ResourceKey key, ExistingResource live, IGraphClient graph, CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(entry);
+        ArgumentNullException.ThrowIfNull(key);
+        ArgumentNullException.ThrowIfNull(live);
         ArgumentNullException.ThrowIfNull(graph);
-        var api = entry.ToResourceKey(Catalog).Api;
+        var api = key.Api;
         try
         {
-            await graph.DeleteAsync(new GraphRequest(EntityPath(entry.GraphId), api), cancellationToken).ConfigureAwait(false);
+            await graph.DeleteAsync(new GraphRequest(EntityPath(live.GraphId), api), cancellationToken).ConfigureAwait(false);
         }
         catch (GraphException ex) when (ex.IsNotFound)
         {

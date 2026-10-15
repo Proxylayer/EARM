@@ -10,6 +10,7 @@ using EArm.Engine.Planning;
 using EArm.Engine.Providers;
 using EArm.Engine.State;
 using EArm.Providers.Tests.Infrastructure;
+using EArm.TestSupport;
 using Xunit;
 
 namespace EArm.Providers.Tests;
@@ -240,8 +241,10 @@ public sealed class AuthenticationProvidersTests
         var provider = host.Provider(AccrType);
         var entry = new StateEntry { Id = ResourceIdentifier.Create(AccrType, "c11"), Type = AccrType, ApiVersion = ProviderHost.ApiVersion, Key = new Dictionary<string, string> { ["id"] = "c11" }, GraphId = "c11" };
         host.ClearRequests();
-        await provider.DeleteAsync(entry, host.Fake, ProviderHost.Ct);
-        Assert.Empty(host.Fake.Writes);
+        // The object is already gone: the not-found answers to the switch-off and the delete are tolerated.
+        await provider.DeleteAsync(DeleteTarget.KeyOf(entry), DeleteTarget.LiveOf(entry), host.Fake, ProviderHost.Ct);
+        Assert.All(host.Fake.Writes, w => Assert.Equal(AccrPath + "/c11", w.Path));
+        Assert.Equal(0, host.Directory.Count(AccrPath));
     }
 
     [Fact]
@@ -253,7 +256,7 @@ public sealed class AuthenticationProvidersTests
         var provider = host.Provider(AccrType);
         var entry = new StateEntry { Id = ResourceIdentifier.Create(AccrType, "c12"), Type = AccrType, ApiVersion = ProviderHost.ApiVersion, Key = new Dictionary<string, string> { ["id"] = "c12" }, GraphId = "c12" };
 
-        var ex = await Assert.ThrowsAsync<ProviderException>(() => provider.DeleteAsync(entry, host.Fake, ProviderHost.Ct));
+        var ex = await Assert.ThrowsAsync<ProviderException>(() => provider.DeleteAsync(DeleteTarget.KeyOf(entry), DeleteTarget.LiveOf(entry), host.Fake, ProviderHost.Ct));
 
         Assert.Equal(AuthenticationContextClassReferencesProvider.Referenced, ex.Code);
         Assert.Contains("c12", ex.Message, StringComparison.Ordinal);
@@ -334,7 +337,7 @@ public sealed class AuthenticationProvidersTests
 
         var op = Assert.Single(run.Executed.Operations);
         Assert.Equal(ProviderException.AmbiguousMatch, op.ErrorCode);
-        Assert.Contains("earm state adopt", op.Error, StringComparison.Ordinal);
+        Assert.Contains("rename or delete the others", op.Error, StringComparison.Ordinal);
         Check.NoWrites(run);
     }
 
@@ -348,14 +351,14 @@ public sealed class AuthenticationProvidersTests
         var entry = new StateEntry { Id = ResourceIdentifier.Create(StrengthType, "Phishing-resistant"), Type = StrengthType, ApiVersion = ProviderHost.ApiVersion, Key = new Dictionary<string, string> { ["displayName"] = "Phishing-resistant" }, GraphId = id };
 
         host.Fake.Failures.Add("DELETE", StrengthPath + "/" + id, r => new GraphException(HttpStatusCode.BadRequest, "Request_BadRequest", "referenced by a policy", r.Hint), times: 1);
-        var ex = await Assert.ThrowsAsync<ProviderException>(() => provider.DeleteAsync(entry, host.Fake, ProviderHost.Ct));
+        var ex = await Assert.ThrowsAsync<ProviderException>(() => provider.DeleteAsync(DeleteTarget.KeyOf(entry), DeleteTarget.LiveOf(entry), host.Fake, ProviderHost.Ct));
         Assert.Equal(AuthenticationStrengthsProvider.Referenced, ex.Code);
 
         host.ClearRequests();
-        await provider.DeleteAsync(entry, host.Fake, ProviderHost.Ct);
+        await provider.DeleteAsync(DeleteTarget.KeyOf(entry), DeleteTarget.LiveOf(entry), host.Fake, ProviderHost.Ct);
         Assert.Equal(StrengthPath + "/" + id, Assert.Single(host.Fake.Writes).Path);
         Assert.Equal(0, host.Directory.Count(StrengthPath));
-        await provider.DeleteAsync(entry, host.Fake, ProviderHost.Ct);
+        await provider.DeleteAsync(DeleteTarget.KeyOf(entry), DeleteTarget.LiveOf(entry), host.Fake, ProviderHost.Ct);
     }
 
     [Fact]

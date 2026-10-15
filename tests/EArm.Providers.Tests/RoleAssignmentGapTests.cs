@@ -149,20 +149,18 @@ public sealed class RoleAssignmentGapTests
     // ---- read ----
 
     [Fact]
-    public async Task Read_PinnedIdWins_AStalePinFallsBackToTheComposite_AndTheViewHasACanonicalScope()
+    public async Task Read_FindsTheAssignmentByComposite_AndTheViewHasACanonicalScope()
     {
         var t = NewTenant();
         var live = t.Host.Directory.Add(BuiltInRoles.AssignmentsPath, new JsonObject { ["roleDefinitionId"] = BuiltInRoles.GlobalReader, ["principalId"] = t.UserId, ["directoryScopeId"] = "/" });
         string id = live["id"]!.GetValue<string>();
 
-        var pinned = await t.Provider.ReadAsync(Key(t), id, t.Host.Fake, ProviderHost.Ct);
-        var stale = await t.Provider.ReadAsync(Key(t), Guid.NewGuid().ToString("D"), t.Host.Fake, ProviderHost.Ct);
-        var missing = await t.Provider.ReadAsync(Key(t, "/administrativeUnits/" + t.AuId), null, t.Host.Fake, ProviderHost.Ct);
+        var found = await t.Provider.ReadAsync(Key(t), t.Host.Fake, ProviderHost.Ct);
+        var missing = await t.Provider.ReadAsync(Key(t, "/administrativeUnits/" + t.AuId), t.Host.Fake, ProviderHost.Ct);
 
-        Assert.Equal(id, pinned!.GraphId);
-        Assert.Equal("/", pinned.Properties["directoryScopeId"]!.GetValue<string>());
-        Assert.False(pinned.Properties.ContainsKey("@odata.type"));
-        Assert.Equal(id, stale!.GraphId);
+        Assert.Equal(id, found!.GraphId);
+        Assert.Equal("/", found.Properties["directoryScopeId"]!.GetValue<string>());
+        Assert.False(found.Properties.ContainsKey("@odata.type"));
         Assert.Null(missing);
     }
 
@@ -172,7 +170,7 @@ public sealed class RoleAssignmentGapTests
         var t = NewTenant();
         var key = new ResourceKey { Type = AssignmentType, Values = new Dictionary<string, string> { ["principalId"] = t.UserId } };
 
-        var ex = await Assert.ThrowsAsync<ProviderException>(() => t.Provider.ReadAsync(key, null, t.Host.Fake, ProviderHost.Ct));
+        var ex = await Assert.ThrowsAsync<ProviderException>(() => t.Provider.ReadAsync(key, t.Host.Fake, ProviderHost.Ct));
 
         Assert.Equal(EngineDiagnosticCodes.ResourceKeyUnresolved, ex.Code);
     }
@@ -233,12 +231,12 @@ public sealed class RoleAssignmentGapTests
             GraphId = Guid.NewGuid().ToString("D"),
         };
 
-        await t.Provider.DeleteAsync(entry, t.Host.Fake, ProviderHost.Ct);
+        await t.Provider.DeleteAsync(DeleteTarget.KeyOf(entry), DeleteTarget.LiveOf(entry), t.Host.Fake, ProviderHost.Ct);
 
         t.Host.Fake.Failures.Forbid(BuiltInRoles.AssignmentsPath, "DELETE");
-        var ex = await Assert.ThrowsAsync<GraphException>(() => t.Provider.DeleteAsync(entry, t.Host.Fake, ProviderHost.Ct));
+        var ex = await Assert.ThrowsAsync<GraphException>(() => t.Provider.DeleteAsync(DeleteTarget.KeyOf(entry), DeleteTarget.LiveOf(entry), t.Host.Fake, ProviderHost.Ct));
         Assert.True(ex.IsForbidden);
-        await Assert.ThrowsAsync<ArgumentNullException>(() => t.Provider.DeleteAsync(null!, t.Host.Fake, ProviderHost.Ct));
-        await Assert.ThrowsAsync<ArgumentNullException>(() => t.Provider.DeleteAsync(entry, null!, ProviderHost.Ct));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => t.Provider.DeleteAsync(null!, null!, t.Host.Fake, ProviderHost.Ct));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => t.Provider.DeleteAsync(DeleteTarget.KeyOf(entry), DeleteTarget.LiveOf(entry), null!, ProviderHost.Ct));
     }
 }

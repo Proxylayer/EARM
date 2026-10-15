@@ -11,6 +11,7 @@ using EArm.Engine.Planning;
 using EArm.Engine.Providers;
 using EArm.Engine.State;
 using EArm.Providers.Tests.Infrastructure;
+using EArm.TestSupport;
 using Xunit;
 using GraphApi = EArm.Graph.GraphApi;
 
@@ -356,7 +357,7 @@ public sealed class FederatedIdentityCredentialsProviderTests
         var provider = host.Provider(FicType);
         var entry = new StateEntry { Id = ResourceIdentifier.Create(FicType, AppName + "/github-main"), Type = FicType, ApiVersion = ProviderHost.ApiVersion, Key = new Dictionary<string, string> { ["name"] = "github-main" }, GraphId = "whatever" };
         host.ClearRequests();
-        await provider.DeleteAsync(entry, host.Fake, ProviderHost.Ct);
+        await provider.DeleteAsync(DeleteTarget.KeyOf(entry), DeleteTarget.LiveOf(entry), host.Fake, ProviderHost.Ct);
         Assert.Empty(host.Fake.Writes);
         Assert.Contains(host.Fake.Requests, r => r.Method == "GET" && r.Path == "/applications(uniqueName='test-api')");
     }
@@ -396,7 +397,8 @@ public sealed class FederatedIdentityCredentialsProviderTests
         var rerun = await host.CreateAsync(document);
         Assert.Equal(ChangeType.NoChange, rerun.Executed.Operations[0].ChangeType);
         Check.NoWrites(rerun);
-        Assert.Equal(parentPath + "/federatedIdentityCredentials/" + entry.GraphId, rerun.Requests[0].Path);
+        Assert.Contains(rerun.Requests, r => r.Path == parentPath + "/federatedIdentityCredentials(name='github-main')");
+        Assert.DoesNotContain(rerun.Requests, r => r.Path == parentPath + "/federatedIdentityCredentials/" + entry.GraphId);
         var missing = await new ProviderHost().CreateAsync(host.Resources(Fic("github-main", "repo:x")));
         Assert.Equal(DeploymentStatus.Failed, missing.Executed.Status);
         Assert.Equal(EngineDiagnosticCodes.ResourceApplyFailed, missing.Executed.Operations[0].ErrorCode);

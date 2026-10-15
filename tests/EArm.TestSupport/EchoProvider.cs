@@ -44,7 +44,7 @@ public sealed class EchoProvider : ProviderBase
 
     // ---- read ----
 
-    public override async Task<ExistingResource?> ReadAsync(ResourceKey key, string? stateId, IGraphClient graph, CancellationToken cancellationToken)
+    public override async Task<ExistingResource?> ReadAsync(ResourceKey key, IGraphClient graph, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(key);
         ArgumentNullException.ThrowIfNull(graph);
@@ -58,17 +58,6 @@ public sealed class EchoProvider : ProviderBase
         if (IsPasswordCredential)
         {
             return await ReadPasswordCredentialAsync(key, graph, cancellationToken).ConfigureAwait(false);
-        }
-
-        if (stateId is not null)
-        {
-            // The pinned Graph id from the state goes first (authoritative for displayName/GUID-named types); a 404
-            // means drift and falls back to the key lookup below.
-            string byId = EntityPath(key, stateId);
-            if (await graph.GetAsync(new GraphRequest(byId, key.Api).WithSelect(AllProperties), cancellationToken).ConfigureAwait(false) is JsonObject pinned)
-            {
-                return ToExisting(pinned);
-            }
         }
 
         switch (Definition.NameKind)
@@ -105,7 +94,7 @@ public sealed class EchoProvider : ProviderBase
                     {
                         0 => null,
                         1 => ToExisting(matches[0]),
-                        _ => throw new ProviderException(ProviderException.AmbiguousMatch, $"{TypeName}: {matches.Count} objects have {key.Describe()}; pin one with 'earm adopt'."),
+                        _ => throw new ProviderException(ProviderException.AmbiguousMatch, $"{TypeName}: {matches.Count} objects have {key.Describe()}; rename or delete the others."),
                     };
                 }
 
@@ -228,22 +217,22 @@ public sealed class EchoProvider : ProviderBase
         return new AppliedResource(desired.Id, existing.GraphId, live, key);
     }
 
-    public override async Task DeleteAsync(StateEntry entry, IGraphClient graph, CancellationToken cancellationToken)
+    public override async Task DeleteAsync(ResourceKey key, ExistingResource live, IGraphClient graph, CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(entry);
+        ArgumentNullException.ThrowIfNull(key);
+        ArgumentNullException.ThrowIfNull(live);
         ArgumentNullException.ThrowIfNull(graph);
 
-        var key = new ResourceKey { Type = TypeName, Values = entry.Key, ParentGraphId = entry.ParentGraphId };
         if (IsPasswordCredential)
         {
-            string parentPath = entry.ParentGraphId is null
-                ? throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{TypeName}: deleting a password credential needs the parent's Graph id.", entry.Id)
-                : CollectionPath + "/" + GraphPath.Segment(entry.ParentGraphId);
-            await graph.PostAsync(new GraphRequest(parentPath + "/removePassword"), new JsonObject { ["keyId"] = entry.GraphId }, cancellationToken).ConfigureAwait(false);
+            string parentPath = key.ParentGraphId is null
+                ? throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{TypeName}: deleting a password credential needs the parent's Graph id.")
+                : CollectionPath + "/" + GraphPath.Segment(key.ParentGraphId);
+            await graph.PostAsync(new GraphRequest(parentPath + "/removePassword"), new JsonObject { ["keyId"] = live.GraphId }, cancellationToken).ConfigureAwait(false);
             return;
         }
 
-        await graph.DeleteAsync(new GraphRequest(EntityPath(key, entry.GraphId)), cancellationToken).ConfigureAwait(false);
+        await graph.DeleteAsync(new GraphRequest(EntityPath(key, live.GraphId)), cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>What a read selects: everything the fake object holds (the echo provider compares whole objects, not a managed subset).</summary>

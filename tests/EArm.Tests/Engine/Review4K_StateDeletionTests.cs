@@ -31,7 +31,7 @@ public sealed class Review4K_StateDeletionTests
 
     private static StubProvider GroupProvider(string pinnedAndKeyId)
     {
-        return new StubProvider(Fixture.GroupType) { OnRead = (_, _) => StubProvider.Live(pinnedAndKeyId, ("uniqueName", "g")) };
+        return new StubProvider(Fixture.GroupType) { OnRead = _ => StubProvider.Live(pinnedAndKeyId, ("uniqueName", "g")) };
     }
 
     private static Task<DeleteOutcome> DeleteAsync(StateEntry entry, StubProvider provider, DeleteGuard? guard = null, Func<StateDeletion.DeleteCheck, Task>? beforeDelete = null)
@@ -69,7 +69,7 @@ public sealed class Review4K_StateDeletionTests
 
     private static StubProvider FicProvider()
     {
-        return new StubProvider(Fixture.FicType) { OnRead = (_, _) => StubProvider.Live("fic-graph-id", ("name", "fic1")) };
+        return new StubProvider(Fixture.FicType) { OnRead = _ => StubProvider.Live("fic-graph-id", ("name", "fic1")) };
     }
 
     [Fact]
@@ -115,7 +115,7 @@ public sealed class Review4K_StateDeletionTests
     {
         var state = ChildState("abcdef00-0000-4000-8000-0000000000aa", "abcdef00-0000-4000-8000-0000000000bb", out _);
         var fic = FicProvider();
-        var app = new StubProvider(Fixture.AppType) { OnRead = (_, _) => StubProvider.Live("abcdef00-0000-4000-8000-0000000000bb", ("uniqueName", "app1")) };
+        var app = new StubProvider(Fixture.AppType) { OnRead = _ => StubProvider.Live("abcdef00-0000-4000-8000-0000000000bb", ("uniqueName", "app1")) };
 
         var result = await DeploymentDeleter.DeleteAllAsync(state, new InMemoryStateStore(), StubProvider.Registry(fic, app), Graph, null, continueOnError: true, DeleteGuard.Default, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, Ct);
 
@@ -128,7 +128,7 @@ public sealed class Review4K_StateDeletionTests
     public async Task TheExecutorsModePass_PassesTheStateToTheGuard_SoAnInconsistentChildIsNotDeleted()
     {
         var fic = FicProvider();
-        var app = new StubProvider(Fixture.AppType) { OnRead = (_, _) => StubProvider.Live("abcdef00-0000-4000-8000-0000000000bb", ("uniqueName", "app1")) };
+        var app = new StubProvider(Fixture.AppType) { OnRead = _ => StubProvider.Live("abcdef00-0000-4000-8000-0000000000bb", ("uniqueName", "app1")) };
         var host = new EngineHost(registry: StubProvider.Registry(fic, app));
         var state = ChildState("abcdef00-0000-4000-8000-0000000000aa", "abcdef00-0000-4000-8000-0000000000bb", out _);
 
@@ -141,12 +141,12 @@ public sealed class Review4K_StateDeletionTests
     // ---- the live object found by key ----
 
     [Fact]
-    public async Task ALiveIdThatDiffersOnlyInCase_IsThePinnedObject()
+    public async Task ALiveIdThatDiffersOnlyInCase_IsTheRecordedObject()
     {
         var provider = new StubProvider(Fixture.GroupType)
         {
-            // By key: the object with the id spelled in capitals. By pinned id: nothing (so the answer can only come from the by-key read).
-            OnRead = (_, pinned) => pinned is null ? StubProvider.Live("AAAAAAAA-0000-4000-8000-000000000001", ("uniqueName", "g")) : null,
+            // By key: the object with the id spelled in capitals.
+            OnRead = _ => StubProvider.Live("AAAAAAAA-0000-4000-8000-000000000001", ("uniqueName", "g")),
         };
 
         var outcome = await DeleteAsync(GroupEntry("g", "aaaaaaaa-0000-4000-8000-000000000001"), provider);
@@ -156,12 +156,12 @@ public sealed class Review4K_StateDeletionTests
     }
 
     [Fact]
-    public async Task WhenTheKeyBelongsToAnotherObject_AndThePinnedOneIsGone_NothingIsDeleted_AndNoEdgeIsRemoved()
+    public async Task WhenTheKeyBelongsToAnotherObject_NothingIsDeleted_AndNoEdgeIsRemoved()
     {
         var provider = new StubProvider(Fixture.GroupType)
         {
-            // The key leads to object B; the pinned object A does not exist any more (the provider falls back to the key).
-            OnRead = (_, pinned) => pinned is null ? StubProvider.Live("bbbbbbbb-0000-4000-8000-000000000002", ("uniqueName", "g")) : null,
+            // The key leads to object B, not the recorded object A: B is never deleted on the entry's behalf.
+            OnRead = _ => StubProvider.Live("bbbbbbbb-0000-4000-8000-000000000002", ("uniqueName", "g")),
         };
         int beforeDeleteCalls = 0;
 
@@ -171,56 +171,23 @@ public sealed class Review4K_StateDeletionTests
             return Task.CompletedTask;
         });
 
-        Assert.Equal(DeleteStatus.AlreadyGone, outcome.Status);
+        Assert.Equal(DeleteStatus.Failed, outcome.Status);
+        Assert.Equal(EngineDiagnosticCodes.StateEntryMismatch, outcome.ErrorCode);
+        Assert.Contains("names Graph id bbbbbbbb-0000-4000-8000-000000000002", outcome.Error, StringComparison.Ordinal);
         Assert.Empty(provider.Deleted);
         Assert.Equal(0, beforeDeleteCalls);
     }
 
     [Fact]
-    public async Task WhenThePinnedReadFallsBackToTheKeysOtherObject_ItIsNotTheEntrysObject_AndNothingIsDeleted()
+    public async Task WhenTheKeyFindsNothing_TheObjectIsAlreadyGone()
     {
-        var provider = new StubProvider(Fixture.GroupType)
-        {
-            // Both reads answer with object B (what a provider does when the pinned id is gone and the key finds another object).
-            OnRead = (_, _) => StubProvider.Live("bbbbbbbb-0000-4000-8000-000000000002", ("uniqueName", "g")),
-        };
+        var provider = new StubProvider(Fixture.GroupType) { OnRead = _ => null };
 
         var outcome = await DeleteAsync(GroupEntry("g", "aaaaaaaa-0000-4000-8000-000000000001"), provider);
 
         Assert.Equal(DeleteStatus.AlreadyGone, outcome.Status);
         Assert.Empty(provider.Deleted);
-    }
-
-    [Fact]
-    public async Task ThePinnedObject_IsDeleted_WhenTheKeyFindsNothingButThePinnedReadCarriesTheKey()
-    {
-        var provider = new StubProvider(Fixture.GroupType)
-        {
-            OnRead = (_, pinned) => pinned is null ? null : StubProvider.Live(pinned, ("uniqueName", "G")),
-        };
-
-        var outcome = await DeleteAsync(GroupEntry("g", "aaaaaaaa-0000-4000-8000-000000000001"), provider);
-
-        Assert.Equal(DeleteStatus.Deleted, outcome.Status);
-        Assert.Equal(["aaaaaaaa-0000-4000-8000-000000000001"], provider.Deleted);
-    }
-
-    [Fact]
-    public async Task ThePinnedObject_ThatCarriesAnotherKey_IsAMismatch_NamingTheKeysOwner()
-    {
-        var provider = new StubProvider(Fixture.GroupType)
-        {
-            OnRead = (_, pinned) => pinned is null
-                ? StubProvider.Live("bbbbbbbb-0000-4000-8000-000000000002", ("uniqueName", "g"))
-                : StubProvider.Live(pinned, ("uniqueName", "someone-else")),
-        };
-
-        var outcome = await DeleteAsync(GroupEntry("g", "aaaaaaaa-0000-4000-8000-000000000001"), provider);
-
-        Assert.Equal(DeleteStatus.Failed, outcome.Status);
-        Assert.Equal(EngineDiagnosticCodes.StateEntryMismatch, outcome.ErrorCode);
-        Assert.Contains("belongs to Graph id bbbbbbbb-0000-4000-8000-000000000002", outcome.Error, StringComparison.Ordinal);
-        Assert.Empty(provider.Deleted);
+        Assert.Single(provider.Reads);
     }
 
     // ---- first-party service principals ----

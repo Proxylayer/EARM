@@ -90,12 +90,10 @@ public sealed class StateRefreshAndDeleteCommandTests
         using var sandbox = new CliSandbox(nameof(Show_Refresh_ReportsInSyncMissingReplacedAndUnknown));
         await sandbox.WriteStateAsync(State("drift", App("alpha", "a1000000-0000-4000-8000-000000000001"), App("bravo", "b1000000-0000-4000-8000-000000000001"), App("charlie", "c1000000-0000-4000-8000-000000000001"), App("delta", "d1000000-0000-4000-8000-000000000001")));
         sandbox.UsePreflightOk(extraResponses: Responses(
-            App200("/applications/a1000000-0000-4000-8000-000000000001", "a1000000-0000-4000-8000-000000000001", "alpha"),
-            NotFound("GET", "/applications/b1000000-0000-4000-8000-000000000001"),
+            App200("uniqueName='alpha'", "a1000000-0000-4000-8000-000000000001", "alpha"),
             NotFound("GET", "uniqueName='bravo'"),
-            NotFound("GET", "/applications/c1000000-0000-4000-8000-000000000001"),
             App200("uniqueName='charlie'", "c2000000-0000-4000-8000-000000000002", "charlie"),
-            Forbidden("GET", "/applications/d1000000-0000-4000-8000-000000000001")));
+            Forbidden("GET", "uniqueName='delta'")));
 
         var table = await CliRunner.RunAsync([.. sandbox.StateArgs, "deployment", "show", "-n", "drift", "--refresh"]);
 

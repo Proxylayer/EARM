@@ -9,7 +9,6 @@ using EArm.Core;
 using EArm.Core.Types;
 using EArm.Engine;
 using EArm.Engine.Providers;
-using EArm.Engine.State;
 using EArm.Expressions.Values;
 using GraphApi = EArm.Graph.GraphApi;
 
@@ -19,14 +18,14 @@ namespace EArm.Providers;
 /// <c>Microsoft.Entra/oauth2PermissionGrants</c>: a delegated permission
 /// grant (admin consent) of a client service principal on a resource service principal. The resource name is a
 /// deterministic GUID chosen with <c>guid(...)</c>; the Graph object is found by the composite key (<c>clientId</c>,
-/// <c>resourceId</c>, <c>consentType</c>, <c>principalId</c>) and its id pinned in the state. Sugar: <c>scopes</c>
+/// <c>resourceId</c>, <c>consentType</c>, <c>principalId</c>) read live on every run. Sugar: <c>scopes</c>
 /// (an array of permission values) becomes the space-separated <c>scope</c> string. Only <c>scope</c> is mutable
 /// (compared as a set of values); a key change under the same name is <see cref="ChangeMode.Recreate"/>.
 /// <para>
 /// Requests per operation:
 /// <list type="bullet">
 /// <item><b>Prepare</b> (before the key): <c>GET /servicePrincipals/{resourceId}?$select=id,appId,displayName,appRoles,oauth2PermissionScopes</c> under the instance's retry hint; a scope value the resource does not expose (or has disabled) is a <see cref="ProviderException"/> (<see cref="InvalidGrant"/>): an unsupported what-if row, a failed create. Graph does not validate scope values.</item>
-/// <item><b>Read</b>: <c>GET /oauth2PermissionGrants/{pinnedId}</c> (state id, when known) → <c>GET /oauth2PermissionGrants?$filter=clientId eq '…' and resourceId eq '…' and consentType eq '…'</c> (plus <c>and principalId eq '…'</c> for <c>Principal</c>).</item>
+/// <item><b>Read</b>: <c>GET /oauth2PermissionGrants?$filter=clientId eq '…' and resourceId eq '…' and consentType eq '…'</c> (plus <c>and principalId eq '…'</c> for <c>Principal</c>).</item>
 /// <item><b>Create</b>: <c>POST /oauth2PermissionGrants { clientId, resourceId, consentType, principalId (null for AllPrincipals), scope }</c> under the instance's retry hint. A 400 "Permission entry already exists" is idempotent success: the grant is looked up by key, patched when its scope set differs, and adopted.</item>
 /// <item><b>Update</b>: <c>PATCH /oauth2PermissionGrants/{id} { scope }</c> → <c>GET /oauth2PermissionGrants/{id}</c>.</item>
 /// <item><b>Delete</b>: <c>DELETE /oauth2PermissionGrants/{id}</c>; a 404 is "already gone".</item>
@@ -245,19 +244,10 @@ public sealed class OAuth2PermissionGrantsProvider : ProviderBase
 
     // ---- read ----
 
-    public override async Task<ExistingResource?> ReadAsync(ResourceKey key, string? stateId, IGraphClient graph, CancellationToken cancellationToken)
+    public override async Task<ExistingResource?> ReadAsync(ResourceKey key, IGraphClient graph, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(key);
         ArgumentNullException.ThrowIfNull(graph);
-
-        if (stateId is not null)
-        {
-            var pinned = await graph.GetAsync(new GraphRequest(EntityPath(stateId), key.Api), cancellationToken).ConfigureAwait(false) as JsonObject;
-            if (pinned is not null)
-            {
-                return ToExisting(pinned);
-            }
-        }
 
         var found = await FindByKeyAsync(graph, key, RetryHint.Default, cancellationToken).ConfigureAwait(false);
         return found is null ? null : ToExisting(found);
@@ -425,14 +415,15 @@ public sealed class OAuth2PermissionGrantsProvider : ProviderBase
 
     // ---- delete ----
 
-    public override async Task DeleteAsync(StateEntry entry, IGraphClient graph, CancellationToken cancellationToken)
+    public override async Task DeleteAsync(ResourceKey key, ExistingResource live, IGraphClient graph, CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(entry);
+        ArgumentNullException.ThrowIfNull(key);
+        ArgumentNullException.ThrowIfNull(live);
         ArgumentNullException.ThrowIfNull(graph);
-        var api = entry.ToResourceKey(Catalog).Api;
+        var api = key.Api;
         try
         {
-            await graph.DeleteAsync(new GraphRequest(EntityPath(entry.GraphId), api), cancellationToken).ConfigureAwait(false);
+            await graph.DeleteAsync(new GraphRequest(EntityPath(live.GraphId), api), cancellationToken).ConfigureAwait(false);
         }
         catch (GraphException ex) when (ex.IsNotFound)
         {

@@ -54,7 +54,7 @@ internal sealed class Review3HHookedProvider : IResourceProvider, IExistingResou
 
     public ResourceKey ResolveKey(ResourceInstance desired) => _inner.ResolveKey(desired);
 
-    public Task<ExistingResource?> ReadAsync(ResourceKey key, string? stateId, IGraphClient graph, CancellationToken cancellationToken) => _inner.ReadAsync(key, stateId, graph, cancellationToken);
+    public Task<ExistingResource?> ReadAsync(ResourceKey key, IGraphClient graph, CancellationToken cancellationToken) => _inner.ReadAsync(key, graph, cancellationToken);
 
     public ResourceChange Plan(ResourceInstance desired, ExistingResource? existing, PlanOptions options) => _inner.Plan(desired, existing, options);
 
@@ -76,7 +76,7 @@ internal sealed class Review3HHookedProvider : IResourceProvider, IExistingResou
 
     public Task<AppliedResource> UpdateAsync(ResourceInstance desired, ExistingResource existing, ResourceChange change, IGraphClient graph, CancellationToken cancellationToken) => _inner.UpdateAsync(desired, existing, change, graph, cancellationToken);
 
-    public Task DeleteAsync(StateEntry entry, IGraphClient graph, CancellationToken cancellationToken) => _inner.DeleteAsync(entry, graph, cancellationToken);
+    public Task DeleteAsync(ResourceKey key, ExistingResource live, IGraphClient graph, CancellationToken cancellationToken) => _inner.DeleteAsync(key, live, graph, cancellationToken);
 
     public Task<ExistingResource?> ReadExistingAsync(ResourceIdentifier id, string apiVersion, IGraphClient graph, CancellationToken cancellationToken) => _inner.ReadExistingAsync(id, apiVersion, graph, cancellationToken);
 }

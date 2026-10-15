@@ -10,7 +10,6 @@ using EArm.Core;
 using EArm.Core.Types;
 using EArm.Engine;
 using EArm.Engine.Providers;
-using EArm.Engine.State;
 using EArm.Expressions.Values;
 using GraphApi = EArm.Graph.GraphApi;
 
@@ -18,7 +17,7 @@ namespace EArm.Providers;
 
 /// <summary>
 /// <c>Microsoft.Entra/conditionalAccess/authenticationStrengths</c>. The
-/// resource name is the <c>displayName</c>; the Graph id is pinned in the state after the first run. Only custom
+/// resource name is the <c>displayName</c>; the object is found by it, live, on every run. Only custom
 /// strengths (<c>policyType: custom</c>) are managed; the built-in ones (<c>Multifactor authentication</c>,
 /// <c>Passwordless MFA</c>, <c>Phishing-resistant MFA</c>) are read-only and can be referenced with
 /// <c>reference(resourceId('Microsoft.Entra/conditionalAccess/authenticationStrengths', '&lt;displayName&gt;'), apiVersion).id</c>
@@ -26,7 +25,7 @@ namespace EArm.Providers;
 /// <para>
 /// Requests per operation:
 /// <list type="bullet">
-/// <item><b>Read</b>: <c>GET /policies/authenticationStrengthPolicies/{pinnedId}</c> (state id, when known; a 404 is drift) → <c>GET /policies/authenticationStrengthPolicies</c> (every page; <c>$filter</c> on this collection is unverified, so the displayName match is client-side): one custom hit is the object, several are <c>ProviderException(AmbiguousMatch)</c> listing the ids, none but a built-in hit is the built-in (which <see cref="Plan"/> refuses to manage), nothing is "create".</item>
+/// <item><b>Read</b>: <c>GET /policies/authenticationStrengthPolicies</c> (every page; <c>$filter</c> on this collection is unverified, so the displayName match is client-side): one custom hit is the object, several are <c>ProviderException(AmbiguousMatch)</c> listing the ids, none but a built-in hit is the built-in (which <see cref="Plan"/> refuses to manage), nothing is "create".</item>
 /// <item><b>Create</b>: <c>POST /policies/authenticationStrengthPolicies</c> <c>{ displayName, description, allowedCombinations }</c> (the response body is the object).</item>
 /// <item><b>Update</b>: <c>PATCH …/{id}</c> only when <c>displayName</c> / <c>description</c> changed (never carrying <c>allowedCombinations</c>) → <c>POST …/{id}/updateAllowedCombinations { allowedCombinations }</c> only when the combination set differs → <c>GET …/{id}</c>.</item>
 /// <item><b>Delete</b>: <c>DELETE …/{id}</c>; a 404 is "already gone"; a 400 (the strength is still referenced by a Conditional Access policy) is surfaced as <see cref="Referenced"/>.</item>
@@ -72,15 +71,10 @@ public sealed class AuthenticationStrengthsProvider : ProviderBase
 
     // ---- read ----
 
-    public override async Task<ExistingResource?> ReadAsync(ResourceKey key, string? stateId, IGraphClient graph, CancellationToken cancellationToken)
+    public override async Task<ExistingResource?> ReadAsync(ResourceKey key, IGraphClient graph, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(key);
         ArgumentNullException.ThrowIfNull(graph);
-
-        if (stateId is not null && await graph.GetAsync(new GraphRequest(EntityPath(stateId), key.Api), cancellationToken).ConfigureAwait(false) is JsonObject pinned)
-        {
-            return ToExisting(pinned);
-        }
 
         string name = ProviderSupport.SingleKey(key, KeyProperty);
 
@@ -91,7 +85,7 @@ public sealed class AuthenticationStrengthsProvider : ProviderBase
             var id = ResourceIdentifier.Create(ResourceType, name);
             throw new ProviderException(
                 ProviderException.AmbiguousMatch,
-                $"{custom.Count} authentication strengths have displayName '{name}' (ids: {ids}); pin the intended one with 'earm state adopt --resource-id {id.Id} --object-id <id>' or rename the others.",
+                $"{custom.Count} authentication strengths have displayName '{name}' (ids: {ids}); rename or delete the others so the name identifies one object.",
                 id);
         }
 
@@ -203,14 +197,15 @@ public sealed class AuthenticationStrengthsProvider : ProviderBase
 
     // ---- delete ----
 
-    public override async Task DeleteAsync(StateEntry entry, IGraphClient graph, CancellationToken cancellationToken)
+    public override async Task DeleteAsync(ResourceKey key, ExistingResource live, IGraphClient graph, CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(entry);
+        ArgumentNullException.ThrowIfNull(key);
+        ArgumentNullException.ThrowIfNull(live);
         ArgumentNullException.ThrowIfNull(graph);
-        var api = entry.ToResourceKey(Catalog).Api;
+        var api = key.Api;
         try
         {
-            await graph.DeleteAsync(new GraphRequest(EntityPath(entry.GraphId), api), cancellationToken).ConfigureAwait(false);
+            await graph.DeleteAsync(new GraphRequest(EntityPath(live.GraphId), api), cancellationToken).ConfigureAwait(false);
         }
         catch (GraphException ex) when (ex.IsNotFound)
         {
@@ -221,8 +216,8 @@ public sealed class AuthenticationStrengthsProvider : ProviderBase
             // Graph refuses to delete a strength a Conditional Access policy still references.
             throw new ProviderException(
                 Referenced,
-                $"{entry.Id.Id}: Graph refused to delete authentication strength {entry.GraphId} ({ex.Code}: {ex.GraphMessage}). A custom authentication strength cannot be deleted while a Conditional Access policy references it; remove it from the policies' grantControls.authenticationStrength first (built-in strengths can never be deleted).",
-                entry.Id,
+                $"{TypeName} {key.Describe()}: Graph refused to delete authentication strength {live.GraphId} ({ex.Code}: {ex.GraphMessage}). A custom authentication strength cannot be deleted while a Conditional Access policy references it; remove it from the policies' grantControls.authenticationStrength first (built-in strengths can never be deleted).",
+                null,
                 ex);
         }
     }

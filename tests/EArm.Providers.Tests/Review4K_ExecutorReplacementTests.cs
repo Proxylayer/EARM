@@ -65,26 +65,7 @@ public sealed partial class Review4K_ExecutorTests
         await host.Store.SaveAsync(state, Ct);
     }
 
-    // ---- DE18 / DE20 / DE21: a superseded object is replaced only when this deployment recorded it ----
-
-    [Fact]
-    public async Task ASupersededObject_IsReplaced_AndItsEntryStaysCreated()
-    {
-        var t = NewTenant();
-        string name = Guid.NewGuid().ToString("D");
-        Check.Succeeded(await t.Host.CreateAsync(t.Host.Resources(Assignment(t, name, UserRoleId))));
-        string oldId = t.Host.Directory.Objects(AssignedTo(t.ResourceId)).Single()["id"]!.GetValue<string>();
-
-        var run = await t.Host.CreateAsync(t.Host.Resources(Assignment(t, name, BothRoleId)));
-
-        Check.Succeeded(run);
-        Assert.Contains(run.Writes, w => w.Method == "DELETE" && w.Path.EndsWith(oldId, StringComparison.Ordinal));
-        var remaining = Assert.Single(t.Host.Directory.Objects(AssignedTo(t.ResourceId)));
-        Assert.Equal(BothRoleId, remaining["appRoleId"]!.GetValue<string>());
-        var entry = run.Entry(AssignmentResourceId(name));
-        Assert.Equal(StateProvenance.Created, entry.Provenance);
-        Assert.Equal(remaining["id"]!.GetValue<string>(), entry.GraphId);
-    }
+    // ---- DE18 / DE20 / DE21: identity is the live tuple; a changed tuple is a new object and the old one is retained, whatever the state recorded ----
 
     [Fact]
     public async Task AnEntryWhoseRecordedKey_TheLiveObjectDoesNotCarry_NeverSupersedesIt_TheObjectIsLeftAlone()
@@ -117,30 +98,6 @@ public sealed partial class Review4K_ExecutorTests
 
         Check.Succeeded(run);
         Assert.DoesNotContain(run.Writes, w => w.Method == "DELETE");
-        Assert.Equal(2, t.Host.Directory.Objects(AssignedTo(t.ResourceId)).Count);
-    }
-
-    // ---- DE26: the replacement exists, the old object cannot be deleted ----
-
-    [Fact]
-    public async Task AReplacementThatWasCreated_WhoseOldObjectCannotBeDeleted_IsRecorded_AndTheResourceFails()
-    {
-        var t = NewTenant();
-        string name = Guid.NewGuid().ToString("D");
-        Check.Succeeded(await t.Host.CreateAsync(t.Host.Resources(Assignment(t, name, UserRoleId))));
-        string oldId = t.Host.Directory.Objects(AssignedTo(t.ResourceId)).Single()["id"]!.GetValue<string>();
-        t.Host.Fake.Failures.Forbid("appRoleAssignedTo", "DELETE");
-
-        var run = await t.Host.CreateAsync(t.Host.Resources(Assignment(t, name, BothRoleId)));
-
-        Assert.False(run.Succeeded);
-        var operation = run.Op(name);
-        Assert.Equal(OperationStatus.Failed, operation.Status);
-        Assert.Contains("the replacement was created", operation.Error, StringComparison.Ordinal);
-        Assert.Contains("could not be deleted", operation.Error, StringComparison.Ordinal);
-        Assert.Contains(oldId, operation.Error, StringComparison.Ordinal);
-        var newObject = t.Host.Directory.Objects(AssignedTo(t.ResourceId)).Single(o => o["appRoleId"]!.GetValue<string>() == BothRoleId);
-        Assert.Equal(newObject["id"]!.GetValue<string>(), run.Entry(AssignmentResourceId(name)).GraphId);
         Assert.Equal(2, t.Host.Directory.Objects(AssignedTo(t.ResourceId)).Count);
     }
 

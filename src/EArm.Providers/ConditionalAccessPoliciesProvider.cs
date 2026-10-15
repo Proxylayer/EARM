@@ -9,7 +9,6 @@ using EArm.Core;
 using EArm.Core.Types;
 using EArm.Engine;
 using EArm.Engine.Providers;
-using EArm.Engine.State;
 using EArm.Expressions.Values;
 using GraphApi = EArm.Graph.GraphApi;
 
@@ -17,11 +16,11 @@ namespace EArm.Providers;
 
 /// <summary>
 /// <c>Microsoft.Entra/conditionalAccess/policies</c>. The resource name is
-/// the <c>displayName</c>; the Graph id is pinned in the state after the first run.
+/// the <c>displayName</c>; the object is found by it, live, on every run.
 /// <para>
 /// Requests per operation:
 /// <list type="bullet">
-/// <item><b>Read</b>: <c>GET /identity/conditionalAccess/policies/{pinnedId}</c> (state id, when known; a 404 is drift) → <c>GET /identity/conditionalAccess/policies?$filter=displayName eq '…'</c>: no hit is "create", one hit is the object, several hits are <c>ProviderException(AmbiguousMatch)</c> listing the ids.</item>
+/// <item><b>Read</b>: <c>GET /identity/conditionalAccess/policies?$filter=displayName eq '…'</c>: no hit is "create", one hit is the object, several hits are <c>ProviderException(AmbiguousMatch)</c> listing the ids.</item>
 /// <item><b>Create</b>: <c>POST /identity/conditionalAccess/policies</c> (the response body is the object).</item>
 /// <item><b>Update</b>: <c>PATCH /identity/conditionalAccess/policies/{id}</c> carrying every changed top-level property whole (<c>conditions</c>, <c>grantControls</c>, <c>sessionControls</c> are replaced, not merged, by Graph; a removed control is an explicit <c>null</c>) → <c>GET …/{id}</c>.</item>
 /// <item><b>Delete</b>: <c>DELETE /identity/conditionalAccess/policies/{id}</c>; a 404 is "already gone".</item>
@@ -82,15 +81,10 @@ public sealed class ConditionalAccessPoliciesProvider : ProviderBase
 
     // ---- read ----
 
-    public override async Task<ExistingResource?> ReadAsync(ResourceKey key, string? stateId, IGraphClient graph, CancellationToken cancellationToken)
+    public override async Task<ExistingResource?> ReadAsync(ResourceKey key, IGraphClient graph, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(key);
         ArgumentNullException.ThrowIfNull(graph);
-
-        if (stateId is not null && await graph.GetAsync(new GraphRequest(EntityPath(stateId), key.Api).WithPrefer(IncludeUnknownEnumMembers), cancellationToken).ConfigureAwait(false) is JsonObject pinned)
-        {
-            return Existing(pinned);
-        }
 
         string name = ProviderSupport.SingleKey(key, KeyProperty);
 
@@ -106,7 +100,7 @@ public sealed class ConditionalAccessPoliciesProvider : ProviderBase
             var id = ResourceIdentifier.Create(ResourceType, name);
             throw new ProviderException(
                 ProviderException.AmbiguousMatch,
-                $"{matches.Count} conditional access policies have displayName '{name}' (ids: {ids}); pin the intended one with 'earm state adopt --resource-id {id.Id} --object-id <id>' or rename the others.",
+                $"{matches.Count} conditional access policies have displayName '{name}' (ids: {ids}); rename or delete the others so the name identifies one object.",
                 id);
         }
 
@@ -198,14 +192,15 @@ public sealed class ConditionalAccessPoliciesProvider : ProviderBase
 
     // ---- delete ----
 
-    public override async Task DeleteAsync(StateEntry entry, IGraphClient graph, CancellationToken cancellationToken)
+    public override async Task DeleteAsync(ResourceKey key, ExistingResource live, IGraphClient graph, CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(entry);
+        ArgumentNullException.ThrowIfNull(key);
+        ArgumentNullException.ThrowIfNull(live);
         ArgumentNullException.ThrowIfNull(graph);
-        var api = entry.ToResourceKey(Catalog).Api;
+        var api = key.Api;
         try
         {
-            await graph.DeleteAsync(new GraphRequest(EntityPath(entry.GraphId), api), cancellationToken).ConfigureAwait(false);
+            await graph.DeleteAsync(new GraphRequest(EntityPath(live.GraphId), api), cancellationToken).ConfigureAwait(false);
         }
         catch (GraphException ex) when (ex.IsNotFound)
         {

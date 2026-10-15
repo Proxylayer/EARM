@@ -228,18 +228,18 @@ public sealed class Review3H_StateIntegrityTests
         var state = NewState();
         state.Upsert(Entry(AppId("mine"), Fixture.AppType, IdOf(other), "uniqueName", "other") with { CreatedDateTime = new DateTimeOffset(2020, 1, 1, 0, 0, 0, TimeSpan.Zero) });
 
-        // The key of the entry names "mine" in the template but the pinned object is "other": both the key and the fingerprint say it is not the object.
+        // The template names "mine"; the recorded id points at "other". Identity is resolved live by key, so "other" is never read or patched and "mine" is created.
         var (_, result, _) = await ExecuteAsync(host, state, Apps("mine"));
 
         Assert.DoesNotContain(host.Fake.Writes, w => w.Path.Contains(IdOf(other), StringComparison.Ordinal));
         Assert.Equal("Other", other["displayName"]!.GetValue<string>());
-        Assert.Equal(OperationStatus.Failed, Assert.Single(result.Operations).Status);
+        Assert.Equal(ChangeType.Create, Assert.Single(result.Operations).ChangeType);
     }
 
-    // ---- S2-04: a rename outside the template ----
+    // ---- a rename outside the template: identity is the live key (ARM rule), so the declared name is a new object ----
 
     [Fact]
-    public async Task AUserWhoseUpnWasRenamedInThePortal_FailsTheResource_InsteadOfCreatingADuplicate()
+    public async Task AUserWhoseUpnWasRenamedInThePortal_IsNotTheDeclaredUser_TheDeclaredUpnIsCreated()
     {
         var host = new EngineHost();
         var renamed = host.Directory.AddUser("renamed@contoso.com", "Renamed");
@@ -247,22 +247,18 @@ public sealed class Review3H_StateIntegrityTests
         state.Upsert(Entry(UserId("bg@contoso.com"), UserType, IdOf(renamed), "userPrincipalName", "bg@contoso.com"));
         var document = Templates.Resources("{ \"type\": \"" + UserType + "\", \"apiVersion\": \"" + ApiVersion + "\", \"name\": \"bg@contoso.com\", \"properties\": { \"displayName\": \"Break glass\", \"accountEnabled\": true, \"passwordProfile\": { \"password\": \"Initial-P@ssw0rd-1\" } } }");
 
-        var (_, result, store) = await ExecuteAsync(host, state, document);
+        var (_, result, _) = await ExecuteAsync(host, state, document);
 
-        Assert.False(result.Succeeded);
-        var op = Assert.Single(result.Operations);
-        Assert.Equal(OperationStatus.Failed, op.Status);
-        Assert.Equal(EngineDiagnosticCodes.StateEntryMismatch, op.ErrorCode);
-        Assert.Contains("renamed outside the template", op.Error, StringComparison.Ordinal);
-        Assert.Contains("earm state forget", op.Error, StringComparison.Ordinal);
-        Assert.Empty(host.Fake.Writes);
-        Assert.Equal(1, host.Directory.Count("/users"));
-        Assert.Equal(IdOf(renamed), state.GraphIdOf(UserId("bg@contoso.com")));
-        Assert.Contains(UserId("bg@contoso.com"), store.DocumentOf(EngineHost.DeploymentName)!, StringComparison.Ordinal);
+        Assert.True(result.Succeeded, string.Join("\n", result.Operations.Select(o => o.Error)));
+        Assert.Equal(ChangeType.Create, Assert.Single(result.Operations).ChangeType);
+        Assert.DoesNotContain(host.Fake.Writes, w => w.Path.Contains(IdOf(renamed), StringComparison.Ordinal));
+        Assert.Equal(2, host.Directory.Count("/users"));
+        Assert.Equal("Renamed", renamed["displayName"]!.GetValue<string>());
+        Assert.NotEqual(IdOf(renamed), state.GraphIdOf(UserId("bg@contoso.com")));
     }
 
     [Fact]
-    public async Task ANamedLocationWhoseDisplayNameWasRenamed_FailsTheResource_AndTheWhatIfShowsAnErrorRow()
+    public async Task ANamedLocationWhoseDisplayNameWasRenamed_IsNotTheDeclaredOne_TheDeclaredNameIsCreated()
     {
         var host = new EngineHost();
         var renamed = host.Directory.Add("/identity/conditionalAccess/namedLocations", new JsonObject { ["@odata.type"] = "#microsoft.graph.ipNamedLocation", ["displayName"] = "HQ (renamed in the portal)", ["isTrusted"] = true, ["ipRanges"] = new JsonArray(new JsonObject { ["@odata.type"] = "#microsoft.graph.iPv4CidrRange", ["cidrAddress"] = "10.0.0.0/8" }) });
@@ -272,16 +268,15 @@ public sealed class Review3H_StateIntegrityTests
 
         var plan = await host.WhatIfAsync(document, state);
         var row = Assert.Single(plan.Changes);
-        Assert.True(row.HasError);
-        Assert.Contains("renamed outside the template", row.UnsupportedReason, StringComparison.Ordinal);
-        Assert.Contains(plan.Diagnostics, d => d.Code == EngineDiagnosticCodes.StateEntryMismatch && d.IsError);
+        Assert.False(row.HasError);
+        Assert.Equal(ChangeType.Create, row.Type);
 
         var (_, result, _) = await ExecuteAsync(host, state, document);
 
-        Assert.False(result.Succeeded);
-        Assert.Equal(EngineDiagnosticCodes.StateEntryMismatch, Assert.Single(result.Operations).ErrorCode);
-        Assert.Empty(host.Fake.Writes);
-        Assert.Equal(1, host.Directory.Count("/identity/conditionalAccess/namedLocations"));
+        Assert.True(result.Succeeded, string.Join("\n", result.Operations.Select(o => o.Error)));
+        Assert.Equal(ChangeType.Create, Assert.Single(result.Operations).ChangeType);
+        Assert.DoesNotContain(host.Fake.Writes, w => w.Path.Contains(IdOf(renamed), StringComparison.Ordinal));
+        Assert.Equal(2, host.Directory.Count("/identity/conditionalAccess/namedLocations"));
     }
 
     // ---- S2-16: first-party service principals and the provenance wording ----

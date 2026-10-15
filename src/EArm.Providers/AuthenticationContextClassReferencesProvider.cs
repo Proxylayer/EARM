@@ -9,14 +9,13 @@ using EArm.Core;
 using EArm.Core.Types;
 using EArm.Engine;
 using EArm.Engine.Providers;
-using EArm.Engine.State;
 using EArm.Expressions.Values;
 
 namespace EArm.Providers;
 
 /// <summary>
-/// <c>Microsoft.Entra/conditionalAccess/authenticationContextClassReferences</c>. The resource name <b>is</b> the Graph id (<c>c1</c>..<c>c99</c>); there is no displayName lookup and the
-/// state id is the name.
+/// <c>Microsoft.Entra/conditionalAccess/authenticationContextClassReferences</c>. The resource name <b>is</b> the Graph id (<c>c1</c>..<c>c99</c>); there is no displayName lookup: the
+/// object is read by the id the name implies.
 /// <para>
 /// Requests per operation:
 /// <list type="bullet">
@@ -62,8 +61,8 @@ public sealed class AuthenticationContextClassReferencesProvider : ProviderBase
 
     // ---- read ----
 
-    /// <summary>Reads by the id the name implies; <paramref name="stateId"/> is the same id and is not consulted.</summary>
-    public override async Task<ExistingResource?> ReadAsync(ResourceKey key, string? stateId, IGraphClient graph, CancellationToken cancellationToken)
+    /// <summary>Reads by the id the name implies.</summary>
+    public override async Task<ExistingResource?> ReadAsync(ResourceKey key, IGraphClient graph, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(key);
         ArgumentNullException.ThrowIfNull(graph);
@@ -160,23 +159,17 @@ public sealed class AuthenticationContextClassReferencesProvider : ProviderBase
 
     // ---- delete ----
 
-    public override async Task DeleteAsync(StateEntry entry, IGraphClient graph, CancellationToken cancellationToken)
+    public override async Task DeleteAsync(ResourceKey key, ExistingResource live, IGraphClient graph, CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(entry);
+        ArgumentNullException.ThrowIfNull(key);
+        ArgumentNullException.ThrowIfNull(live);
         ArgumentNullException.ThrowIfNull(graph);
-        var api = entry.ToResourceKey(Catalog).Api;
-        string path = EntityPath(entry.GraphId);
-
-        var live = await graph.GetAsync(new GraphRequest(path, api), cancellationToken).ConfigureAwait(false) as JsonObject;
-        if (live is null)
-        {
-            // Already gone (deleted outside EARM): nothing to do.
-            return;
-        }
+        var api = key.Api;
+        string path = EntityPath(live.GraphId);
 
         try
         {
-            if (AuthenticationContextClassReferencesRules.IsAvailable(live) != false)
+            if (AuthenticationContextClassReferencesRules.IsAvailable(live.Raw) != false)
             {
                 // Graph only deletes an unavailable context: switch it off first.
                 await graph.PatchAsync(new GraphRequest(path, api), AuthenticationContextClassReferencesRules.UnavailableBody(), cancellationToken).ConfigureAwait(false);
@@ -186,14 +179,14 @@ public sealed class AuthenticationContextClassReferencesProvider : ProviderBase
         }
         catch (GraphException ex) when (ex.IsNotFound)
         {
-            // Gone between the read and the delete: nothing to do.
+            // Already gone (deleted outside EARM, or between the read and the delete): nothing to do.
         }
         catch (GraphException ex) when (ex.Status == HttpStatusCode.BadRequest)
         {
             throw new ProviderException(
                 Referenced,
-                $"{entry.Id.Id}: Graph refused to delete authentication context class reference {entry.GraphId} ({ex.Code}: {ex.GraphMessage}). A context can only be deleted once it is unavailable (isAvailable: false) and no Conditional Access policy references it; remove it from the policies' conditions.applications.includeAuthenticationContextClassReferences first.",
-                entry.Id,
+                $"{TypeName} {key.Describe()}: Graph refused to delete authentication context class reference {live.GraphId} ({ex.Code}: {ex.GraphMessage}). A context can only be deleted once it is unavailable (isAvailable: false) and no Conditional Access policy references it; remove it from the policies' conditions.applications.includeAuthenticationContextClassReferences first.",
+                null,
                 ex);
         }
     }

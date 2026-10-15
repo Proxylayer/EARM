@@ -137,9 +137,9 @@ public sealed class ProviderContractTests
             await Assert.ThrowsAsync<ArgumentNullException>(() => provider.PrepareAsync(null!, graph, ct));
         }
 
-        await Assert.ThrowsAsync<ArgumentNullException>(() => provider.ReadAsync(null!, null, graph, ct));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => provider.ReadAsync(null!, graph, ct));
         await Assert.ThrowsAsync<ArgumentNullException>(() => provider.CreateAsync(null!, graph, ct));
-        await Assert.ThrowsAsync<ArgumentNullException>(() => provider.DeleteAsync(null!, graph, ct));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => provider.DeleteAsync(null!, null!, graph, ct));
         await Assert.ThrowsAsync<ArgumentNullException>(() => provider.UpdateAsync(null!, null!, null!, graph, ct));
     }
 
@@ -154,7 +154,6 @@ public sealed class ProviderContractTests
         var instance = (ResourceInstance)RuntimeHelpers.GetUninitializedObject(typeof(ResourceInstance));
         var existing = (ExistingResource)RuntimeHelpers.GetUninitializedObject(typeof(ExistingResource));
         var change = (ResourceChange)RuntimeHelpers.GetUninitializedObject(typeof(ResourceChange));
-        var entry = (StateEntry)RuntimeHelpers.GetUninitializedObject(typeof(StateEntry));
         var key = (ResourceKey)RuntimeHelpers.GetUninitializedObject(typeof(ResourceKey));
 
         if (providerType.GetMethod(nameof(IResourceProvider.PrepareAsync))!.DeclaringType == providerType)
@@ -162,9 +161,9 @@ public sealed class ProviderContractTests
             await Assert.ThrowsAsync<ArgumentNullException>(() => provider.PrepareAsync(instance, null!, ct));
         }
 
-        await Assert.ThrowsAsync<ArgumentNullException>(() => provider.ReadAsync(key, null, null!, ct));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => provider.ReadAsync(key, null!, ct));
         await Assert.ThrowsAsync<ArgumentNullException>(() => provider.CreateAsync(instance, null!, ct));
-        await Assert.ThrowsAsync<ArgumentNullException>(() => provider.DeleteAsync(entry, null!, ct));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => provider.DeleteAsync(key, existing, null!, ct));
         if (providerType != typeof(RoleAssignmentsProvider) && providerType != typeof(AppRoleAssignmentsProvider))
         {
             // These two never update in place: UpdateAsync only guards the instance and then throws.

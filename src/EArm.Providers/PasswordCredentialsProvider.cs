@@ -13,7 +13,6 @@ using EArm.Core.Secrets;
 using EArm.Core.Types;
 using EArm.Engine;
 using EArm.Engine.Providers;
-using EArm.Engine.State;
 using EArm.Expressions.Values;
 using GraphApi = EArm.Graph.GraphApi;
 
@@ -22,8 +21,8 @@ namespace EArm.Providers;
 /// <summary>
 /// <c>Microsoft.Entra/applications/passwordCredentials</c>. The
 /// resource name is <c>&lt;application uniqueName&gt;/&lt;credential displayName&gt;</c>; the credential is matched
-/// among the application's <c>passwordCredentials</c> by <c>displayName</c> (the one the state pinned by
-/// <c>keyId</c> first, else the newest). Graph never edits a credential: every change is a replacement, and the
+/// among the application's <c>passwordCredentials</c> by <c>displayName</c> (the newest when several
+/// share it). Graph never edits a credential: every change is a replacement, and the
 /// <c>secretText</c> is returned exactly once, by <c>addPassword</c>.
 /// <para>
 /// Action URLs always address the application by its object id (from the state, the parent applied in this run, or
@@ -32,7 +31,7 @@ namespace EArm.Providers;
 /// <item><b>Read</b>: <c>GET /applications/{parentId}?$select=id,passwordCredentials</c> (or <c>GET /applications(uniqueName='…')</c>); a 404 is "does not exist" (parent and credential alike).</item>
 /// <item><b>Create</b>: <c>[GET /applications(uniqueName='…')?$select=id]</c> when the parent's id is not known → <c>POST /applications/{id}/addPassword { "passwordCredential": { "displayName", "endDateTime"[, "startDateTime"] } }</c>; the response's <c>secretText</c> goes into the published live object as a secret leaf (so <c>reference(...).secretText</c> works in this run) and nowhere else.</item>
 /// <item><b>Rotate</b> (a <c>Modify</c> row): the same <c>addPassword</c> first, then <c>POST /applications/{id}/removePassword { "keyId" }</c> for every live same-name credential except the new one, so a consumer never sees a moment without a valid secret.</item>
-/// <item><b>Delete</b>: <c>GET /applications/{parentId}?$select=id,passwordCredentials</c> (a 404 means the application and its credentials are gone) → <c>removePassword</c> for the recorded <c>keyId</c> and every same-name leftover; an unknown <c>keyId</c> counts as removed.</item>
+/// <item><b>Delete</b>: <c>GET /applications/{parentId}?$select=id,passwordCredentials</c> (a 404 means the application and its credentials are gone) → <c>removePassword</c> for the live credential's <c>keyId</c> and every same-name leftover; an unknown <c>keyId</c> counts as removed.</item>
 /// </list>
 /// </para>
 /// <para>
@@ -91,7 +90,7 @@ public sealed class PasswordCredentialsProvider : ProviderBase
 
     // ---- read ----
 
-    public override async Task<ExistingResource?> ReadAsync(ResourceKey key, string? stateId, IGraphClient graph, CancellationToken cancellationToken)
+    public override async Task<ExistingResource?> ReadAsync(ResourceKey key, IGraphClient graph, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(key);
         ArgumentNullException.ThrowIfNull(graph);
@@ -115,7 +114,7 @@ public sealed class PasswordCredentialsProvider : ProviderBase
         var sameName = PasswordCredentialsRules.SameName(PasswordCredentialsRules.Summarize(parent[PasswordCredentialsRules.PasswordCredentialsProperty]), name);
         _sameName[snapshotKey] = sameName;
 
-        var match = PasswordCredentialsRules.Select(sameName, stateId);
+        var match = PasswordCredentialsRules.Select(sameName);
         return match is null ? null : Existing(match);
     }
 
@@ -281,13 +280,16 @@ public sealed class PasswordCredentialsProvider : ProviderBase
 
     // ---- delete ----
 
-    public override async Task DeleteAsync(StateEntry entry, IGraphClient graph, CancellationToken cancellationToken)
+    public override async Task DeleteAsync(ResourceKey key, ExistingResource live, IGraphClient graph, CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(entry);
+        ArgumentNullException.ThrowIfNull(key);
+        ArgumentNullException.ThrowIfNull(live);
         ArgumentNullException.ThrowIfNull(graph);
-        var key = entry.ToResourceKey(Catalog);
-        string name = key.TryGet(PasswordCredentialsRules.DisplayNameProperty, out var recorded) ? recorded : entry.Id.NameLeaf;
-        string lookupPath = ParentPath(entry.ParentGraphId, entry.Id.Parent?.NameLeaf, entry.Id);
+        string name = key.TryGet(PasswordCredentialsRules.DisplayNameProperty, out var keyed) ? keyed
+            : JsonObjects.GetString(live.Raw, PasswordCredentialsRules.DisplayNameProperty)
+            ?? throw new ProviderException(EngineDiagnosticCodes.ResourceKeyUnresolved, $"{TypeName}: neither the key {key.Describe()} nor the live credential {live.GraphId} carries a displayName.");
+        string? parentUniqueName = key.ParentKey is { } parentKey && parentKey.TryGet(ParentKeyProperty, out var unique) ? unique : null;
+        string lookupPath = ParentPath(key.ParentGraphId, parentUniqueName, null);
 
         var parent = await ReadParentAsync(graph, lookupPath, key.Api, RetryHint.Default, cancellationToken).ConfigureAwait(false);
         if (parent is null)
@@ -296,9 +298,9 @@ public sealed class PasswordCredentialsProvider : ProviderBase
             return;
         }
 
-        string parentId = JsonObjects.GetId(parent) ?? entry.ParentGraphId
-            ?? throw new ProviderException(EngineDiagnosticCodes.ResourceKeyUnresolved, $"{TypeName}: the parent application of '{entry.Id.Id}' has no id.", entry.Id);
-        var keyIds = new List<string> { entry.GraphId };
+        string parentId = JsonObjects.GetId(parent) ?? key.ParentGraphId
+            ?? throw new ProviderException(EngineDiagnosticCodes.ResourceKeyUnresolved, $"{TypeName}: the parent application of {key.Describe()} has no id.");
+        var keyIds = new List<string> { live.GraphId };
         foreach (var credential in PasswordCredentialsRules.SameName(PasswordCredentialsRules.Summarize(parent[PasswordCredentialsRules.PasswordCredentialsProperty]), name))
         {
             if (!keyIds.Exists(id => PasswordCredentialsRules.KeyIdEquals(id, credential.KeyId)))
@@ -422,7 +424,7 @@ public sealed class PasswordCredentialsProvider : ProviderBase
         return await graph.GetAsync(request, cancellationToken).ConfigureAwait(false) as JsonObject;
     }
 
-    /// <summary>The parent's object id: known from the engine (applied in this run, read while planning, pinned in the state) or looked up by <c>uniqueName</c>.</summary>
+    /// <summary>The parent's object id: known from the engine (applied in this run, or read while planning) or looked up by <c>uniqueName</c>.</summary>
     private async Task<string> ResolveParentIdAsync(ResourceInstance desired, IGraphClient graph, CancellationToken cancellationToken)
     {
         if (desired.ParentGraphId is not null)

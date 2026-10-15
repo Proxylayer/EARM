@@ -127,7 +127,7 @@ public sealed class ModePassTests
     // ---- planner (what-if) with state ----
 
     [Fact]
-    public async Task WhatIf_ReadsThroughThePinnedGraphIdFirst()
+    public async Task WhatIf_ReadsByKey_NeverByTheRecordedGraphId()
     {
         var host = new EngineHost();
         host.SeedExisting();
@@ -138,8 +138,7 @@ public sealed class ModePassTests
         var plan = await host.WhatIfAsync(await Templates.FixtureAsync(), state);
 
         var appReads = host.Fake.Requests.Where(r => r.Path.StartsWith("/applications", StringComparison.Ordinal) && !r.Path.Contains("federatedIdentityCredentials", StringComparison.Ordinal)).ToList();
-        Assert.Equal("/applications/" + app["id"], appReads[0].Path);
-        Assert.DoesNotContain(appReads, r => r.Path == "/applications(uniqueName='contoso-dev-api')");
+        Assert.Equal("/applications(uniqueName='contoso-dev-api')", appReads[0].Path);
         Assert.Equal(ChangeType.Modify, plan.Changes.Single(c => c.Id.Id == Fixture.App).Type);
         Assert.Empty(host.Fake.Writes);
         Assert.Empty(plan.ModeChanges);

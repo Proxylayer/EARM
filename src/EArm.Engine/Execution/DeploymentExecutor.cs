@@ -546,7 +546,7 @@ public sealed class DeploymentExecutor
                     }
 
                     EngineLog.DeletingOrphan(Logger, entry.Id.Id, entry.GraphId);
-                    if (check.Provider is IDeleteWarningSource warnings && warnings.DescribeDeleteRisk(entry, check.Live) is { } risk)
+                    if (check.Provider is IDeleteWarningSource warnings && warnings.DescribeDeleteRisk(entry.ToResourceKey(_plan.Catalog), check.Live!) is { } risk)
                     {
                         EngineLog.DeleteWarning(Logger, entry.Id.Id, risk);
                         AddDiagnostic(Diagnostic.Warning(EngineDiagnosticCodes.DestructiveDelete, $"'{entry.Id.Id}': {risk}"));
@@ -739,41 +739,13 @@ public sealed class DeploymentExecutor
                 return;
             }
 
-            // Reads use the default hint: a 404 here means "create", not "not replicated yet". The pinned Graph id from
-            // the state goes first; the provider falls back to the key when the pinned object is gone (drift). A pinned object
-            // whose key is not the desired one is never used (S-01b): the object is looked up by key instead.
-            string? stateId = _options.State?.GraphIdOf(instance.Id.Id);
-            var previousEntry = stateId is null ? null : _options.State?.Find(instance.Id.Id);
-            var read = await ProviderReads.ReadVerifiedAsync(
-                key,
-                stateId,
-                id => WithRetryAsync(ct => provider.ReadAsync(key, id, _owner._graph, ct), RetryHint.Default, cancellationToken),
-                live => instance.Definition.ImmutableAll
-                    && previousEntry is { Provenance: StateProvenance.Created }
-                    && string.Equals(previousEntry.GraphId, live.GraphId, StringComparison.OrdinalIgnoreCase)
-                    && ProviderReads.RecordedKeyMatches(previousEntry.Key, live.Raw),
-                previousEntry?.CreatedDateTime,
-                instance.Definition.NameMapsTo is not null).ConfigureAwait(false);
-            var existing = read.Existing;
-            if (read.Renamed)
+            // Reads use the default hint: a 404 here means "create", not "not replicated yet". Identity is resolved live, by key, on every run:
+            // the state is never consulted to find the object (a renamed object is a new one).
+            var existing = await WithRetryAsync(ct => provider.ReadAsync(key, _owner._graph, ct), RetryHint.Default, cancellationToken).ConfigureAwait(false);
+            var previousEntry = _options.State?.Find(instance.Id.Id);
+            if (previousEntry is not null && !string.Equals(existing?.GraphId, previousEntry.GraphId, StringComparison.OrdinalIgnoreCase))
             {
-                // The object the state pinned no longer has the key and nothing else has: it was renamed outside the template. Creating "the missing one" would
-                // duplicate it and orphan the original, so the resource fails instead (review round 2, S2-04).
-                string renamed = $"{instance.Describe()}: {read.Mismatch}";
-                EngineLog.StateEntryMismatch(Logger, instance.Id.Id, read.Mismatch!);
-                await FailAsync(instance, batchIndex, EngineDiagnosticCodes.StateEntryMismatch, renamed, stopwatch.Elapsed, cancellationToken).ConfigureAwait(false);
-                return;
-            }
-
-            if (read.Mismatch is not null)
-            {
-                string mismatch = $"{instance.Id.Id}: {read.Mismatch}";
-                EngineLog.StateEntryMismatch(Logger, instance.Id.Id, read.Mismatch);
-                AddInstanceDiagnostic(instance, Diagnostic.Warning(EngineDiagnosticCodes.StateEntryMismatch, mismatch));
-            }
-            else if (stateId is not null && !string.Equals(existing?.GraphId, stateId, StringComparison.OrdinalIgnoreCase))
-            {
-                EngineLog.StateDrift(Logger, instance.Id.Id, stateId, existing is null ? "not found; it will be created again" : $"found under a different id ({existing.GraphId}); the state will be re-pinned");
+                EngineLog.StateDrift(Logger, instance.Id.Id, previousEntry.GraphId, existing is null ? "not found; it will be created again" : $"found under a different id ({existing.GraphId}); the state will be re-pinned");
             }
 
             if (existing is not null && !TryClaim(instance, existing.GraphId, out var other))
@@ -799,7 +771,7 @@ public sealed class DeploymentExecutor
             EngineLog.Applying(Logger, instance.Id.Id, change.Type.ToString(), change.Mode.ToString());
 
             // Provenance (E-02): an object that was already there and that the state did not (yet) vouch for is adopted, not created.
-            bool takenOver = existing is not null && !read.Superseded && (previousEntry is null || !string.Equals(previousEntry.GraphId, existing.GraphId, StringComparison.OrdinalIgnoreCase));
+            bool takenOver = existing is not null && (previousEntry is null || !string.Equals(previousEntry.GraphId, existing.GraphId, StringComparison.OrdinalIgnoreCase));
             var provenance = takenOver || previousEntry is null ? StateProvenance.Adopted : previousEntry.Provenance;
             string? afterApplyFailure = null;
             AppliedResource applied;
@@ -1014,7 +986,7 @@ public sealed class DeploymentExecutor
         {
             try
             {
-                return await WithRetryAsync(ct => provider.ReadAsync(key, null, _owner._graph, ct), hint, cancellationToken).ConfigureAwait(false);
+                return await WithRetryAsync(ct => provider.ReadAsync(key, _owner._graph, ct), hint, cancellationToken).ConfigureAwait(false);
             }
             catch (Exception readFailure) when (readFailure is GraphException or GraphTransportException or ProviderException or InvalidOperationException or ArgumentException)
             {
@@ -1077,7 +1049,7 @@ public sealed class DeploymentExecutor
         {
             try
             {
-                return await WithRetryAsync(ct => provider.ReadAsync(key, null, _owner._graph, ct), RetryHint.Default, CancellationToken.None).ConfigureAwait(false);
+                return await WithRetryAsync(ct => provider.ReadAsync(key, _owner._graph, ct), RetryHint.Default, CancellationToken.None).ConfigureAwait(false);
             }
             catch (GraphException ex) when (ex.IsNotFound || GraphException.IsReplicationError(ex.Status, ex.Code, ex.GraphMessage))
             {
@@ -1170,7 +1142,7 @@ public sealed class DeploymentExecutor
             {
                 if (!oldIsGone)
                 {
-                    await DeleteOldAsync(provider, instance, oldEntry, cancellationToken).ConfigureAwait(false);
+                    await DeleteOldAsync(provider, instance, key, check.Live ?? existing, cancellationToken).ConfigureAwait(false);
                 }
 
                 var recreated = await CreateAsync(provider, instance, key, cancellationToken).ConfigureAwait(false);
@@ -1180,7 +1152,7 @@ public sealed class DeploymentExecutor
             var replacement = await CreateAsync(provider, instance, key, cancellationToken).ConfigureAwait(false);
             try
             {
-                await DeleteOldAsync(provider, instance, oldEntry, cancellationToken).ConfigureAwait(false);
+                await DeleteOldAsync(provider, instance, key, check.Live ?? existing, cancellationToken).ConfigureAwait(false);
             }
             catch (GraphException ex) when (ex.IsNotFound)
             {
@@ -1194,11 +1166,11 @@ public sealed class DeploymentExecutor
             return new RecreateOutcome(replacement.Applied, replacement.Failure, null);
         }
 
-        private Task DeleteOldAsync(IResourceProvider provider, ResourceInstance instance, StateEntry oldEntry, CancellationToken cancellationToken)
+        private Task DeleteOldAsync(IResourceProvider provider, ResourceInstance instance, ResourceKey key, ExistingResource old, CancellationToken cancellationToken)
         {
             return WithRetryAsync(async ct =>
             {
-                await provider.DeleteAsync(oldEntry, _owner._graph, ct).ConfigureAwait(false);
+                await provider.DeleteAsync(key, old, _owner._graph, ct).ConfigureAwait(false);
                 return true;
             }, instance.RetryHint, cancellationToken);
         }

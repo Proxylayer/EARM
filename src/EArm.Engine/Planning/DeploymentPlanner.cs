@@ -351,37 +351,10 @@ public sealed class DeploymentPlanner
             };
         }
 
-        // A pinned object whose key is not the desired one is never used (S-01b); the object is looked up by key instead.
-        string? stateId = state?.GraphIdOf(instance.Id.Id);
-        var previousEntry = stateId is null ? null : state?.Find(instance.Id.Id);
-        var read = await ProviderReads.ReadVerifiedAsync(
-            key,
-            stateId,
-            id => WithRetryAsync(ct => provider.ReadAsync(key, id, _graph, ct), RetryHint.Default, cancellationToken),
-            live => instance.Definition.ImmutableAll
-                && previousEntry is { Provenance: StateProvenance.Created }
-                && string.Equals(previousEntry.GraphId, live.GraphId, StringComparison.OrdinalIgnoreCase)
-                && ProviderReads.RecordedKeyMatches(previousEntry.Key, live.Raw),
-            previousEntry?.CreatedDateTime,
-            instance.Definition.NameMapsTo is not null).ConfigureAwait(false);
-        var existing = read.Existing;
+        // Identity is resolved live, by key, on every run: the state is never consulted to find the object (a renamed object is a new one).
+        var existing = await WithRetryAsync(ct => provider.ReadAsync(key, _graph, ct), RetryHint.Default, cancellationToken).ConfigureAwait(false);
+        var previousEntry = state?.Find(instance.Id.Id);
         var warnings = new List<Diagnostic>();
-        if (read.Renamed)
-        {
-            // The pinned object was renamed outside the template and nothing has the key: a deployment fails this resource (it would not create a duplicate), so the what-if shows an error row.
-            string renamed = $"{instance.Describe()}: {read.Mismatch}";
-            EngineLog.StateEntryMismatch(_logger, instance.Id.Id, read.Mismatch!);
-            warnings.Add(Diagnostic.Error(EngineDiagnosticCodes.StateEntryMismatch, renamed));
-            reads.Diagnostics[instance] = warnings;
-            return ResourceChange.Unsupported(instance.Id, instance.Type, ChangeType.Modify, renamed);
-        }
-
-        if (read.Mismatch is not null)
-        {
-            EngineLog.StateEntryMismatch(_logger, instance.Id.Id, read.Mismatch);
-            warnings.Add(Diagnostic.Warning(EngineDiagnosticCodes.StateEntryMismatch, $"{instance.Id.Id}: {read.Mismatch}"));
-        }
-
         if (existing is not null)
         {
             var claimant = string.IsNullOrEmpty(existing.GraphId) ? instance : reads.Claims.GetOrAdd(existing.GraphId, instance);
@@ -394,7 +367,7 @@ public sealed class DeploymentPlanner
                 return ResourceChange.Unsupported(instance.Id, instance.Type, ChangeType.Modify, message);
             }
 
-            if (!read.Superseded && (previousEntry is null || !string.Equals(previousEntry.GraphId, existing.GraphId, StringComparison.OrdinalIgnoreCase)))
+            if (previousEntry is null || !string.Equals(previousEntry.GraphId, existing.GraphId, StringComparison.OrdinalIgnoreCase))
             {
                 warnings.Add(Diagnostic.Warning(EngineDiagnosticCodes.AdoptedExistingObject, $"'{instance.Id.Id}' would adopt the existing {instance.Type} object {existing.GraphId}: it was not created by this deployment, so Complete mode will not delete it (--delete-adopted overrides)."));
             }
@@ -625,7 +598,7 @@ public sealed class DeploymentPlanner
             reasons.Add("adopted object: deleted because --delete-adopted was given");
         }
 
-        if (check.Provider is IDeleteWarningSource warnings && warnings.DescribeDeleteRisk(entry, existing) is { } risk)
+        if (check.Provider is IDeleteWarningSource warnings && warnings.DescribeDeleteRisk(entry.ToResourceKey(plan.Catalog), existing) is { } risk)
         {
             reasons.Add(risk);
             diagnostics.Add(Diagnostic.Warning(EngineDiagnosticCodes.DestructiveDelete, $"'{entry.Id.Id}': {risk}"));

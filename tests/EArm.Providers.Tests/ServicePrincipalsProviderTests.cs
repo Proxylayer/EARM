@@ -11,6 +11,7 @@ using EArm.Engine.Execution;
 using EArm.Engine.Providers;
 using EArm.Engine.State;
 using EArm.Providers.Tests.Infrastructure;
+using EArm.TestSupport;
 using Xunit;
 
 namespace EArm.Providers.Tests;
@@ -269,13 +270,13 @@ public sealed class ServicePrincipalsProviderTests
             GraphId = seeded["id"]!.GetValue<string>(),
         };
 
-        await provider.DeleteAsync(entry, host.Fake, ProviderHost.Ct);
+        await provider.DeleteAsync(DeleteTarget.KeyOf(entry), DeleteTarget.LiveOf(entry), host.Fake, ProviderHost.Ct);
         var write = Assert.Single(host.Fake.Writes);
         Assert.Equal("DELETE", write.Method);
         Assert.Equal("/servicePrincipals/" + entry.GraphId, write.Path);
         Assert.Equal(0, host.Directory.Count("/servicePrincipals"));
 
-        await provider.DeleteAsync(entry, host.Fake, ProviderHost.Ct);
+        await provider.DeleteAsync(DeleteTarget.KeyOf(entry), DeleteTarget.LiveOf(entry), host.Fake, ProviderHost.Ct);
         Assert.Equal(2, host.Fake.Writes.Count);
     }
 
@@ -323,31 +324,6 @@ public sealed class ServicePrincipalsProviderTests
         Check.Succeeded(equal);
         Assert.Equal(ChangeType.Create, equal.OpOfType(SpType).ChangeType);
         Assert.Equal(appId, Check.Body(Assert.Single(equal.Writes, w => w.Method == "POST"))["appId"]!.GetValue<string>());
-    }
-
-    [Fact]
-    public async Task PinnedIdOfAnotherPrincipal_IsIgnored_AndTheKeyLookupWins()
-    {
-        var host = new ProviderHost();
-        string appId = Guid.NewGuid().ToString("D");
-        host.Directory.AddApplication(AppName, "Test API", appId);
-        var wanted = host.Directory.AddServicePrincipal(appId, "Test API");
-        var other = host.Directory.AddServicePrincipal(Guid.NewGuid().ToString("D"), "Other app");
-        var provider = host.Provider<ServicePrincipalsProvider>(SpType);
-        var key = new ResourceKey { Type = SpType, Values = new Dictionary<string, string> { ["appId"] = appId } };
-
-        var found = await provider.ReadAsync(key, other["id"]!.GetValue<string>(), host.Fake, ProviderHost.Ct);
-
-        Assert.NotNull(found);
-        Assert.Equal(wanted["id"]!.GetValue<string>(), found.GraphId);
-        Assert.Equal(2, host.Fake.Requests.Count);
-        Assert.Equal("/servicePrincipals/" + other["id"]!.GetValue<string>(), host.Fake.Requests[0].Path);
-        Assert.Equal("/servicePrincipals(appId='" + appId + "')", host.Fake.Requests[1].Path);
-
-        host.ClearRequests();
-        var pinned = await provider.ReadAsync(key, wanted["id"]!.GetValue<string>(), host.Fake, ProviderHost.Ct);
-        Assert.NotNull(pinned);
-        Assert.Single(host.Fake.Requests);
     }
 
     [Fact]

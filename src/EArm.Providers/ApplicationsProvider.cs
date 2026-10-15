@@ -13,7 +13,6 @@ using EArm.Core.Secrets;
 using EArm.Core.Types;
 using EArm.Engine;
 using EArm.Engine.Providers;
-using EArm.Engine.State;
 using EArm.Expressions.Values;
 using GraphApi = EArm.Graph.GraphApi;
 
@@ -25,7 +24,7 @@ namespace EArm.Providers;
 /// <para>
 /// Requests per operation:
 /// <list type="bullet">
-/// <item><b>Read</b>: <c>GET /applications/{pinnedId}</c> (state id, when known) → <c>GET /applications(uniqueName='…')</c> → <c>GET /applications(appId='…')</c> (only when the template declares <c>appId</c>, to adopt a brownfield app); every read selects <see cref="ManagedProperties"/>; a 404 is "does not exist".</item>
+/// <item><b>Read</b>: <c>GET /applications(uniqueName='…')</c> → <c>GET /applications(appId='…')</c> (only when the template declares <c>appId</c>, to adopt a brownfield app); every read selects <see cref="ManagedProperties"/>; a 404 is "does not exist".</item>
 /// <item><b>Create</b>: a soft-delete probe (<c>GET /directory/deletedItems/microsoft.graph.application?$filter=uniqueName eq '…'</c>, advanced query) → on a hit either <c>ProviderException(SoftDeletedConflict)</c> or, with <c>--on-soft-deleted-conflict restore</c>, <c>POST /directory/deletedItems/{id}/restore</c>; then the upsert <c>PATCH /applications(uniqueName='…')</c> + <c>Prefer: create-if-missing</c> (201 = created, body is the object; 204 = it existed, re-read by key and adopted); then, when <c>identifierUris</c> carry <c>{appId}</c>, a second <c>PATCH /applications/{id}</c> with the substituted URIs.</item>
 /// <item><b>Update</b>: when roles/scopes are removed or change <c>value</c> / <c>allowedMemberTypes</c> / <c>type</c>, a first <c>PATCH /applications/{id}</c> disabling them; then <c>PATCH /applications/{id}</c> with the merge body; then a re-read.</item>
 /// <item><b>Delete</b>: <c>DELETE /applications/{id}</c> (soft delete; cascades the home service principal); a 404 is "already gone".</item>
@@ -139,17 +138,12 @@ public sealed class ApplicationsProvider : ProviderBase
 
     // ---- read ----
 
-    public override async Task<ExistingResource?> ReadAsync(ResourceKey key, string? stateId, IGraphClient graph, CancellationToken cancellationToken)
+    public override async Task<ExistingResource?> ReadAsync(ResourceKey key, IGraphClient graph, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(key);
         ArgumentNullException.ThrowIfNull(graph);
 
         var select = _selects.For(key, ManagedProperties);
-        if (stateId is not null && await GetApplicationAsync(graph, EntityPath(stateId), key.Api, RetryHint.Default, select, cancellationToken).ConfigureAwait(false) is { } pinned)
-        {
-            return ToExisting(pinned);
-        }
-
         bool hasKey = false;
         if (key.TryGet("uniqueName", out var uniqueName))
         {
@@ -426,14 +420,15 @@ public sealed class ApplicationsProvider : ProviderBase
 
     // ---- delete ----
 
-    public override async Task DeleteAsync(StateEntry entry, IGraphClient graph, CancellationToken cancellationToken)
+    public override async Task DeleteAsync(ResourceKey key, ExistingResource live, IGraphClient graph, CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(entry);
+        ArgumentNullException.ThrowIfNull(key);
+        ArgumentNullException.ThrowIfNull(live);
         ArgumentNullException.ThrowIfNull(graph);
-        var api = entry.ToResourceKey(Catalog).Api;
+        var api = key.Api;
         try
         {
-            await graph.DeleteAsync(new GraphRequest(EntityPath(entry.GraphId), api), cancellationToken).ConfigureAwait(false);
+            await graph.DeleteAsync(new GraphRequest(EntityPath(live.GraphId), api), cancellationToken).ConfigureAwait(false);
         }
         catch (GraphException ex) when (ex.IsNotFound)
         {

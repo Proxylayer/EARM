@@ -196,13 +196,13 @@ public sealed class Review4K_ProviderTests
 
         // The key of another type: a property the catalog does not name for this one.
         var wrong = KeyOf(type, expectedName == "id" ? ("displayName", "c1") : ("appId", "5b5b5b5b-1111-4222-8333-444444444444"));
-        var error = await Assert.ThrowsAsync<ProviderException>(() => provider.ReadAsync(wrong, null, host.Fake, ProviderHost.Ct));
+        var error = await Assert.ThrowsAsync<ProviderException>(() => provider.ReadAsync(wrong, host.Fake, ProviderHost.Ct));
         Assert.Equal(EngineDiagnosticCodes.ResourceKeyUnresolved, error.Code);
         Assert.Empty(host.Fake.Requests);
 
         // And a key that has the right property plus a stray one is no single key either.
         var stray = KeyOf(type, (expectedName, "x"), ("stray", "y"));
-        await Assert.ThrowsAsync<ProviderException>(() => provider.ReadAsync(stray, null, host.Fake, ProviderHost.Ct));
+        await Assert.ThrowsAsync<ProviderException>(() => provider.ReadAsync(stray, host.Fake, ProviderHost.Ct));
         Assert.Empty(host.Fake.Requests);
     }
 

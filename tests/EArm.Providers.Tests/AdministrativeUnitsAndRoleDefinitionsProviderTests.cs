@@ -46,7 +46,7 @@ public sealed class AdministrativeUnitsProviderTests
     }
 
     [Fact]
-    public async Task U2_Rerun_IsNoChange_ReadByPinnedId()
+    public async Task U2_Rerun_IsNoChange_ReadByDisplayName()
     {
         var host = new ProviderHost();
         var document = host.Resources(Join(Alice(), Au(props: MembersProps)));
@@ -58,7 +58,7 @@ public sealed class AdministrativeUnitsProviderTests
         Check.Succeeded(rerun);
         Check.NoWrites(rerun);
         Assert.Equal(ChangeType.NoChange, rerun.Op("Orders AU").ChangeType);
-        Assert.Contains(rerun.Requests, r => r.Method == "GET" && r.Path == $"{BuiltInRoles.UnitsPath}/{auId}");
+        Assert.DoesNotContain(rerun.Requests, r => r.Method == "GET" && r.Path == $"{BuiltInRoles.UnitsPath}/{auId}");
     }
 
     [Fact]
@@ -176,7 +176,7 @@ public sealed class AdministrativeUnitsProviderTests
 
         var op = Assert.Single(run.Executed.Operations);
         Assert.Equal(ProviderException.AmbiguousMatch, op.ErrorCode);
-        Assert.Contains("earm state adopt", op.Error, StringComparison.Ordinal);
+        Assert.Contains("rename or delete the others", op.Error, StringComparison.Ordinal);
         Check.NoWrites(run);
     }
 
@@ -225,7 +225,7 @@ public sealed class RoleDefinitionsProviderTests
     }
 
     [Fact]
-    public async Task R2_ReorderedActions_AreNoChange_ReadByPinnedId()
+    public async Task R2_ReorderedActions_AreNoChange_ReadByDisplayName()
     {
         var host = new ProviderHost();
         Check.Succeeded(await host.CreateAsync(host.Resources(RoleDef())));
@@ -236,7 +236,7 @@ public sealed class RoleDefinitionsProviderTests
         Check.Succeeded(rerun);
         Check.NoWrites(rerun);
         Assert.Equal(ChangeType.NoChange, rerun.Op("Orders Support").ChangeType);
-        Assert.Contains(rerun.Requests, r => r.Method == "GET" && r.Path == $"{BuiltInRoles.DefinitionsPath}/{roleId}");
+        Assert.DoesNotContain(rerun.Requests, r => r.Method == "GET" && r.Path == $"{BuiltInRoles.DefinitionsPath}/{roleId}");
     }
 
     [Fact]

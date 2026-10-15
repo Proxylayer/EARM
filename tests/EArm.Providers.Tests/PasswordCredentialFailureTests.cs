@@ -13,6 +13,7 @@ using EArm.Engine.Execution;
 using EArm.Engine.Planning;
 using EArm.Engine.Providers;
 using EArm.Providers.Tests.Infrastructure;
+using EArm.TestSupport;
 using Xunit;
 
 namespace EArm.Providers.Tests;
@@ -161,9 +162,9 @@ public sealed class PasswordCredentialFailureTests
         var provider = host.Provider<PasswordCredentialsProvider>(SecretType);
         var parent = new ResourceKey { Type = AppType, Values = new Dictionary<string, string> { ["uniqueName"] = AppName } };
 
-        var noName = await Assert.ThrowsAsync<ProviderException>(() => provider.ReadAsync(new ResourceKey { Type = SecretType, Values = new Dictionary<string, string>(), ParentKey = parent }, null, host.Fake, ProviderHost.Ct));
-        var noParent = await Assert.ThrowsAsync<ProviderException>(() => provider.ReadAsync(new ResourceKey { Type = SecretType, Values = new Dictionary<string, string> { ["displayName"] = SecretName } }, null, host.Fake, ProviderHost.Ct));
-        var absent = await provider.ReadAsync(new ResourceKey { Type = SecretType, Values = new Dictionary<string, string> { ["displayName"] = SecretName }, ParentKey = parent }, null, host.Fake, ProviderHost.Ct);
+        var noName = await Assert.ThrowsAsync<ProviderException>(() => provider.ReadAsync(new ResourceKey { Type = SecretType, Values = new Dictionary<string, string>(), ParentKey = parent }, host.Fake, ProviderHost.Ct));
+        var noParent = await Assert.ThrowsAsync<ProviderException>(() => provider.ReadAsync(new ResourceKey { Type = SecretType, Values = new Dictionary<string, string> { ["displayName"] = SecretName } }, host.Fake, ProviderHost.Ct));
+        var absent = await provider.ReadAsync(new ResourceKey { Type = SecretType, Values = new Dictionary<string, string> { ["displayName"] = SecretName }, ParentKey = parent }, host.Fake, ProviderHost.Ct);
 
         Assert.Equal(EngineDiagnosticCodes.ResourceKeyUnresolved, noName.Code);
         Assert.Contains("carries no credential displayName", noName.Message, StringComparison.Ordinal);
@@ -180,7 +181,7 @@ public sealed class PasswordCredentialFailureTests
         var (host, _, instance, provider) = await ArrangeAsync(app => app["passwordCredentials"] = new JsonArray(Seeded(keyId, SecretName, DateTimeOffset.UtcNow.AddDays(300))));
         instance.Properties = (JsonObject)JsonNode.Parse("{ }")!;
         instance.HasUnknownProperties = true;
-        var existing = await provider.ReadAsync(provider.ResolveKey(instance), null, host.Fake, ProviderHost.Ct);
+        var existing = await provider.ReadAsync(provider.ResolveKey(instance), host.Fake, ProviderHost.Ct);
         Assert.NotNull(existing);
 
         var change = provider.Plan(instance, existing, PlanOptions.Default);
@@ -262,7 +263,7 @@ public sealed class PasswordCredentialFailureTests
             GraphId = Guid.NewGuid().ToString("D"),
         };
 
-        var ex = await Assert.ThrowsAsync<ProviderException>(() => provider.DeleteAsync(entry, host.Fake, ProviderHost.Ct));
+        var ex = await Assert.ThrowsAsync<ProviderException>(() => provider.DeleteAsync(DeleteTarget.KeyOf(entry), DeleteTarget.LiveOf(entry), host.Fake, ProviderHost.Ct));
 
         Assert.Equal(EngineDiagnosticCodes.ResourceKeyUnresolved, ex.Code);
     }

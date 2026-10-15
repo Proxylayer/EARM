@@ -9,7 +9,6 @@ using EArm.Core;
 using EArm.Core.Types;
 using EArm.Engine;
 using EArm.Engine.Providers;
-using EArm.Engine.State;
 using EArm.Expressions.Values;
 using GraphApi = EArm.Graph.GraphApi;
 
@@ -18,7 +17,7 @@ namespace EArm.Providers;
 /// <summary>
 /// <c>Microsoft.Entra/appRoleAssignments</c>. The resource name is a
 /// deterministic GUID the author picks with <c>guid(...)</c>; the Graph object is found by the composite key
-/// (<c>principalId</c>, <c>resourceId</c>, <c>appRoleId</c>) and its id pinned in the state. Sugar accepted in
+/// (<c>principalId</c>, <c>resourceId</c>, <c>appRoleId</c>), read live on every run. Sugar accepted in
 /// <c>properties</c>: <c>resourceAppId</c> (the resource application's id, resolved to the service principal object
 /// id) and <c>appRole</c> (the role's <c>value</c>, resolved to <c>appRoleId</c> through the resource principal's
 /// <c>appRoles</c>; <c>00000000-0000-0000-0000-000000000000</c> is default access). Every property is immutable: a
@@ -28,7 +27,7 @@ namespace EArm.Providers;
 /// Requests per operation:
 /// <list type="bullet">
 /// <item><b>Prepare</b> (before the key): <c>GET /servicePrincipals(appId='…')</c> (sugar) or <c>GET /servicePrincipals/{resourceId}</c>, both <c>$select=id,appId,displayName,appRoles,oauth2PermissionScopes</c>, under the instance's retry hint; plus <c>GET /directoryObjects/{principalId}?$select=id</c> when the role restricts <c>allowedMemberTypes</c>. A disabled role, a role the principal's kind may not hold, or an unknown role value is a <see cref="ProviderException"/> (<see cref="InvalidAssignment"/>): an unsupported what-if row, a failed create.</item>
-/// <item><b>Read</b>: <c>GET /servicePrincipals/{resourceId}/appRoleAssignedTo/{pinnedId}</c> (state id, when known) → <c>GET /servicePrincipals/{resourceId}/appRoleAssignedTo?$top=999</c> (every page) matched on <c>principalId</c> + <c>appRoleId</c>; a 404 of the resource principal is "does not exist".</item>
+/// <item><b>Read</b>: from the principal side (bounded; the resource side of a service principal such as Microsoft Graph is tenant-sized): <c>GET /directoryObjects/{principalId}?$select=id</c> for its collection → <c>GET /{users|groups|servicePrincipals}/{principalId}/appRoleAssignments?$top=999</c> (every page) matched on <c>resourceId</c> + <c>appRoleId</c>; a 404 of the principal is "does not exist".</item>
 /// <item><b>Create</b>: <c>POST /servicePrincipals/{resourceId}/appRoleAssignedTo { principalId, resourceId, appRoleId }</c> under the instance's retry hint (<see cref="RetryHint.ExpectReplicationLag"/> when the principal or the resource was created in this run: the Graph transport retries 404 / <c>PrincipalNotFound</c> for up to 90 s). A 400 "Permission being assigned already exists" is idempotent success: the assignment is re-read by composite and adopted.</item>
 /// <item><b>Update</b>: never (every property is immutable; the planner asks for a recreate).</item>
 /// <item><b>Delete</b>: <c>DELETE /servicePrincipals/{resourceId}/appRoleAssignedTo/{id}</c>; a 404 is "already gone".</item>
@@ -215,21 +214,12 @@ public sealed class AppRoleAssignmentsProvider : ProviderBase
 
     // ---- read ----
 
-    public override async Task<ExistingResource?> ReadAsync(ResourceKey key, string? stateId, IGraphClient graph, CancellationToken cancellationToken)
+    public override async Task<ExistingResource?> ReadAsync(ResourceKey key, IGraphClient graph, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(key);
         ArgumentNullException.ThrowIfNull(graph);
 
         var (principalId, resourceId, appRoleId) = RequireComposite(key, null);
-        if (stateId is not null)
-        {
-            var pinned = await graph.GetAsync(new GraphRequest(AppRoleAssignmentsLookup.AssignedToPath(resourceId) + "/" + GraphPath.Segment(stateId), key.Api), cancellationToken).ConfigureAwait(false) as JsonObject;
-            if (pinned is not null)
-            {
-                return ToExisting(pinned);
-            }
-        }
-
         var found = await AppRoleAssignmentsLookup.FindAssignmentAsync(graph, resourceId, principalId, appRoleId, key.Api, RetryHint.Default, cancellationToken).ConfigureAwait(false);
         return found is null ? null : ToExisting(found);
     }
@@ -289,18 +279,18 @@ public sealed class AppRoleAssignmentsProvider : ProviderBase
 
     // ---- delete ----
 
-    public override async Task DeleteAsync(StateEntry entry, IGraphClient graph, CancellationToken cancellationToken)
+    public override async Task DeleteAsync(ResourceKey key, ExistingResource live, IGraphClient graph, CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(entry);
+        ArgumentNullException.ThrowIfNull(key);
+        ArgumentNullException.ThrowIfNull(live);
         ArgumentNullException.ThrowIfNull(graph);
-        var key = entry.ToResourceKey(Catalog);
         string resourceId = key.TryGet("resourceId", out var fromKey) ? fromKey
-            : JsonObjects.GetString(entry.Extra, "resourceId")
-            ?? throw new ProviderException(EngineDiagnosticCodes.ResourceKeyUnresolved, $"{TypeName}: the state entry '{entry.Id.Id}' records no resourceId, so the assignment {entry.GraphId} cannot be addressed.", entry.Id);
+            : JsonObjects.GetString(live.Raw, "resourceId")
+            ?? throw new ProviderException(EngineDiagnosticCodes.ResourceKeyUnresolved, $"{TypeName}: neither the key {key.Describe()} nor the live assignment {live.GraphId} carries a resourceId, so it cannot be addressed.");
 
         try
         {
-            await graph.DeleteAsync(new GraphRequest(AppRoleAssignmentsLookup.AssignedToPath(resourceId) + "/" + GraphPath.Segment(entry.GraphId), key.Api), cancellationToken).ConfigureAwait(false);
+            await graph.DeleteAsync(new GraphRequest(AppRoleAssignmentsLookup.AssignedToPath(resourceId) + "/" + GraphPath.Segment(live.GraphId), key.Api), cancellationToken).ConfigureAwait(false);
         }
         catch (GraphException ex) when (ex.IsNotFound)
         {

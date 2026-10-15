@@ -4,7 +4,6 @@ using System.Threading.Tasks;
 using EArm.Graph;
 using EArm.Core.Json;
 using EArm.Core.Types;
-using EArm.Engine.State;
 using GraphApi = EArm.Graph.GraphApi;
 
 namespace EArm.Engine.Providers;
@@ -51,11 +50,11 @@ public interface IResourceProvider
     ResourceKey ResolveKey(ResourceInstance desired);
 
     /// <summary>
-    /// Finds the live object: by <paramref name="stateId"/> (pinned Graph id) first, then by key. Returns <c>null</c>
-    /// when nothing exists. Throws <see cref="ProviderException"/> (<see cref="ProviderException.AmbiguousMatch"/>)
+    /// Finds the live object by its key (identity is resolved live on every run; nothing recorded earlier is consulted).
+    /// Returns <c>null</c> when nothing exists. Throws <see cref="ProviderException"/> (<see cref="ProviderException.AmbiguousMatch"/>)
     /// when a displayName lookup matches several objects.
     /// </summary>
-    Task<ExistingResource?> ReadAsync(ResourceKey key, string? stateId, IGraphClient graph, CancellationToken cancellationToken);
+    Task<ExistingResource?> ReadAsync(ResourceKey key, IGraphClient graph, CancellationToken cancellationToken);
 
     /// <summary>Computes the change between the desired instance (evaluated) and the live object.</summary>
     ResourceChange Plan(ResourceInstance desired, ExistingResource? existing, PlanOptions options);
@@ -71,5 +70,9 @@ public interface IResourceProvider
 
     Task<AppliedResource> UpdateAsync(ResourceInstance desired, ExistingResource existing, ResourceChange change, IGraphClient graph, CancellationToken cancellationToken);
 
-    Task DeleteAsync(StateEntry entry, IGraphClient graph, CancellationToken cancellationToken);
+    /// <summary>
+    /// Deletes the live object <paramref name="live"/> (as <see cref="ReadAsync"/> returned it for <paramref name="key"/>). An object that is
+    /// already gone is not an error.
+    /// </summary>
+    Task DeleteAsync(ResourceKey key, ExistingResource live, IGraphClient graph, CancellationToken cancellationToken);
 }

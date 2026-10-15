@@ -11,7 +11,6 @@ using EArm.Core.Secrets;
 using EArm.Core.Types;
 using EArm.Engine;
 using EArm.Engine.Providers;
-using EArm.Engine.State;
 using EArm.Expressions.Values;
 using GraphApi = EArm.Graph.GraphApi;
 
@@ -19,7 +18,7 @@ namespace EArm.Providers;
 
 /// <summary>
 /// <c>Microsoft.Entra/groups</c>. The resource name is the Graph <c>uniqueName</c>:
-/// read <c>GET /groups(uniqueName='…')</c> (pinned id first), upsert <c>PATCH /groups(uniqueName='…')</c> with
+/// read <c>GET /groups(uniqueName='…')</c>, upsert <c>PATCH /groups(uniqueName='…')</c> with
 /// <c>Prefer: create-if-missing</c>, update <c>PATCH /groups/{id}</c>, delete <c>DELETE /groups/{id}</c>.
 /// Kinds: security (<c>groupTypes: []</c>, <c>mailEnabled: false</c>, <c>securityEnabled: true</c>), Microsoft 365
 /// (<c>["Unified"]</c> ⇒ <c>mailEnabled: true</c>), dynamic (<c>DynamicMembership</c> ⇒ <c>membershipRule</c>
@@ -130,19 +129,13 @@ public sealed class GroupsProvider : ProviderBase, IDeleteWarningSource
 
     // ---- read ----
 
-    public override async Task<ExistingResource?> ReadAsync(ResourceKey key, string? stateId, IGraphClient graph, CancellationToken cancellationToken)
+    public override async Task<ExistingResource?> ReadAsync(ResourceKey key, IGraphClient graph, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(key);
         ArgumentNullException.ThrowIfNull(graph);
 
-        JsonObject? live = null;
         var select = _selects.For(key, ManagedSelect);
-        if (stateId is not null)
-        {
-            live = await graph.GetAsync(new GraphRequest(Collection + "/" + GraphPath.Segment(stateId), key.Api).WithSelect(select), cancellationToken).ConfigureAwait(false) as JsonObject;
-        }
-
-        live ??= await GetByUniqueNameAsync(graph, key, select, cancellationToken).ConfigureAwait(false);
+        var live = await GetByUniqueNameAsync(graph, key, select, cancellationToken).ConfigureAwait(false);
         if (live is null)
         {
             return null;
@@ -508,36 +501,24 @@ public sealed class GroupsProvider : ProviderBase, IDeleteWarningSource
 
     // ---- delete ----
 
-    public override Task DeleteAsync(StateEntry entry, IGraphClient graph, CancellationToken cancellationToken)
+    public override Task DeleteAsync(ResourceKey key, ExistingResource live, IGraphClient graph, CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(entry);
+        ArgumentNullException.ThrowIfNull(key);
+        ArgumentNullException.ThrowIfNull(live);
         ArgumentNullException.ThrowIfNull(graph);
-        var api = entry.ToResourceKey(Catalog).Api;
-        return graph.DeleteAsync(new GraphRequest(Collection + "/" + GraphPath.Segment(entry.GraphId), api), cancellationToken);
+        var api = key.Api;
+        return graph.DeleteAsync(new GraphRequest(Collection + "/" + GraphPath.Segment(live.GraphId), api), cancellationToken);
     }
 
     /// <summary>
     /// Only the kinds Learn (group-delete) does not list as restorable are deleted permanently: distribution lists, and mail-enabled security groups
     /// (adopt-only, Exchange-backed). Security and Microsoft 365 groups wait 30 days in the recycle bin, so they carry no warning.
     /// </summary>
-    public string? DescribeDeleteRisk(StateEntry entry, ExistingResource? existing)
+    public string? DescribeDeleteRisk(ResourceKey key, ExistingResource live)
     {
-        ArgumentNullException.ThrowIfNull(entry);
-        bool permanent;
-        if (existing is not null)
-        {
-            permanent = GroupsShape.Analyze(existing.Raw).IsPermanentlyDeleted;
-        }
-        else if (JsonObjects.GetString(entry.Extra, "kind") is { } kind)
-        {
-            permanent = kind.Equals("distribution", StringComparison.OrdinalIgnoreCase) || kind.Equals("mailEnabledSecurity", StringComparison.OrdinalIgnoreCase);
-        }
-        else
-        {
-            // Nothing says which kind it was: it was created by EARM (security or Microsoft 365), both recoverable for 30 days.
-            permanent = false;
-        }
-
+        ArgumentNullException.ThrowIfNull(key);
+        ArgumentNullException.ThrowIfNull(live);
+        bool permanent = GroupsShape.Analyze(live.Raw).IsPermanentlyDeleted;
         return permanent
             ? "this group is a distribution list or a mail-enabled security group and is deleted permanently (no 30-day recycle bin); its memberships, owners and role assignments are lost."
             : null;

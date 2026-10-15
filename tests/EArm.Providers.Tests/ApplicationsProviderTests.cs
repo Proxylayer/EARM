@@ -374,19 +374,19 @@ public sealed class ApplicationsProviderTests
             GraphId = seeded["id"]!.GetValue<string>(),
         };
 
-        await provider.DeleteAsync(entry, host.Fake, ProviderHost.Ct);
+        await provider.DeleteAsync(DeleteTarget.KeyOf(entry), DeleteTarget.LiveOf(entry), host.Fake, ProviderHost.Ct);
 
         var write = Assert.Single(host.Fake.Writes);
         Assert.Equal("DELETE", write.Method);
         Assert.Equal("/applications/" + entry.GraphId, write.Path);
         Assert.Equal(0, host.Directory.Count("/applications"));
 
-        await provider.DeleteAsync(entry, host.Fake, ProviderHost.Ct);
+        await provider.DeleteAsync(DeleteTarget.KeyOf(entry), DeleteTarget.LiveOf(entry), host.Fake, ProviderHost.Ct);
         Assert.Equal(2, host.Fake.Writes.Count);
     }
 
     [Fact]
-    public async Task PinnedId_IsReadFirst_AndA404FallsBackToTheKey_RePinningTheState()
+    public async Task Rerun_ReadsByUniqueName_AndAReplacedObjectIsFoundByKey_RePinningTheState()
     {
         var host = new ProviderHost();
         var first = await host.CreateAsync(host.Resources(App("""{ "displayName": "Test API" }""")));
@@ -394,10 +394,10 @@ public sealed class ApplicationsProviderTests
         string oldId = first.Entry(ResourceId).GraphId;
 
         var rerun = await host.CreateAsync(host.Resources(App("""{ "displayName": "Test API" }""")));
-        Assert.Equal("/applications/" + oldId, rerun.Requests[0].Path);
+        Assert.Contains("applications(uniqueName='test-api')", rerun.Requests[0].Path, StringComparison.Ordinal);
         Assert.Equal(ChangeType.NoChange, rerun.OpOfType(Type).ChangeType);
 
-        // The pinned object vanished; another object carries the uniqueName now.
+        // The recorded object vanished; another object carries the uniqueName now.
         await host.Fake.DeleteAsync(new GraphRequest("/applications/" + oldId), ProviderHost.Ct);
         var replacement = host.Directory.AddApplication(Name, "Test API");
         string newId = replacement["id"]!.GetValue<string>();
@@ -405,8 +405,8 @@ public sealed class ApplicationsProviderTests
         var drift = await host.CreateAsync(host.Resources(App("""{ "displayName": "Test API" }""")));
 
         Check.Succeeded(drift);
-        Assert.Equal("GET /applications/" + oldId, drift.Requests[0].ToString().Split('?')[0]);
-        Assert.Contains("applications(uniqueName='test-api')", drift.Requests[1].Path, StringComparison.Ordinal);
+        Assert.Contains("applications(uniqueName='test-api')", drift.Requests[0].Path, StringComparison.Ordinal);
+        Assert.DoesNotContain(drift.Requests, r => r.Path == "/applications/" + oldId);
         Assert.Equal(ChangeType.NoChange, drift.OpOfType(Type).ChangeType);
         Assert.Equal(newId, drift.Entry(ResourceId).GraphId);
         Assert.Equal(newId, host.StateEntryJson(ResourceId)!["id"]!.GetValue<string>());

@@ -223,7 +223,7 @@ public sealed class PermissionGrantScenarioTests
     // ---- read ----
 
     [Fact]
-    public async Task Read_PinnedIdWins_AStalePinFallsBackToTheKey_AndPrincipalGrantsAreMatchedByPrincipal()
+    public async Task Read_FindsTheGrantByKey_AndPrincipalGrantsAreMatchedByPrincipal()
     {
         var t = NewTenant();
         var all = t.Host.Directory.Add(GrantsPath, new JsonObject { ["clientId"] = t.ClientId, ["resourceId"] = t.ResourceId, ["consentType"] = "AllPrincipals", ["principalId"] = null, ["scope"] = "orders.read" });
@@ -231,13 +231,11 @@ public sealed class PermissionGrantScenarioTests
         string allId = all["id"]!.GetValue<string>();
         string principalGrantId = principal["id"]!.GetValue<string>();
 
-        var pinned = await t.Provider.ReadAsync(Key(t), allId, t.Host.Fake, ProviderHost.Ct);
-        var stale = await t.Provider.ReadAsync(Key(t), Guid.NewGuid().ToString("D"), t.Host.Fake, ProviderHost.Ct);
-        var byPrincipal = await t.Provider.ReadAsync(Key(t, "Principal", t.UserId), null, t.Host.Fake, ProviderHost.Ct);
-        var otherPrincipal = await t.Provider.ReadAsync(Key(t, "Principal", Guid.NewGuid().ToString("D")), null, t.Host.Fake, ProviderHost.Ct);
+        var allPrincipals = await t.Provider.ReadAsync(Key(t), t.Host.Fake, ProviderHost.Ct);
+        var byPrincipal = await t.Provider.ReadAsync(Key(t, "Principal", t.UserId), t.Host.Fake, ProviderHost.Ct);
+        var otherPrincipal = await t.Provider.ReadAsync(Key(t, "Principal", Guid.NewGuid().ToString("D")), t.Host.Fake, ProviderHost.Ct);
 
-        Assert.Equal(allId, pinned!.GraphId);
-        Assert.Equal(allId, stale!.GraphId);
+        Assert.Equal(allId, allPrincipals!.GraphId);
         Assert.Equal(principalGrantId, byPrincipal!.GraphId);
         Assert.Null(otherPrincipal);
     }
@@ -248,7 +246,7 @@ public sealed class PermissionGrantScenarioTests
         var t = NewTenant();
         var key = new ResourceKey { Type = GrantType, Values = new Dictionary<string, string> { ["clientId"] = t.ClientId } };
 
-        var ex = await Assert.ThrowsAsync<ProviderException>(() => t.Provider.ReadAsync(key, null, t.Host.Fake, ProviderHost.Ct));
+        var ex = await Assert.ThrowsAsync<ProviderException>(() => t.Provider.ReadAsync(key, t.Host.Fake, ProviderHost.Ct));
 
         Assert.Equal(EngineDiagnosticCodes.ResourceKeyUnresolved, ex.Code);
     }
@@ -259,7 +257,7 @@ public sealed class PermissionGrantScenarioTests
         var t = NewTenant();
         var key = Key(t, "AllPrincipals") with { Values = new Dictionary<string, string> { ["clientId"] = "o'brien", ["resourceId"] = t.ResourceId, ["consentType"] = "AllPrincipals" } };
 
-        var result = await t.Provider.ReadAsync(key, null, t.Host.Fake, ProviderHost.Ct);
+        var result = await t.Provider.ReadAsync(key, t.Host.Fake, ProviderHost.Ct);
 
         Assert.Null(result);
         var request = t.Host.Fake.Requests.Last(r => r.Method == "GET");
@@ -402,15 +400,15 @@ public sealed class PermissionGrantScenarioTests
         var existing = t.Host.Directory.Add(GrantsPath, new JsonObject { ["clientId"] = t.ClientId, ["resourceId"] = t.ResourceId, ["consentType"] = "AllPrincipals", ["principalId"] = null, ["scope"] = "orders.read" });
         string id = existing["id"]!.GetValue<string>();
 
-        await t.Provider.DeleteAsync(Entry(t, id), t.Host.Fake, ProviderHost.Ct);
+        await t.Provider.DeleteAsync(DeleteTarget.KeyOf(Entry(t, id)), DeleteTarget.LiveOf(Entry(t, id)), t.Host.Fake, ProviderHost.Ct);
         Assert.Empty(t.Host.Directory.Objects(GrantsPath));
 
-        await t.Provider.DeleteAsync(Entry(t, id), t.Host.Fake, ProviderHost.Ct);
+        await t.Provider.DeleteAsync(DeleteTarget.KeyOf(Entry(t, id)), DeleteTarget.LiveOf(Entry(t, id)), t.Host.Fake, ProviderHost.Ct);
 
         t.Host.Fake.Failures.Forbid(GrantsPath, "DELETE");
-        var ex = await Assert.ThrowsAsync<GraphException>(() => t.Provider.DeleteAsync(Entry(t, id), t.Host.Fake, ProviderHost.Ct));
+        var ex = await Assert.ThrowsAsync<GraphException>(() => t.Provider.DeleteAsync(DeleteTarget.KeyOf(Entry(t, id)), DeleteTarget.LiveOf(Entry(t, id)), t.Host.Fake, ProviderHost.Ct));
         Assert.True(ex.IsForbidden);
-        await Assert.ThrowsAsync<ArgumentNullException>(() => t.Provider.DeleteAsync(null!, t.Host.Fake, ProviderHost.Ct));
-        await Assert.ThrowsAsync<ArgumentNullException>(() => t.Provider.DeleteAsync(Entry(t, id), null!, ProviderHost.Ct));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => t.Provider.DeleteAsync(null!, null!, t.Host.Fake, ProviderHost.Ct));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => t.Provider.DeleteAsync(DeleteTarget.KeyOf(Entry(t, id)), DeleteTarget.LiveOf(Entry(t, id)), null!, ProviderHost.Ct));
     }
 }

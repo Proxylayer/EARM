@@ -12,8 +12,8 @@ using static EArm.Tests.Engine.Review1A;
 namespace EArm.Tests.Engine;
 
 /// <summary>
-/// <see cref="ProviderReads"/>: the check that a state-pinned Graph id still names the object the key says it should, and the classification of a write
-/// failure whose outcome is unknown. Each case here pins one decision (an empty recorded key, a secret leaf, trimming, case, the 5xx boundary, every
+/// <see cref="ProviderReads"/>: the check that a live object carries the key it was looked up by, and the classification of a write
+/// failure whose outcome is unknown. Each case here pins one decision (a secret leaf, trimming, case, the 5xx boundary, every
 /// transport failure kind) that a refactor must not flip silently.
 /// </summary>
 public sealed class ProviderReadsTests
@@ -40,162 +40,27 @@ public sealed class ProviderReadsTests
         return (JsonObject)JsonNode.Parse(json)!;
     }
 
-    // ---- ReadVerifiedAsync ----
-
-    [Fact]
-    public async Task WithoutAPinnedId_TheReadResultIsUsedAsIs_EvenWhenItsKeyDiffers()
-    {
-        var other = Live("A1", Obj("{ \"uniqueName\": \"somebody-else\" }"));
-        var calls = new List<string?>();
-
-        var verified = await ProviderReads.ReadVerifiedAsync(Key(("uniqueName", "wanted")), null, id =>
-        {
-            calls.Add(id);
-            return Task.FromResult<ExistingResource?>(other);
-        });
-
-        Assert.Same(other, verified.Existing);
-        Assert.Null(verified.Mismatch);
-        Assert.False(verified.Superseded);
-        Assert.Single(calls);
-    }
-
-    [Fact]
-    public async Task APinnedObjectThatIsTheKeysObject_IsUsed_WithoutASecondRead()
-    {
-        var match = Live("A1", Obj("{ \"uniqueName\": \"wanted\" }"));
-        int reads = 0;
-
-        var verified = await ProviderReads.ReadVerifiedAsync(Key(("uniqueName", "wanted")), "A1", _ =>
-        {
-            reads++;
-            return Task.FromResult<ExistingResource?>(match);
-        });
-
-        Assert.Same(match, verified.Existing);
-        Assert.Null(verified.Mismatch);
-        Assert.Equal(1, reads);
-    }
-
-    [Fact]
-    public async Task ASupersededPinnedObject_IsKeptAsTheOneToReplace_WhenNoObjectHasTheNewKey()
-    {
-        var pinned = Live("A1", Obj("{ \"principalId\": \"old\" }"));
-
-        var verified = await ProviderReads.ReadVerifiedAsync(
-            Key(("principalId", "new")),
-            "A1",
-            id => Task.FromResult<ExistingResource?>(id is null ? null : pinned),
-            acceptSuperseded: _ => true);
-
-        Assert.True(verified.Superseded);
-        Assert.Same(pinned, verified.Existing);
-        Assert.Null(verified.Mismatch);
-        Assert.False(verified.Renamed);
-    }
-
-    [Fact]
-    public async Task ASupersededPinnedObject_YieldsToAnObjectThatHasTheNewKey()
-    {
-        var pinned = Live("A1", Obj("{ \"principalId\": \"old\" }"));
-        var current = Live("A2", Obj("{ \"principalId\": \"new\" }"));
-
-        var verified = await ProviderReads.ReadVerifiedAsync(
-            Key(("principalId", "new")),
-            "A1",
-            id => Task.FromResult<ExistingResource?>(id is null ? current : pinned),
-            acceptSuperseded: _ => true);
-
-        Assert.False(verified.Superseded);
-        Assert.Same(current, verified.Existing);
-        Assert.Contains("the object the key names was used instead", verified.Mismatch, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task ASupersededPredicate_ThatDeclines_FallsBackToTheKeyLookup()
-    {
-        var pinned = Live("A1", Obj("{ \"principalId\": \"old\" }"));
-
-        var verified = await ProviderReads.ReadVerifiedAsync(
-            Key(("principalId", "new")),
-            "A1",
-            id => Task.FromResult<ExistingResource?>(id is null ? null : pinned),
-            acceptSuperseded: _ => false);
-
-        Assert.False(verified.Superseded);
-        Assert.Null(verified.Existing);
-        Assert.Contains("the pinned id was ignored", verified.Mismatch, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task ARenamedNameKeyedObject_IsReportedRenamed_NotCreated()
-    {
-        var pinned = Live("A1", Obj("{ \"displayName\": \"Old name\" }"));
-
-        var verified = await ProviderReads.ReadVerifiedAsync(Key(("displayName", "New name")), "A1", id => Task.FromResult<ExistingResource?>(id is null ? null : pinned), keyCanBeRenamed: true);
-
-        Assert.True(verified.Renamed);
-        Assert.Null(verified.Existing);
-    }
-
-    [Fact]
-    public async Task ARecordedFingerprint_ThatTheLiveObjectDoesNotCarry_RejectsThePinnedObject()
-    {
-        var pinned = Live("A1", Obj("{ \"uniqueName\": \"wanted\", \"createdDateTime\": \"2026-01-01T00:00:00Z\" }"));
-
-        var verified = await ProviderReads.ReadVerifiedAsync(
-            Key(("uniqueName", "wanted")),
-            "A1",
-            id => Task.FromResult<ExistingResource?>(id is null ? null : pinned),
-            recordedCreated: new DateTimeOffset(2025, 1, 1, 0, 0, 0, TimeSpan.Zero));
-
-        Assert.Null(verified.Existing);
-        Assert.Contains("was created", verified.Mismatch, StringComparison.Ordinal);
-    }
-
-    // ---- RecordedKeyMatches ----
-
-    [Fact]
-    public void AnEmptyRecordedKey_VerifiesNothing_AndMatchesNothing()
-    {
-        Assert.False(ProviderReads.RecordedKeyMatches(new Dictionary<string, string>(), Obj("{ \"uniqueName\": \"x\" }")));
-    }
-
-    [Fact]
-    public void ARecordedKeyValue_ThatIsASecretLeaf_IsNeverTreatedAsVerified()
-    {
-        var live = new JsonObject { ["uniqueName"] = SecretJson.CreateString("wanted") };
-
-        Assert.False(ProviderReads.RecordedKeyMatches(new Dictionary<string, string> { ["uniqueName"] = "wanted" }, live));
-    }
-
-    [Fact]
-    public void ARecordedKeyThePropertyOfWhichTheLiveObjectDoesNotExpose_DoesNotMatch()
-    {
-        Assert.False(ProviderReads.RecordedKeyMatches(new Dictionary<string, string> { ["uniqueName"] = "wanted" }, Obj("{ \"displayName\": \"wanted\" }")));
-    }
+    // ---- KeyMatches ----
 
     [Theory]
     [InlineData("  wanted ", "wanted")]
     [InlineData("wanted", "  wanted\t")]
     [InlineData("WANTED", "wanted")]
     [InlineData("wanted", "WaNtEd")]
-    public void RecordedKeyValues_AreComparedTrimmedAndCaseInsensitively(string live, string recorded)
+    public void KeyValues_AreComparedTrimmedAndCaseInsensitively(string live, string expected)
     {
         var raw = new JsonObject { ["uniqueName"] = live };
 
-        Assert.True(ProviderReads.RecordedKeyMatches(new Dictionary<string, string> { ["uniqueName"] = recorded }, raw));
-        Assert.True(ProviderReads.KeyMatches(Key(("uniqueName", recorded)), raw, out string? reason));
+        Assert.True(ProviderReads.KeyMatches(Key(("uniqueName", expected)), raw, out string? reason));
         Assert.Null(reason);
     }
 
     [Fact]
-    public void ARecordedKeyThatDiffersInTheValue_DoesNotMatch()
+    public void AKeyThatDiffersInTheValue_DoesNotMatch()
     {
-        Assert.False(ProviderReads.RecordedKeyMatches(new Dictionary<string, string> { ["uniqueName"] = "wanted" }, Obj("{ \"uniqueName\": \"wanted2\" }")));
+        Assert.False(ProviderReads.KeyMatches(Key(("uniqueName", "wanted")), Obj("{ \"uniqueName\": \"wanted2\" }"), out _));
     }
 
-    // ---- KeyMatches ----
 
     [Fact]
     public void AKeyThatNoLivePropertyExposes_CannotBeVerified_AndTheReasonNamesTheKey()

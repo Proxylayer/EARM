@@ -64,17 +64,16 @@ public sealed class PasswordCredentialsRulesTests
     }
 
     [Fact]
-    public void Select_PrefersTheRecordedKeyId_OtherwiseTheNewest()
+    public void Select_PrefersTheNewest()
     {
         var older = Credential("aaaaaaaa-0000-0000-0000-000000000001", Now.AddDays(10));
         var newer = Credential("aaaaaaaa-0000-0000-0000-000000000002", Now.AddDays(100));
         var undated = new PasswordCredentialSummary("aaaaaaaa-0000-0000-0000-000000000003", "ci-secret", null, null, null);
 
-        Assert.Same(newer, PasswordCredentialsRules.Select([older, newer, undated], null));
-        Assert.Same(older, PasswordCredentialsRules.Select([older, newer], "AAAAAAAA-0000-0000-0000-000000000001"));
-        Assert.Same(newer, PasswordCredentialsRules.Select([older, newer], "aaaaaaaa-0000-0000-0000-00000000dead"));
-        Assert.Same(undated, PasswordCredentialsRules.Select([undated], null));
-        Assert.Null(PasswordCredentialsRules.Select([], null));
+        Assert.Same(newer, PasswordCredentialsRules.Select([older, newer, undated]));
+        Assert.Same(newer, PasswordCredentialsRules.Select([newer, older]));
+        Assert.Same(undated, PasswordCredentialsRules.Select([undated]));
+        Assert.Null(PasswordCredentialsRules.Select([]));
     }
 
     [Fact]

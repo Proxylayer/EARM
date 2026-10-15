@@ -10,6 +10,7 @@ using EArm.Engine;
 using EArm.Engine.Providers;
 using EArm.Engine.State;
 using EArm.Providers.Tests.Infrastructure;
+using EArm.TestSupport;
 using Xunit;
 
 namespace EArm.Providers.Tests;
@@ -46,9 +47,9 @@ public sealed class AuthenticationContextGapTests
         var host = new ProviderHost();
         var provider = host.Provider<AuthenticationContextClassReferencesProvider>(Type);
 
-        var noKey = await Assert.ThrowsAsync<ProviderException>(() => provider.ReadAsync(Key(), null, host.Fake, ProviderHost.Ct));
-        var badKey = await Assert.ThrowsAsync<ProviderException>(() => provider.ReadAsync(Key(("id", "c100")), null, host.Fake, ProviderHost.Ct));
-        var missing = await provider.ReadAsync(Key(("id", "c7")), null, host.Fake, ProviderHost.Ct);
+        var noKey = await Assert.ThrowsAsync<ProviderException>(() => provider.ReadAsync(Key(), host.Fake, ProviderHost.Ct));
+        var badKey = await Assert.ThrowsAsync<ProviderException>(() => provider.ReadAsync(Key(("id", "c100")), host.Fake, ProviderHost.Ct));
+        var missing = await provider.ReadAsync(Key(("id", "c7")), host.Fake, ProviderHost.Ct);
 
         Assert.Equal(EngineDiagnosticCodes.ResourceKeyUnresolved, noKey.Code);
         Assert.Contains("carries no id", noKey.Message, StringComparison.Ordinal);
@@ -86,7 +87,7 @@ public sealed class AuthenticationContextGapTests
         var host = new ProviderHost();
         host.Directory.Add(Path, new JsonObject { ["id"] = "c5", ["displayName"] = "old", ["isAvailable"] = true });
         var provider = host.Provider<AuthenticationContextClassReferencesProvider>(Type);
-        var existing = await provider.ReadAsync(Key(("id", "c5")), null, host.Fake, ProviderHost.Ct);
+        var existing = await provider.ReadAsync(Key(("id", "c5")), host.Fake, ProviderHost.Ct);
         var instance = await InstanceFactory.WithPropertiesAsync(host, Context("c1", "{ \"displayName\": \"valid\" }"), "{ \"description\": \"missing the name\" }", "c5");
 
         var change = provider.Plan(instance, existing, PlanOptions.Default);
@@ -135,7 +136,7 @@ public sealed class AuthenticationContextGapTests
         var host = new ProviderHost();
         host.Directory.Add(Path, new JsonObject { ["id"] = "c4", ["displayName"] = "Same", ["isAvailable"] = true });
         var provider = host.Provider<AuthenticationContextClassReferencesProvider>(Type);
-        var existing = (await provider.ReadAsync(Key(("id", "c4")), null, host.Fake, ProviderHost.Ct))!;
+        var existing = (await provider.ReadAsync(Key(("id", "c4")), host.Fake, ProviderHost.Ct))!;
         var same = await InstanceFactory.WithPropertiesAsync(host, Context("c1", "{ \"displayName\": \"valid\" }"), "{ \"displayName\": \"Same\", \"isAvailable\": true }", "c4");
         var change = provider.Plan(same, existing, PlanOptions.Default);
 
@@ -161,11 +162,11 @@ public sealed class AuthenticationContextGapTests
         var provider = host.Provider<AuthenticationContextClassReferencesProvider>(Type);
         host.Fake.Failures.Add("DELETE", Path + "/c6", request => new GraphException(HttpStatusCode.NotFound, "Request_ResourceNotFound", "gone", request.Hint));
 
-        await provider.DeleteAsync(Entry("c6"), host.Fake, ProviderHost.Ct);
+        await provider.DeleteAsync(DeleteTarget.KeyOf(Entry("c6")), DeleteTarget.LiveOf(Entry("c6")), host.Fake, ProviderHost.Ct);
 
         host.Directory.Add(Path, new JsonObject { ["id"] = "c8", ["displayName"] = "y", ["isAvailable"] = false });
         host.Fake.Failures.Forbid(Path + "/c8", "DELETE");
-        var denied = await Assert.ThrowsAsync<GraphException>(() => provider.DeleteAsync(Entry("c8"), host.Fake, ProviderHost.Ct));
+        var denied = await Assert.ThrowsAsync<GraphException>(() => provider.DeleteAsync(DeleteTarget.KeyOf(Entry("c8")), DeleteTarget.LiveOf(Entry("c8")), host.Fake, ProviderHost.Ct));
         Assert.True(denied.IsForbidden);
     }
 
@@ -176,7 +177,7 @@ public sealed class AuthenticationContextGapTests
         host.Directory.Add(Path, new JsonObject { ["id"] = "c2", ["displayName"] = "no flag" });
         var provider = host.Provider<AuthenticationContextClassReferencesProvider>(Type);
 
-        await provider.DeleteAsync(Entry("c2"), host.Fake, ProviderHost.Ct);
+        await provider.DeleteAsync(DeleteTarget.KeyOf(Entry("c2")), DeleteTarget.LiveOf(Entry("c2")), host.Fake, ProviderHost.Ct);
 
         var writes = host.Fake.Writes;
         Assert.Equal(["PATCH", "DELETE"], writes.Select(w => w.Method).ToArray());

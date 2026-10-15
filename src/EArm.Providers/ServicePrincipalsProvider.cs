@@ -9,7 +9,6 @@ using EArm.Core;
 using EArm.Core.Types;
 using EArm.Engine;
 using EArm.Engine.Providers;
-using EArm.Engine.State;
 using GraphApi = EArm.Graph.GraphApi;
 
 namespace EArm.Providers;
@@ -21,7 +20,7 @@ namespace EArm.Providers;
 /// <para>
 /// Requests per operation (every read selects <see cref="ManagedProperties"/>):
 /// <list type="bullet">
-/// <item><b>Read</b>: <c>GET /servicePrincipals/{pinnedId}</c> (state id, when known; ignored when its appId is not the key's) → <c>GET /servicePrincipals(appId='…')</c>; a 404 is "does not exist".</item>
+/// <item><b>Read</b>: <c>GET /servicePrincipals(appId='…')</c>; a 404 is "does not exist".</item>
 /// <item><b>Create</b>: <c>POST /servicePrincipals</c> with <c>{ appId, accountEnabled, appRoleAssignmentRequired, …declared properties }</c> under the instance's retry hint (<see cref="RetryHint.ExpectReplicationLag"/> when the application was created in this run: the Graph transport retries the 400 "does not reference a valid application object" / 404 for up to 90 s). A 400 "same value for property appId already exists" means the principal exists (auto-provisioned, or not yet visible to the earlier read): it is re-read by appId under <see cref="RetryHint.ExpectReplicationLag"/> and adopted, with one <c>PATCH /servicePrincipals/{id}</c> when the declared properties differ from it, then re-read.</item>
 /// <item><b>Update</b>: <c>PATCH /servicePrincipals/{id}</c> (merge body: changed scalars, arrays such as <c>tags</c> / <c>notificationEmailAddresses</c> / <c>replyUrls</c> / <c>alternativeNames</c> and nested objects such as <c>samlSingleSignOnSettings</c> whole) → <c>GET /servicePrincipals/{id}</c>.</item>
 /// <item><b>Delete</b>: <c>DELETE /servicePrincipals/{id}</c> (soft delete; cascades the principal's assignments and grants); a 404 is "already gone".</item>
@@ -129,22 +128,13 @@ public sealed class ServicePrincipalsProvider : ProviderBase
 
     // ---- read ----
 
-    public override async Task<ExistingResource?> ReadAsync(ResourceKey key, string? stateId, IGraphClient graph, CancellationToken cancellationToken)
+    public override async Task<ExistingResource?> ReadAsync(ResourceKey key, IGraphClient graph, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(key);
         ArgumentNullException.ThrowIfNull(graph);
 
         bool hasAppId = key.TryGet("appId", out var appId);
         var select = _selects.For(key, ManagedProperties);
-        if (stateId is not null && await GetServicePrincipalAsync(graph, EntityPath(stateId), key.Api, RetryHint.Default, select, cancellationToken).ConfigureAwait(false) is { } pinned)
-        {
-            // A pinned object for another application is drift (the state outlived a recreate): fall back to the key.
-            if (!hasAppId || JsonObjects.KeyEquals(JsonObjects.GetString(pinned, "appId"), appId))
-            {
-                return ToExisting(pinned);
-            }
-        }
-
         if (!hasAppId)
         {
             throw new ProviderException(EngineDiagnosticCodes.ResourceKeyUnresolved, $"{TypeName}: the key {key.Describe()} carries no appId.");
@@ -332,14 +322,15 @@ public sealed class ServicePrincipalsProvider : ProviderBase
 
     // ---- delete ----
 
-    public override async Task DeleteAsync(StateEntry entry, IGraphClient graph, CancellationToken cancellationToken)
+    public override async Task DeleteAsync(ResourceKey key, ExistingResource live, IGraphClient graph, CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(entry);
+        ArgumentNullException.ThrowIfNull(key);
+        ArgumentNullException.ThrowIfNull(live);
         ArgumentNullException.ThrowIfNull(graph);
-        var api = entry.ToResourceKey(Catalog).Api;
+        var api = key.Api;
         try
         {
-            await graph.DeleteAsync(new GraphRequest(EntityPath(entry.GraphId), api), cancellationToken).ConfigureAwait(false);
+            await graph.DeleteAsync(new GraphRequest(EntityPath(live.GraphId), api), cancellationToken).ConfigureAwait(false);
         }
         catch (GraphException ex) when (ex.IsNotFound)
         {

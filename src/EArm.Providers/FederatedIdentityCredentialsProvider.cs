@@ -12,7 +12,6 @@ using EArm.Core.Secrets;
 using EArm.Core.Types;
 using EArm.Engine;
 using EArm.Engine.Providers;
-using EArm.Engine.State;
 using EArm.Expressions.Values;
 using GraphApi = EArm.Graph.GraphApi;
 
@@ -24,10 +23,10 @@ namespace EArm.Providers;
 /// that form by the loader); the credential name is the Graph <c>name</c>, an alternate key under the application.
 /// <para>
 /// Every path starts with the parent segment: <c>/applications/{parentId}</c> when the parent's Graph id is known
-/// (applied in this run, read during planning, or pinned in the state), otherwise the alternate key
+/// (applied in this run, or read during planning), otherwise the alternate key
 /// <c>/applications(uniqueName='…')</c>. Requests per operation:
 /// <list type="bullet">
-/// <item><b>Read</b>: <c>GET {parent}/federatedIdentityCredentials/{pinnedId}</c> (state id, when known) → <c>GET {parent}/federatedIdentityCredentials(name='…')</c> → <c>GET {parent}/federatedIdentityCredentials</c> (the siblings, for the uniqueness and limit checks of <see cref="Plan"/>); a 404 is "does not exist".</item>
+/// <item><b>Read</b>: <c>GET {parent}/federatedIdentityCredentials(name='…')</c> → <c>GET {parent}/federatedIdentityCredentials</c> (the siblings, for the uniqueness and limit checks of <see cref="Plan"/>); a 404 is "does not exist".</item>
 /// <item><b>Create</b> and <b>Update</b>: the upsert <c>PATCH {parent}/federatedIdentityCredentials(name='…')</c> + <c>Prefer: create-if-missing</c> (201 = created, body is the object; 204 = merged into the existing one, re-read); when the parent's Graph id was not known, <c>GET /applications(uniqueName='…')?$select=id</c> so the state entry records <c>parentId</c>.</item>
 /// <item><b>Delete</b>: <c>DELETE {parent}/federatedIdentityCredentials(name='…')</c>; a 404 is "already gone".</item>
 /// </list>
@@ -96,7 +95,7 @@ public sealed class FederatedIdentityCredentialsProvider : ProviderBase
 
     // ---- read ----
 
-    public override async Task<ExistingResource?> ReadAsync(ResourceKey key, string? stateId, IGraphClient graph, CancellationToken cancellationToken)
+    public override async Task<ExistingResource?> ReadAsync(ResourceKey key, IGraphClient graph, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(key);
         ArgumentNullException.ThrowIfNull(graph);
@@ -116,17 +115,12 @@ public sealed class FederatedIdentityCredentialsProvider : ProviderBase
         }
 
         var managed = _selects.For(key, ManagedPropertiesFor(key.Api));
-        return await ReadCoreAsync(graph, key, stateId, name, parentPath, parentUniqueName, managed, cancellationToken).ConfigureAwait(false);
+        return await ReadCoreAsync(graph, key, name, parentPath, parentUniqueName, managed, cancellationToken).ConfigureAwait(false);
     }
-    private async Task<ExistingResource?> ReadCoreAsync(IGraphClient graph, ResourceKey key, string? stateId, string name, string parentPath, string? parentUniqueName, string[] managed, CancellationToken cancellationToken)
-    {
-        JsonObject? live = null;
-        if (stateId is not null)
-        {
-            live = await graph.GetAsync(new GraphRequest(CredentialByIdPath(parentPath, stateId), key.Api).WithSelect(managed), cancellationToken).ConfigureAwait(false) as JsonObject;
-        }
 
-        live ??= await graph.GetAsync(new GraphRequest(CredentialByNamePath(parentPath, name), key.Api).WithSelect(managed), cancellationToken).ConfigureAwait(false) as JsonObject;
+    private async Task<ExistingResource?> ReadCoreAsync(IGraphClient graph, ResourceKey key, string name, string parentPath, string? parentUniqueName, string[] managed, CancellationToken cancellationToken)
+    {
+        var live = await graph.GetAsync(new GraphRequest(CredentialByNamePath(parentPath, name), key.Api).WithSelect(managed), cancellationToken).ConfigureAwait(false) as JsonObject;
 
         // The siblings decide the issuer+subject uniqueness and the 20-per-application limit in Plan (sync); a 404
         // here means the parent application does not exist yet.
@@ -341,13 +335,16 @@ public sealed class FederatedIdentityCredentialsProvider : ProviderBase
 
     // ---- delete ----
 
-    public override async Task DeleteAsync(StateEntry entry, IGraphClient graph, CancellationToken cancellationToken)
+    public override async Task DeleteAsync(ResourceKey key, ExistingResource live, IGraphClient graph, CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(entry);
+        ArgumentNullException.ThrowIfNull(key);
+        ArgumentNullException.ThrowIfNull(live);
         ArgumentNullException.ThrowIfNull(graph);
-        var key = entry.ToResourceKey(Catalog);
-        string name = key.TryGet("name", out var recorded) ? recorded : entry.Id.NameLeaf;
-        string? parentPath = await TryResolveParentPathAsync(graph, entry.ParentGraphId, entry.Id.Parent?.NameLeaf, key.Api, cancellationToken).ConfigureAwait(false);
+        string name = key.TryGet("name", out var keyed) ? keyed
+            : JsonObjects.GetString(live.Raw, "name")
+            ?? throw new ProviderException(EngineDiagnosticCodes.ResourceKeyUnresolved, $"{TypeName}: neither the key {key.Describe()} nor the live credential {live.GraphId} carries a name.");
+        string? parentUniqueName = key.ParentKey is { } parentKey && parentKey.TryGet(ParentKeyProperty, out var unique) ? unique : null;
+        string? parentPath = await TryResolveParentPathAsync(graph, key.ParentGraphId, parentUniqueName, key.Api, cancellationToken).ConfigureAwait(false);
         if (parentPath is null)
         {
             // The parent application is gone (and its credentials with it): nothing to do.
@@ -432,11 +429,6 @@ public sealed class FederatedIdentityCredentialsProvider : ProviderBase
     private static string CredentialByNamePath(string parentPath, string name)
     {
         return GraphPath.AlternateKey(parentPath + "/" + ChildSegment, "name", name);
-    }
-
-    private static string CredentialByIdPath(string parentPath, string graphId)
-    {
-        return parentPath + "/" + ChildSegment + "/" + GraphPath.Segment(graphId);
     }
 
     /// <summary>The per-parent snapshot key shared by <see cref="ReadAsync"/> and <see cref="Plan"/> (the resolved key copies the instance's parent Graph id).</summary>

@@ -111,7 +111,7 @@ public static class StateDeletion
 
             await RunAsync<bool>(retryPolicy, async ct =>
             {
-                await check.Provider!.DeleteAsync(entry, graph, ct).ConfigureAwait(false);
+                await check.Provider!.DeleteAsync(entry.ToResourceKey(guard.Catalog), check.Live!, graph, ct).ConfigureAwait(false);
                 return true;
             }, cancellationToken).ConfigureAwait(false);
 
@@ -189,28 +189,19 @@ public static class StateDeletion
             return Blocked(new DeleteOutcome(entry, DeleteStatus.Failed, $"'{entry.Id.Id}' records parent Graph id {recordedParent}, but the state pins its parent '{parentId.Id}' to {parentEntry.GraphId}; nothing was deleted (the state file is inconsistent).", EngineDiagnosticCodes.StateEntryMismatch, stopwatch.Elapsed));
         }
 
-        // The state is only a hint: re-read the object by its KEY (never by the pinned id) and require it to be the pinned one.
+        // Identity is resolved live: re-read the object by its KEY (providers never read by a recorded id). No object under the key is "already gone".
         var key = entry.ToResourceKey(guard.Catalog);
-        var live = await RunAsync(retryPolicy, ct => provider.ReadAsync(key, null, graph, ct), cancellationToken).ConfigureAwait(false);
-        if (live is null || !string.Equals(live.GraphId, entry.GraphId, StringComparison.OrdinalIgnoreCase))
+        var live = await RunAsync(retryPolicy, ct => provider.ReadAsync(key, graph, ct), cancellationToken).ConfigureAwait(false);
+        if (live is null)
         {
-            // The key does not lead to the pinned object (no object has the key, it belongs to another object, or the type has several objects of one name such as
-            // rotated credentials): the pinned object itself must exist AND carry the entry's key, otherwise the entry does not describe it.
-            var keyOwner = live;
-            var pinned = await RunAsync(retryPolicy, ct => provider.ReadAsync(key, entry.GraphId, graph, ct), cancellationToken).ConfigureAwait(false);
-            if (pinned is null || !string.Equals(pinned.GraphId, entry.GraphId, StringComparison.OrdinalIgnoreCase))
-            {
-                // The pinned object is gone (the provider falls back to the key when it is): nothing to delete.
-                return Blocked(new DeleteOutcome(entry, DeleteStatus.AlreadyGone, null, null, stopwatch.Elapsed));
-            }
+            return Blocked(new DeleteOutcome(entry, DeleteStatus.AlreadyGone, null, null, stopwatch.Elapsed));
+        }
 
-            if (!ProviderReads.KeyMatches(key, pinned.Raw, out string? reason))
-            {
-                string owner = keyOwner is null ? string.Empty : $"; the key ({key.Describe()}) belongs to Graph id {keyOwner.GraphId}";
-                return Blocked(Mismatch(entry, $"the object with Graph id {entry.GraphId} {reason}, so it is not the object the entry's key ({key.Describe()}) names{owner}", stopwatch));
-            }
-
-            live = pinned;
+        if (!string.Equals(live.GraphId, entry.GraphId, StringComparison.OrdinalIgnoreCase))
+        {
+            // The key leads to another object than the one recorded (the recorded one was deleted and the key reused, or the entry was edited): that object
+            // is not the one this entry was written for, so it is never deleted on the entry's behalf.
+            return Blocked(Mismatch(entry, $"the key ({key.Describe()}) names Graph id {live.GraphId}, not the recorded object", stopwatch));
         }
 
         // The immutable fingerprint recorded when the object was created/adopted: the live object must carry the same createdDateTime. An entry that

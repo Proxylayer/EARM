@@ -9,7 +9,6 @@ using EArm.Core;
 using EArm.Core.Types;
 using EArm.Engine;
 using EArm.Engine.Providers;
-using EArm.Engine.State;
 using EArm.Expressions.Values;
 using GraphApi = EArm.Graph.GraphApi;
 
@@ -17,13 +16,13 @@ namespace EArm.Providers;
 
 /// <summary>
 /// <c>Microsoft.Entra/administrativeUnits</c>. The resource name is the
-/// <c>displayName</c>; the Graph id is pinned in the state after the first run. The <c>members</c> property is the
+/// <c>displayName</c>; the object is found by it, live, on every run. The <c>members</c> property is the
 /// target side of the administrative unit membership edge (part A of the edge pass) and never reaches the body or
 /// the diff.
 /// <para>
 /// Requests per operation (every read selects <see cref="AdministrativeUnitsRules.ManagedProperties"/>):
 /// <list type="bullet">
-/// <item><b>Read</b>: <c>GET /directory/administrativeUnits/{pinnedId}</c> (state id, when known; a 404 is drift) → <c>GET /directory/administrativeUnits?$filter=displayName eq '…'</c>: no hit is "create", one hit is the object, several hits are <c>ProviderException(AmbiguousMatch)</c> listing the ids.</item>
+/// <item><b>Read</b>: <c>GET /directory/administrativeUnits?$filter=displayName eq '…'</c>: no hit is "create", one hit is the object, several hits are <c>ProviderException(AmbiguousMatch)</c> listing the ids.</item>
 /// <item><b>Create</b>: a best-effort soft-delete probe (<c>GET /directory/deletedItems/microsoft.graph.administrativeUnit?$filter=displayName eq '…'</c>; a rejected query is ignored) → on a hit either <c>ProviderException(SoftDeletedConflict)</c> or, with <c>--on-soft-deleted-conflict restore</c>, <c>POST /directory/deletedItems/{id}/restore</c> + <c>PATCH</c> + <c>GET</c>; else <c>POST /directory/administrativeUnits</c> (the response body is the object).</item>
 /// <item><b>Update</b>: <c>PATCH /directory/administrativeUnits/{id}</c> (merge body) → <c>GET …/{id}</c>.</item>
 /// <item><b>Delete</b>: <c>DELETE /directory/administrativeUnits/{id}</c> (soft delete, 30 days); a 404 is "already gone".</item>
@@ -80,15 +79,10 @@ public sealed class AdministrativeUnitsProvider : ProviderBase
 
     // ---- read ----
 
-    public override async Task<ExistingResource?> ReadAsync(ResourceKey key, string? stateId, IGraphClient graph, CancellationToken cancellationToken)
+    public override async Task<ExistingResource?> ReadAsync(ResourceKey key, IGraphClient graph, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(key);
         ArgumentNullException.ThrowIfNull(graph);
-
-        if (stateId is not null && await graph.GetAsync(Select(new GraphRequest(EntityPath(stateId), key.Api), key), cancellationToken).ConfigureAwait(false) is JsonObject pinned)
-        {
-            return Existing(pinned);
-        }
 
         string name = ProviderSupport.SingleKey(key, KeyProperty);
 
@@ -104,7 +98,7 @@ public sealed class AdministrativeUnitsProvider : ProviderBase
             var id = ResourceIdentifier.Create(ResourceType, name);
             throw new ProviderException(
                 ProviderException.AmbiguousMatch,
-                $"{matches.Count} administrative units have displayName '{name}' (ids: {ids}); pin the intended one with 'earm state adopt --resource-id {id.Id} --object-id <id>' or rename the others.",
+                $"{matches.Count} administrative units have displayName '{name}' (ids: {ids}); rename or delete the others so the name identifies one object.",
                 id);
         }
 
@@ -225,14 +219,15 @@ public sealed class AdministrativeUnitsProvider : ProviderBase
 
     // ---- delete ----
 
-    public override async Task DeleteAsync(StateEntry entry, IGraphClient graph, CancellationToken cancellationToken)
+    public override async Task DeleteAsync(ResourceKey key, ExistingResource live, IGraphClient graph, CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(entry);
+        ArgumentNullException.ThrowIfNull(key);
+        ArgumentNullException.ThrowIfNull(live);
         ArgumentNullException.ThrowIfNull(graph);
-        var api = entry.ToResourceKey(Catalog).Api;
+        var api = key.Api;
         try
         {
-            await graph.DeleteAsync(new GraphRequest(EntityPath(entry.GraphId), api), cancellationToken).ConfigureAwait(false);
+            await graph.DeleteAsync(new GraphRequest(EntityPath(live.GraphId), api), cancellationToken).ConfigureAwait(false);
         }
         catch (GraphException ex) when (ex.IsNotFound)
         {

@@ -15,6 +15,7 @@ using EArm.Engine.Planning;
 using EArm.Engine.Providers;
 using EArm.Engine.State;
 using EArm.Providers.Tests.Infrastructure;
+using EArm.TestSupport;
 using Xunit;
 
 namespace EArm.Providers.Tests;
@@ -387,33 +388,33 @@ public sealed class PasswordCredentialsProviderTests
         string appId = app["id"]!.GetValue<string>();
         var entry = new StateEntry { Id = ResourceIdentifier.Create(SecretType, AppName + "/" + SecretName), Type = SecretType, ApiVersion = ProviderHost.ApiVersion, Key = new Dictionary<string, string> { ["displayName"] = SecretName }, GraphId = "00000000-0000-0000-0000-00000000dead", ParentGraphId = appId };
 
-        await provider.DeleteAsync(entry, host.Fake, ProviderHost.Ct);
+        await provider.DeleteAsync(DeleteTarget.KeyOf(entry), DeleteTarget.LiveOf(entry), host.Fake, ProviderHost.Ct);
         Assert.Equal("/applications/" + appId + "/removePassword", Assert.Single(host.Fake.Writes).Path);
 
         host.ClearRequests();
         host.Fake.Failures.Add("POST", "/removePassword", r => new GraphException(HttpStatusCode.NotFound, "Request_ResourceNotFound", "Resource not found.", r.Hint));
-        await provider.DeleteAsync(entry, host.Fake, ProviderHost.Ct);
+        await provider.DeleteAsync(DeleteTarget.KeyOf(entry), DeleteTarget.LiveOf(entry), host.Fake, ProviderHost.Ct);
         Assert.Single(host.Fake.Writes);
 
         host.ClearRequests();
         host.Fake.Failures.Add("POST", "/removePassword", r => new GraphException(HttpStatusCode.BadRequest, "Request_BadRequest", "No password credential found with keyId 00000000-0000-0000-0000-00000000dead.", r.Hint));
-        await provider.DeleteAsync(entry, host.Fake, ProviderHost.Ct);
+        await provider.DeleteAsync(DeleteTarget.KeyOf(entry), DeleteTarget.LiveOf(entry), host.Fake, ProviderHost.Ct);
         Assert.Single(host.Fake.Writes);
 
         host.ClearRequests();
         host.Fake.Failures.Add("POST", "/removePassword", r => new GraphException(HttpStatusCode.BadRequest, "Request_BadRequest", "Tenant policy forbids this.", r.Hint));
-        await Assert.ThrowsAsync<GraphException>(() => provider.DeleteAsync(entry, host.Fake, ProviderHost.Ct));
+        await Assert.ThrowsAsync<GraphException>(() => provider.DeleteAsync(DeleteTarget.KeyOf(entry), DeleteTarget.LiveOf(entry), host.Fake, ProviderHost.Ct));
 
         host.ClearRequests();
         var orphan = new StateEntry { Id = entry.Id, Type = SecretType, ApiVersion = ProviderHost.ApiVersion, Key = entry.Key, GraphId = "whatever" };
-        await provider.DeleteAsync(orphan, host.Fake, ProviderHost.Ct);
+        await provider.DeleteAsync(DeleteTarget.KeyOf(orphan), DeleteTarget.LiveOf(orphan), host.Fake, ProviderHost.Ct);
         Assert.Equal(2, host.Fake.Requests.Count);
         Assert.Equal("/applications(uniqueName='test-api')", host.Fake.Requests[0].Path);
         Assert.Equal("/applications/" + appId + "/removePassword", Assert.Single(host.Fake.Writes).Path);
 
         host.Directory.SoftDelete(appId);
         host.ClearRequests();
-        await provider.DeleteAsync(entry, host.Fake, ProviderHost.Ct);
+        await provider.DeleteAsync(DeleteTarget.KeyOf(entry), DeleteTarget.LiveOf(entry), host.Fake, ProviderHost.Ct);
         Assert.Empty(host.Fake.Writes);
     }
 

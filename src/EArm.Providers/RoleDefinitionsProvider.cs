@@ -10,7 +10,6 @@ using EArm.Core;
 using EArm.Core.Types;
 using EArm.Engine;
 using EArm.Engine.Providers;
-using EArm.Engine.State;
 using EArm.Expressions.Values;
 using GraphApi = EArm.Graph.GraphApi;
 
@@ -18,13 +17,13 @@ namespace EArm.Providers;
 
 /// <summary>
 /// <c>Microsoft.Entra/roleDefinitions</c>, custom directory roles. The
-/// resource name is the <c>displayName</c>; the Graph id is pinned in the state after the first run. Built-in roles
+/// resource name is the <c>displayName</c>; the object is found by it, live, on every run. Built-in roles
 /// are never managed: a name that matches one is an unsupported row (<see cref="BuiltInRole"/>) pointing at
 /// <c>roleTemplate()</c>.
 /// <para>
 /// Requests per operation (every read selects <see cref="RoleDefinitionsRules.ManagedProperties"/>):
 /// <list type="bullet">
-/// <item><b>Read</b>: <c>GET /roleManagement/directory/roleDefinitions/{pinnedId}</c> (state id, when known; a 404 is drift) → <c>GET /roleManagement/directory/roleDefinitions?$filter=displayName eq '…'</c> filtered client-side to <c>isBuiltIn: false</c>: no custom hit is "create" (unless a built-in carries the name: <see cref="ProviderException"/> <see cref="BuiltInRole"/>), one hit is the object, several hits are <c>ProviderException(AmbiguousMatch)</c> listing the ids.</item>
+/// <item><b>Read</b>: <c>GET /roleManagement/directory/roleDefinitions?$filter=displayName eq '…'</c> filtered client-side to <c>isBuiltIn: false</c>: no custom hit is "create" (unless a built-in carries the name: <see cref="ProviderException"/> <see cref="BuiltInRole"/>), one hit is the object, several hits are <c>ProviderException(AmbiguousMatch)</c> listing the ids.</item>
 /// <item><b>Create</b>: <c>POST /roleManagement/directory/roleDefinitions { displayName, description, isEnabled, resourceScopes: ["/"], rolePermissions }</c> (the response body is the object).</item>
 /// <item><b>Update</b>: <c>PATCH …/{id}</c> (merge body; <c>rolePermissions</c> is replaced whole) → <c>GET …/{id}</c>.</item>
 /// <item><b>Delete</b>: <c>DELETE …/{id}</c>; a 404 is "already gone"; a 400 (assignments still reference the role) is <see cref="RoleDefinitionInUse"/> with the fix.</item>
@@ -79,15 +78,10 @@ public sealed class RoleDefinitionsProvider : ProviderBase
 
     // ---- read ----
 
-    public override async Task<ExistingResource?> ReadAsync(ResourceKey key, string? stateId, IGraphClient graph, CancellationToken cancellationToken)
+    public override async Task<ExistingResource?> ReadAsync(ResourceKey key, IGraphClient graph, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(key);
         ArgumentNullException.ThrowIfNull(graph);
-
-        if (stateId is not null && await graph.GetAsync(Select(new GraphRequest(EntityPath(stateId), key.Api), key), cancellationToken).ConfigureAwait(false) is JsonObject pinned)
-        {
-            return Existing(pinned);
-        }
 
         string name = ProviderSupport.SingleKey(key, KeyProperty);
 
@@ -115,7 +109,7 @@ public sealed class RoleDefinitionsProvider : ProviderBase
             string ids = string.Join(", ", custom.Select(m => JsonObjects.GetId(m) ?? "?"));
             throw new ProviderException(
                 ProviderException.AmbiguousMatch,
-                $"{custom.Count} custom role definitions have displayName '{name}' (ids: {ids}); pin the intended one with 'earm state adopt --resource-id {id.Id} --object-id <id>' or rename the others.",
+                $"{custom.Count} custom role definitions have displayName '{name}' (ids: {ids}); rename or delete the others so the name identifies one object.",
                 id);
         }
 
@@ -202,14 +196,15 @@ public sealed class RoleDefinitionsProvider : ProviderBase
 
     // ---- delete ----
 
-    public override async Task DeleteAsync(StateEntry entry, IGraphClient graph, CancellationToken cancellationToken)
+    public override async Task DeleteAsync(ResourceKey key, ExistingResource live, IGraphClient graph, CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(entry);
+        ArgumentNullException.ThrowIfNull(key);
+        ArgumentNullException.ThrowIfNull(live);
         ArgumentNullException.ThrowIfNull(graph);
-        var api = entry.ToResourceKey(Catalog).Api;
+        var api = key.Api;
         try
         {
-            await graph.DeleteAsync(new GraphRequest(EntityPath(entry.GraphId), api), cancellationToken).ConfigureAwait(false);
+            await graph.DeleteAsync(new GraphRequest(EntityPath(live.GraphId), api), cancellationToken).ConfigureAwait(false);
         }
         catch (GraphException ex) when (ex.IsNotFound)
         {
@@ -220,8 +215,8 @@ public sealed class RoleDefinitionsProvider : ProviderBase
             // Graph refuses to delete a role definition while role assignments reference it.
             throw new ProviderException(
                 RoleDefinitionInUse,
-                $"{entry.Id.Id}: Graph refused to delete role definition {entry.GraphId} ({ex.Code}: {ex.GraphMessage}). A custom role cannot be deleted while role assignments reference it; remove the Microsoft.Entra/roleAssignments resources and the directoryRoles entries that name it first (Complete mode deletes assignments before role definitions), or remove the remaining assignments in the portal.",
-                entry.Id,
+                $"{TypeName} {key.Describe()}: Graph refused to delete role definition {live.GraphId} ({ex.Code}: {ex.GraphMessage}). A custom role cannot be deleted while role assignments reference it; remove the Microsoft.Entra/roleAssignments resources and the directoryRoles entries that name it first (Complete mode deletes assignments before role definitions), or remove the remaining assignments in the portal.",
+                null,
                 ex);
         }
     }

@@ -214,7 +214,7 @@ public sealed class FileStateSinkTests
         Assert.True(run.Result.Succeeded);
         Assert.Equal(live!["id"]!.GetValue<string>(), run.State.GraphIdOf(Fixture.User));
         Assert.Equal(ChangeType.NoChange, Assert.Single(run.Result.Operations, o => o.Id.Id == Fixture.User).ChangeType);
-        Assert.Contains(run.Host.Fake.Requests, r => r.Method == "GET" && r.Path == "/users/5a1e0000-0000-4000-8000-000000000012");
+        Assert.DoesNotContain(run.Host.Fake.Requests, r => r.Path == "/users/5a1e0000-0000-4000-8000-000000000012");
         Assert.Equal(Start, run.State.Resources[Fixture.User].LastWriteOn);
     }
 

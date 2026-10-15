@@ -10,7 +10,6 @@ using EArm.Core.Diagnostics;
 using EArm.Core.Json;
 using EArm.Core.Secrets;
 using EArm.Core.Types;
-using EArm.Engine.State;
 using EArm.Expressions.Values;
 using GraphApi = EArm.Graph.GraphApi;
 
@@ -119,7 +118,7 @@ public abstract class ProviderBase : IResourceProvider, IExistingResourceLookup
         }
 
         var key = KeyForIdentifier(Definition, id) with { Api = GraphApiMapping.ToAz(api) };
-        return ReadAsync(key, null, graph, cancellationToken);
+        return ReadAsync(key, graph, cancellationToken);
     }
 
     /// <summary>
@@ -188,13 +187,13 @@ public abstract class ProviderBase : IResourceProvider, IExistingResourceLookup
         return Task.CompletedTask;
     }
 
-    public abstract Task<ExistingResource?> ReadAsync(ResourceKey key, string? stateId, IGraphClient graph, CancellationToken cancellationToken);
+    public abstract Task<ExistingResource?> ReadAsync(ResourceKey key, IGraphClient graph, CancellationToken cancellationToken);
 
     public abstract Task<AppliedResource> CreateAsync(ResourceInstance desired, IGraphClient graph, CancellationToken cancellationToken);
 
     public abstract Task<AppliedResource> UpdateAsync(ResourceInstance desired, ExistingResource existing, ResourceChange change, IGraphClient graph, CancellationToken cancellationToken);
 
-    public abstract Task DeleteAsync(StateEntry entry, IGraphClient graph, CancellationToken cancellationToken);
+    public abstract Task DeleteAsync(ResourceKey key, ExistingResource live, IGraphClient graph, CancellationToken cancellationToken);
 
     // ---- plan ----
 

@@ -21,7 +21,7 @@ namespace EArm.Providers.Tests;
 /// <summary>
 /// The principal-side <c>appRoleAssignments</c> edge kind (users, groups, service principals) and the standalone
 /// <c>Microsoft.Entra/appRoleAssignments</c> provider driven through the engine: create / rerun / undeclare, every
-/// invalid-item message, the pinned-id read, the already-exists adoption, delete tolerance and the recreate plan.
+/// invalid-item message, the principal-side read, the already-exists adoption, delete tolerance and the recreate plan.
 /// </summary>
 public sealed class AppRoleAssignmentScenarioTests
 {
@@ -493,7 +493,7 @@ public sealed class AppRoleAssignmentScenarioTests
     }
 
     [Fact]
-    public async Task Standalone_ChangedComposite_UnderTheSameName_IsARecreate()
+    public async Task Standalone_ChangedComposite_UnderTheSameName_CreatesANewAssignment_AndRetainsTheOldOne()
     {
         var t = NewTenant();
         string user = t.Host.Directory.AddUser("bob@contoso.com", "Bob")["id"]!.GetValue<string>();
@@ -507,11 +507,12 @@ public sealed class AppRoleAssignmentScenarioTests
 
         var run = await t.Host.CreateAsync(t.Host.Resources(Declare(BothRoleId)));
 
+        // Identity is the live tuple: a changed tuple is another assignment. The old one is retained (never removed by a changed declaration).
         Check.Succeeded(run);
-        Assert.Contains(run.Writes, w => w.Method == "DELETE");
+        Assert.DoesNotContain(run.Writes, w => w.Method == "DELETE");
         Assert.Contains(run.Writes, w => w.Method == "POST");
-        var remaining = Assert.Single(t.Host.Directory.Objects(AssignedTo(t.ResourceId)));
-        Assert.Equal(BothRoleId, remaining["appRoleId"]!.GetValue<string>());
+        var remaining = t.Host.Directory.Objects(AssignedTo(t.ResourceId)).Select(o => o["appRoleId"]!.GetValue<string>()).Order().ToList();
+        Assert.Equal(new[] { UserRoleId, BothRoleId }.Order().ToList(), remaining);
     }
 
     [Fact]
@@ -560,7 +561,7 @@ public sealed class AppRoleAssignmentScenarioTests
     }
 
     [Fact]
-    public async Task Standalone_Read_UsesThePinnedIdFirst_AndFallsBackToTheComposite()
+    public async Task Standalone_Read_LooksUpFromThePrincipalSide_NeverListsTheResource()
     {
         var t = NewTenant();
         string user = t.Host.Directory.AddUser("bob@contoso.com", "Bob")["id"]!.GetValue<string>();
@@ -571,17 +572,14 @@ public sealed class AppRoleAssignmentScenarioTests
         var key = new ResourceKey { Type = AssignmentType, Values = new System.Collections.Generic.Dictionary<string, string> { ["principalId"] = user, ["resourceId"] = t.ResourceId, ["appRoleId"] = UserRoleId } };
 
         t.Host.ClearRequests();
-        var pinned = await provider.ReadAsync(key, assignmentId, t.Host.Fake, ProviderHost.Ct);
-        Assert.NotNull(pinned);
-        Assert.Contains(t.Host.Fake.Requests, r => r.Path.EndsWith("/" + assignmentId, StringComparison.Ordinal));
-
-        t.Host.ClearRequests();
-        var stale = await provider.ReadAsync(key, Guid.NewGuid().ToString("D"), t.Host.Fake, ProviderHost.Ct);
-        Assert.NotNull(stale);
-        Assert.Equal(assignmentId, stale.GraphId);
+        var found = await provider.ReadAsync(key, t.Host.Fake, ProviderHost.Ct);
+        Assert.NotNull(found);
+        Assert.Equal(assignmentId, found.GraphId);
+        Assert.Contains(t.Host.Fake.Requests, r => r.Path == "/users/" + user + "/appRoleAssignments");
+        Assert.DoesNotContain(t.Host.Fake.Requests, r => r.Path.Contains("/appRoleAssignedTo", StringComparison.Ordinal));
 
         var unkeyed = key with { Values = new System.Collections.Generic.Dictionary<string, string>() };
-        await Assert.ThrowsAsync<ProviderException>(() => provider.ReadAsync(unkeyed, null, t.Host.Fake, ProviderHost.Ct));
+        await Assert.ThrowsAsync<ProviderException>(() => provider.ReadAsync(unkeyed, t.Host.Fake, ProviderHost.Ct));
     }
 
     [Fact]

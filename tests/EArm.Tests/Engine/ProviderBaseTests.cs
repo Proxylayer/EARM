@@ -412,17 +412,17 @@ public sealed class ProviderBaseTests
     // ---- pinned Graph id ----
 
     /// <summary>One row per name kind; <c>{id}</c> in the key text is the object's own id (the id-keyed kind pins the key itself).</summary>
-    public static TheoryData<string, string, string, string> PinnedIdCases()
+    public static TheoryData<string, string, string> KeyReadCases()
     {
-        return new TheoryData<string, string, string, string>
+        return new TheoryData<string, string, string>
         {
-            { Fixture.AppType, "uniqueName=app", "/applications", "/applications/{id}" },
-            { Fixture.UserType, "userPrincipalName=u@contoso.com", "/users", "/users/{id}" },
-            { Fixture.SpType, "appId=11111111-1111-1111-1111-111111111111", "/servicePrincipals", "/servicePrincipals/{id}" },
-            { Fixture.RoleDefinitionType, "displayName=Orders Support", "/roleManagement/directory/roleDefinitions", "/roleManagement/directory/roleDefinitions/{id}" },
-            { Fixture.AccrType, "id={id}", "/identity/conditionalAccess/authenticationContextClassReferences", "/identity/conditionalAccess/authenticationContextClassReferences/{id}" },
-            { Fixture.AppRoleAssignmentType, "principalId=p1;resourceId=r1;appRoleId=a1", "/servicePrincipals/r1/appRoleAssignedTo", "/servicePrincipals/r1/appRoleAssignedTo/{id}" },
-            { Fixture.FicType, "name=github", "/applications/P1/federatedIdentityCredentials", "/applications/P1/federatedIdentityCredentials/{id}" },
+            { Fixture.AppType, "uniqueName=app", "/applications" },
+            { Fixture.UserType, "userPrincipalName=u@contoso.com", "/users" },
+            { Fixture.SpType, "appId=11111111-1111-1111-1111-111111111111", "/servicePrincipals" },
+            { Fixture.RoleDefinitionType, "displayName=Orders Support", "/roleManagement/directory/roleDefinitions" },
+            { Fixture.AccrType, "id={id}", "/identity/conditionalAccess/authenticationContextClassReferences" },
+            { Fixture.AppRoleAssignmentType, "principalId=p1;resourceId=r1;appRoleId=a1", "/servicePrincipals/r1/appRoleAssignedTo" },
+            { Fixture.FicType, "name=github", "/applications/P1/federatedIdentityCredentials" },
         };
     }
 
@@ -439,33 +439,8 @@ public sealed class ProviderBaseTests
     }
 
     [Theory]
-    [MemberData(nameof(PinnedIdCases))]
-    public async Task ReadAsync_TriesThePinnedGraphIdFirst_ForEveryNameKind(string type, string keyText, string collection, string pinnedPath)
-    {
-        var host = new EngineHost();
-        SeedParents(host);
-        var values = KeyValues(keyText, "PINNED");
-        var seeded = new JsonObject { ["id"] = "PINNED" };
-        foreach (var pair in values)
-        {
-            seeded[pair.Key] = pair.Value;
-        }
-
-        host.Directory.Add(collection, seeded);
-        var key = new ResourceKey { Type = type, Values = values, ParentGraphId = type == Fixture.FicType ? "P1" : null };
-
-        var found = await host.Echo(type).ReadAsync(key, "PINNED", host.Graph, Ct);
-
-        Assert.NotNull(found);
-        Assert.Equal("PINNED", found.GraphId);
-        var request = Assert.Single(host.Fake.Requests);
-        Assert.Equal("GET", request.Method);
-        Assert.Equal(pinnedPath.Replace("{id}", "PINNED", StringComparison.Ordinal), request.Path);
-    }
-
-    [Theory]
-    [MemberData(nameof(PinnedIdCases))]
-    public async Task ReadAsync_FallsBackToTheKey_WhenThePinnedObjectIsGone(string type, string keyText, string collection, string pinnedPath)
+    [MemberData(nameof(KeyReadCases))]
+    public async Task ReadAsync_FindsTheObjectByKey_ForEveryNameKind(string type, string keyText, string collection)
     {
         var host = new EngineHost();
         SeedParents(host);
@@ -479,16 +454,10 @@ public sealed class ProviderBaseTests
         host.Directory.Add(collection, seeded);
         var key = new ResourceKey { Type = type, Values = values, ParentGraphId = type == Fixture.FicType ? "P1" : null };
 
-        var found = await host.Echo(type).ReadAsync(key, "STALE", host.Graph, Ct);
-        var byKeyOnly = await host.Echo(type).ReadAsync(key, null, host.Graph, Ct);
+        var found = await host.Echo(type).ReadAsync(key, host.Graph, Ct);
 
         Assert.Equal("LIVE", found!.GraphId);
-        Assert.Equal("LIVE", byKeyOnly!.GraphId);
-        var requests = host.Fake.Requests;
-        Assert.Equal(pinnedPath.Replace("{id}", "STALE", StringComparison.Ordinal), requests[0].Path);
-        Assert.True(requests.Count >= 3, "a stale pin costs one extra read before the key lookup");
-        Assert.NotEqual(requests[0].Path, requests[1].Path);
-        Assert.All(requests, r => Assert.Equal("GET", r.Method));
+        Assert.All(host.Fake.Requests, r => Assert.Equal("GET", r.Method));
     }
 
     [Fact]
@@ -499,7 +468,7 @@ public sealed class ProviderBaseTests
         host.Directory.Add("/roleManagement/directory/roleDefinitions", J("{\"displayName\":\"Dup\"}"));
         var key = new ResourceKey { Type = Fixture.RoleDefinitionType, Values = new Dictionary<string, string> { ["displayName"] = "Dup" } };
 
-        var error = await Assert.ThrowsAsync<ProviderException>(() => host.Echo(Fixture.RoleDefinitionType).ReadAsync(key, null, host.Graph, Ct));
+        var error = await Assert.ThrowsAsync<ProviderException>(() => host.Echo(Fixture.RoleDefinitionType).ReadAsync(key, host.Graph, Ct));
 
         Assert.Equal(ProviderException.AmbiguousMatch, error.Code);
         Assert.Contains("2 objects", error.Message);
