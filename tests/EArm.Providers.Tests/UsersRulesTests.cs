@@ -119,12 +119,12 @@ public sealed class UsersRulesTests
     {
         var target = new JsonObject();
         UsersRules.ApplyCreateDefaults(target, "alice@contoso.com");
-        UsersRules.ApplyDesiredDefaults(target);
+        UsersRules.ApplyCreatedStateDefaults(target);
         Assert.Equal("""{"mailNickname":"alice","passwordProfile":{"forceChangePasswordNextSignIn":true},"accountEnabled":true}""", target.ToJsonString());
 
         var declared = (JsonObject)JsonNode.Parse("""{ "mailNickname": "custom", "passwordProfile": { "forceChangePasswordNextSignIn": false }, "accountEnabled": false }""")!;
         UsersRules.ApplyCreateDefaults(declared, "alice@contoso.com");
-        UsersRules.ApplyDesiredDefaults(declared);
+        UsersRules.ApplyCreatedStateDefaults(declared);
         Assert.Equal("custom", declared["mailNickname"]!.GetValue<string>());
         Assert.False(declared["passwordProfile"]!["forceChangePasswordNextSignIn"]!.GetValue<bool>());
         Assert.False(declared["accountEnabled"]!.GetValue<bool>());

@@ -30,8 +30,11 @@ namespace EArm.Providers;
 /// </list>
 /// </para>
 /// <para>
-/// Defaults: <c>accountEnabled: true</c> (part of the desired state on every run), <c>mailNickname</c> derived from the
-/// UPN local part (create only, see <see cref="UsersRules.DeriveMailNickname"/>), <c>passwordProfile.forceChangePasswordNextSignIn: true</c>.
+/// Defaults apply only when EARM creates the user (or restores a soft-deleted holder of the UPN as part of that create):
+/// <c>accountEnabled: true</c>, <c>mailNickname</c> derived from the UPN local part (see
+/// <see cref="UsersRules.DeriveMailNickname"/>), <c>passwordProfile.forceChangePasswordNextSignIn: true</c>. An existing
+/// user found by UPN is never given a default: an undeclared property is left as it is (a template that declares only
+/// <c>memberOf</c> does not re-enable a disabled account).
 /// <c>passwordProfile</c> is create-only and write-only: it is never diffed (a declared one on an existing user is
 /// ignored), never sent in a PATCH and its <c>password</c> is tainted at plan time (<see cref="UsersRules.TaintSecrets"/>),
 /// so what-if, logs and diagnostics only ever see <c>***</c>; the plain text exists in the
@@ -235,10 +238,10 @@ public sealed class UsersProvider : ProviderBase
             return Unsupported(desired, existing, conflict);
         }
 
-        UsersRules.ApplyDesiredDefaults(properties);
         var reasons = new List<string>();
         if (existing is null)
         {
+            UsersRules.ApplyCreatedStateDefaults(properties);
             if (!desired.IsSymbolic)
             {
                 UsersRules.ApplyCreateDefaults(properties, name);
@@ -339,7 +342,7 @@ public sealed class UsersProvider : ProviderBase
         }
 
         UsersRules.TaintSecrets(properties, Definition.Secure);
-        UsersRules.ApplyDesiredDefaults(properties);
+        UsersRules.ApplyCreatedStateDefaults(properties);
         UsersRules.ApplyCreateDefaults(properties, name);
         var key = ResolveKey(desired);
 
@@ -465,8 +468,8 @@ public sealed class UsersProvider : ProviderBase
         var properties = desired.Properties
             ?? throw new InvalidOperationException($"{desired.Describe()}: properties must be evaluated before updating.");
 
+        // No defaults here: an existing user's undeclared properties are never written (see Plan).
         UsersRules.TaintSecrets(properties, Definition.Secure);
-        UsersRules.ApplyDesiredDefaults(properties);
         var key = ResolveKey(desired);
         string path = EntityPath(existing.GraphId);
 

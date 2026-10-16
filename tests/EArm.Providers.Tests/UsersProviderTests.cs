@@ -453,4 +453,65 @@ public sealed class UsersProviderTests
         Assert.True(missingChange.HasError);
         Assert.Contains("displayName", missingChange.UnsupportedReason, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public async Task DisabledExistingUser_DeclaredWithEdgesOnly_StaysDisabled_AndGetsItsEdges()
+    {
+        var host = new ProviderHost();
+        string userId = host.Directory.AddUser("dana@contoso.com", "Dana", u => u["accountEnabled"] = false)["id"]!.GetValue<string>();
+        string groupId = host.Directory.AddGroup("existing", "Existing")["id"]!.GetValue<string>();
+        var document = host.Resources(User("dana@contoso.com", "\"memberOf\": [\"" + groupId + "\"]"));
+
+        var whatIf = await host.WhatIfAsync(document);
+        var change = whatIf.Change("dana@contoso.com");
+        Assert.False(change.HasError);
+        Assert.NotEmpty(change.Deltas);
+        Assert.All(change.Deltas, d => Assert.Contains("memberOf", d.Path.ToString(), StringComparison.Ordinal));
+        var row = WhatIfJson.Build(whatIf.Plan)["changes"]!.AsArray().Single(c => c!["resourceId"]?.GetValue<string>() == Id("dana@contoso.com"));
+        Assert.DoesNotContain("accountEnabled", row!["delta"]?.ToJsonString() ?? string.Empty, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"accountEnabled\":true", row["after"]?.ToJsonString() ?? string.Empty, StringComparison.Ordinal);
+        Check.NoWrites(whatIf);
+
+        var run = await host.CreateAsync(document);
+
+        Check.Succeeded(run);
+        Assert.DoesNotContain(run.Writes, w => w.Path.StartsWith("/users", StringComparison.Ordinal));
+        Assert.Single(run.Writes, w => w.Method == "POST" && w.Path == $"/groups/{groupId}/members/$ref");
+        Assert.Contains(userId, host.Directory.References($"/groups/{groupId}/members"));
+        Assert.False(host.Directory.Find("/users", "userPrincipalName", "dana@contoso.com")!["accountEnabled"]!.GetValue<bool>());
+    }
+
+    [Fact]
+    public async Task DisabledExistingUser_WithOtherDeclaredChanges_PatchesOnlyTheDeclaredProperties()
+    {
+        var host = new ProviderHost();
+        host.Directory.AddUser("erin@contoso.com", "Erin", u => u["accountEnabled"] = false);
+        var document = host.Resources(User("erin@contoso.com", "\"displayName\": \"Erin\", \"jobTitle\": \"Ops\""));
+
+        var whatIf = await host.WhatIfAsync(document);
+        var change = whatIf.Change("erin@contoso.com");
+        Assert.Equal(ChangeType.Modify, change.Type);
+        Assert.DoesNotContain(change.Deltas, d => d.Path.ToString().Contains("accountEnabled", StringComparison.Ordinal));
+
+        var run = await host.CreateAsync(document);
+
+        Check.Succeeded(run);
+        var patch = Assert.Single(run.Writes, w => w.Method == "PATCH");
+        Assert.Equal("""{"jobTitle":"Ops"}""", Check.Body(patch).ToJsonString());
+        Assert.False(host.Directory.Find("/users", "userPrincipalName", "erin@contoso.com")!["accountEnabled"]!.GetValue<bool>());
+    }
+
+    [Fact]
+    public async Task ExistingUser_DeclaringAccountEnabled_IsStillCorrected()
+    {
+        var host = new ProviderHost();
+        host.Directory.AddUser("finn@contoso.com", "Finn", u => u["accountEnabled"] = false);
+        var document = host.Resources(User("finn@contoso.com", "\"displayName\": \"Finn\", \"accountEnabled\": true"));
+
+        var run = await host.CreateAsync(document);
+
+        Check.Succeeded(run);
+        var patch = Assert.Single(run.Writes, w => w.Method == "PATCH");
+        Assert.Equal("""{"accountEnabled":true}""", Check.Body(patch).ToJsonString());
+    }
 }

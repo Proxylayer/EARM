@@ -175,7 +175,7 @@ internal static class UsersRules
     /// Fills the create-time defaults the template left out: <c>mailNickname</c> derived from the UPN and
     /// <c>passwordProfile.forceChangePasswordNextSignIn: true</c> (the overlay default, repeated here so a plan that
     /// runs before <see cref="ProviderBase.BuildCreateBody"/> shows the same object). <c>accountEnabled: true</c> is
-    /// applied separately (<see cref="ApplyDesiredDefaults"/>) because it is part of the desired state on every run.
+    /// applied separately (<see cref="ApplyCreatedStateDefaults"/>) because a symbolic create shows it too.
     /// </summary>
     public static void ApplyCreateDefaults(JsonObject target, string userPrincipalName)
     {
@@ -189,8 +189,11 @@ internal static class UsersRules
         JsonObjects.SetDefault(target, PasswordProfile + "." + ForceChangePasswordNextSignIn, JsonValue.Create(true));
     }
 
-    /// <summary>The overlay defaults that are part of the desired state on every run (<c>accountEnabled: true</c>), so a live user that drifted from them is corrected.</summary>
-    public static void ApplyDesiredDefaults(JsonObject target)
+    /// <summary>
+    /// The state a user EARM creates starts in (<c>accountEnabled: true</c>). Create only: an existing user found by UPN
+    /// never receives it, so an undeclared <c>accountEnabled</c> is left as it is live.
+    /// </summary>
+    public static void ApplyCreatedStateDefaults(JsonObject target)
     {
         ArgumentNullException.ThrowIfNull(target);
         JsonObjects.SetDefault(target, "accountEnabled", JsonValue.Create(true));

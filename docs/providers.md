@@ -306,8 +306,12 @@ selects `UsersProvider.ManagedProperties` (a user read returns a tiny default se
 
 Type-specific rules (`UsersRules`, `UsersLicensing`, pure):
 
-- Defaults: `accountEnabled: true` (part of the desired state), `mailNickname` derived from the UPN local part (create only),
-  `passwordProfile.forceChangePasswordNextSignIn: true`.
+- Defaults apply only when EARM creates the user (including the restore of a soft-deleted holder of the UPN that
+  replaces the create): `accountEnabled: true`, `mailNickname` derived from the UPN local part,
+  `passwordProfile.forceChangePasswordNextSignIn: true`. An existing user found by UPN never receives a default: an
+  undeclared property is neither diffed nor PATCHed, so a declaration with only edge properties (`memberOf`,
+  `administrativeUnits`, …) leaves a disabled account disabled. Declare `accountEnabled` to manage it on existing users.
+  (Unlike `servicePrincipals`, whose overlay defaults are part of the desired state on every run.)
 - `passwordProfile` is create-only and write-only: never diffed (a declared one on an existing user is ignored), never in
   a PATCH, and its `password` is tainted at plan time, so what-if, logs, diagnostics and the result only see `***`;
   the plain text exists in the `POST /users` body alone. Without a declared password a random 24-character one is
