@@ -37,9 +37,9 @@ public sealed class RoleScenarioTests : IntegrationTestBase
 
         AssertCreated(await Fixture.Cli.CreateAsync(run, Ct), "create");
 
-        var role = await FindOneAsync(RoleDefinitions, "displayName", Fixture.Name("role"));
-        var unit = await FindOneAsync(AdministrativeUnits, "displayName", Fixture.Name("au"));
-        var group = await GroupByNameAsync(Fixture.Name("rgrp"), "id", "isAssignableToRole");
+        var role = await FindOneEventuallyAsync(RoleDefinitions, "displayName", Fixture.Name("role"), found => found is not null);
+        var unit = await FindOneEventuallyAsync(AdministrativeUnits, "displayName", Fixture.Name("au"), found => found is not null);
+        var group = await FindOneEventuallyAsync("/groups", "displayName", Fixture.Name("rgrp"), found => found is not null, "id", "isAssignableToRole");
         Assert.NotNull(role);
         Assert.NotNull(unit);
         Assert.NotNull(group);

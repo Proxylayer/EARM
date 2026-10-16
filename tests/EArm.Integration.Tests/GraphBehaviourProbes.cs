@@ -5,6 +5,7 @@ using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using EArm.Graph;
 using EArm.Core;
+using EArm.Core.Types;
 using EArm.Providers;
 using Xunit;
 
@@ -486,7 +487,7 @@ public sealed class GraphBehaviourProbes : IntegrationTestBase
     }
 
     [Fact]
-    public async Task It_Probe_F2_WebRedirectUriSettingsIsLiveOnlyAndNullable()
+    public async Task It_Probe_F2_WebRedirectUriSettingsNullHandlingMatchesTheOverlay()
     {
         Fixture.Require();
         var report = new ProbeReport("f2");
@@ -497,7 +498,10 @@ public sealed class GraphBehaviourProbes : IntegrationTestBase
         var web = read.Nested("web");
         report.Observe($"web as read back: {web?.ToJsonString()}. redirectUriSettings is {(web is not null && web.ContainsKey("redirectUriSettings") ? "present" : "absent")} on a fresh application.");
 
-        // The engine sends an explicit null for a live-only sub-property unless the overlay marks it nullable: false.
+        // The engine sends an explicit null for a live-only sub-property unless the overlay marks it nullable: false. Graph rejects
+        // that null for web.redirectUriSettings (Collection(RedirectUriSettings) is Nullable=False), so the overlay must say false.
+        bool overlayNullable = OverlayNullable("web.redirectUriSettings");
+        bool anyAccepted = false;
         foreach (var body in new[]
         {
             new JsonObject { ["web"] = new JsonObject { ["redirectUriSettings"] = null } },
@@ -507,17 +511,26 @@ public sealed class GraphBehaviourProbes : IntegrationTestBase
             try
             {
                 await Graph.PatchAsync(new GraphRequest(path), body, Ct);
+                anyAccepted = true;
+                report.Observe($"PATCH {body.ToJsonString()} is ACCEPTED.{(overlayNullable ? string.Empty : $" The overlay's \"web.redirectUriSettings\": false is conservative, not required ({OverlayFile}).")}");
             }
             catch (GraphException ex)
             {
-                report.Expect(false, $"PATCH {body.ToJsonString()} is rejected ({ProbeReport.Describe(ex)}). Add \"web.redirectUriSettings\": false to x-earm.nullable in schemas/2026-10-01/types/Microsoft.Entra/applications.json so the engine never sends the null (see docs/providers.md, 'BuildPatchBody').");
+                report.Observe($"PATCH {body.ToJsonString()} is rejected ({ProbeReport.Describe(ex)}).");
+                report.Expect(
+                    !overlayNullable,
+                    $"Graph rejects an explicit null for web.redirectUriSettings, but the overlay lets the engine send it: add \"web.redirectUriSettings\": false to x-earm.nullable in {OverlayFile} (see docs/providers.md, 'BuildPatchBody').");
             }
         }
 
-        var after = (await Graph.GetObjectAsync(new GraphRequest(path).WithSelect("id", "web"), Ct)).Nested("web");
-        report.Expect(
-            after?.Strings("redirectUris").Contains("https://earm-it.example.test/cb") == true,
-            "A PATCH that nulls web.redirectUriSettings dropped the sibling web.redirectUris: nested objects are replaced, not merged. ProviderBase.BuildPatchBody (src/EArm.Engine/Providers/ProviderBase.cs) must send the whole web object.");
+        if (anyAccepted)
+        {
+            var after = (await Graph.GetObjectAsync(new GraphRequest(path).WithSelect("id", "web"), Ct)).Nested("web");
+            report.Expect(
+                after?.Strings("redirectUris").Contains("https://earm-it.example.test/cb") == true,
+                "A PATCH that nulls web.redirectUriSettings dropped the sibling web.redirectUris: nested objects are replaced, not merged. ProviderBase.BuildPatchBody (src/EArm.Engine/Providers/ProviderBase.cs) must send the whole web object.");
+        }
+
         report.Complete();
     }
 
@@ -622,55 +635,63 @@ public sealed class GraphBehaviourProbes : IntegrationTestBase
             Ct);
         string path = "/applications/" + application.RequireId();
 
-        // (parent, property, nullable according to the overlay: true = an explicit null clears it, false = Graph keeps it or refuses).
-        (string Parent, string Property, bool Nullable)[] cases =
+        // Each sub-property is checked against the overlay (x-earm.nullable) and the engine's clearing rule (JsonDiff.MergeNested):
+        // - overlay nullable: false -> the engine never clears it, so an explicit null must not clear it either (Graph keeps or rejects it);
+        // - nullable collection     -> the engine clears it with [] (Graph rejects null for its non-nullable collections, such as
+        //                              redirectUris): [] must clear it, and what an explicit null does is only recorded;
+        // - nullable scalar/object  -> the engine clears it with null: the null must clear it.
+        (string Parent, string Property)[] cases =
         [
-            ("web", "homePageUrl", true),
-            ("web", "logoutUrl", true),
-            ("web", "redirectUris", true),
-            ("web", "implicitGrantSettings", false),
-            ("api", "requestedAccessTokenVersion", false),
-            ("info", "marketingUrl", true),
-            ("info", "privacyStatementUrl", true),
-            ("info", "supportUrl", true),
-            ("info", "termsOfServiceUrl", true),
-            ("spa", "redirectUris", true),
-            ("publicClient", "redirectUris", true),
+            ("web", "homePageUrl"),
+            ("web", "logoutUrl"),
+            ("web", "redirectUris"),
+            ("web", "implicitGrantSettings"),
+            ("api", "requestedAccessTokenVersion"),
+            ("info", "marketingUrl"),
+            ("info", "privacyStatementUrl"),
+            ("info", "supportUrl"),
+            ("info", "termsOfServiceUrl"),
+            ("spa", "redirectUris"),
+            ("publicClient", "redirectUris"),
         ];
 
         var table = new List<string>();
-        foreach (var (parent, property, nullable) in cases)
+        foreach (var (parent, property) in cases)
         {
-            var before = (await Graph.GetObjectAsync(new GraphRequest(path).WithSelect("id", parent), Ct)).Nested(parent);
-            string outcome;
-            try
-            {
-                await Graph.PatchAsync(new GraphRequest(path), new JsonObject { [parent] = new JsonObject { [property] = null } }, Ct);
-                var after = (await Graph.GetObjectAsync(new GraphRequest(path).WithSelect("id", parent), Ct)).Nested(parent);
-                outcome = Classify(before, after, property);
-            }
-            catch (GraphException ex)
-            {
-                outcome = "Rejected (" + ex.Code + ")";
-            }
+            string dotted = parent + "." + property;
+            bool nullable = OverlayNullable(dotted);
+            string overlay = $"x-earm.nullable in {OverlayFile} (currently {(nullable ? "not listed, i.e. nullable" : "\"" + dotted + "\": false")})";
 
-            table.Add($"{parent}.{property}: {outcome}");
-            string overlay = $"x-earm.nullable in schemas/2026-10-01/types/Microsoft.Entra/applications.json (currently {(nullable ? "not listed, i.e. nullable" : "\"" + parent + "." + property + "\": false")})";
-            if (nullable)
+            var before = (await Graph.GetObjectAsync(new GraphRequest(path).WithSelect("id", parent), Ct)).Nested(parent);
+            bool isCollection = before?[property] is JsonArray;
+            string nullOutcome = await PatchAndClassifyAsync(path, parent, property, null, before);
+
+            if (!nullable)
             {
+                table.Add($"{dotted}: null {nullOutcome}");
                 report.Expect(
-                    outcome == "Cleared",
-                    $"An explicit null for {parent}.{property} is {outcome}, not Cleared: set \"{parent}.{property}\": false in {overlay} so the engine stops sending it (or send [] for collections).");
+                    nullOutcome != "Cleared",
+                    $"An explicit null for {dotted} CLEARS it, but the overlay says it is not nullable: remove the \"{dotted}\": false entry from {overlay}.");
+            }
+            else if (isCollection)
+            {
+                var current = (await Graph.GetObjectAsync(new GraphRequest(path).WithSelect("id", parent), Ct)).Nested(parent);
+                string emptyOutcome = await PatchAndClassifyAsync(path, parent, property, new JsonArray(), current);
+                table.Add($"{dotted}: null {nullOutcome}; [] {emptyOutcome}");
+                report.Expect(
+                    emptyOutcome == "Cleared",
+                    $"Clearing the collection {dotted} with [] (what JsonDiff.MergeNested sends) is {emptyOutcome}, not Cleared: set \"{dotted}\": false in {overlay} so the engine stops trying to clear it.");
             }
             else
             {
+                table.Add($"{dotted}: null {nullOutcome}");
                 report.Expect(
-                    outcome != "Cleared",
-                    $"An explicit null for {parent}.{property} CLEARS it, but the overlay says it is not nullable: remove the \"{parent}.{property}\": false entry from {overlay}.");
+                    nullOutcome == "Cleared",
+                    $"An explicit null for {dotted} is {nullOutcome}, not Cleared: set \"{dotted}\": false in {overlay} so the engine stops sending it.");
             }
         }
 
-        report.Observe("Per sub-property result of {parent:{property:null}}:" + Environment.NewLine + string.Join(Environment.NewLine, table));
+        report.Observe("Per sub-property result of {parent:{property:null}} (and {parent:{property:[]}} for collections):" + Environment.NewLine + string.Join(Environment.NewLine, table));
         report.Complete();
     }
 
@@ -680,6 +701,32 @@ public sealed class GraphBehaviourProbes : IntegrationTestBase
     private const string PoliciesPath = "/identity/conditionalAccess/policies";
     private const string StrengthsPath = "/policies/authenticationStrengthPolicies";
     private const string ContextsPath = "/identity/conditionalAccess/authenticationContextClassReferences";
+
+    private const string OverlayFile = "schemas/2026-10-01/types/Microsoft.Entra/applications.json";
+
+    /// <summary>The applications overlay's x-earm.nullable verdict for a dotted sub-property: nullable unless listed as false.</summary>
+    private static bool OverlayNullable(string dotted)
+    {
+        var definition = ResourceTypeCatalog.Default.Find(ApplicationsProvider.ResourceType)
+            ?? throw new InvalidOperationException($"The catalog has no {ApplicationsProvider.ResourceType} type.");
+        return !(definition.Nullable.TryGetValue(dotted, out bool flag) && !flag);
+    }
+
+    /// <summary>PATCHes {parent:{property:value}} and classifies the read-back against <paramref name="before"/>, or "Rejected (code)".</summary>
+    private async Task<string> PatchAndClassifyAsync(string path, string parent, string property, JsonNode? value, JsonObject? before)
+    {
+        try
+        {
+            await Graph.PatchAsync(new GraphRequest(path), new JsonObject { [parent] = new JsonObject { [property] = value } }, Ct);
+        }
+        catch (GraphException ex)
+        {
+            return "Rejected (" + ex.Code + ")";
+        }
+
+        var after = (await Graph.GetObjectAsync(new GraphRequest(path).WithSelect("id", parent), Ct)).Nested(parent);
+        return Classify(before, after, property);
+    }
 
     private static JsonObject Conditions(string includeGroup, string? excludeGroup)
     {
