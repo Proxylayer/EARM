@@ -62,7 +62,7 @@ internal static class DirectoryTemplates
         return "{ \"type\": \"Microsoft.Entra/administrativeUnits\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"" + name + "\", \"properties\": { " + props + " }" + (dependsOn is null ? string.Empty : ", \"dependsOn\": [" + dependsOn + "]") + " }";
     }
 
-    public static string RoleDef(string actions = "\"microsoft.directory/users/password/update\", \"microsoft.directory/users/standard/read\"", string extra = "", string name = "Orders Support")
+    public static string RoleDef(string actions = "\"microsoft.directory/users/basic/update\", \"microsoft.directory/users/standard/read\"", string extra = "", string name = "Orders Support")
     {
         return "{ \"type\": \"Microsoft.Entra/roleDefinitions\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"" + name + "\", \"properties\": { \"description\": \"Reset passwords for Orders staff\"" + extra + ", \"rolePermissions\": [{ \"allowedResourceActions\": [" + actions + "] }] } }";
     }

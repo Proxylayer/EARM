@@ -121,7 +121,7 @@
         "description": "Reset passwords for Orders staff",
         "isEnabled": true,
         "rolePermissions": [
-          { "allowedResourceActions": ["microsoft.directory/users/password/update", "microsoft.directory/users/standard/read"] }
+          { "allowedResourceActions": ["microsoft.directory/users/basic/update", "microsoft.directory/users/standard/read"] }
         ]
       }
     },

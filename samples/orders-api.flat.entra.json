@@ -78,7 +78,7 @@
     {
       "type": "Microsoft.Entra/roleDefinitions", "apiVersion": "2026-10-01-preview", "name": "Orders Support",
       "properties": { "description": "Reset passwords for Orders staff", "isEnabled": true,
-                      "rolePermissions": [{ "allowedResourceActions": ["microsoft.directory/users/password/update", "microsoft.directory/users/standard/read"] }] }
+                      "rolePermissions": [{ "allowedResourceActions": ["microsoft.directory/users/basic/update", "microsoft.directory/users/standard/read"] }] }
     },
     {
       "type": "Microsoft.Entra/conditionalAccess/authenticationStrengths", "apiVersion": "2026-10-01-preview", "name": "Orders phishing-resistant",

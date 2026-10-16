@@ -23,7 +23,7 @@
         "rolePermissions": [
           {
             "allowedResourceActions": [
-              "microsoft.directory/users/password/update",
+              "microsoft.directory/users/basic/update",
               "microsoft.directory/users/standard/read"
             ]
           }

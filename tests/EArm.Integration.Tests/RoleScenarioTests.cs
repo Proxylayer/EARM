@@ -44,7 +44,7 @@ public sealed class RoleScenarioTests : IntegrationTestBase
         Assert.NotNull(group);
         Assert.True((bool?)group["isAssignableToRole"] == true, "The group is not role-assignable.");
         var actions = role["rolePermissions"]!.AsArray().OfType<JsonObject>().SelectMany(p => p.Strings("allowedResourceActions")).ToList();
-        Assert.Contains("microsoft.directory/users/password/update", actions);
+        Assert.Contains("microsoft.directory/users/basic/update", actions);
 
         string unitScope = "/administrativeUnits/" + unit.RequireId();
         var assignments = await ListAssignmentsAsync(group.RequireId());

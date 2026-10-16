@@ -217,7 +217,7 @@ public sealed class RoleDefinitionsProviderTests
         Assert.Equal("Orders Support", body["displayName"]!.GetValue<string>());
         Assert.True(body["isEnabled"]!.GetValue<bool>());
         Assert.Equal("""["/"]""", body["resourceScopes"]!.ToJsonString());
-        Assert.Equal("""[{"allowedResourceActions":["microsoft.directory/users/password/update","microsoft.directory/users/standard/read"]}]""", body["rolePermissions"]!.ToJsonString());
+        Assert.Equal("""[{"allowedResourceActions":["microsoft.directory/users/basic/update","microsoft.directory/users/standard/read"]}]""", body["rolePermissions"]!.ToJsonString());
         string roleId = host.IdOf(BuiltInRoles.DefinitionsPath, "displayName", "Orders Support");
         Assert.Equal(roleId, run.GraphIdOf(RoleDefId));
         Assert.Contains("RoleManagement.ReadWrite.Directory", run.Plan.RequiredPermissions);
@@ -230,7 +230,7 @@ public sealed class RoleDefinitionsProviderTests
         Check.Succeeded(await host.CreateAsync(host.Resources(RoleDef())));
         string roleId = host.IdOf(BuiltInRoles.DefinitionsPath, "displayName", "Orders Support");
 
-        var rerun = await host.CreateAsync(host.Resources(RoleDef(actions: "\"microsoft.directory/users/standard/read\", \"microsoft.directory/users/password/update\"")));
+        var rerun = await host.CreateAsync(host.Resources(RoleDef(actions: "\"microsoft.directory/users/standard/read\", \"microsoft.directory/users/basic/update\"")));
 
         Check.Succeeded(rerun);
         Check.NoWrites(rerun);

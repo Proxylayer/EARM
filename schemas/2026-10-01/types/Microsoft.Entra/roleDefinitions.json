@@ -19,7 +19,7 @@
       ]
     },
     "rolePermissions": {
-      "description": "Required. The permissions granted; replaced whole on update. Allowed actions look like microsoft.directory/users/password/update (the list is not enforced offline).",
+      "description": "Required. The permissions granted; replaced whole on update. Allowed actions look like microsoft.directory/users/basic/update (the list is not enforced offline).",
       "anyOf": [
         {
           "type": "array",
