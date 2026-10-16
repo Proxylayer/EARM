@@ -12,7 +12,7 @@ namespace EArm.Integration.Tests;
 
 /// <summary>
 /// Verification probes for the open authentication methods questions of phase 1 (<c>EARM_IT_ALLOW_AUTH_METHODS=1</c>). AM1 only reads. AM2 sends PATCHes
-/// that write the live values back (no effective change) and AM3 resets Temporary Access Pass only when it is disabled in the tenant; both run under the
+/// that write the live values back (no effective change) and AM3 resets Temporary Access Pass only when it is disabled in the tenant; AM4 changes its lifetimes and watches whether they stick; all run under the
 /// restore guard (<see cref="AuthMethodRestoreGuard"/>: snapshot first, restore and verify in a <c>finally</c>, again at teardown). Each probe records what
 /// Graph answers and asserts only the assumption the code relies on, naming the file to change.
 /// </summary>
@@ -190,6 +190,102 @@ public sealed class AuthMethodProbes : IntegrationTestBase
         }
 
         report.Complete();
+    }
+
+    /// <summary>
+    /// The real tenant accepted (204) a Temporary Access Pass PATCH of <c>minimumLifetimeInMinutes</c> 60 -> 15 (and earlier <c>defaultLength</c> 8 -> 9)
+    /// while the method was disabled, but never served the new value. AM4 sends the provider's exact body shape (<c>@odata.type</c> + the changed lifetime)
+    /// twice, first <c>minimumLifetimeInMinutes</c> alone, then the three lifetimes together, and re-reads each for 60 s, recording whether the values stick
+    /// and the method's state. Observation only (the scenario chooses its toggles from what sticks); restore-guarded.
+    /// </summary>
+    [Fact]
+    public async Task It_Probe_AM4_TemporaryAccessPassLifetimePatchSticks()
+    {
+        Fixture.Require(Needs.AuthMethods);
+        var report = new ProbeReport("am4");
+        var method = AuthMethodRestoreGuard.MethodOf("temporaryAccessPass");
+        string path = AuthMethodRestoreGuard.EntityPath(method);
+        var log = new List<string>();
+        var snapshot = await Fixture.AuthMethods.SnapshotAsync(method.Name, Ct);
+        string state = snapshot.Text("state") ?? "?";
+        int min = (int?)snapshot["minimumLifetimeInMinutes"] ?? 60;
+        int def = (int?)snapshot["defaultLifetimeInMinutes"] ?? 60;
+        int max = (int?)snapshot["maximumLifetimeInMinutes"] ?? 480;
+        report.Observe($"temporaryAccessPass state '{state}', lifetimes min {min} / default {def} / max {max}");
+        try
+        {
+            // 1: minimumLifetimeInMinutes alone, to a value inside the documented bounds (10 .. default).
+            int newMin = min == 15 ? 10 : 15;
+            if (newMin <= def)
+            {
+                await PatchAndWatchAsync(report, path, method.ODataType, state, new JsonObject { ["minimumLifetimeInMinutes"] = newMin });
+            }
+            else
+            {
+                report.Observe($"minimumLifetimeInMinutes alone: skipped ({newMin} would exceed defaultLifetimeInMinutes {def})");
+            }
+
+            // 2: the three lifetimes together (what the scenario sent), to the other documented-valid set.
+            var lifetimes = new[] { (Min: 60, Default: 60, Max: 480), (Min: 15, Default: 30, Max: 120) }.First(c => c != (min, def, max));
+            await PatchAndWatchAsync(
+                report,
+                path,
+                method.ODataType,
+                state,
+                new JsonObject { ["minimumLifetimeInMinutes"] = lifetimes.Min, ["defaultLifetimeInMinutes"] = lifetimes.Default, ["maximumLifetimeInMinutes"] = lifetimes.Max });
+        }
+        finally
+        {
+            bool restored = await Fixture.AuthMethods.RestoreAsync(method.Name, log, CancellationToken.None);
+            log.ForEach(report.Observe);
+            report.Expect(restored, "the Temporary Access Pass configuration could not be restored to its snapshot (the fixture retries at teardown); see the observations.");
+        }
+
+        report.Complete();
+    }
+
+    /// <summary>PATCHes <paramref name="changes"/> (with the derived <c>@odata.type</c> first) and re-reads every 5 s for 60 s, recording which values stuck.</summary>
+    private async Task PatchAndWatchAsync(ProbeReport report, string path, string odataType, string state, JsonObject changes)
+    {
+        string what = string.Join(", ", changes.Select(p => $"{p.Key}={p.Value?.ToJsonString()}"));
+        var body = new JsonObject { ["@odata.type"] = odataType };
+        foreach (var (name, value) in changes)
+        {
+            body[name] = value?.DeepClone();
+        }
+
+        try
+        {
+            await Graph.PatchAsync(new GraphRequest(path), body, Ct);
+        }
+        catch (GraphException ex)
+        {
+            report.Observe($"PATCH {what} (state '{state}'): refused: {ProbeReport.Describe(ex)}");
+            return;
+        }
+
+        var started = DateTimeOffset.UtcNow;
+        JsonObject? live = null;
+        while (true)
+        {
+            live = await Graph.GetObjectAsync(new GraphRequest(path), Ct);
+            bool stuck = live is not null && changes.All(p => AuthMethodRestoreGuard.Canonical(live[p.Key]) == AuthMethodRestoreGuard.Canonical(p.Value));
+            double seconds = (DateTimeOffset.UtcNow - started).TotalSeconds;
+            if (stuck)
+            {
+                report.Observe($"PATCH {what} (state '{state}'): accepted, and read back after {seconds:F0} s: the change STICKS");
+                return;
+            }
+
+            if (seconds >= 60)
+            {
+                string read = live is null ? "(unreadable)" : string.Join(", ", changes.Select(p => $"{p.Key}={live[p.Key]?.ToJsonString()}"));
+                report.Observe($"PATCH {what} (state '{state}'): accepted (204), but after {seconds:F0} s Graph still serves {read}: the change does NOT stick");
+                return;
+            }
+
+            await Task.Delay(TimeSpan.FromSeconds(5), Ct);
+        }
     }
 
     /// <summary>The paths below the top level that carry an <c>@odata.type</c> (and its value).</summary>

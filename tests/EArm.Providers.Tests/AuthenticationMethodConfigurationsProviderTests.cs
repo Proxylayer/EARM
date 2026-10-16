@@ -107,6 +107,26 @@ public sealed class AuthenticationMethodConfigurationsProviderTests
     }
 
     [Fact]
+    public async Task ATemporaryAccessPassLifetimeChange_PatchesExactlyTheODataTypeAndTheChangedLifetime()
+    {
+        // The real-tenant scenario: minimumLifetimeInMinutes 60 -> 15 was accepted (204) but never read back changed while the method was disabled.
+        // The body EARM sends must be the documented merge PATCH (Learn: temporaryaccesspassauthenticationmethodconfiguration-update): the derived
+        // @odata.type first, then only the changed property at the top level, as an integer.
+        var host = new ProviderHost();
+        var document = host.Resources(Method("temporaryAccessPass", "{ \"state\": \"disabled\", \"minimumLifetimeInMinutes\": 15 }"));
+
+        var run = await host.CreateAsync(document);
+
+        Check.Succeeded(run);
+        var patch = SinglePatch(run);
+        Assert.EndsWith("/policies/authenticationMethodsPolicy/authenticationMethodConfigurations/TemporaryAccessPass", patch.Path, StringComparison.Ordinal);
+        Assert.Equal(
+            "{\"@odata.type\":\"#microsoft.graph.temporaryAccessPassAuthenticationMethodConfiguration\",\"minimumLifetimeInMinutes\":15}",
+            Check.Body(patch).ToJsonString());
+        Assert.Equal(15, Live(host, "TemporaryAccessPass")["minimumLifetimeInMinutes"]!.GetValue<int>());
+    }
+
+    [Fact]
     public async Task ADeclaredIdOrODataType_ThatNamesTheMethod_IsAccepted_AndNeverDiffed()
     {
         var host = new ProviderHost();

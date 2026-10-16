@@ -158,7 +158,7 @@ and run sequentially: they share the sign-in and the cleanup guard, and the in-p
 | `It_Cleanup_ManualSweepOfTheConfiguredPrefix` | `SWEEP=1` |
 | `It_Probe_A` ... `It_Probe_H` (15 probes) | A, B1, B2, B3, D, F1-F4, G: -; B4: `DOMAIN`; C, E1, E2: `ALLOW_CA`; H: `DOMAIN`, `ALLOW_ROLES` |
 | `It_Probe_P1` ... `It_Probe_P5` (PIM) | `DOMAIN`, `ALLOW_PIM` |
-| `It_Probe_AM1` ... `It_Probe_AM3` (authentication methods) | `ALLOW_AUTH_METHODS`; AM3 also skips unless Temporary Access Pass is disabled in the tenant |
+| `It_Probe_AM1` ... `It_Probe_AM4` (authentication methods) | `ALLOW_AUTH_METHODS`; AM3 also skips unless Temporary Access Pass is disabled in the tenant |
 | `It_Probe_PP1` ... `It_Probe_PP6` (PIM policies) | `ALLOW_PIM`, `ALLOW_PIM_POLICIES`; PP1 and PP4 also `DOMAIN`; PP6 only records when the tenant has an available authentication context |
 
 ## Cost and safety
@@ -225,11 +225,12 @@ The authentication methods policy is a tenant singleton, so these tests can neve
 
 1. **Snapshot first.** Before anything is changed, `Fixture.AuthMethods.SnapshotAsync(method)` reads the live configuration and keeps it (the first
    snapshot of a method wins until it is restored). It is also written to `%TEMP%\earm-it\<prefix>\auth-methods\<Method>.json`.
-2. **Safe toggles only.** The scenario changes the Temporary Access Pass length and lifetimes (never its state or targets); the AAGUID list of a FIDO2
+2. **Safe toggles only.** The scenario changes the Temporary Access Pass lifetimes only while the method is **enabled** (never its state, length or
+   targets; Graph accepts a lifetime PATCH of a disabled one but keeps serving the old values, see AM4); the AAGUID list of a FIDO2
    key restriction only when that restriction is **not enforced** and the tenant has **no passkey profiles** (otherwise FIDO2 is left out); and the
    Software OATH state only when it is **disabled** (it is enabled for the test and disabled again). No method the tenant relies on is ever disabled,
    and no `includeTargets` / `excludeTargets` are declared. AM2 only writes live values back; AM3 resets (DELETE) Temporary Access Pass only while it
-   is disabled, and skips otherwise.
+   is disabled, and skips otherwise; AM4 changes its lifetimes and restores them. With no safe toggle in the tenant the scenario skips.
 3. **Restore exactly.** The scenario first deploys the snapshot values back with EARM; then, in a `finally`, the guard PATCHes (with the method's
    `@odata.type`) every top-level property whose live value differs from the snapshot and re-reads until every property equals the snapshot
    (OData annotations ignored, arrays compared as sets; up to 60 s). The fixture teardown repeats this for every snapshot still pending, also after a
@@ -320,6 +321,7 @@ A probe asserts an assumption the code makes and names the file to change; the o
 | `AM1` URL segments (`AuthMethodProbes`, read-only) | `GET …/authenticationMethodConfigurations/{PascalCase id}` answers each method with the id and `@odata.type` of the method table; the camelCase segment, the property names, the nested `@odata.type` paths and the FIDO2 legacy / passkey profile properties are **recorded** | `src/EArm.Core/Validation/AuthenticationMethodConfigurationRules.cs` |
 | `AM2` PATCH shape | a PATCH with the derived `@odata.type` works and resending the live `includeTargets` (nested `@odata.type` included) is accepted; the answer to a PATCH **without** `@odata.type` is **recorded** | `AuthenticationMethodConfigurationsProvider.cs` (`UpdateAsync`), `AuthenticationMethodConfigurationsShape.cs` |
 | `AM3` reset | `DELETE` of a disabled Temporary Access Pass is accepted and the configuration still exists afterwards; what the reset changed is **recorded** | `AuthenticationMethodConfigurationRules.cs` (`CanReset`), `AuthenticationMethodConfigurationsProvider.DeleteAsync` |
+| `AM4` lifetime PATCH sticks | **observation only**: a Temporary Access Pass PATCH of `minimumLifetimeInMinutes` alone, then of the three lifetimes, each re-read for 60 s; whether the values stick, and the method's state, are **recorded** | `AuthMethodScenarioTests.IsTemporaryAccessPassToggleSafe`, docs/providers.md |
 | `PP1` group policy onboarding (`PimPolicyProbes`) | the assignment lookup of a new, not yet onboarded group is not refused (whether the policy is listed before onboarding, the scopeId+scopeType filter and whether the policy id changes on onboarding are **recorded**), and the member policy is listed within 180 s of the first eligibility request | `RoleManagementPolicyLookup.FindAsync`, `RoleManagementPoliciesProvider` (`PlanMissing`), docs/pim.md |
 | `PP2` rule PATCH shape | the provider's rule body (`@odata.type` first, `ruleType` dropped, nulls left out) for the live Message Center Reader expiration rule is accepted; the answer to the same PATCH **without** `@odata.type` is **recorded** | `RoleManagementPolicyShape.ToGraph` |
 | `PP3` approvers | after an approval rule PATCH with a prefixed approvers group, the rule read back compares equal to the declaration the way Plan compares it; whether Graph accepts a subject set with `description` and echoes `isBackup` / `description` is **recorded** | `RoleManagementPolicyShape.cs` (`Comparable`, `ApproverToArm`) |

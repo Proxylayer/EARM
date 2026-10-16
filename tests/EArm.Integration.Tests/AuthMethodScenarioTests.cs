@@ -11,8 +11,8 @@ namespace EArm.Integration.Tests;
 
 /// <summary>
 /// The authentication method configuration round trip through the CLI, under the restore guard (<see cref="AuthMethodRestoreGuard"/>): needs
-/// <c>EARM_IT_ALLOW_AUTH_METHODS=1</c>. The live configurations are snapshotted first; the test changes ONLY safe toggles (Temporary Access Pass length and
-/// lifetimes; the AAGUID list of a FIDO2 key restriction that is not enforced, in a tenant without passkey profiles; Software OATH's state, only when it
+/// <c>EARM_IT_ALLOW_AUTH_METHODS=1</c>. The live configurations are snapshotted first; the test changes ONLY safe toggles (Temporary Access Pass lifetimes,
+/// only when the method is enabled: Graph accepts a lifetime PATCH of a disabled one with 204 but keeps serving the old values, probe AM4; the AAGUID list of a FIDO2 key restriction that is not enforced, in a tenant without passkey profiles; Software OATH's state, only when it
 /// is disabled), deploys the snapshot values back with EARM, and the guard verifies (and if needed restores) every snapshot in a <c>finally</c>; the
 /// fixture restores again at teardown. No method the tenant uses is ever disabled and no target is ever declared.
 /// </summary>
@@ -48,6 +48,9 @@ public sealed class AuthMethodScenarioTests : IntegrationTestBase
             var changed = Variant(snapshots, change: true, notes);
             var original = Variant(snapshots, change: false, notes: null);
             notes.ForEach(Observe);
+            var toggled = Toggled(snapshots);
+            Assert.SkipWhen(toggled.Count == 0, "No authentication method has a safe toggle in this tenant: " + string.Join(" ", notes));
+            bool tapToggled = toggled.Contains("temporaryAccessPass");
             var run = Fixture.NewRun("authm", "auth-methods.entra.json");
             var changedRun = run.WithTemplate(TemplateEditor.Write(Fixture.ScratchDirectory, "auth-methods.changed.entra.json", changed));
             var originalRun = run.WithTemplate(TemplateEditor.Write(Fixture.ScratchDirectory, "auth-methods.original.entra.json", original));
@@ -56,20 +59,27 @@ public sealed class AuthMethodScenarioTests : IntegrationTestBase
             await AssertNoChangesEventuallyAsync(() => Fixture.Cli.WhatIfAsync(originalRun, Ct, "--exit-code-on-changes"), "what-if of the snapshot values");
 
             var preview = await Fixture.Cli.WhatIfAsync(changedRun, Ct, "--exit-code-on-changes");
-            AssertChange(preview, "/temporaryAccessPass", "Modify", "what-if of the safe toggles");
+            foreach (string method in toggled)
+            {
+                AssertChange(preview, "/" + method, "Modify", "what-if of the safe toggles");
+            }
+
             AssertCreated(await Fixture.Cli.CreateAsync(changedRun, Ct), "create with the safe toggles");
 
             // Graph accepts the PATCH (204) and serves the previous values for a while: every read-back waits (up to ~60 s) for the declared values.
-            var declaredTap = Declared(changed, "temporaryAccessPass").ToList();
-            var tap = await EventuallyAsync(
-                () => ReadAsync("temporaryAccessPass"),
-                live => declaredTap.All(d => AuthMethodRestoreGuard.Canonical(live[d.Key]) == AuthMethodRestoreGuard.Canonical(d.Value)),
-                seconds: 60);
-            foreach (var (name, value) in declaredTap)
+            if (tapToggled)
             {
-                Assert.True(
-                    AuthMethodRestoreGuard.Canonical(tap[name]) == AuthMethodRestoreGuard.Canonical(value),
-                    $"temporaryAccessPass.{name}: expected {value?.ToJsonString()} but read {tap[name]?.ToJsonString()}");
+                var declaredTap = Declared(changed, "temporaryAccessPass").ToList();
+                var tap = await EventuallyAsync(
+                    () => ReadAsync("temporaryAccessPass"),
+                    live => declaredTap.All(d => AuthMethodRestoreGuard.Canonical(live[d.Key]) == AuthMethodRestoreGuard.Canonical(d.Value)),
+                    seconds: 60);
+                foreach (var (name, value) in declaredTap)
+                {
+                    Assert.True(
+                        AuthMethodRestoreGuard.Canonical(tap[name]) == AuthMethodRestoreGuard.Canonical(value),
+                        $"temporaryAccessPass.{name}: expected {value?.ToJsonString()} but read {tap[name]?.ToJsonString()}");
+                }
             }
 
             if (HasResource(changed, "fido2"))
@@ -90,7 +100,12 @@ public sealed class AuthMethodScenarioTests : IntegrationTestBase
             await AssertNoChangesEventuallyAsync(() => Fixture.Cli.WhatIfAsync(changedRun, Ct, "--exit-code-on-changes"), "rerun of the safe toggles");
 
             // Back to the snapshot with EARM itself: a Modify that the guard then finds already restored.
-            AssertChange(await Fixture.Cli.WhatIfAsync(originalRun, Ct, "--exit-code-on-changes"), "/temporaryAccessPass", "Modify", "what-if back to the snapshot");
+            var back = await Fixture.Cli.WhatIfAsync(originalRun, Ct, "--exit-code-on-changes");
+            foreach (string method in toggled)
+            {
+                AssertChange(back, "/" + method, "Modify", "what-if back to the snapshot");
+            }
+
             AssertCreated(await Fixture.Cli.CreateAsync(originalRun, Ct), "create back to the snapshot");
             await AssertNoChangesEventuallyAsync(() => Fixture.Cli.WhatIfAsync(originalRun, Ct, "--exit-code-on-changes"), "rerun of the snapshot values");
             foreach (string method in Methods)
@@ -122,6 +137,12 @@ public sealed class AuthMethodScenarioTests : IntegrationTestBase
         var template = TemplateEditor.Load(IntegrationFixture.TemplatePath("auth-methods.entra.json"));
         bool fido2Safe = IsFido2ToggleSafe(snapshots["fido2"], out string fido2Reason);
         bool oathSafe = string.Equals(snapshots["softwareOath"].Text("state"), "disabled", StringComparison.OrdinalIgnoreCase);
+        bool tapSafe = IsTemporaryAccessPassToggleSafe(snapshots["temporaryAccessPass"]);
+        if (!tapSafe)
+        {
+            notes?.Add($"temporaryAccessPass declared at its live values: its state is '{snapshots["temporaryAccessPass"].Text("state")}', and Graph accepts a lifetime PATCH of a disabled method (204) but keeps serving the old values (probe AM4).");
+        }
+
         if (!fido2Safe)
         {
             notes?.Add("fido2 left out: " + fido2Reason);
@@ -151,7 +172,7 @@ public sealed class AuthMethodScenarioTests : IntegrationTestBase
                     var lifetimes = new[] { (Min: 60, Default: 60, Max: 480), (Min: 15, Default: 30, Max: 120) }.First(c => c != (live.Min, live.Default, live.Max));
                     // defaultLength is declared at its live value, never toggled: the real tenant accepted a PATCH of 8 -> 9 (204, within the documented
                     // 8-48) but a GET still answered 8 more than 60 s later; the toggle relies on the lifetimes (within their documented bounds) instead.
-                    (int Length, int Min, int Default, int Max) values = change ? (live.Length, lifetimes.Min, lifetimes.Default, lifetimes.Max) : live;
+                    (int Length, int Min, int Default, int Max) values = change && tapSafe ? (live.Length, lifetimes.Min, lifetimes.Default, lifetimes.Max) : live;
                     properties["defaultLength"] = values.Length;
                     properties["minimumLifetimeInMinutes"] = values.Min;
                     properties["defaultLifetimeInMinutes"] = values.Default;
@@ -175,6 +196,37 @@ public sealed class AuthMethodScenarioTests : IntegrationTestBase
         }
 
         return template;
+    }
+
+    /// <summary>The methods <see cref="Variant"/> changes in this tenant (in template order).</summary>
+    internal static IReadOnlyList<string> Toggled(IReadOnlyDictionary<string, JsonObject> snapshots)
+    {
+        var toggled = new List<string>();
+        if (IsTemporaryAccessPassToggleSafe(snapshots["temporaryAccessPass"]))
+        {
+            toggled.Add("temporaryAccessPass");
+        }
+
+        if (IsFido2ToggleSafe(snapshots["fido2"], out _))
+        {
+            toggled.Add("fido2");
+        }
+
+        if (string.Equals(snapshots["softwareOath"].Text("state"), "disabled", StringComparison.OrdinalIgnoreCase))
+        {
+            toggled.Add("softwareOath");
+        }
+
+        return toggled;
+    }
+
+    /// <summary>
+    /// The Temporary Access Pass lifetimes are toggled only while the method is enabled: the real tenant accepted a PATCH of a disabled method's lifetimes
+    /// (and of its defaultLength) with 204 but kept serving the old values for more than 60 s (probe AM4 records the current behaviour).
+    /// </summary>
+    internal static bool IsTemporaryAccessPassToggleSafe(JsonObject temporaryAccessPass)
+    {
+        return string.Equals(temporaryAccessPass.Text("state"), "enabled", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>

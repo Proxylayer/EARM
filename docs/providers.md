@@ -465,8 +465,12 @@ Comparison and bodies:
   the certificate default and rule modes (`x509CertificateSingleFactor` / `x509CertificateMultiFactor`), and an `id` on every target and passkey profile.
 - Graph answers the PATCH with 204 and serves the previous values for a while; the update reads again every 5 s for up to 90 s until the declared values
   show, then takes the last read as it is (the update never fails on it; a rerun shows any remaining drift). Observed in a test tenant: a PATCH of
-  Temporary Access Pass `defaultLength` 8 → 9 (inside the documented 8–48) was accepted, but a GET still answered 8 more than 60 s later; Learn documents
-  no further constraint on `defaultLength`, so EARM sends it as declared and the integration test toggles the lifetimes instead.
+  Temporary Access Pass `defaultLength` 8 → 9 (inside the documented 8–48) was accepted, and later `minimumLifetimeInMinutes` 60 → 15 (with default 30
+  and maximum 120), but a GET still answered the old values more than 60 s later. In both cases the method's `state` was `disabled`: Graph appears to
+  accept, but not apply, property changes of a disabled Temporary Access Pass (Learn documents no such rule; probe AM4 re-checks it, PATCHing a lifetime
+  alone and the three together and re-reading each for 60 s). The PATCH body is the documented one (`@odata.type` plus the changed top-level properties),
+  so EARM sends the change as declared; a rerun of a disabled method then still shows the drift (whether a PATCH that enables the method and changes the
+  values together applies them is not verified yet). The integration scenario toggles the lifetimes only while the method is enabled.
 
 `deployment delete` treats a kept method like a protected object: it is listed as `[kept: not deletable]`, its outcome is `Refused` with
 `errorCode: NotDeletable`, and it does **not** fail the command. A template that also manages `sms` (say) must stay deletable: a refusal that failed the
