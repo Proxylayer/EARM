@@ -77,6 +77,38 @@ public sealed class HttpGraphClientResponseTests
         Assert.Equal(18, lagging.Delays.Delays.Count);
     }
 
+    [Fact]
+    public async Task AConditionalAccessCreateNamingANamedLocationThatHasNotReplicatedIsRetriedUnderReplicationLag()
+    {
+        // The real tenant answer to a CA policy POST sent 0.7 s after its named location was created.
+        const string body = "{\"error\":{\"code\":\"BadRequest\",\"message\":\"1040: NamedLocation with id 071774e8-8656-4733-9914-e564af5f3d93 does not exist in the directory.\"}}";
+        using var harness = new ClientHarness(new ScriptedHttpHandler(
+            ScriptedResponse.Json(body, HttpStatusCode.BadRequest),
+            ScriptedResponse.Json(body, HttpStatusCode.BadRequest),
+            ScriptedResponse.Json("{\"id\":\"p1\"}", HttpStatusCode.Created)));
+
+        var response = await harness.Client.PostAsync(new GraphRequest("/identity/conditionalAccess/policies").WithHint(RetryHint.ExpectReplicationLag), new JsonObject(), Ct);
+
+        Assert.True(response.IsCreated);
+        Assert.Equal(3, harness.Handler.Requests.Count);
+        Assert.Equal([TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5)], harness.Delays.Delays);
+    }
+
+    [Fact]
+    public async Task TheSameConditionalAccessAnswerWithoutTheReplicationHintFailsAtOnce()
+    {
+        const string body = "{\"error\":{\"code\":\"BadRequest\",\"message\":\"1040: NamedLocation with id 071774e8-8656-4733-9914-e564af5f3d93 does not exist in the directory.\"}}";
+        using var harness = new ClientHarness(new ScriptedHttpHandler(ScriptedResponse.Json(body, HttpStatusCode.BadRequest)));
+
+        var error = await Assert.ThrowsAsync<GraphException>(() => harness.Client.PostAsync(new GraphRequest("/identity/conditionalAccess/policies"), new JsonObject(), Ct));
+
+        Assert.Equal(HttpStatusCode.BadRequest, error.Status);
+        Assert.Equal("BadRequest", error.Code);
+        Assert.False(error.IsReplication);
+        Assert.Single(harness.Handler.Requests);
+        Assert.Empty(harness.Delays.Delays);
+    }
+
     [Theory]
     [InlineData(HttpStatusCode.BadRequest, "Request_BadRequest", false)]
     [InlineData(HttpStatusCode.Forbidden, "Authorization_RequestDenied", false)]

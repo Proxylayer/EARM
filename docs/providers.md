@@ -66,7 +66,7 @@ Rules every provider follows:
 
 1. **`ResourceInstance.RetryHint` goes on every write request** (`new GraphRequest(path, desired.Api, hint: desired.RetryHint)`):
    when a dependency was created in this run the executor sets `ExpectReplicationLag` and the Graph transport retries
-   404 / "does not reference a valid …" for up to 90 s. Reads use the default hint (a 404 on read means "create").
+   404 / "does not reference a valid …" / the Conditional Access API's "`NNNN: … with id … does not exist in the directory`" for up to 90 s. Reads use the default hint (a 404 on read means "create").
    A write that addresses an object *you* created a moment earlier (a second PATCH after a create) uses
    `RetryHint.ExpectReplicationLag` explicitly.
 2. **Read by the key, and only by the key.** EARM keeps no state, so there is no stored Graph id to try first: `ReadAsync` gets the

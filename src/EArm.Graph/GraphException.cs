@@ -136,7 +136,10 @@ public sealed partial class GraphException : Exception
         return AlreadyExistsPattern().IsMatch(message ?? string.Empty);
     }
 
-    /// <summary>The "replication" retry rows (404 not-found, or the listed 400 message fragments).</summary>
+    /// <summary>
+    /// The "replication" retry rows (404 not-found, or the listed 400 message fragments, including the Conditional Access API's numbered
+    /// "<c>NNNN: … with id … does not exist in the directory</c>" answers for a referenced object that has not replicated to it yet).
+    /// </summary>
     public static bool IsReplicationError(HttpStatusCode status, string code, string message)
     {
         if (status == HttpStatusCode.NotFound)
@@ -161,6 +164,9 @@ public sealed partial class GraphException : Exception
     [GeneratedRegex(@"already exists?\b|Permission entry already exists|Permission being assigned already exists|conflicting object .*? (?:is|are) present|One or more added object references already exist", RegexOptions.IgnoreCase)]
     private static partial Regex AlreadyExistsPattern();
 
-    [GeneratedRegex(@"does not exist or one of its queried reference-property objects are not present|source resource object|don'?t exist|doesn'?t exist|PrincipalNotFound|does not reference a valid application object|not found in the directory", RegexOptions.IgnoreCase)]
+    // The Conditional Access API answers a reference to an object it cannot see yet (a named location, authentication strength,
+    // authentication context, group, user or application created moments earlier) with a numbered 400 such as
+    // "1040: NamedLocation with id … does not exist in the directory." — the last two alternatives cover that family.
+    [GeneratedRegex(@"does not exist or one of its queried reference-property objects are not present|source resource object|don'?t exist|doesn'?t exist|PrincipalNotFound|does not reference a valid application object|not found in the directory|does not exist in the directory|^\s*\d{3,4}:.*\bdoes not exist\b", RegexOptions.IgnoreCase)]
     private static partial Regex ReplicationPattern();
 }

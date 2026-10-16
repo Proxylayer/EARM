@@ -158,7 +158,9 @@ load ──► validate ──► expand ──► graph ──► [per batch: r
   log is passed through `SecretScrubber.Scrub` first.
 - Replication lag: an instance whose dependency was **created in this run** carries
   `RetryHint.ExpectReplicationLag`; providers put it on their write requests (`GraphRequest.Hint`) so a 404 /
-  "does not reference a valid application object" is retried for up to 90 s. Reads use the default hint (a
+  "does not reference a valid application object" / the Conditional Access API's numbered "`1040: NamedLocation with id … does not
+  exist in the directory`" (a policy created moments after the named location, authentication strength or context it references) is
+  retried every 5 s for up to 90 s. Reads use the default hint (a
   404 on read means "create"). `HttpGraphClient` retries every call itself; `PlannerOptions.RetryPolicy` adds an
   outer policy only for tests that drive a fake client.
 - **Idempotency of writes** (`GraphRequest.Idempotent`, `BatchRequest.Idempotent`): GET, HEAD, PUT, DELETE and PATCH may be repeated
