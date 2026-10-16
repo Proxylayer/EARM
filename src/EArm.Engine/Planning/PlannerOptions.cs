@@ -26,6 +26,7 @@ public sealed record PlannerOptions
     /// <summary><c>--parallelism</c>: resources read/applied concurrently inside a batch.</summary>
     public int Parallelism { get; init; } = 4;
 
+    /// <summary><c>--allow-ca-enforce</c>: see <see cref="Providers.PlanOptions.AllowCaEnforce"/>.</summary>
     public bool AllowCaEnforce { get; init; }
 
     public SoftDeletedConflict OnSoftDeletedConflict { get; init; } = SoftDeletedConflict.Error;

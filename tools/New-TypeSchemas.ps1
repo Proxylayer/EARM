@@ -496,10 +496,10 @@ $filterRule = { param($what) Obj -d "Filter on $what." -Nullable -Required 'mode
 
 $specs['conditionalAccess.policies'] = [ordered]@{
     NamePattern = $uniqueNamePattern
-    Description = 'A conditional access policy. The resource name is the displayName; it is looked up by displayName on every run (more than one match is an error). state: enabled requires --allow-ca-enforce at deployment time. Reference users and groups by object id, applications by application (client) id, locations by named location id, roles by role template id.'
+    Description = 'A conditional access policy. The resource name is the displayName; it is looked up by displayName on every run (more than one match is an error). state: enabled is applied only with --allow-ca-enforce; without it a new policy is created report-only and an existing policy keeps its live state. Reference users and groups by object id, applications by application (client) id, locations by named location id, roles by role template id.'
     Props       = [ordered]@{
         displayName   = Str 'Set from the resource name; declaring it is only allowed when it equals the name.'
-        state         = Str 'Defaults to enabledForReportingButNotEnforced. enabled needs --allow-ca-enforce.' -Enum 'enabled', 'disabled', 'enabledForReportingButNotEnforced'
+        state         = Str 'Defaults to enabledForReportingButNotEnforced on create. enabled is applied only with --allow-ca-enforce (otherwise report-only on create, live state kept on update).' -Enum 'enabled', 'disabled', 'enabledForReportingButNotEnforced'
         conditions    = Obj -d 'Required: conditions.users and conditions.applications must each include at least one entry; clientAppTypes defaults to ["all"].' -Props (Props ([ordered]@{
             clientAppTypes   = StrArr 'Client app types the policy applies to.' -Enum 'all', 'browser', 'mobileAppsAndDesktopClients', 'exchangeActiveSync', 'easSupported', 'other' -Unique
             users            = Obj -d 'Users the policy applies to.' -Props (Props ([ordered]@{

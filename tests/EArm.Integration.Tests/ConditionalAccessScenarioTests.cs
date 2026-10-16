@@ -108,18 +108,19 @@ public sealed class ConditionalAccessScenarioTests : IntegrationTestBase
         AssertCreated(await Fixture.Cli.CreateAsync(run, Ct), "create after drift");
         Assert.Equal("enabledForReportingButNotEnforced", (await FindOneEventuallyAsync(Policies, "displayName", policyName, found => found?.Text("state") == "enabledForReportingButNotEnforced"))!.Text("state"));
 
-        // The enforce guard: state 'enabled' is refused without --allow-ca-enforce and the live policy stays report-only.
+        // The enforce rule: state 'enabled' without --allow-ca-enforce is held back (a warning, never an error): the existing policy keeps its
+        // live report-only state, so the row is NoChange and --exit-code-on-changes does not fire.
         var enforced = run.WithParameter("policyState", "enabled");
-        var guardedPreview = await Fixture.Cli.WhatIfAsync(enforced, Ct);
-        var policyRow = guardedPreview.Changes.FirstOrDefault(c => ((string?)c["resourceId"])?.EndsWith("/policies/" + policyName, StringComparison.OrdinalIgnoreCase) == true);
+        var heldBackPreview = await Fixture.Cli.WhatIfAsync(enforced, Ct, "--exit-code-on-changes");
+        var policyRow = heldBackPreview.Changes.FirstOrDefault(c => ((string?)c["resourceId"])?.EndsWith("/policies/" + policyName, StringComparison.OrdinalIgnoreCase) == true);
         Assert.NotNull(policyRow);
-        Assert.True(
-            ((string?)policyRow["unsupportedReason"] ?? string.Empty).Contains("--allow-ca-enforce", StringComparison.Ordinal),
-            "The what-if row of an 'enabled' policy does not name --allow-ca-enforce: " + policyRow.ToJsonString());
+        Assert.True((string?)policyRow["changeType"] == "NoChange", "The what-if row of a held-back 'enabled' policy is not NoChange: " + policyRow.ToJsonString());
+        Assert.Contains("ConditionalAccessEnforcementNotAllowed", heldBackPreview.Combined, StringComparison.Ordinal);
+        AssertExit(0, heldBackPreview, "what-if of a held-back 'enabled' policy");
 
-        var refused = await Fixture.Cli.CreateAsync(enforced, Ct);
-        Assert.NotEqual(0, refused.ExitCode);
-        Assert.Contains("--allow-ca-enforce", refused.Combined, StringComparison.Ordinal);
+        var heldBack = await Fixture.Cli.CreateAsync(enforced, Ct);
+        AssertExit(0, heldBack, "create of a held-back 'enabled' policy");
+        Assert.Contains("ConditionalAccessEnforcementNotAllowed", heldBack.Combined, StringComparison.Ordinal);
         Assert.Equal("enabledForReportingButNotEnforced", (await FindOneAsync(Policies, "displayName", policyName))!.Text("state"));
 
         AssertExit(0, await Fixture.Cli.DeleteAllAsync(run, Ct), "deployment delete");

@@ -44,40 +44,51 @@ public sealed class Review3I_MutantTests
     [InlineData(" enabled ")]
     [InlineData("ENABLED")]
     [InlineData("\tEnabled\n")]
-    public void AFinalBodyWithAnEnabledStateIsBlockedWithoutTheEnforceFlag(string state)
+    public void AFinalBodyWithAnEnabledStateIsHeldBackWithoutTheEnforceFlag(string state)
     {
-        var body = Policy(state, AllUsersAllApps);
+        var patch = Policy(state, AllUsersAllApps);
+        Assert.NotNull(ConditionalAccessPoliciesRules.HoldBackEnforcement(patch, J("""{ "state": "disabled" }"""), allowCaEnforce: false, isCreate: false));
+        Assert.False(patch.ContainsKey("state"));
 
-        Assert.Contains(ConditionalAccessPoliciesRules.FinalBodyProblems(body, GraphApi.V1, allowCaEnforce: false, isCreate: false), p => p.Contains("--allow-ca-enforce", StringComparison.Ordinal));
-        Assert.Empty(ConditionalAccessPoliciesRules.FinalBodyProblems(body, GraphApi.V1, allowCaEnforce: true, isCreate: false));
+        var create = Policy(state, AllUsersAllApps);
+        Assert.NotNull(ConditionalAccessPoliciesRules.HoldBackEnforcement(create, null, allowCaEnforce: false, isCreate: true));
+        Assert.Equal(ConditionalAccessPoliciesRules.DefaultState, create["state"]!.GetValue<string>());
+
+        var allowed = Policy(state, AllUsersAllApps);
+        Assert.Null(ConditionalAccessPoliciesRules.HoldBackEnforcement(allowed, null, allowCaEnforce: true, isCreate: true));
+        Assert.Equal(state, allowed["state"]!.GetValue<string>());
     }
 
     [Theory]
     [InlineData("disabled")]
     [InlineData("enabledForReportingButNotEnforced")]
-    public void AFinalBodyThatIsNotEnforcedPassesTheGuard(string state)
+    public void AFinalBodyThatIsNotEnforcedIsNotHeldBack(string state)
     {
-        Assert.Empty(ConditionalAccessPoliciesRules.FinalBodyProblems(Policy(state, AllUsersAllApps), GraphApi.V1, allowCaEnforce: false, isCreate: false));
+        var body = Policy(state, AllUsersAllApps);
+        Assert.Null(ConditionalAccessPoliciesRules.HoldBackEnforcement(body, J("""{ "state": "disabled" }"""), allowCaEnforce: false, isCreate: false));
+        Assert.Equal(state, body["state"]!.GetValue<string>());
     }
 
     // CA07
     [Fact]
     public void ACreateBodyReportsEachProblemOnce()
     {
-        var body = Policy("enabled", AllUsersAllApps);
+        var body = Policy("enabled", AllUsersAllApps, """["block"]""");
 
-        var problems = ConditionalAccessPoliciesRules.FinalBodyProblems(body, GraphApi.V1, allowCaEnforce: false, isCreate: true);
+        var problems = ConditionalAccessPoliciesRules.FinalBodyProblems(body, GraphApi.V1, isCreate: true);
 
-        Assert.Single(problems, p => p.Contains("--allow-ca-enforce", StringComparison.Ordinal));
+        Assert.Single(problems, p => p.Contains("lockout risk", StringComparison.Ordinal));
+        Assert.DoesNotContain(problems, p => p.Contains("--allow-ca-enforce", StringComparison.Ordinal));
         Assert.Equal(problems.Count, problems.Distinct(StringComparer.Ordinal).Count());
+        Assert.Empty(ConditionalAccessPoliciesRules.FinalBodyProblems(body, GraphApi.V1, isCreate: false));
     }
 
     [Fact]
-    public void ACreateBodyAddsTheStructuralProblemsAfterTheStateGuard()
+    public void ACreateBodyReportsTheStructuralProblems()
     {
         var body = J("""{ "state": "enabled" }""");
 
-        var problems = ConditionalAccessPoliciesRules.FinalBodyProblems(body, GraphApi.V1, allowCaEnforce: false, isCreate: true);
+        var problems = ConditionalAccessPoliciesRules.FinalBodyProblems(body, GraphApi.V1, isCreate: true);
 
         Assert.Contains(problems, p => p.Contains("conditions is required", StringComparison.Ordinal));
         Assert.Equal(problems.Count, problems.Distinct(StringComparer.Ordinal).Count());
@@ -91,9 +102,9 @@ public sealed class Review3I_MutantTests
         string allApps = """{ "users": { "includeUsers": ["All"] }, "applications": { "includeApplications": ["All"] }, "clientAppTypes": ["all"] }""";
         string specificUsers = """{ "users": { "includeUsers": ["11111111-2222-3333-4444-555555555555"] }, "applications": { "includeApplications": ["All"] }, "clientAppTypes": ["all"] }""";
 
-        Assert.DoesNotContain(ConditionalAccessPoliciesRules.Problems(Policy("disabled", specificApp, """["block"]"""), GraphApi.V1, false), p => p.Contains("lockout", StringComparison.Ordinal));
-        Assert.DoesNotContain(ConditionalAccessPoliciesRules.Problems(Policy("disabled", specificUsers, """["block"]"""), GraphApi.V1, false), p => p.Contains("lockout", StringComparison.Ordinal));
-        Assert.Contains(ConditionalAccessPoliciesRules.Problems(Policy("disabled", allApps, """["block"]"""), GraphApi.V1, false), p => p.Contains("lockout", StringComparison.Ordinal));
+        Assert.DoesNotContain(ConditionalAccessPoliciesRules.Problems(Policy("disabled", specificApp, """["block"]"""), GraphApi.V1), p => p.Contains("lockout", StringComparison.Ordinal));
+        Assert.DoesNotContain(ConditionalAccessPoliciesRules.Problems(Policy("disabled", specificUsers, """["block"]"""), GraphApi.V1), p => p.Contains("lockout", StringComparison.Ordinal));
+        Assert.Contains(ConditionalAccessPoliciesRules.Problems(Policy("disabled", allApps, """["block"]"""), GraphApi.V1), p => p.Contains("lockout", StringComparison.Ordinal));
     }
 
     // ---- deleted-items probe ----

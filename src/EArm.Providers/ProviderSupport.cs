@@ -31,6 +31,9 @@ public static class ProviderWarnings
     /// <summary>No group holds the declared uniqueName, and exactly one group without a uniqueName carries the declared displayName: it is adopted and its uniqueName is set.</summary>
     public const string GroupAdoptedByDisplayName = EngineDiagnosticCodes.GroupAdoptedByDisplayName;
 
+    /// <summary>A conditional access policy declares <c>state: enabled</c> without <c>--allow-ca-enforce</c>: created report-only, or an existing policy's live state is kept.</summary>
+    public const string ConditionalAccessEnforcementNotAllowed = EngineDiagnosticCodes.ConditionalAccessEnforcementNotAllowed;
+
     /// <summary>A <c>addPassword</c> call failed ambiguously and a credential with the same name that EARM did not record exists: it is reported, never removed.</summary>
     public const string PasswordCredentialOrphaned = EngineDiagnosticCodes.PasswordCredentialOrphaned;
 

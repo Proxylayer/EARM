@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -13,7 +14,8 @@ namespace EArm.Engine.WhatIf;
 /// <summary>
 /// The ARM-shaped what-if JSON: <c>status</c>, <c>deploymentName</c>, <c>tenantId</c>,
 /// <c>mode</c>, <c>changes[]</c> (<c>resourceId</c>, <c>changeType</c> (<c>Unsupported</c> when the row has an <c>unsupportedReason</c>), <c>before</c>, <c>after</c>, <c>delta[]</c>
-/// with <c>path</c> / <c>propertyChangeType</c> / <c>before</c> / <c>after</c> / <c>children</c>,
+/// with <c>path</c> / <c>propertyChangeType</c> / <c>before</c> / <c>after</c> / <c>children</c> / <c>note</c> (EARM: why a declared value is held back;
+/// a <c>NoChange</c> row carries a <c>delta</c> only for such noted deltas),
 /// <c>unsupportedReason</c>) and <c>diagnostics[]</c>, plus EARM's extensions: <c>reasons[]</c> per change,
 /// <c>orphan</c> (<c>undeclared</c> / <c>retained</c>) and <c>graphId</c> on the <c>Ignore</c> rows of the orphan report,
 /// <c>summary</c> (with <c>orphans</c>), <c>requiredPermissions[]</c> and <c>unresolvedReferences[]</c>. Secure values are <c>***</c> and
@@ -139,6 +141,11 @@ public static class WhatIfJson
             {
                 json["delta"] = BuildDeltas(row.Deltas, JsonPath.Root);
             }
+            else if (row.Type == ChangeType.NoChange && row.Deltas.Any(d => d.Note is not null))
+            {
+                // A NoChange row carries only the deltas a provider held back with a note (why a declared value is not applied).
+                json["delta"] = BuildDeltas(row.Deltas.Where(d => d.Note is not null).ToList(), JsonPath.Root);
+            }
         }
 
         if (row.Change.Orphan is { } orphan)
@@ -189,6 +196,11 @@ public static class WhatIfJson
             if (delta.Children is { Count: > 0 } children)
             {
                 item["children"] = BuildDeltas(children, delta.Path);
+            }
+
+            if (delta.Note is { } note)
+            {
+                item["note"] = note;
             }
 
             array.Add(item);

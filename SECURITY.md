@@ -83,7 +83,7 @@ Templates and parameter files can arrive from a pull request, a shared directory
   anywhere above its folder, is refused.
 - **Untrusted text is made safe before it is printed.** Control characters, terminal escape sequences, bidirectional overrides and CI log-command prefixes
   (`##vso[`, `##[`, `::`) in names and values are escaped or neutralised on both streams ([docs/cli.md](docs/cli.md#output-errors-and-prompts)).
-- **Conditional Access guard.** A policy with `state: enabled` is refused without `--allow-ca-enforce`, so a template cannot silently lock administrators out.
+- **Conditional Access guard.** A policy's declared `state: enabled` is applied only with `--allow-ca-enforce`; without it a new policy is created report-only and an existing policy keeps its live state (warning `ConditionalAccessEnforcementNotAllowed`), so a template cannot silently lock administrators out.
 
 ### How secrets are handled
 

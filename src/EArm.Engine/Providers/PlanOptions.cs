@@ -18,7 +18,10 @@ public sealed record PlanOptions
 
     public PlanMode PlanMode { get; init; } = PlanMode.WhatIf;
 
-    /// <summary><c>--allow-ca-enforce</c>: a Conditional Access policy may be deployed with <c>state: enabled</c>.</summary>
+    /// <summary>
+    /// <c>--allow-ca-enforce</c>: a Conditional Access policy's declared <c>state: enabled</c> is applied. Without it the enforcement is held back
+    /// (a new policy is created report-only, an existing policy keeps its live state) with a <c>ConditionalAccessEnforcementNotAllowed</c> warning.
+    /// </summary>
     public bool AllowCaEnforce { get; init; }
 
     public SoftDeletedConflict OnSoftDeletedConflict { get; init; } = SoftDeletedConflict.Error;

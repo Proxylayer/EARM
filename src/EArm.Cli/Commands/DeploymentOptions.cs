@@ -104,7 +104,7 @@ internal sealed class DeploymentOptions
 
     public Option<bool> AllowCaEnforce { get; } = new("--allow-ca-enforce")
     {
-        Description = "Allow Conditional Access policies with state 'enabled' (default: report-only or disabled only).",
+        Description = "Apply a Conditional Access policy's declared state 'enabled'. Without it the enforcement is held back with a warning: a new policy is created report-only, an existing policy keeps its live state.",
     };
 
     public Option<string> OnSoftDeletedConflict { get; } = CreateChoice("--on-soft-deleted-conflict", "What to do when the key of a resource to create is held by a soft-deleted object.", "error", "error", "restore");
