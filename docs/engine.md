@@ -81,7 +81,11 @@ load ──► validate ──► expand ──► graph ──► [per batch: r
    `secretTextAvailable: false` (`LiveSecrets`); the executor traces which published objects each output's
    `reference()` calls touched, and an output whose value is (or contains) that `null` is reported as `null` with
    the `SecretNotAvailableOnRerun` warning and left out of the secure outputs file. The run still succeeds. Change
-   `rotationTag` to rotate the credential and obtain a new secret.
+   `rotationTag` to rotate the credential and obtain a new secret. A user's initial password
+   (`reference(...).passwordProfile.password`) works the same way with its own marker: on every run that does not create
+   the user (no change, update, a restore) `UsersProvider` publishes `passwordProfile.password: null` plus
+   `initialPasswordAvailable: false`, so an `<localPart>InitialPassword` output is `null` with the same warning instead of
+   failing the run with `OutputEvaluationFailed`.
 9. **Orphan report** (`OrphanReport`, after the outputs; read-only): the live objects of the declared types that no declared
    resource matches by key are listed in `DeploymentResult.Orphans` (`ResourceChange.Orphan`: `Undeclared` in Complete mode, `Retained` for
    assignments and grants of declared principals in both modes). **Nothing is ever deleted**: Complete mode only reports. See
@@ -523,8 +527,9 @@ public interface IResourceProvider
 - `PlanOptions`: deployment-wide knobs for `Plan` (`Mode`, `PlanMode`, `AllowCaEnforce`, `OnSoftDeletedConflict`).
   Read-only for providers. There is no earlier-run input: whatever the diff needs must be on the live object (password credentials
   carry their `rotationTag` in the live `displayName` for that reason).
-- `LiveSecrets`: the marker contract for one-time secrets (`secretText` / `secretTextAvailable`) between a provider's
-  published live object and the output evaluation (pipeline step 8).
+- `LiveSecrets`: the marker contract for one-time secrets (`secretText` / `secretTextAvailable`, and a user's
+  `passwordProfile.password` / `initialPasswordAvailable`) between a provider's published live object and the output
+  evaluation (pipeline step 8).
 - `ResourceChange` / `PropertyDelta`: ARM what-if vocabulary (`Create | Modify | Delete | NoChange | Ignore`,
   modes `Create | Patch | Recreate | Delete | None`, property kinds `Create | Delete | Modify | Array | NoEffect`),
   `Before` / `After` rendering copies (secrets `***`, unknowns `(deploy-time)`), `UnsupportedReason` when the

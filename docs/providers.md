@@ -302,8 +302,10 @@ Type-specific rules (`UsersRules`, `UsersLicensing`, pure):
   the plain text exists in the `POST /users` body alone. Without a declared password a random 24-character one is
   generated at create time. Either way it is published on the live object as a secret, so
   `[reference('alice@contoso.com').passwordProfile.password]` can feed a `securestring` output in the creating run
-  (convention: `<localPart>InitialPassword`); later runs cannot read it. A generated password is also written to the secure
-  outputs file (`oneTimeSecrets`) right after the create; nothing else keeps it.
+  (convention: `<localPart>InitialPassword`); later runs cannot read it: on every run that does not create the user the
+  live object carries `passwordProfile.password: null` with `initialPasswordAvailable: false` (`LiveSecrets`), so that
+  output is `null` with the `SecretNotAvailableOnRerun` warning and the run still succeeds. A generated password is also
+  written to the secure outputs file (`oneTimeSecrets`) right after the create; nothing else keeps it.
 - `userPrincipalName` is immutable: a live user whose UPN differs from the name is an unsupported change.
 - `assignedLicenses` reconciles the declared list against the **direct** assignments only
   (`licenseAssignmentStates[].assignedByGroup == null`), so group-inherited licenses are never removed from the user side;

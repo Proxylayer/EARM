@@ -19,7 +19,10 @@ namespace EArm.Engine.Providers;
 /// <c>null</c> with the <see cref="EngineDiagnosticCodes.SecretNotAvailableOnRerun"/> warning, as <c>null</c>, and
 /// leaves it out of the secure outputs file.</item>
 /// </list>
-/// The marker is never persisted (it lives in the published live object only).
+/// A user's initial password (<c>passwordProfile.password</c>) follows the same contract with its own marker,
+/// <see cref="InitialPasswordAvailabilityMarker"/>: published in the creating run, <c>null</c> with the marker <c>false</c> on every
+/// other run (Graph never returns a password).
+/// The markers are never persisted (they live in the published live object only).
 /// </summary>
 public static class LiveSecrets
 {
@@ -29,11 +32,31 @@ public static class LiveSecrets
     /// <summary>Boolean marker next to <see cref="SecretTextProperty"/>: <c>false</c> when the secret is not available in this run.</summary>
     public const string AvailabilityMarker = "secretTextAvailable";
 
+    /// <summary>Boolean marker on a published user: <c>false</c> when its initial password (<c>passwordProfile.password</c>) is not available in this run.</summary>
+    public const string InitialPasswordAvailabilityMarker = "initialPasswordAvailable";
+
     /// <summary>True when <paramref name="live"/> is a published object whose secret is not available in this run.</summary>
     public static bool IsSecretTextUnavailable(JsonNode? live)
     {
+        return IsMarkedUnavailable(live, AvailabilityMarker);
+    }
+
+    /// <summary>True when <paramref name="live"/> is a published user whose initial password is not available in this run.</summary>
+    public static bool IsInitialPasswordUnavailable(JsonNode? live)
+    {
+        return IsMarkedUnavailable(live, InitialPasswordAvailabilityMarker);
+    }
+
+    /// <summary>True when <paramref name="live"/> carries any one-time secret (<c>secretText</c>, an initial password) that is not available in this run.</summary>
+    public static bool IsOneTimeSecretUnavailable(JsonNode? live)
+    {
+        return IsSecretTextUnavailable(live) || IsInitialPasswordUnavailable(live);
+    }
+
+    private static bool IsMarkedUnavailable(JsonNode? live, string markerName)
+    {
         return live is JsonObject obj
-            && JsonObjects.TryGetIgnoreCase(obj, AvailabilityMarker, out var marker)
+            && JsonObjects.TryGetIgnoreCase(obj, markerName, out var marker)
             && marker is JsonValue value
             && !SecretJson.IsSecret(value)
             && !UnknownJson.IsUnknown(value)

@@ -1134,7 +1134,7 @@ public sealed class DeploymentExecutor
                         string sources = string.Join(", ", trace.UnavailableSecrets.Select(id => $"'{id.Id}'"));
                         AddDiagnostic(Diagnostic.Warning(
                             EngineDiagnosticCodes.SecretNotAvailableOnRerun,
-                            $"Output '{output.Name}' is null: the secret of {sources} is only available in the run that creates it (Graph returns secretText once and it was not rotated in this run). The output is reported as null and left out of the secure outputs file; change rotationTag to rotate the credential and obtain a new secret.",
+                            $"Output '{output.Name}' is null: the secret of {sources} is only available in the run that creates it ({UnavailableSecretDetail(trace)}). The output is reported as null and left out of the secure outputs file.",
                             valuePath,
                             document.LocationOf(valuePath),
                             document.SourcePath));
@@ -1161,6 +1161,23 @@ public sealed class DeploymentExecutor
             return (outputs, secure);
         }
 
+        /// <summary>Why the secrets an output read are not available, and what to do about it, per kind (password credential, user).</summary>
+        private static string UnavailableSecretDetail(SecretAvailabilityTrace trace)
+        {
+            var parts = new List<string>(2);
+            if (trace.UnavailableSecretTexts)
+            {
+                parts.Add("Graph returns a password credential's secretText once and it was not rotated in this run; change rotationTag to rotate the credential and obtain a new secret");
+            }
+
+            if (trace.UnavailableInitialPasswords)
+            {
+                parts.Add("Graph never returns a user's password, so the initial password is only known in the run that creates the user; it is in the secure outputs file of that run");
+            }
+
+            return string.Join("; ", parts);
+        }
+
         private void OutputError(TemplateDocument document, string name, JsonPath path, string detail)
         {
             AddDiagnostic(Diagnostic.Error(EngineDiagnosticCodes.OutputEvaluationFailed, $"Output '{name}' could not be evaluated: {detail}", path, document.LocationOf(path), document.SourcePath));
@@ -1168,7 +1185,7 @@ public sealed class DeploymentExecutor
 
         /// <summary>
         /// Forwards to the plan's resolver and records the ids of published objects whose one-time secret is not
-        /// available in this run (<see cref="LiveSecrets.IsSecretTextUnavailable"/>), per output.
+        /// available in this run (<see cref="LiveSecrets.IsOneTimeSecretUnavailable"/>), per output.
         /// </summary>
         private sealed class SecretAvailabilityTrace : IReferenceResolver
         {
@@ -1182,17 +1199,27 @@ public sealed class DeploymentExecutor
 
             public IReadOnlyList<ResourceIdentifier> UnavailableSecrets => _unavailable;
 
+            /// <summary>One of <see cref="UnavailableSecrets"/> is a password credential's <c>secretText</c>.</summary>
+            public bool UnavailableSecretTexts { get; private set; }
+
+            /// <summary>One of <see cref="UnavailableSecrets"/> is a user's initial password.</summary>
+            public bool UnavailableInitialPasswords { get; private set; }
+
             public void Reset()
             {
                 _unavailable.Clear();
+                UnavailableSecretTexts = false;
+                UnavailableInitialPasswords = false;
             }
 
             public ReferenceResult Resolve(ResourceIdentifier id, string? apiVersion)
             {
                 var result = _inner.Resolve(id, apiVersion);
-                if (result is ReferenceResult.Live live && LiveSecrets.IsSecretTextUnavailable(live.Object) && !_unavailable.Contains(id))
+                if (result is ReferenceResult.Live live && LiveSecrets.IsOneTimeSecretUnavailable(live.Object) && !_unavailable.Contains(id))
                 {
                     _unavailable.Add(id);
+                    UnavailableSecretTexts |= LiveSecrets.IsSecretTextUnavailable(live.Object);
+                    UnavailableInitialPasswords |= LiveSecrets.IsInitialPasswordUnavailable(live.Object);
                 }
 
                 return result;

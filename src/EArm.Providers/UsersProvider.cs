@@ -38,7 +38,8 @@ namespace EArm.Providers;
 /// <c>POST /users</c> body alone. When no password is declared, a random 24-character one is generated at create
 /// time. In both cases the initial password is published on the live object as a <see cref="SecretValue"/>, so
 /// <c>[reference('alice@contoso.com').passwordProfile.password]</c> can feed a <c>securestring</c> output in the
-/// creating run (later runs read the user from Graph, which never returns the password). Convention for that
+/// creating run (later runs read the user from Graph, which never returns the password: there it is published as <c>null</c> with
+/// <see cref="LiveSecrets.InitialPasswordAvailabilityMarker"/> = <c>false</c>, so the output is <c>null</c> with a warning). Convention for that
 /// output: <c>&lt;localPart&gt;InitialPassword</c>, for example
 /// <c>"aliceInitialPassword": { "type": "securestring", "value": "[reference('alice@contoso.com').passwordProfile.password]" }</c>;
 /// it then lands in <c>--secure-outputs-file</c> / <c>--reveal-secure-outputs</c> like any secure output. The state
@@ -202,7 +203,9 @@ public sealed class UsersProvider : ProviderBase
         }
 
         await _licensing.EnrichAsync(live, graph, key.Api, cancellationToken).ConfigureAwait(false);
-        return ToExisting(live);
+        var existing = ToExisting(live);
+        PublishInitialPasswordUnavailable(existing.Raw);
+        return existing;
     }
 
     // ---- plan ----
@@ -437,6 +440,7 @@ public sealed class UsersProvider : ProviderBase
         var live = await GetUserAsync(graph, path, desired.Api, RetryHint.ExpectReplicationLag, _selects.For(key, ManagedProperties), cancellationToken).ConfigureAwait(false)
             ?? throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{desired.Describe()}: the user ({id}) vanished after being restored.", desired.Id);
         await _licensing.EnrichAsync(live, graph, desired.Api, cancellationToken).ConfigureAwait(false);
+        PublishInitialPasswordUnavailable(live);
         var restoredResult = new AppliedResource(desired.Id, id, live, key, Extra(generated: false)) { Warnings = warnings };
         try
         {
@@ -480,6 +484,7 @@ public sealed class UsersProvider : ProviderBase
         await _licensing.EnrichAsync(live, graph, desired.Api, cancellationToken).ConfigureAwait(false);
 
         await ApplyLicensesAsync(desired, existing.GraphId, existing.Raw, desired.RetryHint, graph, cancellationToken).ConfigureAwait(false);
+        PublishInitialPasswordUnavailable(live);
         return new AppliedResource(desired.Id, existing.GraphId, live, key, Extra(generated: false));
     }
 
@@ -563,6 +568,22 @@ public sealed class UsersProvider : ProviderBase
         }
 
         live[JsonObjects.FindKey(live, UsersRules.PasswordProfile) ?? UsersRules.PasswordProfile] = published;
+        live[LiveSecrets.InitialPasswordAvailabilityMarker] = true;
+    }
+
+    /// <summary>
+    /// On every run that does not create the user (Graph never returns a password): <c>passwordProfile.password</c> is published as
+    /// <c>null</c> with <see cref="LiveSecrets.InitialPasswordAvailabilityMarker"/> = <c>false</c>, so an output such as
+    /// <c>[reference('alice@contoso.com').passwordProfile.password]</c> evaluates to <c>null</c> with the
+    /// <see cref="EngineDiagnosticCodes.SecretNotAvailableOnRerun"/> warning instead of failing the run (the <see cref="LiveSecrets"/> contract).
+    /// </summary>
+    private static void PublishInitialPasswordUnavailable(JsonObject live)
+    {
+        string profileKey = JsonObjects.FindKey(live, UsersRules.PasswordProfile) ?? UsersRules.PasswordProfile;
+        var profile = live[profileKey] as JsonObject ?? new JsonObject();
+        profile[JsonObjects.FindKey(profile, UsersRules.Password) ?? UsersRules.Password] = null;
+        live[profileKey] = profile;
+        live[LiveSecrets.InitialPasswordAvailabilityMarker] = false;
     }
 
     private static JsonObject Extra(bool generated)
