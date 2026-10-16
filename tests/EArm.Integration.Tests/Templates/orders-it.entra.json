@@ -178,7 +178,7 @@
         "state": "enabledForReportingButNotEnforced",
         "conditions": {
           "users": { "includeGroups": ["[reference(variables('adminsName')).id]"] },
-          "applications": { "includeApplications": ["All"], "includeAuthenticationContextClassReferences": ["[parameters('contextId')]"] },
+          "applications": { "includeAuthenticationContextClassReferences": ["[parameters('contextId')]"] },
           "clientAppTypes": ["all"],
           "locations": { "includeLocations": ["All"], "excludeLocations": ["[reference(variables('offices')).id]"] }
         },

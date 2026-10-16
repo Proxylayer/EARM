@@ -148,6 +148,13 @@ public static class ConditionalAccessPoliciesRules
             {
                 problems.Add("conditions.applications must include at least one application ('All', an appId or a resource reference), user action or authentication context");
             }
+            else if (applications is JsonObject applicationsObject && HasEntries(Member(applicationsObject, "includeApplications"))
+                && (HasEntries(Member(applicationsObject, "includeUserActions")) || HasEntries(Member(applicationsObject, "includeAuthenticationContextClassReferences"))))
+            {
+                // Graph 400 (1012): 'applications' condition cannot include both 'includeApplications' and
+                // 'includeUserActions'/'includeAuthenticationContextClassReferences'.
+                problems.Add("conditions.applications cannot combine includeApplications with includeUserActions or includeAuthenticationContextClassReferences (Graph rejects it with 1012); target applications, user actions or authentication contexts, not more than one kind");
+            }
 
             JsonObjects.TryGetIgnoreCase(conditionsObject, "users", out var users);
             if (!HasAnyInclude(users, UserIncludes))

@@ -220,6 +220,28 @@ public sealed class ConditionalAccessRulesTests
         Assert.Contains(ConditionalAccessPoliciesRules.Problems(Normalized(Policy(DefaultConditions, grant: null)), GraphApi.V1, false), p => p.Contains("at least one of grantControls or sessionControls", StringComparison.Ordinal));
     }
 
+    [Theory]
+    [InlineData("\"includeApplications\": [\"All\"], \"includeAuthenticationContextClassReferences\": [\"c10\"]", true)]
+    [InlineData("\"includeApplications\": [\"All\"], \"includeUserActions\": [\"urn:user:registersecurityinfo\"]", true)]
+    [InlineData("\"includeAuthenticationContextClassReferences\": [\"c10\"]", false)]
+    [InlineData("\"includeUserActions\": [\"urn:user:registersecurityinfo\"]", false)]
+    [InlineData("\"includeApplications\": [], \"includeAuthenticationContextClassReferences\": [\"c10\"]", false)]
+    [InlineData("\"includeApplications\": [\"All\"], \"includeUserActions\": []", false)]
+    public void Problems_RefuseIncludeApplications_WithUserActionsOrAuthenticationContexts(string applications, bool refused)
+    {
+        // Graph 400 1012: 'applications' condition cannot include both 'includeApplications' and 'includeUserActions'/'includeAuthenticationContextClassReferences'.
+        var problems = ConditionalAccessPoliciesRules.Problems(Normalized(Policy("{ \"users\": { \"includeGroups\": [\"" + GroupId + "\"] }, \"applications\": { " + applications + " } }")), GraphApi.V1, false);
+
+        if (refused)
+        {
+            Assert.Contains("1012", Assert.Single(problems), StringComparison.Ordinal);
+        }
+        else
+        {
+            Assert.Empty(problems);
+        }
+    }
+
     [Fact]
     public void Problems_ReportGrantControlConflicts_AndTheLockoutPattern()
     {

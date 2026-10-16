@@ -113,7 +113,7 @@
       "type": "Microsoft.Entra/conditionalAccess/policies", "apiVersion": "2026-10-01-preview", "name": "CA-Orders-Admins-MFA",
       "properties": { "state": "enabledForReportingButNotEnforced",
         "conditions": { "users": { "includeGroups": ["[reference(variables('adminsName')).id]"] },
-                        "applications": { "includeApplications": ["All"], "includeAuthenticationContextClassReferences": ["c10"] }, "clientAppTypes": ["all"],
+                        "applications": { "includeAuthenticationContextClassReferences": ["c10"] }, "clientAppTypes": ["all"],
                         "locations": { "includeLocations": ["All"], "excludeLocations": ["[reference('Contoso offices').id]"] } },
         "grantControls": { "operator": "OR", "authenticationStrength": { "id": "[reference('Orders phishing-resistant').id]" } } },
       "dependsOn": ["[resourceId('Microsoft.Entra/groups', variables('adminsName'))]",
