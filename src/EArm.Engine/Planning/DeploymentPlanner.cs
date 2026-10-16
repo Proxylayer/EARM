@@ -140,7 +140,7 @@ public sealed class DeploymentPlanner
         _registry.RequireAll(instances.Select(i => i.Type));
 
         // 5. Graph and batches.
-        var graph = DependencyGraph.Build(instances, analysis.Static, evaluator, catalog, diagnostics);
+        var graph = DependencyGraph.Build(instances, analysis.Static, evaluator, catalog, diagnostics, ApplyOrder);
         ThrowIfErrors(diagnostics);
 
         // 5a. Template-level conflicts no single row can see (IDeclarationConflictSource), before any Graph call.
@@ -232,6 +232,12 @@ public sealed class DeploymentPlanner
         }
 
         diagnostics.Sort(DiagnosticOrder.Instance);
+    }
+
+    /// <summary>The instances the provider of <paramref name="instance"/> applies after it (<see cref="IApplyOrderSource"/>); none for most types.</summary>
+    private IEnumerable<ResourceInstance> ApplyOrder(ResourceInstance instance, IReadOnlyList<ResourceInstance> declared)
+    {
+        return _registry.Get(instance.Type) is IApplyOrderSource source ? source.AppliesBefore(instance, declared) : [];
     }
 
     /// <summary>The conflicts the providers that implement <see cref="IDeclarationConflictSource"/> find among the expanded instances, as errors.</summary>

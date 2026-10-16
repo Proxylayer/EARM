@@ -47,6 +47,7 @@ public sealed class RunScopesTests
         { "authentication-methods.entra.json", "authentication-methods.parameters.json" },
         { "pim-eligibility.entra.json", "pim-eligibility.parameters.json" },
         { "pim-active.entra.json", "pim-active.parameters.json" },
+        { "pim-policies.entra.json", "pim-policies.parameters.json" },
         { "orders-api.entra.json", null },
     };
 
@@ -80,6 +81,23 @@ public sealed class RunScopesTests
         Assert.DoesNotContain("PrivilegedEligibilitySchedule.ReadWrite.AzureADGroup", whatIf.GraphScopes);
         Assert.Contains("PrivilegedEligibilitySchedule.ReadWrite.AzureADGroup", delete.GraphScopes);
         Assert.Contains(create.Scopes.Single(s => s.Name == "PrivilegedEligibilitySchedule.ReadWrite.AzureADGroup").Resources, r => r.StartsWith("/providers/Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests/", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task PimPolicies_WriteWithTheScopesOfTheirScope_AndWhatIfReadsWithTheReadVariants()
+    {
+        var create = await ComputeAsync("pim-policies.entra.json", "pim-policies.parameters.json", RunVerb.Create);
+        var whatIf = await ComputeAsync("pim-policies.entra.json", "pim-policies.parameters.json", RunVerb.WhatIf);
+
+        Assert.Contains("RoleManagementPolicy.ReadWrite.Directory", create.GraphScopes);
+        Assert.Contains("RoleManagementPolicy.ReadWrite.AzureADGroup", create.GraphScopes);
+        Assert.DoesNotContain("RoleManagementPolicy.Read.Directory", create.GraphScopes);
+        Assert.Contains("RoleManagementPolicy.Read.Directory", whatIf.GraphScopes);
+        Assert.Contains("RoleManagementPolicy.Read.AzureADGroup", whatIf.GraphScopes);
+        Assert.DoesNotContain("RoleManagementPolicy.ReadWrite.Directory", whatIf.GraphScopes);
+        Assert.DoesNotContain("RoleManagementPolicy.ReadWrite.AzureADGroup", whatIf.GraphScopes);
+        Assert.Equal(2, create.Scopes.Single(s => s.Name == "RoleManagementPolicy.ReadWrite.Directory").Resources.Count);
+        Assert.Single(create.Scopes.Single(s => s.Name == "RoleManagementPolicy.ReadWrite.AzureADGroup").Resources);
     }
 
     [Fact]

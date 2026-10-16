@@ -1,0 +1,4 @@
+[
+  { "collection": "/groups", "entity": { "id": "66666666-0000-0000-0000-000000000100", "uniqueName": "pim-ops", "displayName": "PIM Ops", "mailNickname": "pim-ops", "mailEnabled": false, "securityEnabled": true, "groupTypes": [], "onPremisesSyncEnabled": null } },
+  { "collection": "/groups", "entity": { "id": "66666666-0000-0000-0000-000000000200", "uniqueName": "pim-approvers", "displayName": "PIM Approvers", "mailNickname": "pim-approvers", "mailEnabled": false, "securityEnabled": true, "groupTypes": [], "onPremisesSyncEnabled": null } }
+]

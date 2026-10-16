@@ -36,15 +36,17 @@ needed in Azure operated by 21Vianet or in tenants that block the Microsoft app)
 
 Implemented (a working pre-release, see [Limitations](#limitations-v1) for what is deferred):
 
-- **20 resource types**: `applications`, `applications/federatedIdentityCredentials`, `applications/passwordCredentials`, `servicePrincipals`,
+- **21 resource types**: `applications`, `applications/federatedIdentityCredentials`, `applications/passwordCredentials`, `servicePrincipals`,
   `groups`, `users`, `appRoleAssignments`, `oauth2PermissionGrants`, `roleAssignments`, `roleDefinitions`, `administrativeUnits`,
   `conditionalAccess/policies`, `conditionalAccess/namedLocations`, `conditionalAccess/authenticationStrengths`,
   `conditionalAccess/authenticationContextClassReferences`, `authenticationMethodConfigurations` (the authentication methods policy's tenant
   singletons: updated, never created), `roleEligibilityScheduleRequests` (PIM eligibility for directory roles, shaped like ARM's
   `Microsoft.Authorization/roleEligibilityScheduleRequests`), `roleAssignmentScheduleRequests` (time-bound active directory role assignments
   through PIM, shaped like ARM's `Microsoft.Authorization/roleAssignmentScheduleRequests`), `privilegedAccess/groupEligibilityScheduleRequests` (PIM
-  for Groups eligibility: eligible membership or ownership of a group) and `privilegedAccess/groupAssignmentScheduleRequests` (time-bound active
-  membership or ownership of a group through PIM for Groups) (all under `Microsoft.Entra/`).
+  for Groups eligibility: eligible membership or ownership of a group), `privilegedAccess/groupAssignmentScheduleRequests` (time-bound active
+  membership or ownership of a group through PIM for Groups) and `roleManagementPolicies` (the PIM policy rules of a directory role or a group:
+  approval, MFA, justification, maximum durations, notifications; shaped like ARM's `Microsoft.Authorization/roleManagementPolicies`, only the
+  declared rules managed, never created or deleted) (all under `Microsoft.Entra/`).
 - The verbs `deployment validate | what-if | create | delete`, `permissions`, `schema print | install` and `auth login | logout | status`.
 - Tests: about 6,200 unit and in-process tests (EArm.Tests, EArm.Providers.Tests, EArm.Graph.Tests; a full `test.ps1` run, build included, takes about 2-3 minutes), against fakes of Graph (an HTTP handler over an in-memory directory)
   and of the sign-in, with about 95 % line and 89 % branch coverage ([tests/COVERAGE.md](tests/COVERAGE.md); how they are organised and reviewed: [docs/testing.md](docs/testing.md)).
@@ -193,6 +195,7 @@ declared resource **in the live tenant by a key derived from its type and `name`
 | `conditionalAccess/authenticationContextClassReferences` | its id (`c1`..`c99`) = the `name` |
 | `authenticationMethodConfigurations` | the method id (`fido2`, `temporaryAccessPass`, `sms`...) = the `name`; a tenant singleton that always exists (never created; delete resets or keeps it) |
 | `roleAssignments`, `roleEligibilityScheduleRequests`, `roleAssignmentScheduleRequests`, `privilegedAccess/groupEligibilityScheduleRequests`, `privilegedAccess/groupAssignmentScheduleRequests`, `appRoleAssignments`, `oauth2PermissionGrants` | their tuple (principal, role or resource or group, scope / access / consent type); the `guid(...)` `name` is only a label |
+| `roleManagementPolicies` | the policy assignment of (`scopeType`, `scopeId`, `roleDefinitionId`): a directory role, or a group's member / owner access; the `guid(...)` `name` is only a label; never created (a missing policy is `PimPolicyNotAvailable`) |
 | `conditionalAccess/policies`, `conditionalAccess/namedLocations`, `administrativeUnits`, custom `roleDefinitions`, custom `conditionalAccess/authenticationStrengths` | `displayName` = the `name` |
 
 What follows from it:

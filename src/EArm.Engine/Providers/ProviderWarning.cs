@@ -19,7 +19,7 @@ public sealed record ProviderWarning(string Code, string Message);
 public static class ProviderWarningReasons
 {
     /// <summary>The codes a provider may put at the start of a plan reason to have it reported as a warning diagnostic.</summary>
-    private static readonly string[] ReasonCodes = [EngineDiagnosticCodes.SecretExpiresSoon, EngineDiagnosticCodes.RotationTagNotStamped, EngineDiagnosticCodes.DeprecatedAuthenticationMethodProperty];
+    private static readonly string[] ReasonCodes = [EngineDiagnosticCodes.SecretExpiresSoon, EngineDiagnosticCodes.RotationTagNotStamped, EngineDiagnosticCodes.DeprecatedAuthenticationMethodProperty, EngineDiagnosticCodes.PimPolicyNotAvailable];
 
     /// <summary>The warning diagnostics for the reasons of <paramref name="change"/> that start with a known <c>Code:</c> prefix.</summary>
     public static IReadOnlyList<Diagnostic> DiagnosticsOf(ResourceInstance instance, ResourceChange change)

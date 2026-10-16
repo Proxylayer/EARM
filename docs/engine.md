@@ -44,7 +44,12 @@ load ──► validate ──► expand ──► graph ──► [per batch: r
      per iteration with the concrete copy frame against the expanded index, which yields the edge to that
      iteration (`u1` → `g-1`),
    - the inputs of a **symbolic name** (see below),
-   - `mode: serial` copy chaining (iteration *n* waits for chunk *n-1*).
+   - `mode: serial` copy chaining (iteration *n* waits for chunk *n-1*),
+   - a provider-declared apply order (`IApplyOrderSource`, `DependencyKind.Ordering`), asked once the edges above are known: a
+     `roleManagementPolicies` instance is applied before the PIM schedule requests of the same role (directory role eligibility and active
+     assignment) or group and access (PIM for Groups eligibility and active assignment) the template declares, so they are judged by the
+     declared rules. Values are matched as `IDeclarationConflictSource` matches them (same referenced resource, literal or role name); an order the
+     template already contradicts (an explicit `dependsOn` the other way) is left out rather than reported as a cycle.
 
    A cycle is reported as `DependencyCycle` with the full path. The acyclic graph is layered Kahn-style:
    level = 1 + the highest level among the dependencies; one `DeploymentBatch` per level; inside a batch the
@@ -408,6 +413,7 @@ found = create.
 | `roleAssignmentScheduleRequests` | (`principalId`, `roleDefinitionId`, `directoryScopeId` or `appScopeId`), Direct assignment schedules with `assignmentType` Assigned only (a permanent one is refused: `PimAssignmentConflict`) | a label |
 | `privilegedAccess/groupEligibilityScheduleRequests` | (`groupId`, `principalId`, `accessId`), Direct eligibility schedules only | a label |
 | `privilegedAccess/groupAssignmentScheduleRequests` | (`groupId`, `principalId`, `accessId`), Direct assignment schedules with `assignmentType` assigned only (a permanent one is refused) | a label |
+| `roleManagementPolicies` | the policy assignment of (`scopeType`, `scopeId`, `roleDefinitionId`) (the policy id is the Graph id; a group's policy is re-identified when PIM onboards the group) | a label; never created |
 | `appRoleAssignments` | (`principalId`, `resourceId`, `appRoleId`) | a label |
 | `oauth2PermissionGrants` | (`clientId`, `resourceId`, `consentType`, `principalId`) | a label |
 | `conditionalAccess/policies`, `conditionalAccess/namedLocations`, `administrativeUnits`, `roleDefinitions` (custom), `conditionalAccess/authenticationStrengths` (custom) | `displayName` (authentication strengths are matched client-side: Graph cannot `$filter` them by `displayName`) | the display name |

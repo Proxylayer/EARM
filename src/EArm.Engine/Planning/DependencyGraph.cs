@@ -34,6 +34,9 @@ public enum DependencyKind
 
     /// <summary>A <c>mode: serial</c> loop: an iteration waits for the previous chunk.</summary>
     CopySerial,
+
+    /// <summary>A provider-declared apply order (<see cref="IApplyOrderSource"/>: a PIM policy before the schedule requests it governs).</summary>
+    Ordering,
 }
 
 /// <summary><paramref name="Dependent"/> must be applied after <paramref name="Dependency"/>.</summary>
@@ -115,7 +118,16 @@ public sealed class DependencyGraph
     }
 
     /// <summary>Builds the graph; cycles and unresolvable targets are appended to <paramref name="diagnostics"/> as errors.</summary>
-    public static DependencyGraph Build(IReadOnlyList<ResourceInstance> instances, StaticContext staticContext, ExpressionEvaluator evaluator, ResourceTypeCatalog catalog, List<Diagnostic> diagnostics)
+    /// <param name="instances">The expanded instances.</param>
+    /// <param name="staticContext">The static analysis of the template.</param>
+    /// <param name="evaluator">The evaluator the per-iteration reference scans use.</param>
+    /// <param name="catalog">The type catalog.</param>
+    /// <param name="diagnostics">Where cycles and unresolvable targets are reported.</param>
+    /// <param name="applyOrder">
+    /// The provider-declared apply order (<see cref="IApplyOrderSource"/>), asked once every reference edge is known: for an instance, the instances that
+    /// must be applied after it. An order that would close a cycle with the template's own dependencies is left out (the template's order wins).
+    /// </param>
+    public static DependencyGraph Build(IReadOnlyList<ResourceInstance> instances, StaticContext staticContext, ExpressionEvaluator evaluator, ResourceTypeCatalog catalog, List<Diagnostic> diagnostics, Func<ResourceInstance, IReadOnlyList<ResourceInstance>, IEnumerable<ResourceInstance>>? applyOrder = null)
     {
         ArgumentNullException.ThrowIfNull(instances);
         ArgumentNullException.ThrowIfNull(staticContext);
@@ -124,7 +136,7 @@ public sealed class DependencyGraph
         ArgumentNullException.ThrowIfNull(diagnostics);
 
         var builder = new Builder(instances, staticContext, evaluator, catalog, diagnostics);
-        return builder.Build();
+        return builder.Build(applyOrder);
     }
 
     private sealed class Builder
@@ -155,7 +167,7 @@ public sealed class DependencyGraph
             }
         }
 
-        public DependencyGraph Build()
+        public DependencyGraph Build(Func<ResourceInstance, IReadOnlyList<ResourceInstance>, IEnumerable<ResourceInstance>>? applyOrder)
         {
             foreach (var instance in _instances)
             {
@@ -164,6 +176,11 @@ public sealed class DependencyGraph
                 AddReferences(instance);
                 AddNameReferences(instance);
                 AddSerialCopy(instance);
+            }
+
+            if (applyOrder is not null)
+            {
+                AddApplyOrder(applyOrder);
             }
 
             var batches = Layer();
@@ -325,6 +342,54 @@ public sealed class DependencyGraph
                     AddEdge(instance, other, DependencyKind.CopySerial, $"serial copy '{copy.Name}' chunk {copy.Chunk}", instance.Declaration.Path.Append("copy"));
                 }
             }
+        }
+
+        /// <summary>The provider-declared order: every instance it names waits for the instance that names it, unless the template orders them the other way.</summary>
+        private void AddApplyOrder(Func<ResourceInstance, IReadOnlyList<ResourceInstance>, IEnumerable<ResourceInstance>> applyOrder)
+        {
+            foreach (var instance in _instances)
+            {
+                if (instance.IsIgnored)
+                {
+                    continue;
+                }
+
+                foreach (var later in applyOrder(instance, _instances).ToList())
+                {
+                    if (ReferenceEquals(later, instance) || later.IsIgnored || _edgeSet.Contains((later, instance)) || DependsOn(instance, later))
+                    {
+                        continue;
+                    }
+
+                    AddEdge(later, instance, DependencyKind.Ordering, $"{later.Describe()} is applied after {instance.Describe()}", later.Declaration.Path);
+                }
+            }
+        }
+
+        /// <summary>True when <paramref name="dependent"/> already waits (transitively) for <paramref name="dependency"/>.</summary>
+        private bool DependsOn(ResourceInstance dependent, ResourceInstance dependency)
+        {
+            var seen = new HashSet<ResourceInstance>();
+            var stack = new Stack<ResourceInstance>();
+            stack.Push(dependent);
+            while (stack.Count > 0)
+            {
+                var current = stack.Pop();
+                foreach (var edge in _edges)
+                {
+                    if (ReferenceEquals(edge.Dependent, current) && seen.Add(edge.Dependency))
+                    {
+                        if (ReferenceEquals(edge.Dependency, dependency))
+                        {
+                            return true;
+                        }
+
+                        stack.Push(edge.Dependency);
+                    }
+                }
+            }
+
+            return false;
         }
 
         private void AddEdge(ResourceInstance dependent, ResourceInstance dependency, DependencyKind kind, string? detail, JsonPath path)

@@ -589,6 +589,55 @@ resolved per copy iteration), are the same literal, or the same expression text 
 `roleTemplate('…')`, a scope defaults to `/`, and a computed `accessId` conflicts with either list. Differently spelled values (a literal object id
 against a reference) are not matched; the live check above covers what is already deployed.
 
+### Worked example: PIM role management policies
+
+`Microsoft.Entra/roleManagementPolicies` (`RoleManagementPoliciesProvider`, ARM analogue `Microsoft.Authorization/roleManagementPolicies`) manages the
+**rules** of the PIM policy (role settings) of a directory role or of a PIM for Groups membership / ownership. The declaration is ARM's:
+`properties.rules[]` with `id`, `ruleType` (optional: implied by the id) and `target`, plus the per-type fields, which have the same names in Graph
+(Learn: unifiedrolemanagementpolicyrule-update, approvalsettings, unifiedapprovalstage). Two things are mapped (`RoleManagementPolicyShape`):
+
+| ARM (template) | Graph |
+|---|---|
+| `ruleType: RoleManagementPolicyApprovalRule` (Expiration, Enablement, AuthenticationContext, Notification) | `@odata.type: #microsoft.graph.unifiedRoleManagementPolicyApprovalRule` (required on every rule PATCH) |
+| approver `{ id, userType: User }` | `{ @odata.type: #microsoft.graph.singleUser, userId }` |
+| approver `{ id, userType: Group }` | `{ @odata.type: #microsoft.graph.groupMembers, groupId }` |
+
+An approver's `description` is read-only in Graph (never compared or sent); `isBackup: false` and absent are the same.
+
+The policy is named by its **assignment**: `scopeType` (`DirectoryRole`, or Graph's `Directory`; `Group`), `scopeId` (`/`, or the group's object id) and
+`roleDefinitionId` (the role template id, or `member` / `owner`), or by the sugar `role` (resolved like `roleAssignments`' `role`; DirectoryRole, `/`) or
+`group` (uniqueName or object id; dynamic and on-premises synced groups refused) + `accessId`. The `guid()` name is a label.
+
+| Operation | Graph |
+|---|---|
+| Read | `GET /policies/roleManagementPolicyAssignments?$filter=scopeId eq '…' and scopeType eq '…' and roleDefinitionId eq '…'&$expand=policy($expand=rules)` (the scope filter is required; Learn: policyroot-list-rolemanagementpolicyassignments), re-matched client-side; the policy id is the Graph id |
+| Create | never: a missing policy is `PimPolicyNotAvailable` (see below) |
+| Update | `PATCH /policies/roleManagementPolicies/{policyId}/rules/{ruleId}` once per **changed** declared rule, `@odata.type` first |
+| Delete | never: kept as `NotDeletable` (`IDeleteRefusalSource`); revert a setting by declaring the value to restore |
+
+**Only the declared rule ids are managed.** The live view holds every rule in ARM's shape; the plan reduces it to the declared ids (a declared id the
+live policy does not have is `RoleManagementPolicyInvalid`, listing the policy's ids), fills every member a declared rule leaves out from the live rule
+(`FillFromLive`: nested objects, approval stages by position, approvers by id; Graph replaces a rule's complex members whole), and diffs with the
+`rules` member key `id`. Enums compare case-insensitively (`RoleManagementPolicyRules.NormalizeRules`), approvers as a set, `maximumDuration` by value
+(`PT480M` = `PT8H`), an empty `claimValue` as absent; `enabledRules: []` and `notificationRecipients: []` clear. The pure rules (offline
+`InvalidRoleManagementPolicy`, plan time for computed values) are in `RoleManagementPolicyRules` / `RoleManagementPolicyRuleChecks`.
+
+**Order and onboarding.** A policy is applied before the schedule requests it governs (`IApplyOrderSource`, `RoleManagementPolicyApplyOrder`: the
+role eligibility / active assignment requests of the same role, the group eligibility / active assignment requests of the same group and access),
+so they are judged by the declared rules (for example a group policy that allows permanent eligibility before a permanent group eligibility). Values
+match when they reference the same declared resource or are the same literal (a role also by name vs template id); differently spelled values (a
+group's uniqueName in one, its object id in the other) are not matched: add a `dependsOn`. A failed policy skips the requests it governs.
+PIM for Groups onboards a group on its first schedule request **or policy update**, and the group's policy and assignment ids change then (Learn:
+privilegedidentitymanagement-for-groups-api-overview), so the provider never caches a policy id, and a rule PATCH answered 404 re-reads the policy id
+and is sent once more (the previous PATCH onboarded the group). When Graph lists no policy for a group (not onboarded yet):
+
+- a `privilegedAccess/groupEligibilityScheduleRequests` or `groupAssignmentScheduleRequests` of the same deployment names the group and access: the
+  policy row is deferred (an `Ignore` row with a `PimPolicyNotAvailable` warning), the requests go ahead under the group's default policy and onboard
+  the group, and the next run applies the policy;
+- otherwise the row fails with `PimPolicyNotAvailable` (declare a group request or onboard the group in the portal).
+
+A directory role without a policy (an unknown role id) is `PimPolicyNotAvailable` too. Complete mode lists no orphans (policies always exist).
+
 ## Adding an edge kind
 
 Part B edge kinds (app role assignments, directory roles) live next to their standalone provider and

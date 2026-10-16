@@ -50,6 +50,7 @@ public static class DiagnosticCodes
     public const string InvalidGroupEligibilityScheduleRequest = "InvalidGroupEligibilityScheduleRequest";
     public const string InvalidRoleAssignmentScheduleRequest = "InvalidRoleAssignmentScheduleRequest";
     public const string InvalidGroupAssignmentScheduleRequest = "InvalidGroupAssignmentScheduleRequest";
+    public const string InvalidRoleManagementPolicy = "InvalidRoleManagementPolicy";
     public const string InvalidCopy = "InvalidCopy";
 
     // ---- Parameters ----

@@ -771,6 +771,62 @@ $specs['privilegedAccess.groupAssignmentScheduleRequests'] = [ordered]@{
     }
 }
 
+# --- roleManagementPolicies (PIM policy rules, ARM-styled) --------------------------------------------------------
+$policyApprover = Obj '' -Required 'id', 'userType' -Props (Props ([ordered]@{
+    id          = Guid 'Required: the object id of the approving user or group.'
+    userType    = Str 'Required: User (a single user approves; Graph singleUser) or Group (any member approves; Graph groupMembers). Any casing.'
+    description = Str 'ARM display text; read-only in Graph, never compared or sent.'
+    isBackup    = Bool 'Whether the approver is a backup approver (false and absent are the same).'
+}))
+$specs['roleManagementPolicies'] = [ordered]@{
+    NamePattern = $script:GuidPattern
+    Description = 'The PIM policy (role settings) of a directory role or of a PIM for Groups membership / ownership, shaped like ARM''s Microsoft.Authorization/roleManagementPolicies. The resource name is a deterministic GUID chosen with guid() (a label, not the identity); the policy is named by role (a directory role), or by group and accessId (a group), or by scopeType, scopeId and roleDefinitionId, and read live on every run. Only the rules declared in rules[] (matched by id) are managed: each is filled from the live rule and changed in place with one PATCH per changed rule; undeclared rules are left as they are. Never created (every role and onboarded group has a policy) and never deleted (kept as NotDeletable). Applied before the PIM schedule requests of the same role or group in the template.'
+    Props       = [ordered]@{
+        role             = Str 'EARM sugar for a directory role policy: role template id, built-in role name, custom role display name or id; resolved to roleDefinitionId (scopeType DirectoryRole, scopeId ''/''). Not with group or roleDefinitionId.' -Min 1
+        group            = Str 'EARM sugar for a group policy: the group''s uniqueName or object id; resolved to scopeId (scopeType Group). Not with role or scopeId.' -Min 1
+        accessId         = Str 'With group: member (the policy of the group''s membership) or owner (of its ownership); resolved to roleDefinitionId. Any casing.'
+        scopeType        = Str 'DirectoryRole (or Directory) for a directory role policy, Group for a PIM for Groups policy. Implied by role / group.'
+        scopeId          = Str '''/'' for a directory role policy; the group''s object id for a group policy.' -Min 1
+        roleDefinitionId = Str 'The directory role template id, or member / owner for a group policy.' -Min 1
+        rules            = Arr -d 'Required: the rules to manage, matched by id (Expiration_EndUser_Assignment, Approval_EndUser_Assignment...). Every other rule of the policy is left as it is.' -Min 1 -Items (Obj '' -Required 'id' -Props (Props ([ordered]@{
+            id                   = Str 'Required: the rule id: Expiration_, Enablement_, Approval_ or AuthenticationContext_ + Admin_ or EndUser_ + Assignment or Eligibility, or Notification_ + Admin_, Requestor_ or Approver_ + the same caller and level.' -Min 1
+            ruleType             = Str 'The ARM rule type; optional (implied by the id) and, when declared, must match it. Mapped to Graph''s @odata.type (#microsoft.graph.unifiedRoleManagementPolicy...Rule). Any casing.'
+            target               = Obj -d 'Who and what the rule applies to; undeclared members keep their live values. caller and level must agree with the id.' -Props (Props ([ordered]@{
+                caller              = Str 'Admin or EndUser (any casing).'
+                operations          = StrArr 'All, Activate, Deactivate, Assign, Update, Remove, Extend, Renew (any casing).'
+                level               = Str 'Assignment or Eligibility (any casing).'
+                targetObjects       = Arr -d 'Graph passthrough.' -Items (FreeObj '') -Nullable
+                inheritableSettings = StrArr 'Graph passthrough.' -Nullable
+                enforcedSettings    = StrArr 'Graph passthrough.' -Nullable
+            }))
+            isExpirationRequired = Bool 'Expiration rules: whether an expiration is required (false allows permanent assignment or eligibility).'
+            maximumDuration      = Str 'Expiration rules: the ISO 8601 maximum duration (PT8H, P365D); compared by value.'
+            enabledRules         = StrArr 'Enablement rules: MultiFactorAuthentication, Justification, Ticketing (any casing); [] clears them.'
+            setting              = Obj -d 'Approval rules: the approval settings; undeclared members keep their live values.' -Props (Props ([ordered]@{
+                isApprovalRequired               = Bool 'Whether activation needs approval; when true, every stage needs at least one primary approver.'
+                isApprovalRequiredForExtension   = Bool 'Whether an extension needs approval.'
+                isRequestorJustificationRequired = Bool 'Whether the requestor must justify the request.'
+                approvalMode                     = Str 'SingleStage, Serial, Parallel or NoApproval (any casing).'
+                approvalStages                   = Arr -d 'One or two approval stages.' -Items (Obj '' -Props (Props ([ordered]@{
+                    approvalStageTimeOutInDays      = Int 'Days a request may wait before it is denied.'
+                    isApproverJustificationRequired = Bool 'Whether the approver must justify the decision.'
+                    escalationTimeInMinutes         = Int 'Minutes before escalation.'
+                    isEscalationEnabled             = Bool 'Whether escalation is enabled (needs escalationApprovers).'
+                    primaryApprovers                = Arr -d 'The approvers (users or groups), compared as a set.' -Items $policyApprover
+                    escalationApprovers             = Arr -d 'The escalation approvers, compared as a set.' -Items $policyApprover -Nullable
+                })))
+            }))
+            isEnabled                  = Bool 'Authentication context rules: whether activation must satisfy an authentication context.'
+            claimValue                 = Str 'Authentication context rules: the authentication context id, c1 to c99.' -Nullable
+            notificationType           = Str 'Notification rules: Email.'
+            recipientType              = Str 'Notification rules: Requestor, Approver or Admin; must agree with the id.'
+            notificationLevel          = Str 'Notification rules: None, Critical or All.'
+            notificationRecipients     = StrArr 'Notification rules: additional e-mail recipients; [] clears them.' -Nullable
+            isDefaultRecipientsEnabled = Bool 'Notification rules: whether the default recipients are notified.'
+        })))
+    }
+}
+
 # ---------------------------------------------------------------------------------------------------------------
 # Rewrite the files
 # ---------------------------------------------------------------------------------------------------------------

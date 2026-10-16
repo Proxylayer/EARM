@@ -172,6 +172,16 @@ public static class EngineDiagnosticCodes
     /// <summary>Graph refused a PIM schedule request because a rule of the role's (or group's) management policy failed (ExpirationRule, JustificationRule, TicketingRule...); the message carries Graph's text.</summary>
     public const string PimPolicyViolation = "PimPolicyViolation";
 
+    /// <summary>
+    /// A <c>roleManagementPolicies</c> declaration names a PIM policy Graph does not list (no <c>roleManagementPolicyAssignments</c> entry for the scope,
+    /// role and access): an unknown directory role, or a group PIM for Groups has not onboarded yet. An error when nothing in the deployment onboards the
+    /// group; a warning (the policy is deferred to the next run) when a schedule request of the same deployment does.
+    /// </summary>
+    public const string PimPolicyNotAvailable = "PimPolicyNotAvailable";
+
+    /// <summary>A <c>roleManagementPolicies</c> declaration is invalid at plan time (unknown role or group, a computed value that breaks a rule, a rule id the live policy does not have).</summary>
+    public const string RoleManagementPolicyInvalid = "RoleManagementPolicyInvalid";
+
     /// <summary>A <c>roleDefinitions</c> declaration names a built-in role, which cannot be created, changed or deleted.</summary>
     public const string RoleDefinitionBuiltIn = "RoleDefinitionBuiltIn";
 

@@ -1,0 +1,58 @@
+Deployment 'pim-policies-incremental' (Incremental) on tenant 11111111-1111-1111-1111-111111111111
+
+Resource and property changes are indicated with these symbols:
+  + Create
+  ~ Modify
+  - Delete
+  = NoChange
+  * Ignore
+  ? Value only known at deployment time
+  ! Change cannot be applied as planned
+
+The deployment would make the following changes:
+
+  ~ /providers/Microsoft.Entra/roleManagementPolicies/3e6225bf-09cb-57bc-bb3d-d280f41cc170 [Microsoft.Entra/roleManagementPolicies]
+      ~ properties.rules: [
+          ~ Expiration_EndUser_Assignment:
+              ~ maximumDuration: "PT8H" => "PT4H"
+          ~ Approval_EndUser_Assignment:
+              ~ setting:
+                  ~ isApprovalRequired: false => true
+                  ~ approvalStages: [
+                      + [0]:
+                          primaryApprovers: [
+                            0:
+                              id: "66666666-0000-0000-0000-000000000200"
+                              userType: "Group"
+                          ]
+                          approvalStageTimeOutInDays: 1
+                          isApproverJustificationRequired: true
+                          escalationTimeInMinutes: 0
+                          isEscalationEnabled: false
+                      - [0]:
+                          approvalStageTimeOutInDays: 1
+                          isApproverJustificationRequired: true
+                          escalationTimeInMinutes: 0
+                          isEscalationEnabled: false
+                          primaryApprovers: []
+                          escalationApprovers: []
+                    ]
+        ]
+      (each changed rule is updated in place (PATCH of the rule); undeclared rules are left as they are)
+
+  ~ /providers/Microsoft.Entra/roleManagementPolicies/583aff4d-b6c4-590b-9467-a224fcf16270 [Microsoft.Entra/roleManagementPolicies]
+      ~ properties.rules: [
+          ~ Expiration_Admin_Eligibility:
+              ~ isExpirationRequired: true => false
+          ~ Notification_Admin_EndUser_Assignment:
+              + notificationRecipients: [
+                  0: "security@contoso.com"
+                ]
+        ]
+      (each changed rule is updated in place (PATCH of the rule); undeclared rules are left as they are)
+
+  = /providers/Microsoft.Entra/roleManagementPolicies/c49bac1c-fc5b-57b6-b28a-624d71946e33 [Microsoft.Entra/roleManagementPolicies]
+
+Resource changes: 0 to create, 2 to modify, 0 to delete, 1 unchanged, 0 ignored.
+Edges: 0 to add, 0 to remove.
+Required permissions: Directory.Read.All, RoleManagementPolicy.ReadWrite.AzureADGroup, RoleManagementPolicy.ReadWrite.Directory.

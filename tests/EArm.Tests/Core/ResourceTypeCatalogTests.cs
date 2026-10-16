@@ -32,6 +32,7 @@ public sealed class ResourceTypeCatalogTests
         "Microsoft.Entra/roleAssignmentScheduleRequests",
         "Microsoft.Entra/roleDefinitions",
         "Microsoft.Entra/roleEligibilityScheduleRequests",
+        "Microsoft.Entra/roleManagementPolicies",
         "Microsoft.Entra/servicePrincipals",
         "Microsoft.Entra/users",
     ];
@@ -53,10 +54,10 @@ public sealed class ResourceTypeCatalogTests
     }
 
     [Fact]
-    public void Default_ContainsExactlyTheTwentyTypes()
+    public void Default_ContainsExactlyTheTwentyOneTypes()
     {
         Assert.Equal(ExpectedTypes, Catalog.Types.Select(t => t.Type).ToList());
-        Assert.Equal(20, EmbeddedSchemas.NamesUnder(EmbeddedSchemas.TypeSchemaPrefix).Count);
+        Assert.Equal(21, EmbeddedSchemas.NamesUnder(EmbeddedSchemas.TypeSchemaPrefix).Count);
         Assert.Same(Catalog, ResourceTypeCatalog.Default);
     }
 
@@ -165,7 +166,7 @@ public sealed class ResourceTypeCatalogTests
             Assert.Contains("{parentId}", child.GraphPath);
         });
 
-        Assert.Equal(18, Catalog.Types.Count(t => !t.IsChildType));
+        Assert.Equal(19, Catalog.Types.Count(t => !t.IsChildType));
         Assert.All(Catalog.Types.Where(t => !t.IsChildType), t => Assert.Equal(1, t.Depth));
         Assert.Empty(Catalog.ChildrenOf("Microsoft.Entra/groups"));
     }
@@ -183,6 +184,7 @@ public sealed class ResourceTypeCatalogTests
         Assert.Equal(ResourceNameKind.Guid, Catalog.Find("Microsoft.Entra/appRoleAssignments")!.NameKind);
         Assert.Equal(ResourceNameKind.Guid, Catalog.Find("Microsoft.Entra/oauth2PermissionGrants")!.NameKind);
         Assert.Equal(ResourceNameKind.Guid, Catalog.Find("Microsoft.Entra/roleEligibilityScheduleRequests")!.NameKind);
+        Assert.Equal(ResourceNameKind.Guid, Catalog.Find("Microsoft.Entra/roleManagementPolicies")!.NameKind);
         Assert.Equal(ResourceNameKind.Guid, Catalog.Find("Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests")!.NameKind);
         Assert.Equal(ResourceNameKind.Guid, Catalog.Find("Microsoft.Entra/roleAssignmentScheduleRequests")!.NameKind);
         Assert.Equal(ResourceNameKind.Guid, Catalog.Find("Microsoft.Entra/privilegedAccess/groupAssignmentScheduleRequests")!.NameKind);
@@ -274,7 +276,7 @@ public sealed class ResourceTypeCatalogTests
         Assert.Equal("https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentParameters.json", ResourceTypeCatalog.ParametersSchemaUri);
         Assert.Contains(EmbeddedSchemas.TemplateSchemaResource, EmbeddedSchemas.Names);
         Assert.Contains(EmbeddedSchemas.ParametersSchemaResource, EmbeddedSchemas.Names);
-        Assert.Equal(22, EmbeddedSchemas.Names.Count);
+        Assert.Equal(23, EmbeddedSchemas.Names.Count);
         Assert.Contains("\"$id\": \"https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json\"", EmbeddedSchemas.ReadText(EmbeddedSchemas.TemplateSchemaResource));
         Assert.NotEmpty(EmbeddedSchemas.ReadBytes(EmbeddedSchemas.ParametersSchemaResource));
     }

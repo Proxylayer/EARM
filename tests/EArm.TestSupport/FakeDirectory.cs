@@ -137,6 +137,9 @@ public sealed class FakeDirectory
     /// <summary>PIM for Groups time-bound active assignment (the request endpoint, the schedules, the seeded group policy and the onboarded groups).</summary>
     public FakeGroupScheduleRequests GroupAssignmentSchedules { get; } = FakeGroupScheduleRequests.Assignment();
 
+    /// <summary>PIM role management policies (the policy assignments, the policies with Microsoft's default rules, rule PATCHes, group onboarding).</summary>
+    public FakeRoleManagementPolicies RoleManagementPolicies { get; } = new();
+
     /// <summary>The clock the 30-day soft-delete retention is measured with; tests move it to expire a deleted item.</summary>
     public TimeProvider Clock { get; set; } = TimeProvider.System;
 
@@ -350,6 +353,18 @@ public sealed class FakeDirectory
         lock (_gate)
         {
             PurgeExpiredDeletedItems();
+            if (FakeRoleManagementPolicies.Handles(path))
+            {
+                return RoleManagementPolicies.Handle(
+                    method,
+                    path,
+                    query,
+                    body,
+                    hint,
+                    groupId => Collection("/groups").Any(g => ValueEquals(GetString(g, "id"), groupId)),
+                    groupId => GroupEligibility.OnboardedGroups.Contains(groupId, StringComparer.OrdinalIgnoreCase) || GroupAssignmentSchedules.OnboardedGroups.Contains(groupId, StringComparer.OrdinalIgnoreCase));
+            }
+
             var route = Route.Parse(path, KnownRoots);
             if (route is null)
             {

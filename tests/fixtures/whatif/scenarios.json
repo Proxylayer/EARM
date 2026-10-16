@@ -115,5 +115,17 @@
     "parameters": {},
     "expectedText": "pim-active-incremental.expected.txt",
     "expectedJson": "pim-active-incremental.expected.json"
+  },
+  {
+    "name": "pim-policies-incremental",
+    "deploymentName": "pim-policies-incremental",
+    "mode": "Incremental",
+    "resultFormat": "FullResourcePayloads",
+    "tenantId": "11111111-1111-1111-1111-111111111111",
+    "template": "pim-policies-incremental.entra.json",
+    "seed": "pim-policies-incremental.seed.json",
+    "parameters": {},
+    "expectedText": "pim-policies-incremental.expected.txt",
+    "expectedJson": "pim-policies-incremental.expected.json"
   }
 ]

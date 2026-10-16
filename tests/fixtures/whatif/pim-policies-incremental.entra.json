@@ -1,0 +1,53 @@
+{
+  "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "variables": {
+    "approvers": "66666666-0000-0000-0000-000000000200"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Entra/roleManagementPolicies",
+      "apiVersion": "2026-10-01-preview",
+      "name": "[guid('pim-policy', 'Global Administrator')]",
+      "properties": {
+        "role": "Global Administrator",
+        "rules": [
+          { "id": "Expiration_EndUser_Assignment", "isExpirationRequired": true, "maximumDuration": "PT4H" },
+          { "id": "Enablement_EndUser_Assignment", "enabledRules": ["MultiFactorAuthentication", "Justification"] },
+          {
+            "id": "Approval_EndUser_Assignment",
+            "ruleType": "RoleManagementPolicyApprovalRule",
+            "setting": {
+              "isApprovalRequired": true,
+              "approvalStages": [ { "primaryApprovers": [ { "id": "[variables('approvers')]", "userType": "Group", "description": "PIM Approvers" } ] } ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.Entra/roleManagementPolicies",
+      "apiVersion": "2026-10-01-preview",
+      "name": "[guid('pim-policy', 'Security Reader')]",
+      "properties": {
+        "scopeType": "DirectoryRole",
+        "scopeId": "/",
+        "roleDefinitionId": "5d6b6bb7-de71-4623-b4af-96380a352509",
+        "rules": [ { "id": "Expiration_EndUser_Assignment", "maximumDuration": "PT8H" } ]
+      }
+    },
+    {
+      "type": "Microsoft.Entra/roleManagementPolicies",
+      "apiVersion": "2026-10-01-preview",
+      "name": "[guid('pim-policy', 'pim-ops', 'member')]",
+      "properties": {
+        "group": "pim-ops",
+        "accessId": "member",
+        "rules": [
+          { "id": "Expiration_Admin_Eligibility", "isExpirationRequired": false },
+          { "id": "Notification_Admin_EndUser_Assignment", "notificationRecipients": ["security@contoso.com"] }
+        ]
+      }
+    }
+  ]
+}

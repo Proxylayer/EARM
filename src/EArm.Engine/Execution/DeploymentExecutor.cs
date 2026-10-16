@@ -567,7 +567,7 @@ public sealed class DeploymentExecutor
 
             if (change.HasError)
             {
-                RecordFailure(instance, batchIndex, EngineDiagnosticCodes.ImmutablePropertyChanged, change.UnsupportedReason!, stopwatch.Elapsed);
+                RecordFailure(instance, batchIndex, change.UnsupportedCode ?? EngineDiagnosticCodes.ImmutablePropertyChanged, change.UnsupportedReason!, stopwatch.Elapsed);
                 return;
             }
 

@@ -1,0 +1,872 @@
+{
+  "status": "Succeeded",
+  "deploymentName": "pim-policies-incremental",
+  "tenantId": "11111111-1111-1111-1111-111111111111",
+  "mode": "Incremental",
+  "changes": [
+    {
+      "resourceId": "/providers/Microsoft.Entra/roleManagementPolicies/3e6225bf-09cb-57bc-bb3d-d280f41cc170",
+      "changeType": "Modify",
+      "before": {
+        "name": "3e6225bf-09cb-57bc-bb3d-d280f41cc170",
+        "type": "Microsoft.Entra/roleManagementPolicies",
+        "apiVersion": "2026-10-01-preview",
+        "properties": {
+          "scopeType": "DirectoryRole",
+          "scopeId": "/",
+          "roleDefinitionId": "62e90394-69f5-4237-9190-012177145e10",
+          "rules": [
+            {
+              "id": "Expiration_EndUser_Assignment",
+              "isExpirationRequired": true,
+              "maximumDuration": "PT8H",
+              "target": {
+                "caller": "EndUser",
+                "operations": [
+                  "All"
+                ],
+                "level": "Assignment",
+                "inheritableSettings": [],
+                "enforcedSettings": []
+              },
+              "ruleType": "RoleManagementPolicyExpirationRule"
+            },
+            {
+              "id": "Enablement_EndUser_Assignment",
+              "enabledRules": [
+                "MultiFactorAuthentication",
+                "Justification"
+              ],
+              "target": {
+                "caller": "EndUser",
+                "operations": [
+                  "All"
+                ],
+                "level": "Assignment",
+                "inheritableSettings": [],
+                "enforcedSettings": []
+              },
+              "ruleType": "RoleManagementPolicyEnablementRule"
+            },
+            {
+              "id": "Approval_EndUser_Assignment",
+              "target": {
+                "caller": "EndUser",
+                "operations": [
+                  "All"
+                ],
+                "level": "Assignment",
+                "inheritableSettings": [],
+                "enforcedSettings": []
+              },
+              "setting": {
+                "isApprovalRequired": false,
+                "isApprovalRequiredForExtension": false,
+                "isRequestorJustificationRequired": true,
+                "approvalMode": "SingleStage",
+                "approvalStages": [
+                  {
+                    "approvalStageTimeOutInDays": 1,
+                    "isApproverJustificationRequired": true,
+                    "escalationTimeInMinutes": 0,
+                    "isEscalationEnabled": false,
+                    "primaryApprovers": [],
+                    "escalationApprovers": []
+                  }
+                ]
+              },
+              "ruleType": "RoleManagementPolicyApprovalRule"
+            }
+          ]
+        }
+      },
+      "after": {
+        "name": "3e6225bf-09cb-57bc-bb3d-d280f41cc170",
+        "type": "Microsoft.Entra/roleManagementPolicies",
+        "apiVersion": "2026-10-01-preview",
+        "properties": {
+          "rules": [
+            {
+              "id": "Expiration_EndUser_Assignment",
+              "isExpirationRequired": true,
+              "maximumDuration": "PT4H",
+              "ruleType": "RoleManagementPolicyExpirationRule",
+              "target": {
+                "caller": "EndUser",
+                "operations": [
+                  "All"
+                ],
+                "level": "Assignment",
+                "inheritableSettings": [],
+                "enforcedSettings": []
+              }
+            },
+            {
+              "id": "Enablement_EndUser_Assignment",
+              "enabledRules": [
+                "MultiFactorAuthentication",
+                "Justification"
+              ],
+              "ruleType": "RoleManagementPolicyEnablementRule",
+              "target": {
+                "caller": "EndUser",
+                "operations": [
+                  "All"
+                ],
+                "level": "Assignment",
+                "inheritableSettings": [],
+                "enforcedSettings": []
+              }
+            },
+            {
+              "id": "Approval_EndUser_Assignment",
+              "ruleType": "RoleManagementPolicyApprovalRule",
+              "setting": {
+                "isApprovalRequired": true,
+                "approvalStages": [
+                  {
+                    "primaryApprovers": [
+                      {
+                        "id": "66666666-0000-0000-0000-000000000200",
+                        "userType": "Group"
+                      }
+                    ],
+                    "approvalStageTimeOutInDays": 1,
+                    "isApproverJustificationRequired": true,
+                    "escalationTimeInMinutes": 0,
+                    "isEscalationEnabled": false
+                  }
+                ],
+                "isApprovalRequiredForExtension": false,
+                "isRequestorJustificationRequired": true,
+                "approvalMode": "SingleStage"
+              },
+              "target": {
+                "caller": "EndUser",
+                "operations": [
+                  "All"
+                ],
+                "level": "Assignment",
+                "inheritableSettings": [],
+                "enforcedSettings": []
+              }
+            }
+          ],
+          "roleDefinitionId": "62e90394-69f5-4237-9190-012177145e10",
+          "scopeType": "DirectoryRole",
+          "scopeId": "/"
+        }
+      },
+      "delta": [
+        {
+          "path": "properties.rules",
+          "propertyChangeType": "Array",
+          "before": [
+            {
+              "id": "Expiration_EndUser_Assignment",
+              "isExpirationRequired": true,
+              "maximumDuration": "PT8H",
+              "target": {
+                "caller": "EndUser",
+                "operations": [
+                  "All"
+                ],
+                "level": "Assignment",
+                "inheritableSettings": [],
+                "enforcedSettings": []
+              },
+              "ruleType": "RoleManagementPolicyExpirationRule"
+            },
+            {
+              "id": "Enablement_EndUser_Assignment",
+              "enabledRules": [
+                "MultiFactorAuthentication",
+                "Justification"
+              ],
+              "target": {
+                "caller": "EndUser",
+                "operations": [
+                  "All"
+                ],
+                "level": "Assignment",
+                "inheritableSettings": [],
+                "enforcedSettings": []
+              },
+              "ruleType": "RoleManagementPolicyEnablementRule"
+            },
+            {
+              "id": "Approval_EndUser_Assignment",
+              "target": {
+                "caller": "EndUser",
+                "operations": [
+                  "All"
+                ],
+                "level": "Assignment",
+                "inheritableSettings": [],
+                "enforcedSettings": []
+              },
+              "setting": {
+                "isApprovalRequired": false,
+                "isApprovalRequiredForExtension": false,
+                "isRequestorJustificationRequired": true,
+                "approvalMode": "SingleStage",
+                "approvalStages": [
+                  {
+                    "approvalStageTimeOutInDays": 1,
+                    "isApproverJustificationRequired": true,
+                    "escalationTimeInMinutes": 0,
+                    "isEscalationEnabled": false,
+                    "primaryApprovers": [],
+                    "escalationApprovers": []
+                  }
+                ]
+              },
+              "ruleType": "RoleManagementPolicyApprovalRule"
+            }
+          ],
+          "after": [
+            {
+              "id": "Expiration_EndUser_Assignment",
+              "isExpirationRequired": true,
+              "maximumDuration": "PT4H",
+              "ruleType": "RoleManagementPolicyExpirationRule",
+              "target": {
+                "caller": "EndUser",
+                "operations": [
+                  "All"
+                ],
+                "level": "Assignment",
+                "inheritableSettings": [],
+                "enforcedSettings": []
+              }
+            },
+            {
+              "id": "Enablement_EndUser_Assignment",
+              "enabledRules": [
+                "MultiFactorAuthentication",
+                "Justification"
+              ],
+              "ruleType": "RoleManagementPolicyEnablementRule",
+              "target": {
+                "caller": "EndUser",
+                "operations": [
+                  "All"
+                ],
+                "level": "Assignment",
+                "inheritableSettings": [],
+                "enforcedSettings": []
+              }
+            },
+            {
+              "id": "Approval_EndUser_Assignment",
+              "ruleType": "RoleManagementPolicyApprovalRule",
+              "setting": {
+                "isApprovalRequired": true,
+                "approvalStages": [
+                  {
+                    "primaryApprovers": [
+                      {
+                        "id": "66666666-0000-0000-0000-000000000200",
+                        "userType": "Group"
+                      }
+                    ],
+                    "approvalStageTimeOutInDays": 1,
+                    "isApproverJustificationRequired": true,
+                    "escalationTimeInMinutes": 0,
+                    "isEscalationEnabled": false
+                  }
+                ],
+                "isApprovalRequiredForExtension": false,
+                "isRequestorJustificationRequired": true,
+                "approvalMode": "SingleStage"
+              },
+              "target": {
+                "caller": "EndUser",
+                "operations": [
+                  "All"
+                ],
+                "level": "Assignment",
+                "inheritableSettings": [],
+                "enforcedSettings": []
+              }
+            }
+          ],
+          "children": [
+            {
+              "path": "Expiration_EndUser_Assignment",
+              "propertyChangeType": "Modify",
+              "before": {
+                "id": "Expiration_EndUser_Assignment",
+                "isExpirationRequired": true,
+                "maximumDuration": "PT8H",
+                "target": {
+                  "caller": "EndUser",
+                  "operations": [
+                    "All"
+                  ],
+                  "level": "Assignment",
+                  "inheritableSettings": [],
+                  "enforcedSettings": []
+                },
+                "ruleType": "RoleManagementPolicyExpirationRule"
+              },
+              "after": {
+                "id": "Expiration_EndUser_Assignment",
+                "isExpirationRequired": true,
+                "maximumDuration": "PT4H",
+                "ruleType": "RoleManagementPolicyExpirationRule",
+                "target": {
+                  "caller": "EndUser",
+                  "operations": [
+                    "All"
+                  ],
+                  "level": "Assignment",
+                  "inheritableSettings": [],
+                  "enforcedSettings": []
+                }
+              },
+              "children": [
+                {
+                  "path": "maximumDuration",
+                  "propertyChangeType": "Modify",
+                  "before": "PT8H",
+                  "after": "PT4H"
+                }
+              ]
+            },
+            {
+              "path": "Approval_EndUser_Assignment",
+              "propertyChangeType": "Modify",
+              "before": {
+                "id": "Approval_EndUser_Assignment",
+                "target": {
+                  "caller": "EndUser",
+                  "operations": [
+                    "All"
+                  ],
+                  "level": "Assignment",
+                  "inheritableSettings": [],
+                  "enforcedSettings": []
+                },
+                "setting": {
+                  "isApprovalRequired": false,
+                  "isApprovalRequiredForExtension": false,
+                  "isRequestorJustificationRequired": true,
+                  "approvalMode": "SingleStage",
+                  "approvalStages": [
+                    {
+                      "approvalStageTimeOutInDays": 1,
+                      "isApproverJustificationRequired": true,
+                      "escalationTimeInMinutes": 0,
+                      "isEscalationEnabled": false,
+                      "primaryApprovers": [],
+                      "escalationApprovers": []
+                    }
+                  ]
+                },
+                "ruleType": "RoleManagementPolicyApprovalRule"
+              },
+              "after": {
+                "id": "Approval_EndUser_Assignment",
+                "ruleType": "RoleManagementPolicyApprovalRule",
+                "setting": {
+                  "isApprovalRequired": true,
+                  "approvalStages": [
+                    {
+                      "primaryApprovers": [
+                        {
+                          "id": "66666666-0000-0000-0000-000000000200",
+                          "userType": "Group"
+                        }
+                      ],
+                      "approvalStageTimeOutInDays": 1,
+                      "isApproverJustificationRequired": true,
+                      "escalationTimeInMinutes": 0,
+                      "isEscalationEnabled": false
+                    }
+                  ],
+                  "isApprovalRequiredForExtension": false,
+                  "isRequestorJustificationRequired": true,
+                  "approvalMode": "SingleStage"
+                },
+                "target": {
+                  "caller": "EndUser",
+                  "operations": [
+                    "All"
+                  ],
+                  "level": "Assignment",
+                  "inheritableSettings": [],
+                  "enforcedSettings": []
+                }
+              },
+              "children": [
+                {
+                  "path": "setting",
+                  "propertyChangeType": "Modify",
+                  "before": {
+                    "isApprovalRequired": false,
+                    "isApprovalRequiredForExtension": false,
+                    "isRequestorJustificationRequired": true,
+                    "approvalMode": "SingleStage",
+                    "approvalStages": [
+                      {
+                        "approvalStageTimeOutInDays": 1,
+                        "isApproverJustificationRequired": true,
+                        "escalationTimeInMinutes": 0,
+                        "isEscalationEnabled": false,
+                        "primaryApprovers": [],
+                        "escalationApprovers": []
+                      }
+                    ]
+                  },
+                  "after": {
+                    "isApprovalRequired": true,
+                    "approvalStages": [
+                      {
+                        "primaryApprovers": [
+                          {
+                            "id": "66666666-0000-0000-0000-000000000200",
+                            "userType": "Group"
+                          }
+                        ],
+                        "approvalStageTimeOutInDays": 1,
+                        "isApproverJustificationRequired": true,
+                        "escalationTimeInMinutes": 0,
+                        "isEscalationEnabled": false
+                      }
+                    ],
+                    "isApprovalRequiredForExtension": false,
+                    "isRequestorJustificationRequired": true,
+                    "approvalMode": "SingleStage"
+                  },
+                  "children": [
+                    {
+                      "path": "isApprovalRequired",
+                      "propertyChangeType": "Modify",
+                      "before": false,
+                      "after": true
+                    },
+                    {
+                      "path": "approvalStages",
+                      "propertyChangeType": "Array",
+                      "before": [
+                        {
+                          "approvalStageTimeOutInDays": 1,
+                          "isApproverJustificationRequired": true,
+                          "escalationTimeInMinutes": 0,
+                          "isEscalationEnabled": false,
+                          "primaryApprovers": [],
+                          "escalationApprovers": []
+                        }
+                      ],
+                      "after": [
+                        {
+                          "primaryApprovers": [
+                            {
+                              "id": "66666666-0000-0000-0000-000000000200",
+                              "userType": "Group"
+                            }
+                          ],
+                          "approvalStageTimeOutInDays": 1,
+                          "isApproverJustificationRequired": true,
+                          "escalationTimeInMinutes": 0,
+                          "isEscalationEnabled": false
+                        }
+                      ],
+                      "children": [
+                        {
+                          "path": "[0]",
+                          "propertyChangeType": "Create",
+                          "after": {
+                            "primaryApprovers": [
+                              {
+                                "id": "66666666-0000-0000-0000-000000000200",
+                                "userType": "Group"
+                              }
+                            ],
+                            "approvalStageTimeOutInDays": 1,
+                            "isApproverJustificationRequired": true,
+                            "escalationTimeInMinutes": 0,
+                            "isEscalationEnabled": false
+                          }
+                        },
+                        {
+                          "path": "[0]",
+                          "propertyChangeType": "Delete",
+                          "before": {
+                            "approvalStageTimeOutInDays": 1,
+                            "isApproverJustificationRequired": true,
+                            "escalationTimeInMinutes": 0,
+                            "isEscalationEnabled": false,
+                            "primaryApprovers": [],
+                            "escalationApprovers": []
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "unsupportedReason": null,
+      "reasons": [
+        "each changed rule is updated in place (PATCH of the rule); undeclared rules are left as they are"
+      ]
+    },
+    {
+      "resourceId": "/providers/Microsoft.Entra/roleManagementPolicies/583aff4d-b6c4-590b-9467-a224fcf16270",
+      "changeType": "Modify",
+      "before": {
+        "name": "583aff4d-b6c4-590b-9467-a224fcf16270",
+        "type": "Microsoft.Entra/roleManagementPolicies",
+        "apiVersion": "2026-10-01-preview",
+        "properties": {
+          "scopeType": "Group",
+          "scopeId": "66666666-0000-0000-0000-000000000100",
+          "roleDefinitionId": "member",
+          "rules": [
+            {
+              "id": "Expiration_Admin_Eligibility",
+              "isExpirationRequired": true,
+              "maximumDuration": "P365D",
+              "target": {
+                "caller": "Admin",
+                "operations": [
+                  "All"
+                ],
+                "level": "Eligibility",
+                "inheritableSettings": [],
+                "enforcedSettings": []
+              },
+              "ruleType": "RoleManagementPolicyExpirationRule"
+            },
+            {
+              "id": "Notification_Admin_EndUser_Assignment",
+              "notificationType": "Email",
+              "recipientType": "Admin",
+              "notificationLevel": "All",
+              "isDefaultRecipientsEnabled": true,
+              "notificationRecipients": [],
+              "target": {
+                "caller": "EndUser",
+                "operations": [
+                  "All"
+                ],
+                "level": "Assignment",
+                "inheritableSettings": [],
+                "enforcedSettings": []
+              },
+              "ruleType": "RoleManagementPolicyNotificationRule"
+            }
+          ]
+        }
+      },
+      "after": {
+        "name": "583aff4d-b6c4-590b-9467-a224fcf16270",
+        "type": "Microsoft.Entra/roleManagementPolicies",
+        "apiVersion": "2026-10-01-preview",
+        "properties": {
+          "rules": [
+            {
+              "id": "Expiration_Admin_Eligibility",
+              "isExpirationRequired": false,
+              "ruleType": "RoleManagementPolicyExpirationRule",
+              "maximumDuration": "P365D",
+              "target": {
+                "caller": "Admin",
+                "operations": [
+                  "All"
+                ],
+                "level": "Eligibility",
+                "inheritableSettings": [],
+                "enforcedSettings": []
+              }
+            },
+            {
+              "id": "Notification_Admin_EndUser_Assignment",
+              "notificationRecipients": [
+                "security@contoso.com"
+              ],
+              "ruleType": "RoleManagementPolicyNotificationRule",
+              "notificationType": "Email",
+              "recipientType": "Admin",
+              "notificationLevel": "All",
+              "isDefaultRecipientsEnabled": true,
+              "target": {
+                "caller": "EndUser",
+                "operations": [
+                  "All"
+                ],
+                "level": "Assignment",
+                "inheritableSettings": [],
+                "enforcedSettings": []
+              }
+            }
+          ],
+          "scopeId": "66666666-0000-0000-0000-000000000100",
+          "roleDefinitionId": "member",
+          "scopeType": "Group"
+        }
+      },
+      "delta": [
+        {
+          "path": "properties.rules",
+          "propertyChangeType": "Array",
+          "before": [
+            {
+              "id": "Expiration_Admin_Eligibility",
+              "isExpirationRequired": true,
+              "maximumDuration": "P365D",
+              "target": {
+                "caller": "Admin",
+                "operations": [
+                  "All"
+                ],
+                "level": "Eligibility",
+                "inheritableSettings": [],
+                "enforcedSettings": []
+              },
+              "ruleType": "RoleManagementPolicyExpirationRule"
+            },
+            {
+              "id": "Notification_Admin_EndUser_Assignment",
+              "notificationType": "Email",
+              "recipientType": "Admin",
+              "notificationLevel": "All",
+              "isDefaultRecipientsEnabled": true,
+              "notificationRecipients": [],
+              "target": {
+                "caller": "EndUser",
+                "operations": [
+                  "All"
+                ],
+                "level": "Assignment",
+                "inheritableSettings": [],
+                "enforcedSettings": []
+              },
+              "ruleType": "RoleManagementPolicyNotificationRule"
+            }
+          ],
+          "after": [
+            {
+              "id": "Expiration_Admin_Eligibility",
+              "isExpirationRequired": false,
+              "ruleType": "RoleManagementPolicyExpirationRule",
+              "maximumDuration": "P365D",
+              "target": {
+                "caller": "Admin",
+                "operations": [
+                  "All"
+                ],
+                "level": "Eligibility",
+                "inheritableSettings": [],
+                "enforcedSettings": []
+              }
+            },
+            {
+              "id": "Notification_Admin_EndUser_Assignment",
+              "notificationRecipients": [
+                "security@contoso.com"
+              ],
+              "ruleType": "RoleManagementPolicyNotificationRule",
+              "notificationType": "Email",
+              "recipientType": "Admin",
+              "notificationLevel": "All",
+              "isDefaultRecipientsEnabled": true,
+              "target": {
+                "caller": "EndUser",
+                "operations": [
+                  "All"
+                ],
+                "level": "Assignment",
+                "inheritableSettings": [],
+                "enforcedSettings": []
+              }
+            }
+          ],
+          "children": [
+            {
+              "path": "Expiration_Admin_Eligibility",
+              "propertyChangeType": "Modify",
+              "before": {
+                "id": "Expiration_Admin_Eligibility",
+                "isExpirationRequired": true,
+                "maximumDuration": "P365D",
+                "target": {
+                  "caller": "Admin",
+                  "operations": [
+                    "All"
+                  ],
+                  "level": "Eligibility",
+                  "inheritableSettings": [],
+                  "enforcedSettings": []
+                },
+                "ruleType": "RoleManagementPolicyExpirationRule"
+              },
+              "after": {
+                "id": "Expiration_Admin_Eligibility",
+                "isExpirationRequired": false,
+                "ruleType": "RoleManagementPolicyExpirationRule",
+                "maximumDuration": "P365D",
+                "target": {
+                  "caller": "Admin",
+                  "operations": [
+                    "All"
+                  ],
+                  "level": "Eligibility",
+                  "inheritableSettings": [],
+                  "enforcedSettings": []
+                }
+              },
+              "children": [
+                {
+                  "path": "isExpirationRequired",
+                  "propertyChangeType": "Modify",
+                  "before": true,
+                  "after": false
+                }
+              ]
+            },
+            {
+              "path": "Notification_Admin_EndUser_Assignment",
+              "propertyChangeType": "Modify",
+              "before": {
+                "id": "Notification_Admin_EndUser_Assignment",
+                "notificationType": "Email",
+                "recipientType": "Admin",
+                "notificationLevel": "All",
+                "isDefaultRecipientsEnabled": true,
+                "notificationRecipients": [],
+                "target": {
+                  "caller": "EndUser",
+                  "operations": [
+                    "All"
+                  ],
+                  "level": "Assignment",
+                  "inheritableSettings": [],
+                  "enforcedSettings": []
+                },
+                "ruleType": "RoleManagementPolicyNotificationRule"
+              },
+              "after": {
+                "id": "Notification_Admin_EndUser_Assignment",
+                "notificationRecipients": [
+                  "security@contoso.com"
+                ],
+                "ruleType": "RoleManagementPolicyNotificationRule",
+                "notificationType": "Email",
+                "recipientType": "Admin",
+                "notificationLevel": "All",
+                "isDefaultRecipientsEnabled": true,
+                "target": {
+                  "caller": "EndUser",
+                  "operations": [
+                    "All"
+                  ],
+                  "level": "Assignment",
+                  "inheritableSettings": [],
+                  "enforcedSettings": []
+                }
+              },
+              "children": [
+                {
+                  "path": "notificationRecipients",
+                  "propertyChangeType": "Create",
+                  "after": [
+                    "security@contoso.com"
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "unsupportedReason": null,
+      "reasons": [
+        "each changed rule is updated in place (PATCH of the rule); undeclared rules are left as they are"
+      ]
+    },
+    {
+      "resourceId": "/providers/Microsoft.Entra/roleManagementPolicies/c49bac1c-fc5b-57b6-b28a-624d71946e33",
+      "changeType": "NoChange",
+      "before": {
+        "name": "c49bac1c-fc5b-57b6-b28a-624d71946e33",
+        "type": "Microsoft.Entra/roleManagementPolicies",
+        "apiVersion": "2026-10-01-preview",
+        "properties": {
+          "scopeType": "DirectoryRole",
+          "scopeId": "/",
+          "roleDefinitionId": "5d6b6bb7-de71-4623-b4af-96380a352509",
+          "rules": [
+            {
+              "id": "Expiration_EndUser_Assignment",
+              "isExpirationRequired": true,
+              "maximumDuration": "PT8H",
+              "target": {
+                "caller": "EndUser",
+                "operations": [
+                  "All"
+                ],
+                "level": "Assignment",
+                "inheritableSettings": [],
+                "enforcedSettings": []
+              },
+              "ruleType": "RoleManagementPolicyExpirationRule"
+            }
+          ]
+        }
+      },
+      "after": {
+        "name": "c49bac1c-fc5b-57b6-b28a-624d71946e33",
+        "type": "Microsoft.Entra/roleManagementPolicies",
+        "apiVersion": "2026-10-01-preview",
+        "properties": {
+          "scopeType": "DirectoryRole",
+          "scopeId": "/",
+          "roleDefinitionId": "5d6b6bb7-de71-4623-b4af-96380a352509",
+          "rules": [
+            {
+              "id": "Expiration_EndUser_Assignment",
+              "maximumDuration": "PT8H",
+              "ruleType": "RoleManagementPolicyExpirationRule",
+              "isExpirationRequired": true,
+              "target": {
+                "caller": "EndUser",
+                "operations": [
+                  "All"
+                ],
+                "level": "Assignment",
+                "inheritableSettings": [],
+                "enforcedSettings": []
+              }
+            }
+          ]
+        }
+      },
+      "unsupportedReason": null
+    }
+  ],
+  "diagnostics": [],
+  "requiredPermissions": [
+    "Directory.Read.All",
+    "RoleManagementPolicy.ReadWrite.AzureADGroup",
+    "RoleManagementPolicy.ReadWrite.Directory"
+  ],
+  "unresolvedReferences": [],
+  "summary": {
+    "create": 0,
+    "modify": 2,
+    "delete": 0,
+    "noChange": 1,
+    "ignore": 0,
+    "unsupported": 0,
+    "orphans": 0,
+    "edges": {
+      "add": 0,
+      "remove": 0
+    }
+  }
+}

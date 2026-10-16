@@ -27,6 +27,7 @@ public sealed class TemplateSchemaValidationTests
     private const string Methods = "authentication-methods";
     private const string Pim = "pim-eligibility";
     private const string PimActive = "pim-active";
+    private const string PimPolicies = "pim-policies";
     private const string SchemaUri = "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#";
 
     private static readonly TemplateLoader Loader = new();
@@ -121,6 +122,10 @@ public sealed class TemplateSchemaValidationTests
         // privilegedAccess/groupAssignmentScheduleRequests (PIM for Groups time-bound active assignment)
         I(PimActive, "privilegedAccess/groupAssignmentScheduleRequests", 0, ["principalId"], "\"not-a-guid\"", "pattern"),
         I(PimActive, "privilegedAccess/groupAssignmentScheduleRequests", 1, ["ticketInfo"], "\"CHG-1\"", "type"),
+
+        // roleManagementPolicies (PIM policy rules)
+        I(PimPolicies, "roleManagementPolicies", 0, ["rules", 4, "isDefaultRecipientsEnabled"], "\"yes\"", "type"),
+        I(PimPolicies, "roleManagementPolicies", 1, ["rules", 0], "{ \"maximumDuration\": \"PT1H\" }", "required"),
     ];
 
     public static TheoryData<int> InjectionIndexes()
@@ -235,7 +240,7 @@ public sealed class TemplateSchemaValidationTests
             Assert.Contains(definition.Type, covered);
         }
 
-        Assert.Equal(20, ResourceTypeCatalog.Default.Types.Count);
+        Assert.Equal(21, ResourceTypeCatalog.Default.Types.Count);
         foreach (string keyword in new[] { "enum", "pattern", "type", "required", "additionalProperties" })
         {
             Assert.Contains(Injections, i => i.Keyword == keyword);

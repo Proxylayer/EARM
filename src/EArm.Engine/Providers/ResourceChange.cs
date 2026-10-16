@@ -101,6 +101,9 @@ public sealed record ResourceChange
     /// <summary>Set when the change cannot be applied (immutable change on a type that cannot be recreated, read failure...).</summary>
     public string? UnsupportedReason { get; init; }
 
+    /// <summary>The diagnostic code a deployment reports an unsupported change under; <c>null</c> for the generic <see cref="EngineDiagnosticCodes.ImmutablePropertyChanged"/>.</summary>
+    public string? UnsupportedCode { get; init; }
+
     /// <summary>True when the key or the desired properties contain deploy-time values the planner could not resolve.</summary>
     public bool IsUnknown { get; init; }
 

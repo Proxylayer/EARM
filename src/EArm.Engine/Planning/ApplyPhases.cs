@@ -15,7 +15,7 @@ public static class ApplyPhases
     /// <summary>
     /// 1: namedLocations, authenticationContextClassReferences, authenticationStrengths, authenticationMethodConfigurations, roleDefinitions, users,
     /// applications · 2: servicePrincipals, federatedIdentityCredentials, passwordCredentials · 3: groups ·
-    /// 4: administrativeUnits · 5: roleAssignments, roleEligibilityScheduleRequests, roleAssignmentScheduleRequests, privilegedAccess/groupEligibilityScheduleRequests,
+    /// 4: administrativeUnits, roleManagementPolicies (also ordered before the PIM schedule requests they govern) · 5: roleAssignments, roleEligibilityScheduleRequests, roleAssignmentScheduleRequests, privilegedAccess/groupEligibilityScheduleRequests,
     /// privilegedAccess/groupAssignmentScheduleRequests, appRoleAssignments, oauth2PermissionGrants ·
     /// 6: conditionalAccess/policies.
     /// </summary>
@@ -36,6 +36,7 @@ public static class ApplyPhases
             "applications/passwordCredentials" => 2,
             "groups" => 3,
             "administrativeUnits" => 4,
+            "roleManagementPolicies" => 4,
             "roleAssignments" => 5,
             "roleEligibilityScheduleRequests" => 5,
             "privilegedAccess/groupEligibilityScheduleRequests" => 5,
@@ -49,7 +50,7 @@ public static class ApplyPhases
     }
 
     /// <summary>
-    /// Complete-mode delete order: CA policies → assignments/eligibilities/PIM active assignments/grants → administrativeUnits → groups →
+    /// Complete-mode delete order: CA policies → assignments/eligibilities/PIM active assignments/grants/PIM policies (kept, never deleted) → administrativeUnits → groups →
     /// passwordCredentials/federatedIdentityCredentials → servicePrincipals → applications → users → roleDefinitions
     /// → authenticationStrengths → authenticationContextClassReferences → namedLocations → authenticationMethodConfigurations (reset, never removed).
     /// </summary>
@@ -66,6 +67,7 @@ public static class ApplyPhases
             "privilegedAccess/groupAssignmentScheduleRequests" => 2,
             "appRoleAssignments" => 2,
             "oauth2PermissionGrants" => 2,
+            "roleManagementPolicies" => 2,
             "administrativeUnits" => 3,
             "groups" => 4,
             "applications/passwordCredentials" => 5,
@@ -113,6 +115,7 @@ public static class ApplyPhases
         "applications/passwordCredentials",
         "groups",
         "administrativeUnits",
+        "roleManagementPolicies",
         "roleAssignments",
         "roleEligibilityScheduleRequests",
         "privilegedAccess/groupEligibilityScheduleRequests",

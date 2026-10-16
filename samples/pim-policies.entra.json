@@ -1,0 +1,130 @@
+{
+  "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "PIM policy rules (role settings), written like ARM's Microsoft.Authorization/roleManagementPolicies: Global Administrator and Privileged Role Administrator activations last at most 8 hours, need MFA and a justification and are approved by an emergency approvers group, and permanent eligibility is allowed; plus the PIM for Groups membership policy of an operations group with the same activation rules. Only the declared rule ids are managed: every other rule keeps its live value. The policies are applied before the eligibilities of the same role or group in the template (a privileged admins group eligible for both roles, an on-call engineer eligible for the operations group), so those are judged by the declared rules. The first group eligibility (or policy update) onboards the operations group in PIM for Groups (permanently). Needs Microsoft Entra ID P2 (or ID Governance) and a Privileged Role Administrator (or RoleManagementPolicy.ReadWrite.Directory, RoleManagementPolicy.ReadWrite.AzureADGroup and the eligibility permissions); see docs/permissions.md."
+  },
+  "parameters": {
+    "emergencyApproversGroupId": { "type": "string", "metadata": { "description": "Object id of the existing emergency approvers group whose members approve privileged activations." } },
+    "onCallEngineerId":          { "type": "string", "metadata": { "description": "Object id of the on-call engineer (a user) made eligible for the operations group." } },
+    "securityMailbox":           { "type": "string", "defaultValue": "security-alerts@contoso.com", "metadata": { "description": "Extra recipient of the activation alerts." } }
+  },
+  "variables": {
+    "adminsGroupName": "pim-privileged-admins",
+    "opsGroupName": "pim-ops-responders",
+    "activation": {
+      "expiration": { "id": "Expiration_EndUser_Assignment", "isExpirationRequired": true, "maximumDuration": "PT8H" },
+      "enablement": { "id": "Enablement_EndUser_Assignment", "enabledRules": ["MultiFactorAuthentication", "Justification"] },
+      "approval": {
+        "id": "Approval_EndUser_Assignment",
+        "setting": {
+          "isApprovalRequired": true,
+          "isRequestorJustificationRequired": true,
+          "approvalMode": "SingleStage",
+          "approvalStages": [
+            {
+              "approvalStageTimeOutInDays": 1,
+              "isApproverJustificationRequired": true,
+              "isEscalationEnabled": false,
+              "primaryApprovers": [ { "id": "[parameters('emergencyApproversGroupId')]", "userType": "Group", "description": "Emergency approvers" } ]
+            }
+          ]
+        }
+      },
+      "permanentEligibility": { "id": "Expiration_Admin_Eligibility", "isExpirationRequired": false }
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01-preview", "name": "[variables('adminsGroupName')]",
+      "properties": { "displayName": "PIM Privileged Admins", "mailEnabled": false, "mailNickname": "pim-privileged-admins", "securityEnabled": true, "isAssignableToRole": true }
+    },
+    {
+      "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01-preview", "name": "[variables('opsGroupName')]",
+      "properties": { "displayName": "PIM Ops Responders", "mailEnabled": false, "mailNickname": "pim-ops-responders", "securityEnabled": true }
+    },
+    {
+      "type": "Microsoft.Entra/roleManagementPolicies", "apiVersion": "2026-10-01-preview",
+      "name": "[guid('pim-policy', 'Global Administrator')]",
+      "properties": {
+        "role": "Global Administrator",
+        "rules": [
+          "[variables('activation').expiration]",
+          "[variables('activation').enablement]",
+          "[variables('activation').approval]",
+          "[variables('activation').permanentEligibility]",
+          {
+            "notificationType": "Email",
+            "recipientType": "Admin",
+            "isDefaultRecipientsEnabled": true,
+            "notificationLevel": "All",
+            "notificationRecipients": ["[parameters('securityMailbox')]"],
+            "id": "Notification_Admin_EndUser_Assignment",
+            "ruleType": "RoleManagementPolicyNotificationRule",
+            "target": { "caller": "EndUser", "operations": ["All"], "level": "Assignment", "targetObjects": null, "inheritableSettings": null, "enforcedSettings": null }
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.Entra/roleManagementPolicies", "apiVersion": "2026-10-01-preview",
+      "name": "[guid('pim-policy', 'Privileged Role Administrator')]",
+      "properties": {
+        "role": "Privileged Role Administrator",
+        "rules": [
+          "[variables('activation').expiration]",
+          "[variables('activation').enablement]",
+          "[variables('activation').approval]",
+          "[variables('activation').permanentEligibility]"
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.Entra/roleManagementPolicies", "apiVersion": "2026-10-01-preview",
+      "name": "[guid('pim-policy', variables('opsGroupName'), 'member')]",
+      "properties": {
+        "group": "[reference(variables('opsGroupName')).id]",
+        "accessId": "member",
+        "rules": [
+          "[variables('activation').expiration]",
+          "[variables('activation').enablement]",
+          "[variables('activation').approval]",
+          "[variables('activation').permanentEligibility]"
+        ]
+      },
+      "dependsOn": ["[resourceId('Microsoft.Entra/groups', variables('opsGroupName'))]"]
+    },
+    {
+      "type": "Microsoft.Entra/roleEligibilityScheduleRequests", "apiVersion": "2026-10-01-preview",
+      "name": "[guid(variables('adminsGroupName'), 'Global Administrator', '/')]",
+      "properties": {
+        "principalId": "[reference(variables('adminsGroupName')).id]",
+        "role": "Global Administrator",
+        "justification": "Privileged admins activate Global Administrator through PIM, with approval"
+      },
+      "dependsOn": ["[resourceId('Microsoft.Entra/groups', variables('adminsGroupName'))]"]
+    },
+    {
+      "type": "Microsoft.Entra/roleEligibilityScheduleRequests", "apiVersion": "2026-10-01-preview",
+      "name": "[guid(variables('adminsGroupName'), 'Privileged Role Administrator', '/')]",
+      "properties": {
+        "principalId": "[reference(variables('adminsGroupName')).id]",
+        "roleDefinitionId": "[roleTemplate('Privileged Role Administrator')]",
+        "justification": "Privileged admins activate Privileged Role Administrator through PIM, with approval"
+      },
+      "dependsOn": ["[resourceId('Microsoft.Entra/groups', variables('adminsGroupName'))]"]
+    },
+    {
+      "type": "Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests", "apiVersion": "2026-10-01-preview",
+      "name": "[guid(variables('opsGroupName'), parameters('onCallEngineerId'), 'member')]",
+      "properties": {
+        "groupId": "[reference(variables('opsGroupName')).id]",
+        "principalId": "[parameters('onCallEngineerId')]",
+        "accessId": "member",
+        "scheduleInfo": { "expiration": { "type": "AfterDuration", "duration": "P180D" } },
+        "justification": "On-call engineers activate ops membership through PIM, with approval"
+      },
+      "dependsOn": ["[resourceId('Microsoft.Entra/groups', variables('opsGroupName'))]"]
+    }
+  ]
+}

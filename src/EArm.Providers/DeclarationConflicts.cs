@@ -158,7 +158,7 @@ internal static class DeclarationConflicts
     }
 
     /// <summary>The access kinds a declaration can mean: the literal accessId, or both when it is computed or missing.</summary>
-    private static (bool Member, bool Owner) AccessKinds(JsonObject properties)
+    internal static (bool Member, bool Owner) AccessKinds(JsonObject properties)
     {
         return Literal(properties, "accessId") is { } access && GroupEligibilityScheduleRules.NormalizeAccessId(access) is { } normalized
             ? (normalized == GroupEligibilityScheduleRules.Member, normalized == GroupEligibilityScheduleRules.Owner)
@@ -166,7 +166,7 @@ internal static class DeclarationConflicts
     }
 
     /// <summary>The declared groups the request targets: referenced by <c>groupId</c>, or named (uniqueName, the groups' resource name) by <c>group</c>.</summary>
-    private static IEnumerable<ResourceInstance> TargetGroups(ResourceInstance instance, JsonObject properties, JsonPath path, IReadOnlyList<ResourceInstance> declared)
+    internal static IEnumerable<ResourceInstance> TargetGroups(ResourceInstance instance, JsonObject properties, JsonPath path, IReadOnlyList<ResourceInstance> declared)
     {
         string? groupKey = JsonObjects.FindKey(properties, "group");
         string? groupText = groupKey is null ? null : RawText(properties[groupKey]);
@@ -196,7 +196,7 @@ internal static class DeclarationConflicts
     /// A comparable spelling of a property value: the declared resources it references, else its literal, else its expression text (none inside a copy
     /// loop, where the same text means different values per iteration); <c>null</c> when absent or not comparable.
     /// </summary>
-    private static string? Spelling(ResourceInstance instance, JsonObject owner, JsonPath ownerPath, string name)
+    internal static string? Spelling(ResourceInstance instance, JsonObject owner, JsonPath ownerPath, string name)
     {
         if (JsonObjects.FindKey(owner, name) is not { } key || JsonObjects.IsAbsent(owner[key]))
         {
@@ -223,7 +223,7 @@ internal static class DeclarationConflicts
     }
 
     /// <summary>The role: a template id (literal GUID), a role name (<c>role</c> literal or <c>roleTemplate('…')</c>), or another spelling.</summary>
-    private static string? RoleSpelling(ResourceInstance instance, JsonObject owner, JsonPath ownerPath)
+    internal static string? RoleSpelling(ResourceInstance instance, JsonObject owner, JsonPath ownerPath)
     {
         foreach (string name in new[] { "roleDefinitionId", "role" })
         {
@@ -292,7 +292,7 @@ internal static class DeclarationConflicts
     }
 
     /// <summary>True when the value at <paramref name="path"/> of <paramref name="instance"/> references <paramref name="target"/>.</summary>
-    private static bool IsReferencedBy(ResourceInstance instance, JsonPath path, ResourceInstance target)
+    internal static bool IsReferencedBy(ResourceInstance instance, JsonPath path, ResourceInstance target)
     {
         return References(instance, path).Contains(target.PlannedId.Id.ToLowerInvariant(), StringComparer.Ordinal);
     }
@@ -305,7 +305,7 @@ internal static class DeclarationConflicts
         return node is not null && !(node is JsonValue value && value.GetValueKind() == System.Text.Json.JsonValueKind.Null);
     }
 
-    private static JsonPath PropertiesPath(ResourceInstance instance)
+    internal static JsonPath PropertiesPath(ResourceInstance instance)
     {
         return instance.Declaration.Path.Append("properties");
     }
@@ -316,7 +316,7 @@ internal static class DeclarationConflicts
     }
 
     /// <summary>A literal (not an expression) string property, trimmed, or <c>null</c>.</summary>
-    private static string? Literal(JsonObject properties, string name)
+    internal static string? Literal(JsonObject properties, string name)
     {
         return JsonObjects.FindKey(properties, name) is { } key && RawText(properties[key]) is { } text && !ExpressionSyntax.IsExpression(text) ? text.Trim() : null;
     }
