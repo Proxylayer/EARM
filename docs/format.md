@@ -107,7 +107,7 @@ deterministic, and what the what-if output and the deployment result print. `res
 | Deployment history (`az deployment group show / list`, `operation list`); a resource is identified by type and name | **No state and no history**: nothing is stored, locally or in the tenant. Identity is the resource's type and `name`, resolved by a live read on every run, which is the ARM model; `name` maps to a Graph key ([key table](engine.md#identity-without-state)). For display-name-keyed types the key is not unique in Graph: duplicates are `AmbiguousMatch`. A rename is a new object, as in ARM. There is no lock, so concurrent runs of one template are not serialised. |
 | PUT replaces the resource | **PATCH asymmetry.** Graph is merge-PATCH at the top level: only the **declared** top-level properties are applied, omitted ones are untouched. A declared nested object is replaced whole (live-only sub-properties are sent as explicit `null`, unless Graph refuses that), and a declared array is written whole. |
 | Complete mode deletes resources of the resource group the template does not declare | Complete mode **only reports** the undeclared live objects of the declared types (bounded per type; applications, groups and users are never listed) and **never deletes**. Remove objects with `deployment delete -f` (the objects a template declares) or by hand. |
-| A changed immutable property fails the deployment (most resource providers) | Applications, groups and users fail (`ImmutablePropertyChanged`); the cheap types (assignments, grants, credentials, named location kinds) are **replaced** (delete, then create), which needs confirmation (`-y` or the prompt; a non-interactive run without `-y` fails before any write). |
+| A changed immutable property fails the deployment (most resource providers) | Applications, groups and users fail (`ImmutablePropertyChanged`); the cheap types (assignments, credentials, named location kinds) are **replaced** (delete, then create), which needs confirmation (`-y` or the prompt; a non-interactive run without `-y` fails before any write). |
 | Changing a role assignment's properties under the same name is an error | The assignment `name` is a label; the tuple is the identity. A changed tuple creates a new assignment and **keeps the old one**, which still grants access: it is reported (`orphan: retained`), never removed. |
 | Every PUT sends the secrets of the resource | Secrets are **write-once** on an existing object: a `secretText` / `passwordProfile.password` is sent at creation and never compared or re-sent (Graph cannot return it, so a rerun would otherwise always change). Rotate client secrets with `rotationTag`. |
 | Child relationships are separate resources with their own lifecycle | Relationship arrays are declarable from either side ([edges.md](edges.md)): target-side lists (`members`, `owners`) are authoritative and prune; principal-side lists (`memberOf`, `appRoleAssignments`, `directoryRoles`, ...) only add, never remove. |
@@ -131,30 +131,32 @@ deterministic, and what the what-if output and the deployment result print. `res
 
 ## Resource type catalog
 
-`Microsoft.Entra/…` types of schema version 2026-10-01. The source of truth is the `x-earm` overlay at the end of each
-schema file (`earm schema print <type>`); the executor loads the same file at runtime, so this table cannot drift from
-behaviour.
+`Microsoft.Entra/…` types of schema version 2026-10-01. The table follows the `x-earm` overlay at the end of each
+schema file (`earm schema print <type>`), which the executor loads at runtime. A provider can adjust its overlay (groups require only
+`displayName` and filter `groupTypes` / `visibility` from the immutable list), so the table also notes those adjustments.
 
 | Type | `name` is | Graph path | Immutable (error, or recreate for cheap types) | Edge properties | Required on create |
 |---|---|---|---|---|---|
-| `applications` | `uniqueName` | `/applications` | `uniqueName`, `appId`, `id`, `publisherDomain` | `owners` | `displayName` |
-| `applications/federatedIdentityCredentials` | credential `name` (parent: application) | `/applications/{id}/federatedIdentityCredentials` | `name` | none | `issuer`, `subject` (`audiences` defaults to `["api://AzureADTokenExchange"]`) |
+| `applications` | `uniqueName` | `/applications` | `uniqueName`, `appId`, `id`, `publisherDomain` | `owners` | `displayName` (`signInAudience` defaults to `AzureADMyOrg`) |
+| `applications/federatedIdentityCredentials` | credential `name` (parent: application) | `/applications/{id}/federatedIdentityCredentials` | `name` | none | `issuer`, `subject` (`audiences` defaults to `["api://AzureADTokenExchange"]`); at most 20 per application, and `issuer` + `subject` must be unique within the application |
 | `applications/passwordCredentials` | credential `displayName` (parent: application) | `addPassword` / `removePassword` | everything (replaced, never edited) | none | nothing (`endDateTime` defaults to +180 days) |
-| `servicePrincipals` | `appId` | `/servicePrincipals` | `appId`, `servicePrincipalType` | `owners`, `memberOf`, `ownerOf`, `appRoleAssignments`, `directoryRoles` | nothing |
-| `groups` | `uniqueName` | `/groups` | `uniqueName`, `mailEnabled`, `isAssignableToRole`, `groupTypes` (Unified presence), `visibility` (HiddenMembership; `mailNickname`, Public / Private visibility and DynamicMembership are updated in place) | `members`, `owners`, `memberOf`, `administrativeUnits`, `appRoleAssignments`, `directoryRoles`, `assignedLicenses` | `displayName`, `mailEnabled`, `securityEnabled` (`mailNickname` derived from the name) |
+| `servicePrincipals` | `appId` | `/servicePrincipals` | `appId`, `servicePrincipalType` | `owners`, `memberOf`, `ownerOf`, `appRoleAssignments`, `directoryRoles` | nothing (`accountEnabled` defaults to true, `appRoleAssignmentRequired` to false) |
+| `groups` | `uniqueName` | `/groups` | `uniqueName`, `mailEnabled`, `isAssignableToRole`, `groupTypes` (Unified presence), `visibility` (HiddenMembership; `mailNickname`, Public / Private visibility and DynamicMembership are updated in place) | `members`, `owners`, `memberOf`, `administrativeUnits`, `appRoleAssignments`, `directoryRoles`, `assignedLicenses` | `displayName` (`mailEnabled` and `securityEnabled` default per kind, `mailNickname` is derived from the name) |
 | `users` | `userPrincipalName` | `/users` | `userPrincipalName` | `manager`, `memberOf`, `ownerOf`, `administrativeUnits`, `appRoleAssignments`, `directoryRoles`, `assignedLicenses` | `displayName` (`mailNickname`, `accountEnabled`, `passwordProfile` defaulted) |
 | `roleDefinitions` | `displayName` (custom roles only) | `/roleManagement/directory/roleDefinitions` | `templateId` | none | `rolePermissions[].allowedResourceActions` (`isEnabled` defaults to true) |
 | `conditionalAccess/authenticationContextClassReferences` | the id, `c1`…`c99` | `/identity/conditionalAccess/authenticationContextClassReferences` | `id` | none | `displayName` (`isAvailable` defaults to true) |
 | `conditionalAccess/authenticationStrengths` | `displayName` (custom only) | `/policies/authenticationStrengthPolicies` | `policyType` | none | `allowedCombinations` |
 | `appRoleAssignments` | deterministic GUID | `/servicePrincipals/{resourceId}/appRoleAssignedTo` | everything; composite key (`principalId`, `resourceId`, `appRoleId`) | none | the three key properties |
 | `oauth2PermissionGrants` | deterministic GUID | `/oauth2PermissionGrants` | key fields (`clientId`, `resourceId`, `consentType`, `principalId`); only `scope` is mutable | none | key + `scope` |
-| `conditionalAccess/namedLocations` | `displayName` | `/identity/conditionalAccess/namedLocations` | `@odata.type` | none | `@odata.type` and `ipRanges` or `countriesAndRegions` |
-| `conditionalAccess/policies` | `displayName` | `/identity/conditionalAccess/policies` | none | none | `state`, `conditions.users`, `conditions.applications`, `grantControls` or `sessionControls` |
+| `conditionalAccess/namedLocations` | `displayName` | `/identity/conditionalAccess/namedLocations` | `@odata.type` | none | `@odata.type` (Graph also requires `ipRanges` or `countriesAndRegions`, per kind) |
+| `conditionalAccess/policies` | `displayName` | `/identity/conditionalAccess/policies` | none | none | `conditions.users`, `conditions.applications`, `grantControls` or `sessionControls` (`state` defaults to `enabledForReportingButNotEnforced`, `conditions.clientAppTypes` to `["all"]`, `grantControls.operator` to `OR`) |
 | `administrativeUnits` | `displayName` | `/directory/administrativeUnits` | `isMemberManagementRestricted` | `members` | nothing |
 | `roleAssignments` | deterministic GUID | `/roleManagement/directory/roleAssignments` | everything; composite key (`roleDefinitionId`, `principalId`, `directoryScopeId`) | none | the three key properties (`directoryScopeId` defaults to `/`) |
 
-An immutable change is a hard error for applications, groups and users; for the cheap types (assignments, grants, secrets,
-federated credentials, named location kinds) it is `Modify` with `mode: recreate`. Soft-deleted objects (applications,
+An immutable change is a hard error (`ImmutablePropertyChanged`) for every type that is not recreated: applications, service principals, groups,
+users, custom roles, authentication strengths, administrative units...; for the cheap types (assignments, secrets, named location kinds) it is
+`Modify` with `mode: recreate`. Federated credentials and grants are never recreated: their immutable properties are their key, so a change is a
+different object (a renamed credential is a new one; a grant with a changed key is created and the old one is retained). Soft-deleted objects (applications,
 Microsoft 365 groups, users, service principals, administrative units) keep their keys for 30 days: a create that finds one
 fails with a hint unless `--on-soft-deleted-conflict restore`. The probe that finds them needs the type's read permission; an identity without it (for example an
 `Application.ReadWrite.OwnedBy`-only service principal creating applications) gets the warning `SoftDeleteProbeSkipped` and the create proceeds without the check.
@@ -252,7 +254,7 @@ only as parameter defaults.
 
 ### Evaluation phases and secure values
 
-1. Parse. 2. Parameters: parameter file, then `-p name=value`, then `defaultValue`. 3. Variables and user functions (lazily, memoised).
+1. Parse. 2. Parameters: the `-p` values (parameter files and `name=value`) in command-line order, a later one wins; then `defaultValue` for a parameter no `-p` sets. 3. Variables and user functions (lazily, memoised).
 4. Resource names and `dependsOn`, then the dependency graph. 5. Resources in topological batches, `condition` and `properties` just in time.
 6. Outputs.
 
@@ -363,12 +365,12 @@ Outputs are evaluated after the edge pass. A `securestring` / `secureObject` out
 A template is code that runs with the credentials of the person or pipeline that runs `earm`: treat an untrusted template like an untrusted script.
 
 - **Secrets and untrusted templates.** Secure values are masked everywhere EARM prints them, and a secure value cannot reach a name, a `condition`, a
-  `copy.count`, `dependsOn` or a plain output. A hostile template can still learn **one bit per output** from a secret it is allowed to read: an
-  expression such as `filter(createArray(1), lambda('x', equals(substring(parameters('pw'), 0, 1), 'S')))` is empty or not depending on the first
-  character, and a plain output would show that. The elements a secret-dependent `filter`, `sort` or `if` lets through are secure, and a
-  container or `null` that comes out *empty* because of a secret (a `filter` verdict, a `take` / `skip` / `range` count, an `if` condition) carries the
-  mark itself (a tainted empty): it cannot reach a plain output, is written as `***` in what-if and logs and is a plain `[]` / `{}` / `null` only in a
-  Graph request body. Other channels of an expression language (timing, error messages of a template you control) cannot all be closed. **Do not supply secrets (secure parameters, Key Vault references) to `validate`, `what-if`
+  `copy.count`, `dependsOn` or a plain output. That includes values that depend on a secret only through a decision: an expression such as
+  `filter(createArray(1), lambda('x', equals(substring(parameters('pw'), 0, 1), 'S')))` is empty or not depending on the first character. The
+  elements a secret-dependent `filter`, `sort` or `if` lets through are secure, and a container or `null` that comes out *empty* because of a
+  secret (a `filter` verdict, a `take` / `skip` / `range` count, an `if` condition) carries the mark itself (a tainted empty): it cannot reach a
+  plain output, is written as `***` in what-if and logs and is a plain `[]` / `{}` / `null` only in a Graph request body. Other channels of an
+  expression language (timing, the tenant objects a template creates or names, error messages of a template you control) cannot all be closed. **Do not supply secrets (secure parameters, Key Vault references) to `validate`, `what-if`
   or `create` runs of templates you do not trust**, for example the pull-request validation of a repository that accepts outside contributions;
   run those with no secrets, or only with throw-away values.
 - **Log commands.** Everything EARM prints goes through a sanitizer: control characters are written as visible escapes (`\u001b`), and text a CI

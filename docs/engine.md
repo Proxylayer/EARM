@@ -148,13 +148,13 @@ load ──► validate ──► expand ──► graph ──► [per batch: r
   direct Graph call) can still read the previous values for a short time, even after another reader already sees the new ones. Such a run reports
   `NoChange` for the drifted object (or patches against the old values); the next run reads the current state and corrects the drift.
 - **A failure after the primary write.** A provider that writes in several steps (create the object, then owners, licenses, a restore...) and fails after the first hands the partial result over
-  (`ProviderException.Partial`: `UsersProvider` does it when `assignLicense` fails after `POST /users`); for any other provider the executor looks the object up by key after a failed create. Either way the
+  (`ProviderException.Partial`: users and groups when assigning licenses fails after the create or restore, applications when the `identifierUris` PATCH or a step after a restore fails, service principals after a restore); for any other step the executor looks the object up by key after a failed create. Either way the
   object's one-time secret (a generated password) is written to **the secure outputs file** and the resource is reported failed with the object's Graph id (`ResourceApplyFailed`,
   "the object was created (Graph id ...), but a later step failed"); a rerun finds the object by key and converges.
 - **Unexpected exceptions.** Anything not handled above (a null reference, a format error, an HTTP timeout that is not the caller's cancellation) fails **that one resource** (`ResourceApplyFailed`, `unexpected error (<type>)`):
   parallel siblings are never cancelled by it, and the end phase (edge pass, outputs, secure outputs file, orphan report) still runs. An exception of the engine itself outside any resource aborts the run the same
   way: the unstarted resources are reported as skipped, the orphan report judges nothing, and the run ends `Failed` with an error diagnostic.
-- **Replacing** an object whose immutable properties changed (`ChangeMode.Recreate`: credentials, federated identity credentials, named location kinds,
+- **Replacing** an object whose immutable properties changed (`ChangeMode.Recreate`: credentials, named location kinds,
   every-property-immutable types) deletes the old object, then creates it again. The old object was found by the key, so the replacement has the same key and
   identity; there is no create-first variant. (A changed **tuple** of an assignment or grant is not a replacement: the tuple is the identity, so it is a new
   object, created, and the old one is retained and reported, see the orphan report.) A replacement is guarded like every delete (`DeleteGuards`): the signed-in principal
@@ -534,7 +534,7 @@ public interface IResourceProvider
 - **A create or update that writes in several steps** (create the object, then owners, licenses, a restore, a federated credential...) must not lose what it already did when a later step fails: throw
   `new ProviderException(code, message, id) { Partial = appliedSoFar }` (the `AppliedResource` of the object as far as it got, including its one-time secrets). The executor writes its
   one-time secret to the secure outputs file and reports the resource failed with its Graph id; a provider that does not do this is covered by a re-read by key after a failed create (the object is reported, but a value Graph only returned in the lost response,
-  such as a generated password, is gone). `UsersProvider` does it for `assignLicense`; the other providers' post-create steps (group owners and licenses, restore, ...) rely on the re-read until they adopt `Partial`.
+  such as a generated password, is gone). Users (licenses after a create or restore), groups (licenses), applications (the `{appId}` identifierUris PATCH, any step after a restore) and service principals (after a restore) do it; the other post-create steps (owners, ...) rely on the re-read until they adopt `Partial`.
   `CreateIsRepeatable` says whether the create is an upsert (`ProviderBase`: `uniqueName`- and id-keyed types and federated credentials); any other create is never repeated by the executor's retry policy after a 5xx or a lost connection.
   `KeyReadLagsCreate` says whether the key read can miss a new object for a while (`ProviderBase`: the `displayName`-keyed types, found with a `$filter` list); the executor then reads the key back after each successful create (see "Read-your-write after a create" above), and planner and executor confirm an empty key read with more reads before planning a create ("Absence is confirmed before a create is planned").
 - `PrepareAsync` runs on the evaluated instance right before `ResolveKey`, in the planner (what-if) and the

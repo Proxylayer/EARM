@@ -19,7 +19,7 @@ conditions with the offline context, and asks every resource provider what it ne
    reads custom role definitions (`RoleManagement.Read.Directory`), `tenant()` reads `/organization`, and a `reference(resourceId('Microsoft.Entra/<type>', …), apiVersion)`
    existing-resource lookup needs the read variant of that type's permissions. A lookup that a write permission of the same family already covers
    (`Application.ReadWrite.All` ⊇ `Application.Read.All`) is folded away;
-4. **the preflight**: every online verb reads `GET /organization?$select=id` (`Organization.Read.All`, app mode);
+4. **the preflight**: every online verb reads `GET /organization?$select=id,displayName,verifiedDomains` (`Organization.Read.All`, app mode; the same read feeds `tenant()`);
 5. **Key Vault parameter references** as an Azure requirement of the signed-in identity (not a Graph permission).
 
 Resources whose name depends on another resource (a service principal named `[reference('app').appId]`) are computed from their declaration

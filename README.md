@@ -15,7 +15,8 @@ Repository: <https://github.com/Proxylayer/EARM>
 Azure has ARM templates; Entra ID has no true equivalent. EARM is a template format that mimics classic ARM templates as closely as it
 can, but whose resources are Entra objects under a `Microsoft.Entra` provider namespace, plus a .NET tool (`earm`) whose verbs mirror
 `az deployment group …`. It reads and writes Microsoft Graph over plain HTTPS (`HttpClient`) with a token from Azure.Identity: no Graph SDK, no Azure CLI, no PowerShell
-at run time, and no app registration of its own unless you want interactive sign-in with admin scopes.
+at run time, and no app registration of its own: interactive sign-in uses Microsoft's Microsoft Graph Command Line Tools app (your own public-client app is only
+needed in Azure operated by 21Vianet or in tenants that block the Microsoft app).
 
 - **Declarative and idempotent**: applications, service principals, federated credentials and client secrets, groups, users, app role
   assignments and consent grants, directory roles and custom roles, administrative units, Conditional Access policies, named locations,
@@ -26,7 +27,7 @@ at run time, and no app registration of its own unless you want interactive sign
 - **Relationships from either side**: `members`, `owners`, `memberOf`, `manager`, `appRoleAssignments`, `directoryRoles`, `assignedLicenses` are
   plain arrays in `properties`, applied after all objects exist, without cycles.
 - **No local state**: identity is the resource's type and `name`, resolved by a live read on every run, as in ARM. Nothing to commit, share or lock;
-  the only file EARM writes is the secure-outputs file you ask for.
+  the only output file a deployment run writes is the secure-outputs file you ask for (plus its `.lock` / `.previous` companions).
 - **Safe by construction**: nothing the template does not declare is ever deleted (Complete mode only reports), replacements need confirmation,
   secrets tainted and never written to logs or what-if, soft-delete awareness, a Conditional Access enforcement guard.
 - **Editor support**: JSON Schemas for the envelope and every resource type, installable into VS Code with one command.
@@ -40,7 +41,7 @@ Implemented (a working pre-release, see [Limitations](#limitations-v1) for what 
   `conditionalAccess/policies`, `conditionalAccess/namedLocations`, `conditionalAccess/authenticationStrengths` and
   `conditionalAccess/authenticationContextClassReferences` (all under `Microsoft.Entra/`).
 - The verbs `deployment validate | what-if | create | delete`, `permissions`, `schema print | install` and `auth login | logout | status`.
-- Tests: about 5,750 unit and in-process tests (EArm.Tests, EArm.Providers.Tests, EArm.Graph.Tests; a full `test.ps1` run, build included, takes about 2-3 minutes), against fakes of Graph (an HTTP handler over an in-memory directory)
+- Tests: about 5,990 unit and in-process tests (EArm.Tests, EArm.Providers.Tests, EArm.Graph.Tests; a full `test.ps1` run, build included, takes about 2-3 minutes), against fakes of Graph (an HTTP handler over an in-memory directory)
   and of the sign-in, with about 95 % line and 89 % branch coverage ([tests/COVERAGE.md](tests/COVERAGE.md); how they are organised and reviewed: [docs/testing.md](docs/testing.md)).
   The tenant-backed integration suite is gated behind `EARM_IT_TENANT` and has been run against a development tenant: it is not part of those numbers, and a plain `test.ps1` reports it as `GATED`, not as a pass.
 
@@ -228,9 +229,10 @@ are never deleted or replaced (`ProtectedObject`). Details: [docs/cli.md](docs/c
 `appRoleAssignments`, `directoryRoles`, `ownerOf`, `administrativeUnits`) are **ensure-only**: they add, and never remove an entry you drop
 ([docs/edges.md](docs/edges.md)).
 
-**Replacements ask first.** An immutable change on a cheap type (an assignment, a grant, a credential, a named location's kind) is applied as delete,
+**Replacements ask first.** An immutable change on a cheap type (an assignment, a credential, a named location's kind) is applied as delete,
 then create. `create` lists those objects and asks `Replace them? (y/n)`; `-y` confirms, and without `-y` a non-interactive run fails before anything is
-written (`RecreateNotConfirmed`, exit 1). On applications, groups and users an immutable change is an error instead.
+written (`RecreateNotConfirmed`, exit 1). On every other type (applications, service principals, groups, users, custom roles, authentication strengths,
+administrative units...) an immutable change is an error instead (`ImmutablePropertyChanged`).
 
 ## Secrets
 
@@ -332,7 +334,7 @@ The build must stay at zero warnings and `test.ps1` all green. Per-type schemas 
 
 `EArm.Integration.Tests` writes to a real **dev** tenant and is not part of a plain `test.ps1` run: the script prints `GATED` for it, which is **not** a pass, unless
 `EARM_IT_TENANT` is set (naming it with `test.ps1 -Target EArm.Integration.Tests` runs it, and every test then skips with the reason). It is driven by the environment
-variables `EARM_IT_TENANT` (required), `EARM_IT_PREFIX`, `EARM_IT_DOMAIN`, `EARM_IT_ALLOW_CA`, `EARM_IT_ALLOW_ROLES` and `EARM_IT_SWEEP`; read
+variables `EARM_IT_TENANT` (required), `EARM_IT_PREFIX`, `EARM_IT_DOMAIN`, `EARM_IT_ALLOW_CA`, `EARM_IT_ALLOW_ROLES`, `EARM_IT_SWEEP` and `EARM_IT_INTERACTIVE`; read
 [tests/EArm.Integration.Tests/README.md](tests/EArm.Integration.Tests/README.md) first (what it creates, how it cleans up, which permissions it needs).
 The suites, coverage (`test.ps1 -Coverage`, [tests/COVERAGE.md](tests/COVERAGE.md)) and how the tests are reviewed: [docs/testing.md](docs/testing.md).
 A `-Filter` that matches no test exits 3 (a typo is not a green run); tests that assert a wall-clock bound run in a second, serial pass (`-SkipTiming` skips it while iterating).

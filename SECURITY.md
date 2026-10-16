@@ -20,7 +20,7 @@ acknowledgement; fixes land on the main branch first (there is no released versi
 |---|---|
 | The operator and the machine or pipeline that runs `earm` | It holds a credential that can write the tenant. A compromised runner is a compromised tenant. |
 | The signed-in identity and the tenant it signs in to | EARM never widens its permissions; `earm permissions` lists what a template needs so the identity can be scoped. |
-| The file system permissions of the secure-outputs file | It is written owner-only (DACL on Windows, mode 0600 on Unix), but anything running as the same user can read it. It is the only file EARM writes. |
+| The file system permissions of the secure-outputs file | It is written owner-only (DACL on Windows, mode 0600 on Unix), but anything running as the same user can read it. It is the only output file a deployment run writes (with its `<file>.lock` and `<file>.previous` companions, and a `<file>.pending-<guid>` when a merge fails); `auth login` writes its sign-in record and encrypted token cache, `schema install` the schemas. |
 | Reviewed templates | A template can legitimately grant a role, disable a Conditional Access policy, replace an object (a recreate, after confirmation) or, with `deployment delete -f`, delete the objects it declares. **Review the template and the what-if before `create`**, the same way you review any infrastructure-as-code change. |
 | The tenant's display names | Some types are found by `displayName` ([docs/engine.md](docs/engine.md#identity-without-state)). Whoever can rename or create such an object in the tenant (a Conditional Access policy, a named location, an administrative unit, a custom role) decides which object a later run updates, or makes it fail with `AmbiguousMatch`. Restrict who can manage those objects outside the pipeline. |
 
@@ -94,11 +94,11 @@ yourself, and usually much less ([docs/permissions.md](docs/permissions.md#deleg
 
 ### Residual risks (known, not fully closed)
 
-- **A hostile template can learn one bit per output from a secret it may read.** A secret-dependent expression can make a container empty or not
-  (`filter(createArray(1), lambda(...))` over the first character of a password), and an empty container has no element to carry the secret mark, so its emptiness is not
-  tracked as secret and a plain output shows it ([docs/format.md](docs/format.md#security-considerations)). This stays until the planned taint-carrier change lands (the empty
-  container itself would carry the mark). **Do not supply secrets (secure parameters, Key Vault references) to `what-if` or `validate` runs of templates you do not trust**, for
-  example the pull-request validation of a repository that accepts outside contributions: run those without secrets or with throw-away values.
+- **A hostile template can still probe a secret it may read through side channels.** Emptiness caused by a secret is tracked: a container or `null` that a
+  secret-dependent `filter`, `take` / `skip` / `range` count or `if` leaves empty carries the secret mark itself (a tainted empty), so it cannot reach a plain output
+  ([docs/format.md](docs/format.md#security-considerations)). Other channels of an expression language (timing, the tenant objects a template creates or names, error
+  messages of a template you control) cannot all be closed. **Do not supply secrets (secure parameters, Key Vault references) to `validate`, `what-if` or `create` runs of
+  templates you do not trust**, for example the pull-request validation of a repository that accepts outside contributions: run those without secrets or with throw-away values.
 - **Key Vault references use the caller's identity.** A parameter file names a vault and a secret, and EARM reads it with the signed-in identity's Key Vault token, so a template or
   parameter file can reference any vault that identity can read, and the value (tainted) may then flow into a resource property the template defines, where whoever can read that
   object sees it. Set **`EARM_KEYVAULT_ALLOWED`** (a comma-separated list of vault names) in every pipeline that deploys: a reference to any other vault is refused before a token is
@@ -123,4 +123,4 @@ yourself, and usually much less ([docs/permissions.md](docs/permissions.md#deleg
 3. Keep the secure-outputs file (and its `.previous` / `.lock` companions) out of source control and build logs.
 4. Do not pass `-y` in a pipeline unless a human reviewed the what-if (its replacements) for that exact run, and review the `orphan: retained` rows: old assignments keep granting access until you remove them.
 5. Serialise runs of one template (no lock protects concurrent runs; display-name-keyed types can be duplicated).
-6. Set `EARM_KEYVAULT_ALLOWED` in pipelines that read Key Vault references, and do not give secrets to `what-if` / `validate` runs of untrusted templates (pull-request validation).
+6. Set `EARM_KEYVAULT_ALLOWED` in pipelines that read Key Vault references, and do not give secrets to `validate` / `what-if` / `create` runs of untrusted templates (pull-request validation).

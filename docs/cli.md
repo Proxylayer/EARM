@@ -211,7 +211,9 @@ no errors (warnings allowed), 2 with errors, 1 when a file cannot be loaded. Eve
 
 `what-if` reads the tenant and prints what `create` would do; it never writes. `create` applies the template in dependency order. Neither keeps
 anything on the local disk: every resource is found again on every run by its **live key** (see [Identity without state](engine.md#identity-without-state)),
-and the only file a run writes is the `--secure-outputs-file` you name.
+and the only output file a run writes is the `--secure-outputs-file` you name, with its companions: `<file>.lock` (serialises the read-merge-write
+across runs), `<file>.previous` (unreadable earlier content, kept rather than destroyed) and, when the merge fails, `<file>.pending-<guid>` (the new
+secrets, named in the error). Outside a deployment run, `auth login` writes its sign-in record and token cache and `schema install` writes the schemas and a settings file.
 
 | Option | Verb | Meaning |
 |---|---|---|
@@ -243,7 +245,7 @@ can see "not found" and **both create**, leaving two objects with one display na
 Serialise runs of one template in your pipeline (a concurrency group, a single agent).
 
 **Replacements need confirmation.** A `create` that would replace objects (an immutable property changed on a type that is deleted and created again:
-assignments, grants, credentials, named location kinds...) lists them on stderr (resource id, type, Graph id) and asks `Replace them? (y/n):` unless `-y`.
+assignments, credentials, named location kinds...) lists them on stderr (resource id, type, Graph id) and asks `Replace them? (y/n):` unless `-y`.
 To know them before anything is written, a `create` without `-y` reads every resource first (the same read-only pass as `what-if`; not printed unless
 `-c`, where the what-if rows are the list and its prompt is the confirmation). On a non-interactive standard input without `-y` it stops with exit 1,
 `RecreateNotConfirmed` and "Deployment not started.". A replacement the run only discovers while it runs (its input resolved during the run) and that was not
@@ -312,7 +314,7 @@ The `apiVersion` relabel (`2026-10-01` became `2026-10-01-preview`, and the old 
 
 ## `permissions`
 
-`earm permissions -f <template> [-p …] [--mode app|delegated] [--verb whatif|create|delete] [-o table|json]`. Offline. Lists the Graph permissions (and, for
+`earm permissions -f <template> [-p …] [--mode app|delegated] [--verb whatif|create|delete] [-o table|json]`. Offline; `--mode` defaults to `app`. Lists the Graph permissions (and, for
 `--mode delegated`, the Entra roles of which the user needs one per group) the template needs, grouped by permission with the resources that
 need it and why. Exit 0; 2 when the template has validation errors; 1 when it cannot be loaded. Details and the manifest tables:
 [permissions.md](permissions.md).
@@ -344,8 +346,8 @@ earm schema print Microsoft.Entra/conditionalAccess/policies
 
 With `-o json` the text is replaced by one document: `{ "status": "Succeeded", "schemaDirectory", "files", "written", "source": "embedded"|"checkout", "checkout", "settingsFile", "settings": "created"|"updated"|"unchanged", "settingsBackup", "url", "fileMatch" }` (on failure the failure document described under [Output, errors and prompts](#output-errors-and-prompts)).
 
-1. **Extracts the schemas** to `--schema-dir` (default `%LOCALAPPDATA%\EArm\schemas\2026-10-01`; `~/.local/share/EArm/schemas/2026-10-01` on
-   Linux and macOS). The source is the `schemas/2026-10-01` directory of the checkout when the workspace is inside the EARM repository
+1. **Extracts the schemas** to `--schema-dir` (default `%LOCALAPPDATA%\EArm\schemas\2026-10-01`; `~/Library/Application Support/EArm/schemas/2026-10-01` on
+   macOS; `$XDG_DATA_HOME/EArm/schemas/2026-10-01`, by default `~/.local/share/EArm/schemas/2026-10-01`, on Linux). The source is the `schemas/2026-10-01` directory of the checkout when the workspace is inside the EARM repository
    (so schema edits are picked up by running the verb again), otherwise the schemas embedded in the tool. In the extracted
    `deploymentTemplate.json` the `$ref`s to the per-type schemas are rewritten to absolute `file:///` URIs, because the
    `https://schema.earm.proxylayer.net/schemas/…` ids are not published and VS Code must resolve everything locally. Files whose content is unchanged are not rewritten.

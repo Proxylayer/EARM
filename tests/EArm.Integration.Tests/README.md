@@ -5,12 +5,12 @@ Real-tenant tests for EARM. They drive the production stack (Azure.Identity -> `
 (`GATED      EArm.Integration.Tests (not run: EARM_IT_TENANT is not set ...)`: not a pass); naming it with `-Target` always runs
 it, and every test then skips with the reason when the variable is unset (reported as `SKIPPED ... gated by EARM_IT_TENANT`, again not a pass).
 
-Two kinds of tests live here:
+Four kinds of tests live here:
 
 | Kind | Classes | Purpose |
 |---|---|---|
 | Scenarios | `ApplicationScenarioTests`, `DirectoryScenarioTests`, `ConditionalAccessScenarioTests`, `RoleScenarioTests`, `CleanupScenarioTests` | Create, what-if (NoChange), drift, Complete mode (report only, never deletes), `deployment delete -f` (reverse dependency order), secure outputs and edges, run through the real CLI in-process (`Program.BuildRootCommand`). EARM keeps no state, so every scenario finds its objects by key, as a real run does. |
-| Verification probes (`[Trait("Category","Verify")]`) | `GraphBehaviourProbes` | One test per open verification TODO. Each exercises one real Graph behaviour the code assumes and asserts the assumption. |
+| Verification probes (`[Trait("Category","Verify")]`) | `GraphBehaviourProbes`, `GroupMembershipProbes` | One test per open verification TODO. Each exercises one real Graph behaviour the code assumes and asserts the assumption. |
 | Consent probes (`[Trait("Category","Consent")]`) | `ConsentProbes` | Interactive, separately gated (`EARM_IT_CONSENT_PROBE=1`); check the delegated-consent flow on real MSAL output. See [Consent probes](#consent-probes). |
 | Spike probes (`[Trait("Category","Spike")]`) | `DelegatedAuthSpikeProbes` | Interactive, separately gated (`EARM_IT_AUTH_SPIKE=1`); record how Microsoft Entra answers delegated-auth questions. See [Delegated-auth spike (DES-0002)](#delegated-auth-spike-des-0002). |
 
@@ -127,7 +127,7 @@ and run sequentially: they share the sign-in and the cleanup guard, and the in-p
 | `It_Roles_OrdersSampleVariantCompleteModeAndDeleteRoundTrip` | `DOMAIN`, `ALLOW_CA`, `ALLOW_ROLES` |
 | `It_Cleanup_SweepRemovesTrackedGroupWithThePrefix` | - |
 | `It_Cleanup_ManualSweepOfTheConfiguredPrefix` | `SWEEP=1` |
-| `It_Probe_A` ... `It_Probe_G` (14 probes) | A, B1, B2, B3, D, F1-F4, G: -; B4: `DOMAIN`; C, E1, E2: `ALLOW_CA` |
+| `It_Probe_A` ... `It_Probe_H` (15 probes) | A, B1, B2, B3, D, F1-F4, G: -; B4: `DOMAIN`; C, E1, E2: `ALLOW_CA`; H: `DOMAIN`, `ALLOW_ROLES` |
 
 ## Cost and safety
 
@@ -214,6 +214,7 @@ A probe asserts an assumption the code makes and names the file to change; the o
 | `F3` token version | fresh application reads `requestedAccessTokenVersion` null (or 1); 2 sticks; 1 reads back as null or 1 | `ApplicationsRules.cs` null-as-1 rule |
 | `F4` app role value change | disable PATCH then re-enable-and-change-value PATCH works (a single-PATCH attempt is **recorded**) | `ApplicationsRules.cs` / `ApplicationsProvider.UpdateAsync` |
 | `G` nested nulls | per sub-property of `web`, `api`, `info`, `spa`, `publicClient`: an explicit `null` clears scalars and collections, but not `web.implicitGrantSettings` / `api.requestedAccessTokenVersion`; prints the whole table | the `nullable` map of the applications overlay |
+| `H` group members (`GroupMembershipProbes`) | a service principal and a user added to a group in one `$batch` (as the edge pass sends them) are both read back, for a plain and a role-assignable security group: the user through v1.0 `/members`, the service principal through the type cast `/members/microsoft.graph.servicePrincipal`; whether v1.0 `/members` lists the service principal is **recorded** | `src/EArm.Engine/Edges/GroupMembershipEdgeKind.cs` (the reads of group members) |
 
 When all probes of a letter are green the matching verification item can be closed; paste the diagnostic output of
 the **recorded** items into the TODO or into [docs/providers.md](../../docs/providers.md).
