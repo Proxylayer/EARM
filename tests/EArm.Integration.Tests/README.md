@@ -49,7 +49,8 @@ Four kinds of tests live here:
      `RoleManagement.ReadWrite.Directory`). `EARM_IT_ALLOW_PIM=1` adds `RoleEligibilitySchedule.ReadWrite.Directory`, `RoleAssignmentSchedule.ReadWrite.Directory`,
      `PrivilegedEligibilitySchedule.ReadWrite.AzureADGroup` and `PrivilegedAssignmentSchedule.ReadWrite.AzureADGroup` (plus their read variants for what-if);
      `EARM_IT_ALLOW_AUTH_METHODS=1` adds `Policy.ReadWrite.AuthenticationMethod`; `EARM_IT_ALLOW_PIM_POLICIES=1` (with `ALLOW_PIM`) adds
-     `RoleManagementPolicy.ReadWrite.Directory`, `RoleManagementPolicy.ReadWrite.AzureADGroup` (plus their read variants) and `AuthenticationContext.Read.All`. The run's set is computed from the templates (`IntegrationScopes`), so trust the
+     `RoleManagementPolicy.ReadWrite.Directory`, `RoleManagementPolicy.ReadWrite.AzureADGroup` (plus their read variants) and `AuthenticationContext.Read.All`;
+     `EARM_IT_ALLOW_ACCESS_PACKAGES=1` adds `EntitlementManagement.ReadWrite.All` (plus its read variant). The run's set is computed from the templates (`IntegrationScopes`), so trust the
      printed command over this copy.
    * **Or be prompted at the start of the run:** `$env:EARM_IT_INTERACTIVE = '1'` lets the fixture open ONE browser consent prompt for the whole set before the first
      test (only when a person is at the machine; a test host cannot detect that itself). Without it a run never waits for a browser.
@@ -105,6 +106,7 @@ Four kinds of tests live here:
 | `EARM_IT_ALLOW_PIM` | `=1` | Required for every PIM test (`PimScenarioTests`, `PimProbes`): directory role eligibilities, PIM for Groups eligibilities and time-bound active role and group assignments of disabled, prefixed test users. Needs Entra ID P2 / ID Governance and `EARM_IT_DOMAIN`. Also turns on the PIM part of the cleanup guard. |
 | `EARM_IT_ALLOW_AUTH_METHODS` | `=1` | Required for `AuthMethodScenarioTests` and `AuthMethodProbes`, which change the **tenant-wide** authentication methods policy. Only safe toggles, always under the snapshot / restore guard (see [Authentication methods: the restore guarantee](#authentication-methods-the-restore-guarantee)). Leave it off in a tenant people sign in to. |
 | `EARM_IT_ALLOW_PIM_POLICIES` | `=1` | Required (together with `EARM_IT_ALLOW_PIM`) for `PimPolicyScenarioTests` and `PimPolicyProbes`, which change **tenant-wide** PIM role management policies that can never be deleted: only the Message Center Reader policy and the PIM for Groups policies of prefixed test groups, always under the snapshot / restore guard (see [PIM policies: the restore guarantee](#pim-policies-the-restore-guarantee)). A separate gate because `ALLOW_PIM` alone only ever writes schedules of prefixed principals. Leave it off in a tenant people activate roles in. |
+| `EARM_IT_ALLOW_ACCESS_PACKAGES` | `=1` | Required for `AccessPackageScenarioTests`, which create prefixed entitlement management catalogs, catalog resources, access packages, role scopes and assignment policies (never assignments). The tenant needs Microsoft Entra ID P2 or ID Governance and the signed-in identity an **active** Identity Governance Administrator plus Groups Administrator (the test groups are not role-assignable). The eligible-role test also needs `EARM_IT_ALLOW_PIM` and `EARM_IT_DOMAIN`: a same-template PIM for Groups eligibility of a disabled test user onboards its group (permanently; the group is deleted at the end). The prefix sweep removes prefixed catalogs with their contents before the groups. |
 | `EARM_IT_SWEEP` | `=1` | Enables `It_Cleanup_ManualSweepOfTheConfiguredPrefix` (see Manual cleanup). |
 | `EARM_IT_INTERACTIVE` | `=1` | A person is at the machine: a user sign-in that lacks consent for the run's scopes may open ONE browser consent prompt at the start. Off: the run skips with the `earm auth login --scopes ...` command. Never set it in CI. |
 | `EARM_AUTH` | no | `default` forces the service principal / managed identity of the environment when an `earm auth login` record also exists. |
@@ -119,6 +121,7 @@ $env:EARM_IT_ALLOW_ROLES = '1'     # optional, see the table
 $env:EARM_IT_ALLOW_PIM = '1'       # optional: needs Entra ID P2 / ID Governance
 $env:EARM_IT_ALLOW_AUTH_METHODS = '1'   # optional: tenant-wide policy, snapshot + restore
 $env:EARM_IT_ALLOW_PIM_POLICIES = '1'   # optional, with ALLOW_PIM: tenant-wide PIM policies, snapshot + restore
+$env:EARM_IT_ALLOW_ACCESS_PACKAGES = '1'  # optional: prefixed catalogs, access packages and policies (ID Governance)
 
 pwsh -File build.ps1 -Target EArm.Integration.Tests                                   # compile only
 pwsh -File test.ps1 -Target EArm.Integration.Tests                                    # everything that is enabled

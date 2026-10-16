@@ -1,0 +1,59 @@
+{
+  "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "An access package granting Eligible Member (PIM for Groups) of a prefixed group. The group is onboarded in PIM for Groups by the 30-day eligibility of a disabled test user in the same template, so the first run may defer the role scope (PimGroupNotOnboarded warning) and the second run creates it. Verifies on a real tenant that the catalog offers an 'Eligible Member' role for an onboarded group and that EARM picks it by display name (the role's originId format is undocumented). Needs Microsoft Entra ID Governance."
+  },
+  "parameters": {
+    "prefix": { "type": "string" },
+    "domain": { "type": "string" }
+  },
+  "variables": {
+    "user": "[format('{0}-apu@{1}', parameters('prefix'), parameters('domain'))]",
+    "group": "[format('{0}-apelig', parameters('prefix'))]",
+    "catalog": "[format('{0}-catalog-elig', parameters('prefix'))]",
+    "package": "[format('{0}-package-elig', parameters('prefix'))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Entra/users", "apiVersion": "2026-10-01-preview", "name": "[variables('user')]",
+      "properties": { "displayName": "[format('{0}-apu', parameters('prefix'))]", "accountEnabled": false, "jobTitle": "EARM integration test user (access packages)" }
+    },
+    {
+      "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01-preview", "name": "[variables('group')]",
+      "properties": { "displayName": "[variables('group')]", "mailEnabled": false, "mailNickname": "[variables('group')]", "securityEnabled": true }
+    },
+    {
+      "type": "Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests", "apiVersion": "2026-10-01-preview",
+      "name": "[guid(parameters('prefix'), 'onboarding-eligibility')]",
+      "properties": {
+        "groupId": "[reference(variables('group')).id]",
+        "principalId": "[reference(variables('user')).id]",
+        "accessId": "member",
+        "justification": "EARM integration test: onboards the group in PIM for Groups",
+        "scheduleInfo": { "expiration": { "type": "AfterDuration", "duration": "P30D" } }
+      }
+    },
+    {
+      "type": "Microsoft.Entra/entitlementManagement/catalogs", "apiVersion": "2026-10-01-preview", "name": "[variables('catalog')]",
+      "properties": { "description": "EARM integration test catalog (eligible roles)" }
+    },
+    {
+      "type": "Microsoft.Entra/entitlementManagement/catalogResources", "apiVersion": "2026-10-01-preview",
+      "name": "[guid(parameters('prefix'), 'catalog-eligible-group')]",
+      "properties": { "catalogId": "[reference(variables('catalog')).id]", "originId": "[reference(variables('group')).id]" }
+    },
+    {
+      "type": "Microsoft.Entra/entitlementManagement/accessPackages", "apiVersion": "2026-10-01-preview", "name": "[variables('package')]",
+      "properties": { "catalogId": "[reference(variables('catalog')).id]", "description": "EARM integration test package (eligible membership)" }
+    },
+    {
+      "type": "Microsoft.Entra/entitlementManagement/resourceRoleScopes", "apiVersion": "2026-10-01-preview",
+      "name": "[guid(parameters('prefix'), 'package-eligible-member')]",
+      "properties": { "accessPackageId": "[reference(variables('package')).id]", "resourceOriginId": "[reference(variables('group')).id]", "role": "Eligible Member" }
+    }
+  ],
+  "outputs": {
+    "packageId": { "type": "string", "value": "[reference(variables('package')).id]" }
+  }
+}

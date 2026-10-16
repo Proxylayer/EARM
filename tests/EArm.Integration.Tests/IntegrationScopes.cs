@@ -74,6 +74,15 @@ internal static class IntegrationScopes
         "AuthenticationContext.Read.All",
     ];
 
+    /// <summary>
+    /// What the cleanup guard needs besides <see cref="CleanupScopes"/> when <c>EARM_IT_ALLOW_ACCESS_PACKAGES=1</c>: it removes the prefixed catalogs with their
+    /// packages, policies, role scopes and resources (<see cref="AccessPackageCleanup"/>).
+    /// </summary>
+    internal static readonly IReadOnlyList<string> AccessPackageCleanupScopes =
+    [
+        "EntitlementManagement.ReadWrite.All",
+    ];
+
     /// <summary>Every scenario template and the gates of the tests that deploy it (keep in step with the <c>Fixture.Require</c> calls of the scenario classes).</summary>
     internal static readonly IReadOnlyList<ScenarioTemplate> Templates =
     [
@@ -95,6 +104,8 @@ internal static class IntegrationScopes
         new("auth-methods.entra.json", Needs.AuthMethods, Empty()),
         new("pim-policy-role.entra.json", Needs.Pim | Needs.PimPolicies, With(("approverGroupId", PlaceholderGuid1))),
         new("pim-policy-group.entra.json", Needs.Domain | Needs.Pim | Needs.PimPolicies, With(("domain", "example.onmicrosoft.com"), ("eligibilityName", PlaceholderGuid1))),
+        new("access-packages.entra.json", Needs.AccessPackages, Empty()),
+        new("access-packages-eligible.entra.json", Needs.Domain | Needs.Pim | Needs.AccessPackages, With(("domain", "example.onmicrosoft.com"))),
     ];
 
     private const string PlaceholderGuid1 = "00000000-0000-0000-0000-0000000000a1";
@@ -134,6 +145,11 @@ internal static class IntegrationScopes
         if (settings.AllowPim && settings.AllowPimPolicies)
         {
             names.UnionWith(PimPolicyScopes);
+        }
+
+        if (settings.AllowAccessPackages)
+        {
+            names.UnionWith(AccessPackageCleanupScopes);
         }
 
         foreach (var template in Enabled(settings))

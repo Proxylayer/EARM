@@ -47,6 +47,7 @@ internal sealed class TenantCleanup
     private readonly HashSet<string> _leftoverIds = new(StringComparer.OrdinalIgnoreCase);
 
     private readonly bool _includePim;
+    private readonly bool _includeAccessPackages;
 
     /// <param name="graph">The fixture's Graph client.</param>
     /// <param name="prefix">The run prefix; only objects whose name starts with it are touched.</param>
@@ -54,7 +55,8 @@ internal sealed class TenantCleanup
     /// True (<c>EARM_IT_ALLOW_PIM=1</c>): the PIM schedules of the prefixed and tracked principals are removed first (<see cref="PimCleanup"/>); the run consented the
     /// PIM scopes only then.
     /// </param>
-    public TenantCleanup(IGraphClient graph, string prefix, bool includePim = false)
+    /// <param name="includeAccessPackages">True (<c>EARM_IT_ALLOW_ACCESS_PACKAGES=1</c>): the prefixed entitlement management catalogs are removed with their contents before the groups (<see cref="AccessPackageCleanup"/>).</param>
+    public TenantCleanup(IGraphClient graph, string prefix, bool includePim = false, bool includeAccessPackages = false)
     {
         ArgumentNullException.ThrowIfNull(graph);
         if (!IntegrationSettings.IsValidPrefix(prefix))
@@ -65,6 +67,7 @@ internal sealed class TenantCleanup
         _graph = graph;
         _prefix = prefix;
         _includePim = includePim;
+        _includeAccessPackages = includeAccessPackages;
     }
 
     /// <summary>What the sweep did, one line per action.</summary>
@@ -97,6 +100,18 @@ internal sealed class TenantCleanup
         if (_includePim)
         {
             await RemovePimSchedulesAsync(trackedPaths, groups, users, servicePrincipals, cancellationToken);
+        }
+
+        // Access packages before groups: a catalog resource (and a role scope) keeps referring to its group.
+        if (_includeAccessPackages)
+        {
+            var accessPackages = new AccessPackageCleanup(_graph, _prefix);
+            await accessPackages.SweepAsync(cancellationToken);
+            _log.AddRange(accessPackages.Entries);
+            foreach (string leftover in accessPackages.Leftovers)
+            {
+                Leftover(leftover, null);
+            }
         }
 
         foreach (string path in trackedPaths)
