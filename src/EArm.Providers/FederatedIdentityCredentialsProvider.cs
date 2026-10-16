@@ -40,6 +40,12 @@ namespace EArm.Providers;
 /// per pass. A rename is a new resource (the id changes): the old credential stays (Complete mode reports it as an orphan; it is
 /// never deleted), so a rename that keeps issuer and subject is refused until the old credential is deleted.
 /// </para>
+/// <para>
+/// Writes (upsert, delete) to the credentials of ONE application are serialized: Graph does not accept concurrent writes to an application's
+/// credential collection (Learn: create the federated credentials of one parent sequentially; a real-tenant run that upserted <c>github-0</c> and
+/// <c>github-1</c> of a copy loop in parallel got <c>400 Request_BadRequest: Request contains a property with duplicate values</c> for the second,
+/// although their subjects differed). Credentials of different applications are still written in parallel.
+/// </para>
 /// </summary>
 [EntraProvider(ResourceType)]
 public sealed class FederatedIdentityCredentialsProvider : ProviderBase, IOrphanCandidateSource
@@ -54,6 +60,9 @@ public sealed class FederatedIdentityCredentialsProvider : ProviderBase, IOrphan
     private readonly ConcurrentDictionary<string, IReadOnlyList<FederatedCredentialSummary>> _siblings = new(StringComparer.Ordinal);
 
     private readonly ConditionalWeakTable<PlanOptions, DeclaredCredentials> _declared = new();
+
+    /// <summary>One gate per parent application path: the writes to one application's credentials go one at a time (see the type).</summary>
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _parentWriteGates = new(StringComparer.OrdinalIgnoreCase);
 
     public FederatedIdentityCredentialsProvider(ResourceTypeDefinition definition, ResourceTypeCatalog? catalog = null)
         : base(definition, catalog)
@@ -350,14 +359,19 @@ public sealed class FederatedIdentityCredentialsProvider : ProviderBase, IOrphan
             return;
         }
 
-        try
+        await OneWriteAtATimeAsync(parentPath, async () =>
         {
-            await graph.DeleteAsync(new GraphRequest(CredentialByNamePath(parentPath, name), key.Api), cancellationToken).ConfigureAwait(false);
-        }
-        catch (GraphException ex) when (ex.IsNotFound)
-        {
-            // Already gone (deleted outside EARM, or with its application): nothing to do.
-        }
+            try
+            {
+                await graph.DeleteAsync(new GraphRequest(CredentialByNamePath(parentPath, name), key.Api), cancellationToken).ConfigureAwait(false);
+            }
+            catch (GraphException ex) when (ex.IsNotFound)
+            {
+                // Already gone (deleted outside EARM, or with its application): nothing to do.
+            }
+
+            return true;
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     // ---- Graph helpers ----
@@ -366,7 +380,27 @@ public sealed class FederatedIdentityCredentialsProvider : ProviderBase, IOrphan
     /// <c>PATCH {parent}/federatedIdentityCredentials(name='…')</c> + <c>Prefer: create-if-missing</c>; the created
     /// object (201), or the re-read credential after a merge (204).
     /// </summary>
-    private async Task<JsonObject> UpsertAsync(IGraphClient graph, string parentPath, string name, JsonObject body, ResourceInstance desired, CancellationToken cancellationToken)
+    private Task<JsonObject> UpsertAsync(IGraphClient graph, string parentPath, string name, JsonObject body, ResourceInstance desired, CancellationToken cancellationToken)
+    {
+        return OneWriteAtATimeAsync(parentPath, () => UpsertCoreAsync(graph, parentPath, name, body, desired, cancellationToken), cancellationToken);
+    }
+
+    /// <summary>Runs a write to the credentials of the application at <paramref name="parentPath"/> while no other write to them is in flight.</summary>
+    private async Task<T> OneWriteAtATimeAsync<T>(string parentPath, Func<Task<T>> write, CancellationToken cancellationToken)
+    {
+        var gate = _parentWriteGates.GetOrAdd(parentPath, static _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            return await write().ConfigureAwait(false);
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    private async Task<JsonObject> UpsertCoreAsync(IGraphClient graph, string parentPath, string name, JsonObject body, ResourceInstance desired, CancellationToken cancellationToken)
     {
         string path = CredentialByNamePath(parentPath, name);
         var upsert = new GraphRequest(path, desired.Api, hint: desired.RetryHint).WithPrefer("create-if-missing");

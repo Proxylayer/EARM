@@ -464,4 +464,54 @@ public sealed class FederatedIdentityCredentialsProviderTests
         var equal = await new ProviderHost().CreateAsync(host.Resources(App() + ", " + Fic("github-main", "repo:x", """, "name": "[concat('github', '-main')]" """)));
         Check.Succeeded(equal);
     }
+
+    /// <summary>
+    /// Graph refuses concurrent writes to the credentials of one application (a real-tenant run got "Request contains a property with duplicate values"
+    /// for the second of two parallel upserts with different subjects): the fake refuses an overlapping write the same way, and the provider must
+    /// write the credentials of one application one at a time even when the executor applies them in parallel.
+    /// </summary>
+    [Fact]
+    public async Task CopyLoopCredentials_OfOneApplication_AreWrittenOneAtATime_EvenInParallel()
+    {
+        var host = new ProviderHost();
+        int inFlight = 0;
+        int maxInFlight = 0;
+        var hooked = new HookedGraphClient(host.Fake)
+        {
+            Before = async (method, request) =>
+            {
+                if (method != "PATCH" || !request.Path.Contains("/" + FederatedIdentityCredentialsProvider.ChildSegment, StringComparison.Ordinal))
+                {
+                    return;
+                }
+
+                int now = System.Threading.Interlocked.Increment(ref inFlight);
+                if (now > 1)
+                {
+                    System.Threading.Interlocked.Decrement(ref inFlight);
+                    throw new GraphException(System.Net.HttpStatusCode.BadRequest, "Request_BadRequest", "Request contains a property with duplicate values.", request.Hint);
+                }
+
+                maxInFlight = Math.Max(maxInFlight, now);
+                await Task.Delay(TimeSpan.FromMilliseconds(40));
+            },
+            After = (method, request) =>
+            {
+                if (method == "PATCH" && request.Path.Contains("/" + FederatedIdentityCredentialsProvider.ChildSegment, StringComparison.Ordinal))
+                {
+                    System.Threading.Interlocked.Decrement(ref inFlight);
+                }
+
+                return Task.CompletedTask;
+            },
+        };
+
+        var plan = await host.Planner().PlanAsync(host.Resources(CopyTemplate(4)), DeploymentMode.Incremental, PlanMode.Create, ProviderHost.Ct);
+        var executor = new DeploymentExecutor(host.Registry, hooked, host.Logs.For<DeploymentExecutor>(), new ReplicationWait { Delay = host.ReplicationDelays }, host.AbsenceCheck);
+        var result = await executor.ExecuteAsync(plan, new ExecuteOptions { Parallelism = 4 }, ProviderHost.Ct);
+
+        Assert.True(result.Succeeded, string.Join("; ", result.Operations.Where(o => o.Error is not null).Select(o => o.Id.Id + ": " + o.Error)));
+        Assert.Equal(1, maxInFlight);
+        Assert.Equal(4, host.Directory.Objects("/applications/" + host.IdOf("/applications", "uniqueName", AppName) + "/federatedIdentityCredentials").Count);
+    }
 }

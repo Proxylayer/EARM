@@ -283,6 +283,13 @@ elsewhere in the same deployment) and a 21st credential. A rename is a new resou
 lists it as undeclared; nothing deletes it), so a rename that keeps issuer and subject is refused until you delete the old
 credential. Permissions follow the parent rule of the password credentials above.
 
+The writes (upsert, delete) to the credentials of **one** application go one at a time (a gate per parent path in the provider), even when the
+executor applies them in parallel (`--parallelism`, a `copy` loop in `parallel` mode): Graph does not accept concurrent writes to one application's
+credential collection. A real-tenant run that upserted `github-0` and `github-1` of a copy loop at the same moment got
+`400 Request_BadRequest: Request contains a property with duplicate values` for the second, although the two subjects differed; Learn's
+workload identity federation considerations likewise say to create the credentials of one parent sequentially. Credentials of different
+applications are still written in parallel.
+
 ### Worked example: `UsersProvider` (create-only secrets, action-backed licenses)
 
 `Microsoft.Entra/users`: the name is the `userPrincipalName` (a guest's `#EXT#` is percent-encoded on the path). Every read
