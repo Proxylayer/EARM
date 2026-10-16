@@ -122,6 +122,31 @@ internal static class EntitlementManagementGraph
     }
 
     /// <summary>
+    /// The number of delivered assignments of a package (<c>GET …/assignments?$filter=accessPackage/id eq '…' and state eq 'delivered'&amp;$select=id</c>,
+    /// Learn: entitlementmanagement-list-assignments), or <c>null</c> when Graph refuses the read (the caller then says the count is unknown).
+    /// </summary>
+    public static async Task<int?> CountDeliveredAssignmentsAsync(IGraphClient graph, string packageId, GraphApi api, CancellationToken cancellationToken)
+    {
+        var request = new GraphRequest(Root + "/assignments", api)
+            .WithFilter($"accessPackage/id eq '{ProviderSupport.EscapeLiteral(packageId)}' and state eq 'delivered'")
+            .WithSelect("id");
+        try
+        {
+            int count = 0;
+            await foreach (var _ in graph.GetAllPagesAsync(request, cancellationToken).ConfigureAwait(false))
+            {
+                count++;
+            }
+
+            return count;
+        }
+        catch (GraphException ex) when (ex.Status is HttpStatusCode.BadRequest or HttpStatusCode.Forbidden or HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
     /// True when Graph's refusal is about existing assignments (Learn: accesspackage-delete, "You cannot delete an access package if it has any
     /// accessPackageAssignment"; entitlement-management-troubleshoot: the policy delete fails with an active assignments error). The error code is not
     /// documented, so the message is matched.

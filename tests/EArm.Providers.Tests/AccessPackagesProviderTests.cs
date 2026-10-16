@@ -22,9 +22,9 @@ public sealed class AccessPackagesProviderTests
     private const string PackageName = "PG Development Privileged Access";
     private const string PolicyName = "Approval by PG Development Approvers";
 
-    private sealed record Tenant(ProviderHost Host, string GroupId, string ApproversId);
+    internal sealed record Tenant(ProviderHost Host, string GroupId, string ApproversId);
 
-    private static Tenant NewTenant(bool roleAssignable = false)
+    internal static Tenant NewTenant(bool roleAssignable = false)
     {
         var host = new ProviderHost();
         string group = host.Directory.AddGroup("pg-dev-privileged-access", "PG Development Privileged Access", g => g["isAssignableToRole"] = roleAssignable)["id"]!.GetValue<string>();
@@ -47,7 +47,7 @@ public sealed class AccessPackagesProviderTests
         return Templates.Resource(AccessPackagesProvider.ResourceType, PackageName, "{ \"catalogId\": \"[reference('" + CatalogName + "').id]\", \"description\": \"" + description + "\" }");
     }
 
-    private static string RoleScope(string groupId, string role = "Member", int label = 2)
+    internal static string RoleScope(string groupId, string role = "Member", int label = 2)
     {
         return Templates.Resource(ResourceRoleScopesProvider.ResourceType, Guid(label), "{ \"accessPackageId\": \"[reference('" + PackageName + "').id]\", \"resourceOriginId\": \"" + groupId + "\", \"role\": \"" + role + "\" }");
     }
@@ -70,12 +70,12 @@ public sealed class AccessPackagesProviderTests
             """.Replace("DURATION", duration, StringComparison.Ordinal).Replace("APPROVERS", approversId, StringComparison.Ordinal));
     }
 
-    private static string Guid(int n)
+    internal static string Guid(int n)
     {
         return $"00000000-0000-4000-8000-{n:D12}";
     }
 
-    private static string All(Tenant t, string role = "Member", string duration = "P180D", string packageDescription = "Eligible membership")
+    internal static string All(Tenant t, string role = "Member", string duration = "P180D", string packageDescription = "Eligible membership")
     {
         return string.Join(", ", Catalog(), CatalogResource(t.GroupId), Package(packageDescription), RoleScope(t.GroupId, role), Policy(t.ApproversId, duration));
     }
@@ -298,32 +298,6 @@ public sealed class AccessPackagesProviderTests
         var run = await t.Host.CreateAsync(document);
         Assert.Equal(EngineDiagnosticCodes.PimGroupNotOnboarded, run.Op(Guid(3)).ErrorCode);
         Check.NoWrites(run);
-    }
-
-    [Fact]
-    public async Task AnEligibleRole_OfAGroupOnboardedBySameRunRequest_IsDeferred_AndCreatedOnceOnboarded()
-    {
-        var t = NewTenant();
-        Check.Succeeded(await t.Host.CreateAsync(t.Host.Resources(All(t))));
-        string alice = t.Host.Directory.AddUser("alice@contoso.com", "Alice")["id"]!.GetValue<string>();
-        string eligibility = Templates.Resource(GroupEligibilityScheduleRequestsProvider.ResourceType, Guid(4), "{ \"groupId\": \"" + t.GroupId + "\", \"principalId\": \"" + alice + "\", \"accessId\": \"member\", \"scheduleInfo\": { \"expiration\": { \"type\": \"AfterDuration\", \"duration\": \"P30D\" } } }");
-        var document = t.Host.Resources(All(t) + ", " + RoleScope(t.GroupId, "Eligible Member", label: 3) + ", " + eligibility);
-
-        var whatIf = await t.Host.WhatIfAsync(document);
-        Assert.Equal(ChangeType.Ignore, whatIf.Change(Guid(3)).Type);
-        Assert.Contains(whatIf.Plan.Diagnostics, d => d.Code == EngineDiagnosticCodes.PimGroupNotOnboarded);
-
-        // The executor plans each batch again before applying it: when the request has onboarded the group by then, the role scope is created in this
-        // run; otherwise it stays deferred and the next run creates it.
-        var run = await t.Host.CreateAsync(document);
-        Check.Succeeded(run);
-        var next = await t.Host.CreateAsync(document);
-        Check.Succeeded(next);
-
-        var post = Assert.Single(run.Writes.Concat(next.Writes), w => w.Path.EndsWith("/resourceRoleScopes", StringComparison.Ordinal));
-        Assert.Equal("Eligible Member", Check.Body(post)["role"]!["displayName"]!.GetValue<string>());
-        Assert.Equal("EligibleMember_" + t.GroupId, Check.Body(post)["role"]!["originId"]!.GetValue<string>());
-        Assert.Equal(ChangeType.NoChange, (await t.Host.WhatIfAsync(document)).Change(Guid(3)).Type);
     }
 
     [Fact]

@@ -8,8 +8,11 @@ using System.Threading.Tasks;
 using EArm.Core;
 using EArm.Core.Types;
 using EArm.Engine;
+using EArm.Engine.Execution;
+using EArm.Engine.Planning;
 using EArm.Engine.Providers;
 using EArm.Graph;
+using GraphApi = EArm.Graph.GraphApi;
 
 namespace EArm.Providers;
 
@@ -27,7 +30,7 @@ namespace EArm.Providers;
 /// same deployment onboards the group (as <see cref="RoleManagementPoliciesProvider"/> defers a group policy), an error otherwise.
 /// </summary>
 [EntraProvider(ResourceType)]
-public sealed class ResourceRoleScopesProvider : ProviderBase, IApplyOrderSource
+public sealed class ResourceRoleScopesProvider : ProviderBase, IApplyOrderSource, IDeleteWarningSource
 {
     public const string ResourceType = "Microsoft.Entra/entitlementManagement/resourceRoleScopes";
 
@@ -47,6 +50,11 @@ public sealed class ResourceRoleScopesProvider : ProviderBase, IApplyOrderSource
 
     private const string ScopesExpand = "resourceRoleScopes($expand=role,scope)";
 
+    /// <summary>Synthesized on the live object by <see cref="ReadAsync"/>: the delivered assignments of the package (absent when they could not be read).</summary>
+    internal const string ActiveAssignmentsProperty = "activeAssignmentCount";
+
+    private const string PackageNameProperty = "accessPackageDisplayName";
+
     /// <summary>The role scopes whose group a schedule request of the same deployment onboards (found by <see cref="AppliesBefore"/>).</summary>
     private readonly ConditionalWeakTable<ResourceInstance, object> _onboardedThisRun = new();
 
@@ -54,13 +62,26 @@ public sealed class ResourceRoleScopesProvider : ProviderBase, IApplyOrderSource
     private readonly ConditionalWeakTable<ResourceInstance, string> _notOnboarded = new();
 
     public ResourceRoleScopesProvider(ResourceTypeDefinition definition, ResourceTypeCatalog? catalog = null)
+        : this(definition, catalog, null)
+    {
+    }
+
+    /// <param name="definition">The catalog definition of the type.</param>
+    /// <param name="catalog">The catalog.</param>
+    /// <param name="settle">How long an eligible grant waits for the catalog to offer the role after a same-run request onboarded the group; <see cref="ReplicationWait.Default"/> when null.</param>
+    public ResourceRoleScopesProvider(ResourceTypeDefinition definition, ResourceTypeCatalog? catalog, ReplicationWait? settle)
         : base(definition, catalog)
     {
         if (!ResourceIdentifier.TypeEquals(definition.Type, ResourceType))
         {
             throw new ArgumentException($"{nameof(ResourceRoleScopesProvider)} implements '{ResourceType}', not '{definition.Type}'.", nameof(definition));
         }
+
+        Settle = settle ?? ReplicationWait.Default;
     }
+
+    /// <summary>How long an eligible grant waits (every <see cref="ReplicationWait.Interval"/>, up to <see cref="ReplicationWait.Window"/>) for the catalog to offer the role once a same-run request onboarded the group.</summary>
+    public ReplicationWait Settle { get; init; }
 
     /// <summary>The package's role scope list can miss a new role scope for a moment.</summary>
     public override bool KeyReadLagsCreate => true;
@@ -115,10 +136,43 @@ public sealed class ResourceRoleScopesProvider : ProviderBase, IApplyOrderSource
 
         string role = JsonObjects.GetString(properties, RoleProperty)!.Trim();
         var roles = await EntitlementManagementGraph.ListResourceRolesAsync(graph, catalogId, resourceId, OriginSystem(properties), desired.Api, desired.RetryHint, cancellationToken).ConfigureAwait(false);
-        if (!roles.Any(r => string.Equals(JsonObjects.GetString(r, "displayName"), role, StringComparison.OrdinalIgnoreCase)))
+        if (FindRole(roles, role) is not null)
         {
-            _notOnboarded.AddOrUpdate(desired, $"catalog {catalogId} offers no '{role}' role for group {groupId}: PIM for Groups has not onboarded the group");
+            return;
         }
+
+        // Applying, after the same-run request that onboards the group (the role scope is ordered after it, and a dependency created in this run is what
+        // gives it the replication hint; a what-if never has one): the catalog offers the role once PIM has processed the request.
+        if (_onboardedThisRun.TryGetValue(desired, out _) && desired.RetryHint == RetryHint.ExpectReplicationLag
+            && await WaitForRoleAsync(graph, catalogId, resourceId, role, OriginSystem(properties), desired.Api, cancellationToken).ConfigureAwait(false) is not null)
+        {
+            return;
+        }
+
+        _notOnboarded.AddOrUpdate(desired, $"catalog {catalogId} offers no '{role}' role for group {groupId}: PIM for Groups has not onboarded the group");
+    }
+
+    /// <summary>Reads the catalog's roles of the resource every <see cref="ReplicationWait.Interval"/> until <paramref name="role"/> is offered (that role) or <see cref="ReplicationWait.Window"/> has passed (<c>null</c>).</summary>
+    private async Task<JsonObject?> WaitForRoleAsync(IGraphClient graph, string catalogId, string resourceId, string role, string originSystem, GraphApi api, CancellationToken cancellationToken)
+    {
+        var waited = TimeSpan.Zero;
+        while (waited + Settle.Interval <= Settle.Window)
+        {
+            await Settle.Delay.DelayAsync(Settle.Interval, cancellationToken).ConfigureAwait(false);
+            waited += Settle.Interval;
+            var roles = await EntitlementManagementGraph.ListResourceRolesAsync(graph, catalogId, resourceId, originSystem, api, RetryHint.ExpectReplicationLag, cancellationToken).ConfigureAwait(false);
+            if (FindRole(roles, role) is { } offered)
+            {
+                return offered;
+            }
+        }
+
+        return null;
+    }
+
+    private static JsonObject? FindRole(IReadOnlyList<JsonObject> roles, string role)
+    {
+        return roles.FirstOrDefault(r => string.Equals(JsonObjects.GetString(r, "displayName")?.Trim(), role.Trim(), StringComparison.OrdinalIgnoreCase));
     }
 
     // ---- plan ----
@@ -132,11 +186,22 @@ public sealed class ResourceRoleScopesProvider : ProviderBase, IApplyOrderSource
             return base.Plan(desired, existing, options);
         }
 
+        if (_onboardedThisRun.TryGetValue(desired, out _) && options.PlanMode == PlanMode.WhatIf)
+        {
+            // A what-if: the request has not run yet. The create applies the role scope after it and waits for the catalog to offer the role.
+            var planned = base.Plan(desired, existing, options);
+            return planned with
+            {
+                Reasons = [.. planned.Reasons, $"{notOnboarded} yet; a schedule request of this deployment onboards it, and the role scope is created after that request (EARM waits up to {Settle.Window.TotalSeconds:0} s for the catalog to offer the role)"],
+            };
+        }
+
         if (_onboardedThisRun.TryGetValue(desired, out _))
         {
+            // Applying, and the wait timed out: deferred to the next run (the fallback).
             string warning = ProviderWarnings.Format(
                 NotOnboarded,
-                $"{notOnboarded} yet. A schedule request of this deployment onboards it; the role scope is created by the next run (deploy again once this one succeeded).");
+                $"{notOnboarded} yet, {Settle.Window.TotalSeconds:0} s after the schedule request of this deployment that onboards it. The role scope is created by the next run (deploy again once this one succeeded).");
             return new ResourceChange
             {
                 Id = desired.Id,
@@ -183,7 +248,14 @@ public sealed class ResourceRoleScopesProvider : ProviderBase, IApplyOrderSource
         {
             if (item is JsonObject roleScope && Matches(roleScope, groupId, role))
             {
-                return KeyView(View(roleScope, packageId, groupId, JsonObjects.GetString((JsonObject)roleScope["role"]!, "displayName") ?? role));
+                var view = View(roleScope, packageId, groupId, JsonObjects.GetString((JsonObject)roleScope["role"]!, "displayName") ?? role);
+                view[PackageNameProperty] = JsonObjects.GetString(package, "displayName");
+                if (await EntitlementManagementGraph.CountDeliveredAssignmentsAsync(graph, packageId, key.Api, cancellationToken).ConfigureAwait(false) is { } count)
+                {
+                    view[ActiveAssignmentsProperty] = count;
+                }
+
+                return KeyView(view);
             }
         }
 
@@ -221,14 +293,19 @@ public sealed class ResourceRoleScopesProvider : ProviderBase, IApplyOrderSource
         }
 
         var roles = await EntitlementManagementGraph.ListResourceRolesAsync(graph, catalogId, resourceId, originSystem, desired.Api, desired.RetryHint, cancellationToken).ConfigureAwait(false);
-        var match = roles.FirstOrDefault(r => string.Equals(JsonObjects.GetString(r, "displayName")?.Trim(), role, StringComparison.OrdinalIgnoreCase));
+        var match = FindRole(roles, role);
+        if (match is null && IsEligibleRole(role) && _onboardedThisRun.TryGetValue(desired, out _))
+        {
+            match = await WaitForRoleAsync(graph, catalogId, resourceId, role, originSystem, desired.Api, cancellationToken).ConfigureAwait(false);
+        }
+
         if (match is null)
         {
             string offered = string.Join(", ", roles.Select(r => JsonObjects.GetString(r, "displayName") ?? "?"));
             if (IsEligibleRole(role))
             {
                 string when = _onboardedThisRun.TryGetValue(desired, out _)
-                    ? "A schedule request of this deployment onboards the group; deploy again once it has run."
+                    ? $"A schedule request of this deployment onboards the group, but the role was still not offered {Settle.Window.TotalSeconds:0} s later; deploy again."
                     : "Onboard the group first (a privilegedAccess/groupEligibilityScheduleRequests or groupAssignmentScheduleRequests for it, or the portal), then deploy again.";
                 throw new ProviderException(NotOnboarded, $"{desired.Describe()}: catalog {catalogId} offers no '{role}' role for group {groupId} (offered: {offered}): PIM for Groups has not onboarded the group. {when}", desired.Id);
             }
@@ -269,6 +346,28 @@ public sealed class ResourceRoleScopesProvider : ProviderBase, IApplyOrderSource
     }
 
     // ---- delete ----
+
+    /// <summary>
+    /// The people who lose the role: Graph does not refuse the delete of a role scope while the package has assignments, it removes the role from every
+    /// assignee (Learn: entitlement-management-access-package-resources). The count is the package's delivered assignments read with the role scope.
+    /// </summary>
+    public string? DescribeDeleteRisk(ResourceKey key, ExistingResource live)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        ArgumentNullException.ThrowIfNull(live);
+        string package = JsonObjects.GetString(live.Raw, PackageNameProperty) is { Length: > 0 } name
+            ? $"access package '{name}' ({JsonObjects.GetString(live.Raw, PackageProperty)})"
+            : $"access package {JsonObjects.GetString(live.Raw, PackageProperty)}";
+        string grant = $"the '{JsonObjects.GetString(live.Raw, RoleProperty)}' role of group {JsonObjects.GetString(live.Raw, OriginIdProperty)}";
+        if (!JsonObjects.TryGetIgnoreCase(live.Raw, ActiveAssignmentsProperty, out var node) || node is not JsonValue value || !value.TryGetValue<int>(out int count))
+        {
+            return $"The active assignments of {package} could not be read: everyone assigned the package loses {grant} when this role scope is deleted (Graph does not refuse it).";
+        }
+
+        return count == 0
+            ? null
+            : $"{count} active assignment{(count == 1 ? string.Empty : "s")} of {package} hold{(count == 1 ? "s" : string.Empty)} {grant}: deleting this role scope removes the role from {(count == 1 ? "that person" : "those people")} (Graph does not refuse it).";
+    }
 
     public override async Task DeleteAsync(ResourceKey key, ExistingResource live, IGraphClient graph, CancellationToken cancellationToken)
     {

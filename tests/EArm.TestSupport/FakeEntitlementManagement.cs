@@ -49,6 +49,15 @@ public sealed class FakeEntitlementManagement
     /// <summary>The state the next resource request answers with (<c>delivered</c> when null); reset after use.</summary>
     public string? NextRequestState { get; set; }
 
+    /// <summary>
+    /// How many more resource role lists leave out the eligible roles of a group onboarded by a schedule request (PIM processes the onboarding
+    /// asynchronously); counted down by every such list. A negative value hides them for good.
+    /// </summary>
+    public int EligibleRolesHiddenReads { get; set; }
+
+    /// <summary>When true, the assignment list answers 403 (the caller may not read assignments).</summary>
+    public bool AssignmentsForbidden { get; set; }
+
     /// <summary>The groups PIM for Groups manages (besides those onboarded by the schedule request fakes).</summary>
     public HashSet<string> OnboardedGroups { get; } = new(StringComparer.OrdinalIgnoreCase);
 
@@ -120,7 +129,21 @@ public sealed class FakeEntitlementManagement
                 RequireGet(method, hint);
                 string resourceId = filter.TryGetValue("resource/id", out var rid) ? rid : throw FakeDirectory.BadRequest("resource/id filter required", hint);
                 var resource = _resources.FirstOrDefault(r => Same(Str(r, "id"), resourceId) && Same(Str(r, "catalogId"), s[1]));
-                return List(resource is null ? [] : RolesOf(resource, onboardedElsewhere));
+                bool hideEligible = EligibleRolesHiddenReads != 0;
+                if (EligibleRolesHiddenReads > 0)
+                {
+                    EligibleRolesHiddenReads--;
+                }
+
+                return List(resource is null ? [] : RolesOf(resource, hideEligible ? _ => false : onboardedElsewhere));
+            case "assignments" when s.Length == 1 && method == "GET":
+                if (AssignmentsForbidden)
+                {
+                    throw new GraphException(HttpStatusCode.Forbidden, "Forbidden", "The caller may not read assignments.", hint);
+                }
+
+                string assignedPackage = filter.TryGetValue("accessPackage/id", out var ap) ? ap : throw FakeDirectory.BadRequest("accessPackage/id filter required", hint);
+                return List(_assignments.Where(a => Same(a.PackageId, assignedPackage)).Select(a => new JsonObject { ["id"] = NewId(), ["state"] = "delivered" }));
             case "resourceRequests" when s.Length == 1 && method == "POST":
                 return ResourceRequest(Body(body, hint), hint, findGroup);
             case "accessPackages" when s.Length == 1:
