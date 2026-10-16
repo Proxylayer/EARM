@@ -664,6 +664,33 @@ and is sent once more (the previous PATCH onboarded the group). When Graph lists
 
 A directory role without a policy (an unknown role id) is `PimPolicyNotAvailable` too. Complete mode lists no orphans (policies always exist).
 
+### Worked example: access packages
+
+Five providers cover entitlement management ([access-packages.md](access-packages.md) has the user view and the Learn citations). They share
+`EntitlementManagementGraph` (the displayName lookups with their `AmbiguousMatch` guard, the catalog of a package, a catalog's resources and roles) and
+`AccessPackageApplyOrder` (the orders the references do not show).
+
+| Provider | Key | Read | Write |
+|---|---|---|---|
+| `AccessPackageCatalogsProvider` (`entitlementManagement/catalogs`) | `displayName` | `GET …/catalogs?$filter=displayName eq '…'`, re-matched client-side | `POST`, `PATCH` of the declared deltas, `DELETE` (400 → `CatalogNotEmpty`); the overlay defaults (`state`, `isExternallyVisible`) reach only the create body |
+| `CatalogResourcesProvider` (`entitlementManagement/catalogResources`) | (`catalogId`, `originId`) | `GET …/catalogs/{id}/resources?$filter=originId eq '…'`; the diff view is the key tuple and `originSystem` | `POST …/resourceRequests` `adminAdd`, then the catalog is read every `ReplicationWait.Interval` until the group shows (403 → `CatalogResourceAccessDenied`, `deliveryFailed` or never listed → `CatalogResourceRequestFailed`); `adminRemove` on delete (400 → `CatalogResourceInUse`). `IApplyOrderSource`: before the role scopes of the same group |
+| `AccessPackagesProvider` (`entitlementManagement/accessPackages`) | `displayName` | `GET …/accessPackages?$filter=displayName eq '…'&$expand=catalog`; `catalogId` is copied from `catalog.id` so the immutable binding is diffed | `POST` with `catalog { id }`, `PATCH` without `catalogId`, `DELETE` (assignments → `AccessPackageAssignmentsExist`) |
+| `ResourceRoleScopesProvider` (`entitlementManagement/resourceRoleScopes`) | (`accessPackageId`, `resourceOriginId`, `role`) | `GET …/accessPackages/{id}?$expand=resourceRoleScopes($expand=role,scope)`, matched on `scope.originId` and `role.displayName` | `POST …/resourceRoleScopes` with the role picked by display name from the catalog's roles of the group (never built from a pattern: the eligible roles' `originId` is undocumented), `DELETE`. `IApplyOrderSource`: before the policies of the same package |
+| `AssignmentPoliciesProvider` (`entitlementManagement/accessPackages/assignmentPolicies`) | parent package + `displayName` | the package (engine parent id, else the package lookup by name) → `GET …/assignmentPolicies?$filter=accessPackage/id eq '…'` | `POST` with `accessPackage { id }`; update is the full `PUT` of `AssignmentPolicyShape.MergeForPut` (live policy re-read with `$expand=questions`, declared values merged in); `DELETE` (assignments → `AccessPackageAssignmentsExist`) |
+
+`Plan` of the policies diffs the live policy cut down to the declared shape (`AssignmentPolicyShape.ProjectLive`): Graph fills in every stage field and a
+subject's read-only `description`, which are not drift, while an extra live approver is. All five confirm an empty read with the key absence check
+(`KeyReadLagsCreate`).
+
+**Eligible roles and PIM for Groups onboarding.** `ResourceRoleScopesProvider.PrepareAsync` checks, for an `Eligible Member` / `Eligible Owner` role
+whose package and catalog resource already exist, that the catalog offers the role; when it does not (PIM for Groups has not onboarded the group),
+`Plan` returns an error row `PimGroupNotOnboarded`, or, when `AppliesBefore` saw a `privilegedAccess/group*ScheduleRequests` for the same group
+(referenced or literal id), an Ignore row with a `PimGroupNotOnboarded` warning, exactly as `RoleManagementPoliciesProvider` defers a group policy. The
+executor plans each batch again before applying it, so when the request ran first the role scope is created in the same run. EARM never onboards a
+group by itself.
+
+Tests: `AccessPackagesProviderTests` and `AccessPackageRulesTests` over `FakeEntitlementManagement` (routed from `FakeDirectory`), and
+`AccessPackageScenarioTests` against a real tenant (`EARM_IT_ALLOW_ACCESS_PACKAGES=1`).
 ## Adding an edge kind
 
 Part B edge kinds (app role assignments, directory roles) live next to their standalone provider and

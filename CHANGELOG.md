@@ -46,6 +46,25 @@ transport to the built-in Microsoft Graph HTTP client.
 
 ### Added
 
+- New resource types for Microsoft Entra entitlement management (access packages, see `docs/access-packages.md`):
+  - `Microsoft.Entra/entitlementManagement/catalogs`, found by `displayName`; `state` and `isExternallyVisible`
+    default to `published` and false only when EARM creates the catalog;
+  - `Microsoft.Entra/entitlementManagement/catalogResources`, a group added to a catalog through an `adminAdd`
+    resource request (found by catalog and group; the create waits until the group is listed; a role-assignable
+    group without Global Administrator or Privileged Role Administrator is `CatalogResourceAccessDenied`);
+  - `Microsoft.Entra/entitlementManagement/accessPackages`, found by `displayName` (duplicates in the tenant are
+    `AmbiguousMatch`), bound to its catalog on create (`catalogId` is immutable);
+  - `Microsoft.Entra/entitlementManagement/resourceRoleScopes`, the group role a package grants: `Member`, `Owner`,
+    `Eligible Member` or `Eligible Owner` (PIM for Groups eligibility), picked by display name from the catalog's
+    roles; an eligible role of a group PIM for Groups has not onboarded is `PimGroupNotOnboarded`, deferred to the
+    next run when a schedule request of the same deployment onboards the group;
+  - `Microsoft.Entra/entitlementManagement/accessPackages/assignmentPolicies`, a package's policy found by
+    `displayName` within the package: only the declared values are compared, and an update is a full `PUT` of the
+    live policy with the declared values merged in.
+  Catalog resources apply before the role scopes of their group and role scopes before the policies of their package.
+  Deletes are refused by Graph while assignments exist (`AccessPackageAssignmentsExist`) or a catalog still holds
+  packages (`CatalogNotEmpty`). Assignments to people are not managed. Sample: `samples/access-packages.entra.json`.
+
 - New resource type `Microsoft.Entra/authenticationMethodConfigurations`: manages the tenant authentication methods
   policy per method (fido2, temporaryAccessPass, x509Certificate, microsoftAuthenticator, sms, voice, email,
   softwareOath). Configurations are never created; only declared properties are patched; targets and AAGUIDs compare

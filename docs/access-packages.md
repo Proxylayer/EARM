@@ -144,8 +144,8 @@ The caveats:
 - Graph v1.0 has no flag for it: `accessPackageResourceRole.type` (`active` / `eligible`) only applies to Azure resources
   ([resource role](https://learn.microsoft.com/en-us/graph/api/resources/accesspackageresourcerole?view=graph-rest-1.0)). The eligible group roles are
   separate roles in the catalog's role list, and their `originId` format is **not documented**. That is why EARM discovers the role by its display
-  name instead of building the id. This is verified against Learn only; the integration test `ResourceRoleScope_EligibleMember` confirms it on a
-  real tenant.
+  name instead of building the id. This is verified against Learn only; the integration test `It_AccessPackages_ResourceRoleScope_EligibleMember` confirms it on
+  a real tenant.
 - **Prerequisite: the group must be onboarded in PIM for Groups first.** "Once the resource is managed by PIM, eligible roles can be added as its role
   assignment in an access package" ([assign eligibility through access packages](https://learn.microsoft.com/en-us/entra/id-governance/entitlement-management-access-package-eligible)),
   and a group cannot be onboarded explicitly: PIM onboards it on its first eligibility or assignment schedule request, or in the portal
