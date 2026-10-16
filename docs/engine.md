@@ -545,7 +545,7 @@ the catalog overlay of the type:
   `ReadExistingAsync` for `reference(id, apiVersion)`.
 - `Plan`: the shared `JsonDiff`: scalars replace; scalar arrays are order-insensitive sets;
   object arrays by `memberKey` (else canonical JSON, order-insensitive); nested objects compared whole with an
-  explicit `null` (`Delete`) for every live-only sub-property unless `nullable: false` (`NoEffect`); GUIDs
+  explicit `null` (`Delete`; written as `[]` when the live value is a collection) for every live-only sub-property unless `nullable: false` (`NoEffect`); GUIDs
   case-insensitive; `null` / `[]` ≡ absent; `createOnly` paths skipped on update; secrets never compared
   (`IsSecret`: on an existing object a secret-bearing value is `NoEffect`, so a rerun neither PATCHes it nor counts it as a change; a create still
   sends it, and a new secret reaches an existing object only through the type's rotation, such as a password credential's `rotationTag`, or a

@@ -165,7 +165,9 @@ enumerations. In short:
 
 - **Nested objects** (`web`, `api`, `spa`, `publicClient`, `conditions`, `grantControls`, `sessionControls`, `passwordProfile`) are
   compared whole and written whole; a sub-property that exists live but is absent from the template is sent as explicit
-  `null` (except where the overlay says Graph refuses that, `nullable`).
+  `null`, or `[]` when it is a collection (Graph refuses `null` for collections such as `redirectUris`), except where the
+  overlay says Graph refuses clearing it at all (`nullable`: applications' `web.implicitGrantSettings` and
+  `web.redirectUriSettings`).
 - **Arrays of scalars** (`identifierUris`, `tags`, `redirectUris`, `builtInControls`, `members`) are compared as sets and written whole.
 - **Arrays of objects** are compared by a member key (`id` for `appRoles` and `oauth2PermissionScopes`, `cidrAddress` for `ipRanges`)
   and written whole. An omitted app role or scope `id` is derived deterministically (UUIDv5 of `uniqueName` and `value`), so every run computes the same id.

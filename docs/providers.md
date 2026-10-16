@@ -58,7 +58,7 @@ Derive from `ProviderBase` and implement the four Graph calls; override `Plan`, 
 | The collection and entity paths | `CollectionPath` (`/applications`), `GraphPathFor(key)` / `SubstitutePath` for `{parentId}` / `{resourceId}` placeholders, `GraphPath.AlternateKey(collection, "uniqueName", value)` (doubles `'`), `GraphPath.Segment(id)` |
 | The live object for the diff and for `reference()` | `ToExisting(live)` (applies `stripOnRead`), `StripServerManaged` |
 | The create body | `BuildCreateBody(desired)`: object properties + the name injected into `nameMapsTo` (a different declared value throws `NameMappedPropertyConflict`) + overlay `defaults` + **secrets revealed**. This and `BuildPatchBody` are the only places a `SecretValue` becomes plain text; never log or store the result. |
-| The update body | `BuildPatchBody(desired, existing, change)`: the effective deltas as a merge-PATCH (arrays and nested objects whole, explicit `null` for live-only sub-properties unless `nullable: false`) |
+| The update body | `BuildPatchBody(desired, existing, change)`: the effective deltas as a merge-PATCH (arrays and nested objects whole, explicit `null` for live-only sub-properties unless `nullable: false`; a live-only **collection** is cleared with `[]` instead, since Graph refuses `null` for collections such as `web.redirectUris` / `spa.redirectUris` / `publicClient.redirectUris`) |
 | The diff | `Plan` (base): `JsonDiff` with the overlay's `memberKey`, `nullable`, `createOnly`, `immutable` (error, or `Recreate` when `immutable: ["*"]`), `requiredOnCreate` |
 | Existing-resource lookups (`reference(resourceId(...), apiVersion)`) | `ReadExistingAsync` (base) calls your `ReadAsync` with the key the id implies; nothing to do for name-keyed types |
 
@@ -137,8 +137,10 @@ Type-specific rules (all in `ApplicationsRules`, pure):
 - `value` must be unique across roles and scopes (a plan error otherwise).
 - `identifierUris` entries containing `{appId}` (`api://{appId}`) are written by a second PATCH after the create;
   on later runs the placeholder is substituted with the live appId before the diff.
-- Live `api.requestedAccessTokenVersion: null` compares as `1`; live `web.implicitGrantSettings` always has both
-  booleans; the server-managed `origin` of roles/scopes is ignored; `keyCredentials` takes part in the diff only
+- Live `api.requestedAccessTokenVersion: null` compares as `1` (an explicit `null` clears it, so it is nullable); live
+  `web.implicitGrantSettings` always has both booleans; Graph refuses `null` for `web.implicitGrantSettings` and
+  `web.redirectUriSettings` (`nullable: false`: never sent as `null`) and for the `redirectUris` collections (a live-only
+  collection is cleared with `[]`); the server-managed `origin` of roles/scopes is ignored; `keyCredentials` takes part in the diff only
   when declared (passthrough).
 - `name` vs a declared `properties.uniqueName` that differs is an error; a declared `appId` is only a lookup key
   (never written) and is an error when no application exists for it.

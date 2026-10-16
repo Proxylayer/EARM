@@ -355,6 +355,18 @@ public sealed class JsonDiffTests
     }
 
     [Fact]
+    public void BuildPatchBody_ClearsALiveOnlyNestedCollectionWithAnEmptyArray_AndAScalarWithNull()
+    {
+        var desired = J("{\"web\":{\"homePageUrl\":\"h\"}}");
+        var live = J("{\"web\":{\"homePageUrl\":\"g\",\"redirectUris\":[\"u\"],\"logoutUrl\":\"l\",\"emptyList\":[]}}");
+        var deltas = JsonDiff.Diff(desired, live);
+
+        var body = JsonDiff.BuildPatchBody(desired, live, deltas);
+
+        Assert.Equal("{\"homePageUrl\":\"h\",\"redirectUris\":[],\"logoutUrl\":null}", Text(body["web"]));
+    }
+
+    [Fact]
     public void BuildPatchBody_ReplacesArraysWhole()
     {
         var desired = J("{\"tags\":[\"a\",\"c\"]}");

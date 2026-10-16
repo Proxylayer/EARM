@@ -96,7 +96,8 @@ public static class JsonDiff
     /// <summary>
     /// The PATCH body for the effective deltas: every changed top-level property in full (arrays and nested objects
     /// are replaced whole), nested objects carrying an explicit <c>null</c> for each live-only sub-property that is
-    /// not <c>nullable: false</c>, and <c>null</c> / <c>[]</c> for properties the template clears. Secret leaves are
+    /// not <c>nullable: false</c> (<c>[]</c> when the live value is a collection: Graph refuses <c>null</c> for those), and
+    /// <c>null</c> / <c>[]</c> for properties the template clears. Secret leaves are
     /// preserved (the provider reveals them right before the request).
     /// </summary>
     public static JsonObject BuildPatchBody(JsonObject desired, JsonObject? live, IReadOnlyList<PropertyDelta> deltas, JsonDiffOptions? options = null)
@@ -615,7 +616,8 @@ public static class JsonDiff
                     continue;
                 }
 
-                copy[property.Key] = null;
+                // A collection is cleared with [] (Graph rejects null for its non-nullable collections, such as web.redirectUris); anything else with null.
+                copy[property.Key] = property.Value is JsonArray ? new JsonArray() : null;
                 continue;
             }
 
