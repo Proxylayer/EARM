@@ -238,15 +238,16 @@ declared resource matches by key: an `Ignore` row with `orphan: undeclared`. The
 | PIM for Groups eligibilities | The Direct eligibility schedules of the target groups the declared resources name (`orphan: retained`, see below). |
 | PIM active assignments (directory roles; PIM for Groups) | The time-bound Direct assignment schedules (`assignmentType` Assigned) of the declared principals (directory roles) or of the declared target groups (PIM for Groups), `orphan: retained`. Permanent schedules and activations of eligibilities are not listed: the permanent ones are `roleAssignments`' (which lists them itself) or the group's members / owners. |
 | Applications, groups, users | Not listed: tenant-wide collections. An `Info` diagnostic `OrphanReportIncomplete` says so. |
-| Authentication method configurations | Nothing: every method is a tenant singleton that always exists, so none can be an orphan (no listing, no diagnostic). |
+| Authentication method configurations, PIM role management policies | Nothing: every method configuration and every role's (or onboarded group's) PIM policy always exists and is never created, so none can be an orphan (no listing, no diagnostic). |
 
 Only types the template declares are looked at. A type is not listed (warning `OrphanReportIncomplete`) when one of its declared resources is not known in the run (a
 deploy-time name or condition, a failed read or apply): its live object could otherwise be mistaken for an orphan. A resource whose condition is false declares
 nothing, so its live object is listed (ARM's Complete mode deletes it; EARM only reports it).
 
-**Retained assignments.** The identity of an assignment or grant is its tuple (principal, role or app role, scope / resource, consent type). When the tuple of a
-declared assignment changes, the new one is created and the **old one is retained**: it still grants access. Both modes therefore list the live assignments and
-grants of the declared principals that no declared assignment matches, as `orphan: retained` rows with the reason `retained: no longer declared; still grants access`
+**Retained assignments.** The identity of an assignment or grant is its tuple (principal, role or app role, scope / resource, consent type; for PIM for
+Groups, group, principal and access). When the tuple of a declared assignment, eligibility or grant changes, the new one is created and the **old one is retained**:
+it still grants access (an eligibility can still be activated). Both modes therefore list the live assignments, eligibilities and grants of the declared principals
+(PIM for Groups: of the declared target groups) that no declared resource matches, as `orphan: retained` rows with the reason `retained: no longer declared; still grants access`
 and an `AssignmentRetained` warning. Delete such an assignment yourself when the access should end.
 
 Orphan rows are never written to and never count as changes: `--exit-code-on-changes` ignores them, and so does `HasChanges`.

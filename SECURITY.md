@@ -1,7 +1,7 @@
 # Security
 
-EARM changes a Microsoft Entra tenant: it can create applications and client secrets, assign directory roles, edit Conditional Access policies and delete
-objects. Treat a run of `earm deployment create` with the care you give a privileged administrator session.
+EARM changes a Microsoft Entra tenant: it can create applications and client secrets, assign directory roles, make principals eligible for them through
+PIM, change PIM policies and the authentication methods policy, edit Conditional Access policies and delete objects. Treat a run of `earm deployment create` with the care you give a privileged administrator session.
 
 > EARM is a **preview**: its gated integration suite has been run against a development tenant, but it is not used in production (see the [README](README.md#status)). Do not point it at production.
 
@@ -39,6 +39,34 @@ The flip side is security-relevant: **an assignment whose tuple changed keeps it
 reports the old one (`orphan: retained`, warning `AssignmentRetained`), but never removes it, so the old principal or scope keeps its access until someone removes it. A
 principal-side relationship (`memberOf`, a principal's `appRoleAssignments` / `directoryRoles`) dropped from the template is not removed either; only target-side lists
 (`members`, `owners`) are authoritative ([docs/edges.md](docs/edges.md)). Review the retained rows of every what-if that changes an assignment.
+
+### Privileged access and authentication methods
+
+The PIM types (`roleEligibilityScheduleRequests`, `roleAssignmentScheduleRequests`, `privilegedAccess/groupEligibilityScheduleRequests`,
+`privilegedAccess/groupAssignmentScheduleRequests`, `roleManagementPolicies`) and `authenticationMethodConfigurations` are **privilege-control surfaces**
+([docs/pim.md](docs/pim.md)):
+
+- **Escalation-capable permissions.** An identity with `RoleEligibilitySchedule.ReadWrite.Directory` or `RoleAssignmentSchedule.ReadWrite.Directory` can make
+  any principal, itself included, eligible for or active in any directory role, Global Administrator included; the PIM for Groups permissions do the same for
+  the groups that hold roles or access. `RoleManagementPolicy.ReadWrite.Directory` / `.AzureADGroup` can strip the approval, MFA, justification and duration
+  rules that make eligibility safe, and can redirect approvals. Treat them like `RoleManagement.ReadWrite.Directory`.
+- **Every sign-in is affected.** A change to the authentication methods policy applies to every user in its targets at once: switching a method off
+  removes it as a sign-in and recovery method, a FIDO2 allow-list blocks every other passkey model, and a broad Temporary Access Pass target hands out a
+  bootstrap credential. `deployment delete` resets fido2, temporaryAccessPass and x509Certificate to the Microsoft default, which is a change too.
+- **Old access stays.** A changed eligibility or time-bound assignment keeps the old one (`orphan: retained`), which can still be activated; policies are
+  never deleted, so removing a rule from the template leaves its live value in place.
+- **One-way steps.** A group onboarded to PIM for Groups (by its first request or policy update) cannot be offboarded.
+
+Hardening for these types:
+
+- Deploy them from a **dedicated** pipeline identity (or a delegated Privileged Role Administrator / Authentication Policy Administrator run), separate from
+  the one that deploys applications and groups; never give the PIM or authentication-method permissions to an identity that also processes untrusted
+  templates.
+- Keep **emergency access** outside PIM, approvals and the authentication-method changes: permanent roles on a small group of break-glass accounts,
+  excluded from Conditional Access and, ideally, protected by a restricted management administrative unit (the `privileged-access` sample does this).
+  Do not make the identity that runs EARM an approver of the policies it deploys.
+- Review every `~ Modify` of a `roleManagementPolicies` rule (approval, enablement, expiration) and of an authentication method's `state`, targets and
+  key restrictions in the what-if before `create`; keep Conditional Access policies report-only until their sign-in impact is known.
 
 ### What is defended against (hostile templates and parameter files)
 
@@ -124,3 +152,5 @@ yourself, and usually much less ([docs/permissions.md](docs/permissions.md#deleg
 4. Do not pass `-y` in a pipeline unless a human reviewed the what-if (its replacements) for that exact run, and review the `orphan: retained` rows: old assignments keep granting access until you remove them.
 5. Serialise runs of one template (no lock protects concurrent runs; display-name-keyed types can be duplicated).
 6. Set `EARM_KEYVAULT_ALLOWED` in pipelines that read Key Vault references, and do not give secrets to `validate` / `what-if` / `create` runs of untrusted templates (pull-request validation).
+7. Deploy PIM policies, PIM requests and the authentication methods policy from a dedicated identity, keep emergency-access accounts outside PIM, and
+   review policy-rule and authentication-method changes in the what-if ([Privileged access and authentication methods](#privileged-access-and-authentication-methods)).

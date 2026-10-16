@@ -66,7 +66,9 @@ the second read a service principal member would be planned as an add on every r
   its id (`reference('Orders Support').id` for a custom role of the template); `roleDefinitionId` takes a template id
   (`roleTemplate('Global Reader')`). The scope defaults to `/` (tenant); `directoryScopeId` is `/`, `/administrativeUnits/{id}` or `/{applicationObjectId}`;
   `administrativeUnit` is sugar for an administrative-unit scope (an object id, or `reference('Orders AU').id`). Assignments are permanent and
-  active (PIM eligibility is out of scope). Only users, **role-assignable** groups (`isAssignableToRole: true`) and service principals can hold a role.
+  active; eligible and time-bound active assignments through PIM are separate resource types (`roleEligibilityScheduleRequests`,
+  `roleAssignmentScheduleRequests`, see [pim.md](pim.md)), and a time-bound one may not share its principal, role and scope with a `directoryRoles`
+  entry (`PimAssignmentConflict`). Only users, **role-assignable** groups (`isAssignableToRole: true`) and service principals can hold a role.
 - **`assignedLicenses` entries.** `skuId` or `skuPartNumber` (resolved with `GET /subscribedSkus`); `disabledPlans` lists service plan ids to turn off, and a
   change re-adds the SKU with the new list. Only **direct** assignments are managed: a license a group hands down
   (`licenseAssignmentStates[].assignedByGroup`) is never removed from the user side. A user needs a `usageLocation`.

@@ -20,7 +20,7 @@ needed in Azure operated by 21Vianet or in tenants that block the Microsoft app)
 
 - **Declarative and idempotent**: applications, service principals, federated credentials and client secrets, groups, users, app role
   assignments and consent grants, directory roles and custom roles, administrative units, Conditional Access policies, named locations,
-  authentication strengths and contexts. A rerun finds each object again by its key in the live tenant and updates it.
+  authentication strengths and contexts, PIM eligibility, time-bound assignments and policies, and the authentication methods policy. A rerun finds each object again by its key in the live tenant and updates it.
 - **ARM vocabulary**: `resources[]` with `type` / `apiVersion` / `name` / `properties` / `dependsOn` / `condition` / `copy`, parameters,
   variables, user functions, outputs, `resourceId()` / `reference()` / `copyIndex()`, parameter files with Key Vault references,
   Incremental and Complete modes, **what-if** with ARM's change types.
@@ -48,7 +48,7 @@ Implemented (a working pre-release, see [Limitations](#limitations-v1) for what 
   approval, MFA, justification, maximum durations, notifications; shaped like ARM's `Microsoft.Authorization/roleManagementPolicies`, only the
   declared rules managed, never created or deleted) (all under `Microsoft.Entra/`).
 - The verbs `deployment validate | what-if | create | delete`, `permissions`, `schema print | install` and `auth login | logout | status`.
-- Tests: about 6,200 unit and in-process tests (EArm.Tests, EArm.Providers.Tests, EArm.Graph.Tests; a full `test.ps1` run, build included, takes about 2-3 minutes), against fakes of Graph (an HTTP handler over an in-memory directory)
+- Tests: about 6,500 unit and in-process tests (EArm.Tests, EArm.Providers.Tests, EArm.Graph.Tests; a full `test.ps1` run, build included, takes about 2-3 minutes), against fakes of Graph (an HTTP handler over an in-memory directory)
   and of the sign-in, with about 95 % line and 89 % branch coverage ([tests/COVERAGE.md](tests/COVERAGE.md); how they are organised and reviewed: [docs/testing.md](docs/testing.md)).
   The tenant-backed integration suite is gated behind `EARM_IT_TENANT` and has been run against a development tenant: it is not part of those numbers, and a plain `test.ps1` reports it as `GATED`, not as a pass.
 
@@ -221,16 +221,18 @@ Full key table and details: [docs/engine.md](docs/engine.md#identity-without-sta
   matches are listed ("Not declared in the template (reported only; never deleted)", `orphans[]` in JSON). Complete mode **never deletes**, which is
   where EARM deliberately differs from ARM. The listing is bounded: only the types the template declares; the whole (small) collection for Conditional
   Access policies, named locations, custom authentication strengths, custom role definitions, administrative units and authentication contexts; the
-  credentials and service principals of the declared applications; the assignments and grants of the declared principals. Applications, groups and
-  users are tenant-wide and never listed.
+  credentials and service principals of the declared applications; the assignments, PIM eligibilities and time-bound PIM assignments and the grants of the
+  declared principals (PIM for Groups: of the declared target groups). Applications, groups and users are tenant-wide and never listed; authentication
+  method configurations and PIM policies always exist, so they have no orphans.
 
 To remove objects, run **`earm deployment delete -f <template>`**: it deletes the objects the template declares (found by key, reverse dependency order,
 after a confirmation that lists them). To remove an object a template no longer declares, put it back in a template (a scratch template that declares
 just it is enough) and delete with that, or remove it in the portal / Graph. The signed-in principal and service principals owned by another organization
 are never deleted or replaced (`ProtectedObject`). Details: [docs/cli.md](docs/cli.md#deployment-delete), [docs/whatif.md](docs/whatif.md#orphan-report).
 
-> **Retained assignments (security-relevant).** A role assignment, app role assignment or consent grant is identified by its tuple. When the template
-> changes the principal, the role or the scope, EARM creates the new assignment and **keeps the old one, which still grants access**. It is reported in
+> **Retained assignments (security-relevant).** A role assignment, PIM eligibility or time-bound PIM assignment, app role assignment or consent grant is
+> identified by its tuple. When the template changes the principal, the role, the scope or the group, EARM creates the new assignment and **keeps the old
+> one, which still grants access** (an old eligibility can still be activated). It is reported in
 > every what-if and result as `orphan: retained` (warning `AssignmentRetained`), in both modes, and **never removed** by EARM. Review those rows whenever
 > you change an assignment, and remove the old access yourself. Details: [docs/engine.md](docs/engine.md#retained-assignments).
 
@@ -242,6 +244,33 @@ are never deleted or replaced (`ProtectedObject`). Details: [docs/cli.md](docs/c
 then create. `create` lists those objects and asks `Replace them? (y/n)`; `-y` confirms, and without `-y` a non-interactive run fails before anything is
 written (`RecreateNotConfirmed`, exit 1). On every other type (applications, service principals, groups, users, custom roles, authentication strengths,
 administrative units...) an immutable change is an error instead (`ImmutablePropertyChanged`).
+
+## Privileged access (PIM)
+
+Directory roles and group access can be **just in time** through Privileged Identity Management, written in ARM's PIM vocabulary:
+
+```json
+{ "type": "Microsoft.Entra/roleManagementPolicies", "apiVersion": "2026-10-01-preview", "name": "[guid('policy', 'Security Administrator')]",
+  "properties": { "role": "Security Administrator", "rules": [
+    { "id": "Expiration_EndUser_Assignment", "isExpirationRequired": true, "maximumDuration": "PT8H" },
+    { "id": "Enablement_EndUser_Assignment", "enabledRules": ["MultiFactorAuthentication", "Justification"] } ] } },
+{ "type": "Microsoft.Entra/roleEligibilityScheduleRequests", "apiVersion": "2026-10-01-preview", "name": "[guid('sec-admins', 'Security Administrator')]",
+  "properties": { "principalId": "[reference('sec-admins').id]", "role": "Security Administrator",
+                  "scheduleInfo": { "expiration": { "type": "AfterDuration", "duration": "P365D" } } } }
+```
+
+- **Eligible** (`roleEligibilityScheduleRequests`, `privilegedAccess/groupEligibilityScheduleRequests`) or **time-bound active**
+  (`roleAssignmentScheduleRequests`, `privilegedAccess/groupAssignmentScheduleRequests`); permanent access stays `roleAssignments` / `directoryRoles` and
+  the group's `members` / `owners`, and the template may not declare both for the same tuple (`PimAssignmentConflict`).
+- Graph's PIM APIs are request-based; EARM finds the **schedule** by its tuple and sends `adminAssign`, `adminUpdate` or `adminRemove` itself, so a rerun
+  converges like any other type. `roleManagementPolicies` changes only the declared rules, is never created or deleted, and is applied **before** the
+  requests of its role or group.
+- A group's first request onboards it to PIM for Groups permanently; a group policy may only appear after that, in which case the policy applies on
+  the second run. A changed tuple keeps the old eligibility (`orphan: retained`).
+- Needs **Microsoft Entra ID P2** or **ID Governance**; the permissions are escalation-capable ([SECURITY.md](SECURITY.md#privileged-access-and-authentication-methods)).
+
+Concepts: [docs/pim.md](docs/pim.md); a combined example with emergency access, a Conditional Access policy on the PIM authentication context and the
+authentication methods policy: [`samples/privileged-access.entra.json`](samples/privileged-access.entra.json).
 
 ## Secrets
 
@@ -273,17 +302,20 @@ drift check (exit 5). Details and golden fixtures: [docs/whatif.md](docs/whatif.
 
 `earm permissions -f template -p …` lists, offline, the Microsoft Graph application permissions (or delegated scopes and the Entra roles, `--mode delegated`) a
 template needs, grouped by permission with the resources that need them, including the conditional ones (`Application.ReadWrite.OwnedBy` instead of `.All`,
-`RoleManagement.ReadWrite.Directory` for role-assignable groups and directory roles, `AppRoleAssignment.ReadWrite.All` for assignments…) and the Key Vault note.
+`RoleManagement.ReadWrite.Directory` for role-assignable groups and directory roles, `AppRoleAssignment.ReadWrite.All` for assignments, the PIM and
+authentication-method permissions…) and the Key Vault note.
 Manifest tables and warnings: [docs/permissions.md](docs/permissions.md).
 
 ## Limitations (v1)
 
 - Types: applications (+ federated credentials and password credentials), service principals, groups, users (member users), app role assignments,
   OAuth2 permission grants, directory role assignments and custom role definitions, administrative units, Conditional Access policies, named locations,
-  authentication strengths and authentication contexts. The provider registry makes more types cheap to add ([docs/providers.md](docs/providers.md)).
+  authentication strengths and authentication contexts, PIM eligibility, time-bound PIM assignments and PIM policies for directory roles and groups, and the
+  authentication method configurations. The provider registry makes more types cheap to add ([docs/providers.md](docs/providers.md)).
 - **Deferred**: gallery / template application instantiation, application logo, SAML token-signing certificates, group settings templates and lifecycle policies,
-  B2B invitations (guests), devices, PIM eligibility, the authentication methods policy, cross-tenant access, custom security attributes, entitlement management, terms of use,
-  nested deployments.
+  B2B invitations (guests), devices, cross-tenant access, custom security attributes, entitlement management, access reviews, lifecycle workflows, terms of use,
+  PIM for Azure resources (ARM's own `Microsoft.Authorization` types cover it) and PIM alerts, the authentication methods policy's tenant-wide settings
+  (registration campaign and the other root properties) and the beta-only methods (hardware OATH, QR code), nested deployments.
 - **Later (v1.1+)**: property-level `copy`, `--rollback-on-error`, `export` (template from a tenant), `deployment validate --online`, user password
   reset, name-prefix scoping for the orphan report of applications, groups and users, administrative-unit scoped role members, a published `$schema` URL (use `earm schema install` meanwhile).
 - Graph is eventually consistent: a freshly created object can be invisible for seconds, so dependent calls are retried for up to 90 s. Mail-enabled security groups cannot be
@@ -303,6 +335,7 @@ Manifest tables and warnings: [docs/permissions.md](docs/permissions.md).
 | [docs/whatif.md](docs/whatif.md) | What-if output, symbols, JSON shape, golden fixtures |
 | [docs/engine.md](docs/engine.md) | Pipeline, dependency graph, edge pass, identity without state, the orphan report, the provider contract |
 | [docs/providers.md](docs/providers.md) | Writing and testing a resource provider, with a worked example per type family |
+| [docs/pim.md](docs/pim.md) | Privileged Identity Management: eligible vs active, request-based APIs, policy ordering, group onboarding, conflicts, licensing |
 | [docs/diagnostics.md](docs/diagnostics.md) | Every diagnostic code |
 | [docs/testing.md](docs/testing.md) | The test suites, `test.ps1` modes, coverage, mutation-style review notes, the gated integration tests |
 | [SECURITY.md](SECURITY.md) | Threat model, what is defended, how secrets are handled, how to report a vulnerability |

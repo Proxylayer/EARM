@@ -470,6 +470,9 @@ run could never succeed, and the method can be switched off with `state: disable
 
 ### Worked example: PIM eligibility for directory roles
 
+The concepts the four PIM request types and `roleManagementPolicies` share (eligible vs active, the request APIs, ordering, onboarding,
+retained schedules, conflicts, licensing) are in [pim.md](pim.md); this section and the next three are the provider view.
+
 `Microsoft.Entra/roleEligibilityScheduleRequests` (`RoleEligibilityScheduleRequestsProvider`): eligible directory role assignments through Privileged
 Identity Management, written exactly like ARM's `Microsoft.Authorization/roleEligibilityScheduleRequests`, so an ARM snippet pastes unchanged. The
 `name` is a `guid(...)` label; the eligibility is found by its tuple (`principalId`, `roleDefinitionId`, `directoryScopeId` or `appScopeId`) and read
@@ -546,7 +549,7 @@ undeclared eligibility of a group the template manages (including the old tuple 
 
 A group's default PIM policy often forbids permanent eligibility (the `Expiration_Admin_Eligibility` rule). Graph then refuses a NoExpiration request
 and the resource fails with `PimPolicyViolation`, whose message points at an AfterDateTime / AfterDuration expiration or at changing the group's PIM
-policy (`roleManagementPolicies`, a later phase). Needs Microsoft Entra ID Governance (or P2).
+policy (`roleManagementPolicies`, [below](#worked-example-pim-role-management-policies)). Needs Microsoft Entra ID P2 (or ID Governance).
 
 ### Worked example: PIM active assignments
 

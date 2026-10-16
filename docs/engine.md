@@ -53,9 +53,10 @@ load ──► validate ──► expand ──► graph ──► [per batch: r
 
    A cycle is reported as `DependencyCycle` with the full path. The acyclic graph is layered Kahn-style:
    level = 1 + the highest level among the dependencies; one `DeploymentBatch` per level; inside a batch the
-   instances are ordered by apply phase (named locations, auth contexts/strengths, role definitions,
-   users, applications → service principals, FICs, password credentials → groups → administrative units →
-   assignments/grants → CA policies) and then by declaration order. Phases are only a tie-breaker; dependencies
+   instances are ordered by apply phase (`ApplyPhases.Of`: named locations, auth contexts/strengths, authentication
+   method configurations, role definitions, users, applications → service principals, FICs, password credentials → groups →
+   administrative units, PIM role management policies → role assignments, PIM eligibility and active assignment requests,
+   app role assignments, grants → CA policies) and then by declaration order. Phases are only a tie-breaker; dependencies
    decide the batches.
 5. **Providers**: every instance type needs a provider in the `ProviderRegistry`; otherwise
    `UnknownProviderException` lists the missing types (CLI exit 1). The CLI composition root (`EngineServices`) registers the
@@ -442,15 +443,16 @@ Consequences, all deliberate:
 
 ### Retained assignments
 
-> **Security-relevant.** When a role assignment, app role assignment or OAuth2 permission grant changes its tuple (another role, another
-> principal, another scope or resource), EARM creates the new assignment and **keeps the old one**. The old assignment **still grants access**.
+> **Security-relevant.** When a role assignment, PIM eligibility or time-bound PIM active assignment (directory roles and PIM for Groups), app role
+> assignment or OAuth2 permission grant changes its tuple (another role, another principal, another scope, group, access or resource), EARM creates
+> the new assignment and **keeps the old one**. The old assignment **still grants access**.
 > EARM reports it, in both modes, as an orphan row `orphan: retained` with an `AssignmentRetained` warning ("retained: no longer declared; still
 > grants access"), in the what-if and in the deployment result (`orphans[]`), and **never removes it**. Review those rows after every change to
 > an assignment and remove what should no longer grant access yourself (portal, Graph, or a scratch template with `deployment delete -f`).
 
 The same applies to an assignment simply dropped from the template: it stays, and is reported as retained while its principal is still declared.
-The report covers the assignments of the principals (grants: the clients) the template declares; an assignment of a principal the template no
-longer mentions at all is not listed.
+The report covers the assignments of the principals (grants: the clients; PIM for Groups: the target groups) the template declares; an assignment
+of a principal (or group) the template no longer mentions at all is not listed.
 
 ### Cancellation and in-flight writes
 
@@ -480,11 +482,13 @@ A rerun converges: everything the cancelled run wrote is found again by key.
 **Complete mode never deletes.** `OrphanReport` (`EArm.Engine.Planning`, run by the planner in what-if and by the executor after the outputs) lists, for every type the
 template declares whose provider implements `IOrphanCandidateSource`, the live objects in a bounded scope (`OrphanScope`):
 `Collection` (Conditional Access policies, named locations, custom authentication strengths, custom role definitions, administrative units, authentication contexts),
-`ChildrenOfDeclaredParents` (federated identity credentials and password credentials of the declared applications, the service principals of the declared applications)
-and `DeclaredPrincipals` (role assignments, app role assignments, OAuth2 permission grants of the principals / clients the declared resources of the type name). A
-candidate whose Graph id no declared resource of the type holds is an orphan: an `Ignore` row marked `ResourceChange.Orphan` (`Undeclared`; `Retained` for the
-`DeclaredPrincipals` scope, with an `AssignmentRetained` warning). Incremental mode runs only the `DeclaredPrincipals` scope (the old tuple of a changed assignment is
-retained and still grants access, so the what-if says so). A type is skipped with `OrphanReportIncomplete` when one of its declared resources is not settled in the
+`ChildrenOfDeclaredParents` (federated identity credentials and password credentials of the declared applications, the service principals of the declared applications),
+`DeclaredPrincipals` (role assignments, PIM directory role eligibilities and time-bound active assignments, app role assignments, OAuth2 permission grants of the
+principals / clients the declared resources of the type name) and `DeclaredTargetGroups` (PIM for Groups eligibilities and time-bound active assignments of the
+target groups the declared resources name). Authentication method configurations and PIM role management policies declare `Collection` but list nothing (they
+always exist, so none can be an orphan; no Graph call). A candidate whose Graph id no declared resource of the type holds is an orphan: an `Ignore` row marked
+`ResourceChange.Orphan` (`Undeclared`; `Retained` for the `DeclaredPrincipals` and `DeclaredTargetGroups` scopes, with an `AssignmentRetained` warning). Incremental
+mode runs only those two retained scopes (the old tuple of a changed assignment or eligibility is retained and still grants access, so the what-if says so). A type is skipped with `OrphanReportIncomplete` when one of its declared resources is not settled in the
 run (what-if: an error row or an unresolved key; executor: not succeeded) or its listing fails; applications, groups and users are tenant-wide and never listed (an
 `Info` diagnostic). Orphans are in `DeploymentPlan.Orphans` (what-if) and `DeploymentResult.Orphans` (create); they never count as changes.
 
@@ -492,7 +496,9 @@ run (what-if: an error row or an unresolved key; executor: not succeeded) or its
 `TemplateDeleter.FindDeclaredObjects(plan)` lists the declared objects that exist, in **reverse dependency order** (the batches reversed, ties by
 `ApplyPhases.DeleteOrderOf` and resource id), each with its `displayName`, the guard's refusal (`DeleteGuards`: the signed-in principal and service principals
 owned by another organization are kept) and the provider's `IDeleteWarningSource` risk (groups: distribution lists and mail-enabled security groups, which Learn
-does not list as restorable). After the confirmation `DeleteAsync` re-reads each object by key (it must be the listed one), deletes it through the provider inside
+does not list as restorable; the fido2, temporaryAccessPass and x509Certificate authentication method configurations, whose delete resets them to the Microsoft
+default), and the provider's `IDeleteRefusalSource` refusal (`NotDeletable`: the other authentication method configurations, PIM role management policies, and a
+permanent assignment under the tuple of a time-bound PIM active assignment), which keeps the object as `Refused` without failing the command. After the confirmation `DeleteAsync` re-reads each object by key (it must be the listed one), deletes it through the provider inside
 the retry policy (a 404 counts as gone) and stops at the first failure unless `continueOnError`; a delete in flight is never cancelled, a Ctrl+C skips the rest.
 A refusal that clears once an earlier change of the run reaches the Conditional Access service is repeated first (`LaggingDeleteRetry`, on the executor's
 `ReplicationWait` schedule: every 5 s, up to 90 s of scheduled waiting, then the refusal is reported): `NamedLocationTrusted` always (the provider unmarked
