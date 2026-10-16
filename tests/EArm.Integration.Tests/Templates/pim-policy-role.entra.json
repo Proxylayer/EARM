@@ -1,0 +1,48 @@
+{
+  "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "PIM policy rules of the low-privilege Message Center Reader directory role (tenant-wide; the test snapshots the live rules first and restores them exactly): the activation maximum duration, the activation enablement rules and approval by a prefixed approvers group the test creates. Only these three rule ids are managed; every other rule keeps its live value. The policy is never created and deployment delete keeps it (NotDeletable). Needs Microsoft Entra ID P2 or ID Governance."
+  },
+  "parameters": {
+    "prefix":          { "type": "string" },
+    "policyName":      { "type": "string", "defaultValue": "00000000-0000-0000-0000-0000000000b1", "metadata": { "description": "GUID label of the policy resource." } },
+    "approverGroupId": { "type": "string", "metadata": { "description": "Object id of the prefixed approvers group." } },
+    "maximumDuration": { "type": "string", "defaultValue": "PT3H", "metadata": { "description": "ISO 8601 maximum activation duration (Expiration_EndUser_Assignment)." } },
+    "enabledRules":    { "type": "string", "defaultValue": "Justification,Ticketing", "metadata": { "description": "Comma-separated enabledRules of Enablement_EndUser_Assignment." } }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Entra/roleManagementPolicies",
+      "apiVersion": "2026-10-01-preview",
+      "name": "[parameters('policyName')]",
+      "properties": {
+        "role": "Message Center Reader",
+        "rules": [
+          { "id": "Expiration_EndUser_Assignment", "ruleType": "RoleManagementPolicyExpirationRule", "isExpirationRequired": true, "maximumDuration": "[parameters('maximumDuration')]" },
+          { "id": "Enablement_EndUser_Assignment", "ruleType": "RoleManagementPolicyEnablementRule", "enabledRules": "[split(parameters('enabledRules'), ',')]" },
+          {
+            "id": "Approval_EndUser_Assignment",
+            "ruleType": "RoleManagementPolicyApprovalRule",
+            "setting": {
+              "isApprovalRequired": true,
+              "isApprovalRequiredForExtension": false,
+              "isRequestorJustificationRequired": true,
+              "approvalMode": "SingleStage",
+              "approvalStages": [
+                {
+                  "approvalStageTimeOutInDays": 1,
+                  "isApproverJustificationRequired": true,
+                  "escalationTimeInMinutes": 0,
+                  "isEscalationEnabled": false,
+                  "primaryApprovers": [ { "id": "[parameters('approverGroupId')]", "userType": "Group", "description": "EARM integration approvers" } ],
+                  "escalationApprovers": []
+                }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

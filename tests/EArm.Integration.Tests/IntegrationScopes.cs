@@ -62,6 +62,18 @@ internal static class IntegrationScopes
         "Policy.ReadWrite.AuthenticationMethod",
     ];
 
+    /// <summary>
+    /// What the fixture needs besides <see cref="CleanupScopes"/> when <c>EARM_IT_ALLOW_PIM=1</c> and <c>EARM_IT_ALLOW_PIM_POLICIES=1</c>: it snapshots and
+    /// restores role management policies (<see cref="PimPolicyRestoreGuard"/>, also at teardown) of a directory role and of PIM for Groups, and the PP
+    /// probes read the tenant's authentication contexts.
+    /// </summary>
+    internal static readonly IReadOnlyList<string> PimPolicyScopes =
+    [
+        "RoleManagementPolicy.ReadWrite.Directory",
+        "RoleManagementPolicy.ReadWrite.AzureADGroup",
+        "AuthenticationContext.Read.All",
+    ];
+
     /// <summary>Every scenario template and the gates of the tests that deploy it (keep in step with the <c>Fixture.Require</c> calls of the scenario classes).</summary>
     internal static readonly IReadOnlyList<ScenarioTemplate> Templates =
     [
@@ -80,6 +92,8 @@ internal static class IntegrationScopes
         new("pim-active.entra.json", Needs.Domain | Needs.Pim, With(("domain", "example.onmicrosoft.com"), ("roleName", PlaceholderGuid1), ("memberName", PlaceholderGuid2), ("ownerName", PlaceholderGuid3), ("activeEnd", PlaceholderEnd))),
         new("pim-active-conflicts.entra.json", Needs.Domain | Needs.Pim, With(("domain", "example.onmicrosoft.com"))),
         new("auth-methods.entra.json", Needs.AuthMethods, Empty()),
+        new("pim-policy-role.entra.json", Needs.Pim | Needs.PimPolicies, With(("approverGroupId", PlaceholderGuid1))),
+        new("pim-policy-group.entra.json", Needs.Domain | Needs.Pim | Needs.PimPolicies, With(("domain", "example.onmicrosoft.com"), ("eligibilityName", PlaceholderGuid1))),
     ];
 
     private const string PlaceholderGuid1 = "00000000-0000-0000-0000-0000000000a1";
@@ -114,6 +128,11 @@ internal static class IntegrationScopes
         if (settings.AllowAuthMethods)
         {
             names.UnionWith(AuthMethodScopes);
+        }
+
+        if (settings.AllowPim && settings.AllowPimPolicies)
+        {
+            names.UnionWith(PimPolicyScopes);
         }
 
         foreach (var template in Enabled(settings))

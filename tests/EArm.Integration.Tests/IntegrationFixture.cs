@@ -36,8 +36,8 @@ namespace EArm.Integration.Tests;
 /// command. A service principal (<c>AZURE_*</c> variables, or <c>EARM_AUTH=default</c>) keeps <c>.default</c>.
 /// </para>
 /// <para>
-/// Cleanup guard: <see cref="DisposeAsync"/> (0) restores every authentication method snapshot a test left pending
-/// (<see cref="AuthMethodRestoreGuard"/>), (1) sweeps everything whose name starts with the run
+/// Cleanup guard: <see cref="DisposeAsync"/> (0) restores every authentication method and PIM policy snapshot a test left pending
+/// (<see cref="AuthMethodRestoreGuard"/>, <see cref="PimPolicyRestoreGuard"/>), (1) sweeps everything whose name starts with the run
 /// prefix (<see cref="TenantCleanup"/>; with <c>EARM_IT_ALLOW_PIM=1</c> first the PIM schedules of the prefixed principals, <see cref="PimCleanup"/>)
 /// and purges their soft-deleted copies, (2) writes a log into the run
 /// directory and fails loudly when a live object with the prefix could not be removed. Objects without the prefix are
@@ -109,6 +109,11 @@ public sealed class IntegrationFixture : IAsyncLifetime
 
     private AuthMethodRestoreGuard? _authMethods;
 
+    /// <summary>The snapshot / restore guard of the PIM policy tests (restores whatever is pending at teardown, before the prefix sweep).</summary>
+    internal PimPolicyRestoreGuard PimPolicies => _pimPolicies ?? throw NotAvailable();
+
+    private PimPolicyRestoreGuard? _pimPolicies;
+
     /// <summary>What the cleanup guard did (filled by <see cref="DisposeAsync"/> or <see cref="SweepNowAsync"/>).</summary>
     public IReadOnlyList<string> CleanupLog { get; private set; } = [];
 
@@ -126,6 +131,7 @@ public sealed class IntegrationFixture : IAsyncLifetime
         Assert.SkipUnless(!needs.HasFlag(Needs.Roles) || Settings.AllowRoles, $"{IntegrationSettings.AllowRolesVariable}=1 is required to write directory roles, administrative units, app role assignments and consent grants.");
         Assert.SkipUnless(!needs.HasFlag(Needs.Pim) || Settings.AllowPim, $"{IntegrationSettings.AllowPimVariable}=1 is required to write PIM eligibilities and time-bound active assignments (the tenant needs Microsoft Entra ID P2 or ID Governance).");
         Assert.SkipUnless(!needs.HasFlag(Needs.AuthMethods) || Settings.AllowAuthMethods, $"{IntegrationSettings.AllowAuthMethodsVariable}=1 is required to change the tenant authentication methods policy (snapshot first, restored at the end).");
+        Assert.SkipUnless(!needs.HasFlag(Needs.PimPolicies) || Settings.AllowPimPolicies, $"{IntegrationSettings.AllowPimPoliciesVariable}=1 is required to change PIM role management policies (Message Center Reader and prefixed test groups only; snapshot first, restored at the end).");
     }
 
     /// <summary>The verified domain; only valid after <see cref="Require"/> with <see cref="Needs.Domain"/>.</summary>
@@ -236,6 +242,7 @@ public sealed class IntegrationFixture : IAsyncLifetime
         var retryPolicy = new RetryPolicy(_loggerFactory.CreateLogger<RetryPolicy>());
         _graph = new HttpGraphClient(_http, _tokens, retryPolicy, new GraphOptions { Cloud = cloud, Scopes = scopes }, _loggerFactory.CreateLogger<HttpGraphClient>());
         _authMethods = new AuthMethodRestoreGuard(_graph, RunDirectory);
+        _pimPolicies = new PimPolicyRestoreGuard(_graph, Prefix, RunDirectory);
 
         // The preflight prompts through the provider (credential renewed after consent), like EngineServices.
         var preflightPrompter = _tokens is AzureIdentityTokenProvider provider ? provider.ConsentPrompter : prompter;
@@ -314,6 +321,20 @@ public sealed class IntegrationFixture : IAsyncLifetime
             {
                 log.Add($"auth methods: restore aborted: {ex.GetType().Name}: {ex.Message}");
                 _leftovers.Add($"the authentication method restore was aborted ({ex.Message}); pending snapshots: {string.Join(", ", _authMethods.Pending)}");
+            }
+        }
+
+        // PIM policy snapshots likewise (tenant-wide, never deletable): restored before the sweep deletes the prefixed approver groups the rules may name.
+        if (_pimPolicies is not null && _pimPolicies.Pending.Count > 0)
+        {
+            try
+            {
+                _leftovers.AddRange(await _pimPolicies.RestoreAllAsync(log, cancellationToken));
+            }
+            catch (Exception ex) when (ex is GraphException or GraphTransportException)
+            {
+                log.Add($"pim policies: restore aborted: {ex.GetType().Name}: {ex.Message}");
+                _leftovers.Add($"the PIM policy restore was aborted ({ex.Message}); pending snapshots: {string.Join(", ", _pimPolicies.Pending)}");
             }
         }
 

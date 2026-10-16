@@ -29,6 +29,12 @@ internal enum Needs
     /// guard (<see cref="AuthMethodRestoreGuard"/>).
     /// </summary>
     AuthMethods = 16,
+
+    /// <summary>
+    /// Tenant-wide PIM role management policies may be changed (<c>EARM_IT_ALLOW_PIM_POLICIES=1</c>, on top of <see cref="Pim"/>): only the Message Center
+    /// Reader policy and the PIM for Groups policies of prefixed test groups, under the snapshot / restore guard (<see cref="PimPolicyRestoreGuard"/>).
+    /// </summary>
+    PimPolicies = 32,
 }
 
 /// <summary>
@@ -44,6 +50,7 @@ internal sealed record IntegrationSettings
     public const string AllowRolesVariable = "EARM_IT_ALLOW_ROLES";
     public const string AllowPimVariable = "EARM_IT_ALLOW_PIM";
     public const string AllowAuthMethodsVariable = "EARM_IT_ALLOW_AUTH_METHODS";
+    public const string AllowPimPoliciesVariable = "EARM_IT_ALLOW_PIM_POLICIES";
     public const string SweepVariable = "EARM_IT_SWEEP";
     public const string InteractiveVariable = "EARM_IT_INTERACTIVE";
 
@@ -77,6 +84,9 @@ internal sealed record IntegrationSettings
     /// <summary><c>EARM_IT_ALLOW_AUTH_METHODS=1</c>: safe, snapshot-guarded changes of the tenant authentication methods policy.</summary>
     public bool AllowAuthMethods { get; init; }
 
+    /// <summary><c>EARM_IT_ALLOW_PIM_POLICIES=1</c>: snapshot-guarded changes of low-risk PIM role management policies (needs <see cref="AllowPim"/> too).</summary>
+    public bool AllowPimPolicies { get; init; }
+
     /// <summary><c>EARM_IT_SWEEP=1</c>: the manual cleanup test may run.</summary>
     public bool SweepRequested { get; init; }
 
@@ -96,7 +106,8 @@ internal sealed record IntegrationSettings
             && (!needs.HasFlag(Needs.ConditionalAccess) || AllowConditionalAccess)
             && (!needs.HasFlag(Needs.Roles) || AllowRoles)
             && (!needs.HasFlag(Needs.Pim) || AllowPim)
-            && (!needs.HasFlag(Needs.AuthMethods) || AllowAuthMethods);
+            && (!needs.HasFlag(Needs.AuthMethods) || AllowAuthMethods)
+            && (!needs.HasFlag(Needs.PimPolicies) || AllowPimPolicies);
     }
 
     public static IntegrationSettings FromEnvironment()
@@ -125,6 +136,7 @@ internal sealed record IntegrationSettings
             AllowRoles = IsOn(AllowRolesVariable),
             AllowPim = IsOn(AllowPimVariable),
             AllowAuthMethods = IsOn(AllowAuthMethodsVariable),
+            AllowPimPolicies = IsOn(AllowPimPoliciesVariable),
             SweepRequested = IsOn(SweepVariable),
             InteractiveConsent = IsOn(InteractiveVariable),
         };

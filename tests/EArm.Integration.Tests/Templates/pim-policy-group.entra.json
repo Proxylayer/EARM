@@ -1,0 +1,78 @@
+{
+  "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "The PIM for Groups membership policy of a prefixed security group, declared next to a member eligibility of a disabled test user for the same group. The eligibility onboards the group in PIM for Groups (permanently; the group is deleted at the end), and the group has no policy before that: the first run defers the policy (PimPolicyNotAvailable warning) and the second applies it. The policy is applied before the eligibility it governs, never created, and deployment delete keeps it (NotDeletable). Needs Microsoft Entra ID P2 or ID Governance."
+  },
+  "parameters": {
+    "prefix":          { "type": "string" },
+    "domain":          { "type": "string" },
+    "policyName":      { "type": "string", "defaultValue": "00000000-0000-0000-0000-0000000000b2", "metadata": { "description": "GUID label of the policy resource." } },
+    "eligibilityName": { "type": "string", "metadata": { "description": "GUID label of the member eligibility." } },
+    "maximumDuration": { "type": "string", "defaultValue": "PT4H", "metadata": { "description": "ISO 8601 maximum activation duration (Expiration_EndUser_Assignment)." } },
+    "enabledRules":    { "type": "string", "defaultValue": "Justification", "metadata": { "description": "Comma-separated enabledRules of Enablement_EndUser_Assignment." } }
+  },
+  "variables": {
+    "user":  "[format('{0}-ppu@{1}', parameters('prefix'), parameters('domain'))]",
+    "group": "[format('{0}-ppgrp', parameters('prefix'))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Entra/users",
+      "apiVersion": "2026-10-01-preview",
+      "name": "[variables('user')]",
+      "properties": {
+        "displayName": "[format('{0}-ppu', parameters('prefix'))]",
+        "accountEnabled": false,
+        "jobTitle": "EARM integration test user (PIM for Groups policy)"
+      }
+    },
+    {
+      "type": "Microsoft.Entra/groups",
+      "apiVersion": "2026-10-01-preview",
+      "name": "[variables('group')]",
+      "properties": {
+        "displayName": "[variables('group')]",
+        "mailEnabled": false,
+        "mailNickname": "[variables('group')]",
+        "securityEnabled": true
+      }
+    },
+    {
+      "type": "Microsoft.Entra/roleManagementPolicies",
+      "apiVersion": "2026-10-01-preview",
+      "name": "[parameters('policyName')]",
+      "properties": {
+        "group": "[reference(variables('group')).id]",
+        "accessId": "member",
+        "rules": [
+          { "id": "Expiration_EndUser_Assignment", "ruleType": "RoleManagementPolicyExpirationRule", "isExpirationRequired": true, "maximumDuration": "[parameters('maximumDuration')]" },
+          { "id": "Enablement_EndUser_Assignment", "ruleType": "RoleManagementPolicyEnablementRule", "enabledRules": "[split(parameters('enabledRules'), ',')]" }
+        ]
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Entra/groups', variables('group'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests",
+      "apiVersion": "2026-10-01-preview",
+      "name": "[parameters('eligibilityName')]",
+      "properties": {
+        "groupId": "[reference(variables('group')).id]",
+        "principalId": "[reference(variables('user')).id]",
+        "accessId": "member",
+        "justification": "EARM integration test",
+        "scheduleInfo": { "expiration": { "type": "AfterDuration", "duration": "P7D" } }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Entra/users', variables('user'))]",
+        "[resourceId('Microsoft.Entra/groups', variables('group'))]"
+      ]
+    }
+  ],
+  "outputs": {
+    "userId":  { "type": "string", "value": "[reference(variables('user')).id]" },
+    "groupId": { "type": "string", "value": "[reference(variables('group')).id]" }
+  }
+}

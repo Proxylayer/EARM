@@ -46,7 +46,8 @@ Four kinds of tests live here:
      (with no gate on, the list drops `AdministrativeUnit.Read.All`, `AppRoleAssignment.ReadWrite.All`, `AuthenticationContext.*`, `DelegatedPermissionGrant.*` and
      `RoleManagement.ReadWrite.Directory`). `EARM_IT_ALLOW_PIM=1` adds `RoleEligibilitySchedule.ReadWrite.Directory`, `RoleAssignmentSchedule.ReadWrite.Directory`,
      `PrivilegedEligibilitySchedule.ReadWrite.AzureADGroup` and `PrivilegedAssignmentSchedule.ReadWrite.AzureADGroup` (plus their read variants for what-if);
-     `EARM_IT_ALLOW_AUTH_METHODS=1` adds `Policy.ReadWrite.AuthenticationMethod`. The run's set is computed from the templates (`IntegrationScopes`), so trust the
+     `EARM_IT_ALLOW_AUTH_METHODS=1` adds `Policy.ReadWrite.AuthenticationMethod`; `EARM_IT_ALLOW_PIM_POLICIES=1` (with `ALLOW_PIM`) adds
+     `RoleManagementPolicy.ReadWrite.Directory`, `RoleManagementPolicy.ReadWrite.AzureADGroup` (plus their read variants) and `AuthenticationContext.Read.All`. The run's set is computed from the templates (`IntegrationScopes`), so trust the
      printed command over this copy.
    * **Or be prompted at the start of the run:** `$env:EARM_IT_INTERACTIVE = '1'` lets the fixture open ONE browser consent prompt for the whole set before the first
      test (only when a person is at the machine; a test host cannot detect that itself). Without it a run never waits for a browser.
@@ -81,6 +82,7 @@ Four kinds of tests live here:
    | `RoleScenarioTests` | `RoleManagement.ReadWrite.Directory`, `AdministrativeUnit.ReadWrite.All`, `Group.ReadWrite.All`, `AppRoleAssignment.ReadWrite.All`, `DelegatedPermissionGrant.ReadWrite.All`, `Application.Read.All`, `Application.ReadWrite.All` |
    | `PimScenarioTests`, `PimProbes` | `RoleEligibilitySchedule.ReadWrite.Directory`, `RoleAssignmentSchedule.ReadWrite.Directory`, `PrivilegedEligibilitySchedule.ReadWrite.AzureADGroup`, `PrivilegedAssignmentSchedule.ReadWrite.AzureADGroup`, `RoleManagement.ReadWrite.Directory` (P5 writes a plain role assignment), `User.ReadWrite.All`, `Group.ReadWrite.All`, `Directory.Read.All`; a user also needs **Privileged Role Administrator** (or Global Administrator) |
    | `AuthMethodScenarioTests`, `AuthMethodProbes` | `Policy.ReadWrite.AuthenticationMethod`; a user also needs **Authentication Policy Administrator** (or Global Administrator) |
+   | `PimPolicyScenarioTests`, `PimPolicyProbes` | `RoleManagementPolicy.ReadWrite.Directory`, `RoleManagementPolicy.ReadWrite.AzureADGroup`, `PrivilegedEligibilitySchedule.ReadWrite.AzureADGroup`, `AuthenticationContext.Read.All` (PP6 reads the tenant's contexts), `User.ReadWrite.All`, `Group.ReadWrite.All`, `Directory.Read.All` (`IntegrationScopes.PimPolicyScopes` for the restore guard); a user also needs **Privileged Role Administrator** (or Global Administrator) |
    | PIM cleanup (with `ALLOW_PIM`) | the four `*Schedule.ReadWrite.*` scopes above (`IntegrationScopes.PimCleanupScopes`) |
    | Probes | the union of the above; `B4` (user restore) additionally documents whether `User.DeleteRestore.All` is needed |
    | Purging soft-deleted objects (cleanup) | the type's `*.ReadWrite.All`; users `User.DeleteRestore.All` |
@@ -100,6 +102,7 @@ Four kinds of tests live here:
 | `EARM_IT_ALLOW_ROLES` | `=1` | Required for the tests that write directory roles, administrative units, role assignments, app role assignments and consent grants (all of `RoleScenarioTests`, including the orders variant). |
 | `EARM_IT_ALLOW_PIM` | `=1` | Required for every PIM test (`PimScenarioTests`, `PimProbes`): directory role eligibilities, PIM for Groups eligibilities and time-bound active role and group assignments of disabled, prefixed test users. Needs Entra ID P2 / ID Governance and `EARM_IT_DOMAIN`. Also turns on the PIM part of the cleanup guard. |
 | `EARM_IT_ALLOW_AUTH_METHODS` | `=1` | Required for `AuthMethodScenarioTests` and `AuthMethodProbes`, which change the **tenant-wide** authentication methods policy. Only safe toggles, always under the snapshot / restore guard (see [Authentication methods: the restore guarantee](#authentication-methods-the-restore-guarantee)). Leave it off in a tenant people sign in to. |
+| `EARM_IT_ALLOW_PIM_POLICIES` | `=1` | Required (together with `EARM_IT_ALLOW_PIM`) for `PimPolicyScenarioTests` and `PimPolicyProbes`, which change **tenant-wide** PIM role management policies that can never be deleted: only the Message Center Reader policy and the PIM for Groups policies of prefixed test groups, always under the snapshot / restore guard (see [PIM policies: the restore guarantee](#pim-policies-the-restore-guarantee)). A separate gate because `ALLOW_PIM` alone only ever writes schedules of prefixed principals. Leave it off in a tenant people activate roles in. |
 | `EARM_IT_SWEEP` | `=1` | Enables `It_Cleanup_ManualSweepOfTheConfiguredPrefix` (see Manual cleanup). |
 | `EARM_IT_INTERACTIVE` | `=1` | A person is at the machine: a user sign-in that lacks consent for the run's scopes may open ONE browser consent prompt at the start. Off: the run skips with the `earm auth login --scopes ...` command. Never set it in CI. |
 | `EARM_AUTH` | no | `default` forces the service principal / managed identity of the environment when an `earm auth login` record also exists. |
@@ -113,6 +116,7 @@ $env:EARM_IT_ALLOW_CA = '1'        # optional, see the table
 $env:EARM_IT_ALLOW_ROLES = '1'     # optional, see the table
 $env:EARM_IT_ALLOW_PIM = '1'       # optional: needs Entra ID P2 / ID Governance
 $env:EARM_IT_ALLOW_AUTH_METHODS = '1'   # optional: tenant-wide policy, snapshot + restore
+$env:EARM_IT_ALLOW_PIM_POLICIES = '1'   # optional, with ALLOW_PIM: tenant-wide PIM policies, snapshot + restore
 
 pwsh -File build.ps1 -Target EArm.Integration.Tests                                   # compile only
 pwsh -File test.ps1 -Target EArm.Integration.Tests                                    # everything that is enabled
@@ -122,6 +126,7 @@ pwsh -File test.ps1 -Target EArm.Integration.Tests -Filter "FullyQualifiedName~A
 pwsh -File test.ps1 -Target EArm.Integration.Tests -Filter "FullyQualifiedName~It_Probe_F1" -Detailed   # diagnose one probe
 pwsh -File test.ps1 -Target EArm.Integration.Tests -Filter "FullyQualifiedName~PimScenarioTests|FullyQualifiedName~PimProbes" -Detailed   # PIM only
 pwsh -File test.ps1 -Target EArm.Integration.Tests -Filter "FullyQualifiedName~AuthMethod" -Detailed     # authentication methods only
+pwsh -File test.ps1 -Target EArm.Integration.Tests -Filter "FullyQualifiedName~PimPolicy" -Detailed      # PIM policies only
 ```
 
 With `EARM_IT_TENANT` set, `pwsh -File test.ps1` (no `-Target`) also includes this project. All classes share one xUnit collection
@@ -145,11 +150,14 @@ and run sequentially: they share the sign-in and the cleanup guard, and the in-p
 | `It_Pim_ActiveAssignmentConflictsAreRefusedBeforeAnyWrite` | `DOMAIN`, `ALLOW_PIM` (what-if only, nothing is written) |
 | `It_Cleanup_SweepRemovesPimSchedulesOfPrefixedPrincipals` | `DOMAIN`, `ALLOW_PIM` |
 | `It_AuthMethods_SafeToggleRoundTripUnderTheRestoreGuard` | `ALLOW_AUTH_METHODS` |
+| `It_PimPolicy_DirectoryRolePolicyModifyRerunNoChangeKeptOnDeleteAndRestored` | `ALLOW_PIM`, `ALLOW_PIM_POLICIES` |
+| `It_PimPolicy_GroupPolicyWithSameRunEligibilityConvergesInTwoRunsAndIsKeptOnDelete` | `DOMAIN`, `ALLOW_PIM`, `ALLOW_PIM_POLICIES` |
 | `It_Cleanup_SweepRemovesTrackedGroupWithThePrefix` | - |
 | `It_Cleanup_ManualSweepOfTheConfiguredPrefix` | `SWEEP=1` |
 | `It_Probe_A` ... `It_Probe_H` (15 probes) | A, B1, B2, B3, D, F1-F4, G: -; B4: `DOMAIN`; C, E1, E2: `ALLOW_CA`; H: `DOMAIN`, `ALLOW_ROLES` |
 | `It_Probe_P1` ... `It_Probe_P5` (PIM) | `DOMAIN`, `ALLOW_PIM` |
 | `It_Probe_AM1` ... `It_Probe_AM3` (authentication methods) | `ALLOW_AUTH_METHODS`; AM3 also skips unless Temporary Access Pass is disabled in the tenant |
+| `It_Probe_PP1` ... `It_Probe_PP6` (PIM policies) | `ALLOW_PIM`, `ALLOW_PIM_POLICIES`; PP1 and PP4 also `DOMAIN`; PP6 only records when the tenant has an available authentication context |
 
 ## Cost and safety
 
@@ -169,6 +177,10 @@ and run sequentially: they share the sign-in and the cleanup guard, and the in-p
   requests a default policy may refuse (a permanent group eligibility, a 10-year and a permanent active assignment of Message Center Reader to the
   disabled user) and removes any that is accepted at once. The conflict scenario only runs what-if: nothing is written.
 * Authentication methods (`EARM_IT_ALLOW_AUTH_METHODS=1`) are **tenant-wide**: see [the restore guarantee](#authentication-methods-the-restore-guarantee).
+* PIM role management policies (`EARM_IT_ALLOW_PIM_POLICIES=1`) are **tenant-wide and cannot be deleted**: only the Message Center Reader policy
+  (activation duration, enabled rules, approval by a prefixed approvers group, and PP2 / PP3 / PP6 rewrites) and the policies of prefixed test groups
+  are changed, always under [the restore guarantee](#pim-policies-the-restore-guarantee). The Global Administrator and Privileged Role Administrator
+  policies are never touched (the guard refuses them, and every other directory role, before any request).
 * Tenant limits to keep in mind: 500 role-assignable groups, soft-deleted objects count against some quotas for 30 days.
 * Run it in a tenant that no one else is changing at the same time: what-if assertions expect NoChange right after a create.
 
@@ -179,8 +191,9 @@ remove their own deployments with `earm deployment delete -f <template> -p prefi
 declares, found by key, in reverse dependency order). There is no state directory to clean up. At teardown (`IntegrationFixture.DisposeAsync`), also
 when tests failed, the fixture removes whatever is left:
 
-0. **Authentication method restore** (`AuthMethodRestoreGuard`, only when a snapshot is still pending): every configuration a test snapshotted
-   but could not restore itself is PATCHed back to its snapshot and verified (see below); one that still differs is a `LEFTOVER`.
+0. **Authentication method and PIM policy restore** (`AuthMethodRestoreGuard`, `PimPolicyRestoreGuard`, only when a snapshot is still pending):
+   every configuration or policy a test snapshotted but could not restore itself is PATCHed back to its snapshot and verified (see below), before the
+   sweep deletes the prefixed approver groups a changed rule may name; one that still differs is a `LEFTOVER`.
 1. **Prefix sweep** (`TenantCleanup`): objects created directly through Graph and tracked with `Fixture.Track(...)`, then everything whose
    `displayName`, `userPrincipalName` or `uniqueName` starts with the prefix, in dependency order: Conditional Access policies (not
    enforced ones), custom authentication strengths, authentication contexts (only ids `c50`..`c99`, the range the fixture allocates;
@@ -202,7 +215,7 @@ when tests failed, the fixture removes whatever is left:
 
 The sweep is what catches the objects `deployment delete` cannot: an object a test renamed (a new key is a new object, the old one stays), the old
 assignment of a changed tuple (retained, never removed by EARM), and anything a failed run or a test left behind. Its PIM lines start with `pim:`
-(`pim: adminRemove accepted for ...`, `pim: ... was already gone`, `pim: NOT removing ...`), the restore lines with `auth methods:`.
+(`pim: adminRemove accepted for ...`, `pim: ... was already gone`, `pim: NOT removing ...`), the restore lines with `auth methods:` and `pim policies:`.
 
 ### Authentication methods: the restore guarantee
 
@@ -222,6 +235,32 @@ The authentication methods policy is a tenant singleton, so these tests can neve
 
 After a crash, restore by hand from the snapshot file: `PATCH https://graph.microsoft.com/v1.0/policies/authenticationMethodsPolicy/authenticationMethodConfigurations/<Method>`
 with the file's properties (drop `id` and the `@odata.context` annotations, keep `@odata.type`), for example in Graph Explorer.
+
+### PIM policies: the restore guarantee
+
+A role management policy exists for every directory role and onboarded group and cannot be deleted, so these tests change live policies and put them
+back:
+
+1. **Low-risk scopes only.** `PimPolicyRestoreGuard` accepts the directory role policy of **Message Center Reader** (template id
+   `790c1fb9-7f7d-4f88-86a1-ef1f95c05c1b`, scope `/`) and the PIM for Groups policies of groups whose displayName starts with the run prefix; it
+   refuses every other scope (Global Administrator and Privileged Role Administrator by name) before a request is sent.
+2. **Snapshot first.** `Fixture.PimPolicies.SnapshotAsync(scope)` reads the policy (`$expand=policy($expand=rules)`) and keeps every rule as Graph
+   returned it (the first snapshot of a policy wins until it is restored). It is also written to
+   `%TEMP%\earm-it\<prefix>\pim-policies\<scopeType>-<scopeId>-<roleDefinitionId>.json` (`directoryrole-root-790c1fb9-...json` for Message Center
+   Reader). A group PIM has not onboarded has no policy yet, so its snapshot is taken right after the onboarding run.
+3. **Values that always differ, never MFA.** The scenarios derive the maximum activation duration (`PT3H` or `PT2H`) and the enabled rules
+   (`Justification, Ticketing` or `Justification`) from the snapshot so they differ from the live values; multifactor authentication is never enabled by a
+   scenario (it can conflict with an authentication context rule). PP6 enables it on purpose to record Graph's answer, and is restored like the rest.
+4. **Restore exactly.** In a `finally`, the guard PATCHes (`PATCH /policies/roleManagementPolicies/{id}/rules/{ruleId}`) every snapshotted rule whose
+   live value differs, with the snapshot's own body (OData annotations other than `@odata.type`, the read-only approver `description` and null members
+   dropped; on a 400, the provider's body for the same values), and re-reads until every rule equals the snapshot in the provider's comparable shape
+   (up to 60 s). The policy is looked up by scope every time, so a group policy re-id on onboarding does not matter. The fixture teardown repeats this
+   for every snapshot still pending, before the prefix sweep. A policy that still differs is a `LEFTOVER` (the teardown fails) and its snapshot file is
+   kept. A group policy that is no longer listed (its prefixed group was deleted) has nothing left to restore.
+
+After a crash, restore by hand from the snapshot file: for each rule in `rules`, `PATCH https://graph.microsoft.com/v1.0/policies/roleManagementPolicies/<policyId>/rules/<rule id>`
+with the rule (keep `@odata.type`, drop the `@odata.context` annotations and the approvers' `description`), for example in Graph Explorer, or set
+Message Center Reader back under *Identity Governance > Privileged Identity Management > Microsoft Entra roles > Settings*.
 
 ### Manual cleanup
 
@@ -279,6 +318,12 @@ A probe asserts an assumption the code makes and names the file to change; the o
 | `AM1` URL segments (`AuthMethodProbes`, read-only) | `GET …/authenticationMethodConfigurations/{PascalCase id}` answers each method with the id and `@odata.type` of the method table; the camelCase segment, the property names, the nested `@odata.type` paths and the FIDO2 legacy / passkey profile properties are **recorded** | `src/EArm.Core/Validation/AuthenticationMethodConfigurationRules.cs` |
 | `AM2` PATCH shape | a PATCH with the derived `@odata.type` works and resending the live `includeTargets` (nested `@odata.type` included) is accepted; the answer to a PATCH **without** `@odata.type` is **recorded** | `AuthenticationMethodConfigurationsProvider.cs` (`UpdateAsync`), `AuthenticationMethodConfigurationsShape.cs` |
 | `AM3` reset | `DELETE` of a disabled Temporary Access Pass is accepted and the configuration still exists afterwards; what the reset changed is **recorded** | `AuthenticationMethodConfigurationRules.cs` (`CanReset`), `AuthenticationMethodConfigurationsProvider.DeleteAsync` |
+| `PP1` group policy onboarding (`PimPolicyProbes`) | the assignment lookup of a new, not yet onboarded group is not refused (whether the policy is listed before onboarding, the scopeId+scopeType filter and whether the policy id changes on onboarding are **recorded**), and the member policy is listed within 180 s of the first eligibility request | `RoleManagementPolicyLookup.FindAsync`, `RoleManagementPoliciesProvider` (`PlanMissing`), docs/pim.md |
+| `PP2` rule PATCH shape | the provider's rule body (`@odata.type` first, `ruleType` dropped, nulls left out) for the live Message Center Reader expiration rule is accepted; the answer to the same PATCH **without** `@odata.type` is **recorded** | `RoleManagementPolicyShape.ToGraph` |
+| `PP3` approvers | after an approval rule PATCH with a prefixed approvers group, the rule read back compares equal to the declaration the way Plan compares it; whether Graph accepts a subject set with `description` and echoes `isBackup` / `description` is **recorded** | `RoleManagementPolicyShape.cs` (`Comparable`, `ApproverToArm`) |
+| `PP4` target casing | every rule target of the Message Center Reader policy and of a prefixed group's member policy normalises to ARM's casing (`caller`, `level`, `operations`); the live spellings are **recorded** | `RoleManagementPolicyRules.NormalizeRules`, `RoleManagementPolicyShape.ToArm` |
+| `PP5` `$expand` | `GET /policies/roleManagementPolicyAssignments?$filter=…&$expand=policy($expand=rules)` returns the rules; `$expand=policy` alone and `GET /policies/roleManagementPolicies/{id}?$expand=rules` are **recorded** | `RoleManagementPolicyLookup.FindAsync` |
+| `PP6` MFA + authentication context | **recorded only**: whether the Message Center Reader policy accepts `MultiFactorAuthentication` in the enablement rule together with an enabled authentication context rule (an existing, available context of the tenant; never created), the error code when refused, and whether EARM's offline checks accept such a template | `RoleManagementPolicyRuleChecks.cs` (add an offline check when Graph refuses the combination) |
 
 When all probes of a letter are green the matching verification item can be closed; paste the diagnostic output of
 the **recorded** items into the TODO or into [docs/providers.md](../../docs/providers.md).
