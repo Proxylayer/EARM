@@ -113,17 +113,19 @@ A signed-in user needs the Entra role **active**, not just eligible: PIM checks 
 Governance Administrator**, **User Administrator** or **Directory Writers** for a group that is not role-assignable, **Privileged Role Administrator** for a
 role-assignable group, or ownership of the group (Learn: privilegedaccessgroup-post-eligibilityschedulerequests,
 privilegedaccessgroup-list-eligibilityschedulerequests). **Privileged Role Administrator alone does not cover groups that are not role-assignable.** Without
-one of them every read and request under `/identityGovernance/privilegedAccess/group/` answers 403 `UnauthorizedAccessException`, which EARM reports as
+one of them every read and request under `/identityGovernance/privilegedAccess/group/` answers 403 `UnauthorizedAccessException`. Graph gives the same
+answer for a group PIM does not know yet, so EARM reads a 403 on a schedule list as "no schedule" and reports only a write that keeps answering 403 as
 `PimGroupAccessDenied` ([diagnostics.md](diagnostics.md)): activate the role (or assign it), then run `earm auth login` again so the token carries it.
 
 Graph behaviours EARM absorbs: the schedule list of a principal or group PIM has not seen yet (created moments earlier) answers 404 instead of an empty list
-(read as "no schedule"); the policy assignment list of a group PIM for Groups has not onboarded answers 404 `ResourceNotFound` (read as "not listed", see
-`PimPolicyNotAvailable`); an adminUpdate right after a schedule was replaced can answer `RoleAssignmentExists` while it settles (repeated with a bounded
+(read as "no schedule"; PIM for Groups answers 403 `UnauthorizedAccessException` there too, also read as "no schedule", logged at debug); the policy
+assignment list of a group PIM for Groups has not onboarded answers 404 `ResourceNotFound` or 403 `UnauthorizedAccessException` (both read as "not listed",
+see `PimPolicyNotAvailable`); an adminUpdate right after a schedule was replaced can answer `RoleAssignmentExists` while it settles (repeated with a bounded
 backoff, about 75 s, then an apply error); a declared `startDateTime` that is already past is left out of an adminUpdate (Graph starts the updated schedule
 now; a past start is never drift). The first PIM for Groups requests about a group (or principal) created seconds earlier answer 403
-`UnauthorizedAccessException` although the caller's role is active (accepted about 15 s later): when a dependency was created in the same run, the client
-repeats that 403 on `/identityGovernance/privilegedAccess/group/*` on the replication schedule (every 5 s, up to 90 s) before it reports
-`PimGroupAccessDenied`, whose message then also says PIM may need more time for a just-created group.
+`UnauthorizedAccessException` although the caller's role is active (accepted about 15 s later): an adminAssign request (always), and any request when a
+dependency was created in the same run, repeats that 403 on `/identityGovernance/privilegedAccess/group/*` on the replication schedule (every 5 s, up to
+90 s; each repeat is logged at information) before it reports `PimGroupAccessDenied`, whose message says whether the request was repeated.
 
 ## Not covered
 

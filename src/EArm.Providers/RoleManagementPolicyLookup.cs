@@ -40,7 +40,7 @@ public static class RoleManagementPolicyLookup
 
     /// <summary>
     /// The policy assignment of <paramref name="scope"/> with its policy and rules expanded, or <c>null</c> when Graph lists none (for a group that PIM for
-    /// Groups has not onboarded, Graph answers 404 ResourceNotFound: also <c>null</c>).
+    /// Groups has not onboarded, Graph answers 404 ResourceNotFound or 403 UnauthorizedAccessException: also <c>null</c>).
     /// </summary>
     public static async Task<JsonObject?> FindAsync(IGraphClient graph, PolicyScope scope, GraphApi api, RetryHint hint, CancellationToken cancellationToken)
     {
@@ -61,6 +61,12 @@ public static class RoleManagementPolicyLookup
         {
             // Graph answers the assignment list of a group PIM for Groups has not onboarded with 404 ResourceNotFound, not an empty collection:
             // the group's policy is not listed (yet).
+            return null;
+        }
+        catch (GraphException ex) when (ex.IsForbidden && scope.IsGroup && string.Equals(ex.Code, "UnauthorizedAccessException", StringComparison.OrdinalIgnoreCase))
+        {
+            // Before PIM for Groups onboards the group, Graph also answers 403 UnauthorizedAccessException (real tenant, probe PP1): not listed (yet),
+            // so the PimPolicyNotAvailable defer path applies. A caller lacking the role gets the same answer; the schedule writes surface it.
             return null;
         }
 

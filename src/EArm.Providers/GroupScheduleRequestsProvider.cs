@@ -151,6 +151,18 @@ public abstract class GroupScheduleRequestsProvider : PimScheduleRequestsProvide
         return ex.IsForbidden ? GroupSchedulesLookup.AccessDenied(ex, subject, id) : null;
     }
 
+    /// <summary>
+    /// An adminAssign always runs under <see cref="RetryHint.ExpectReplicationLag"/>: PIM for Groups answers 403 UnauthorizedAccessException for a group
+    /// it does not know yet, also when the group was created by an earlier run moments ago, so the 403 is repeated on the replication schedule (bounded
+    /// by the replication window, 90 s by default) before it becomes <see cref="EngineDiagnosticCodes.PimGroupAccessDenied"/>. An adminUpdate concerns a
+    /// schedule PIM already lists and keeps the instance's hint.
+    /// </summary>
+    protected override RetryHint RequestHint(ResourceInstance desired, string action)
+    {
+        ArgumentNullException.ThrowIfNull(desired);
+        return action == PimScheduleRequests.AdminAssign && desired.RetryHint != RetryHint.None ? RetryHint.ExpectReplicationLag : desired.RetryHint;
+    }
+
     protected override JsonObject RequestBody(string action, GroupScheduleTuple tuple, JsonNode? scheduleInfo, JsonNode? justification, JsonNode? ticketInfo)
     {
         return GroupSchedulesLookup.RequestBody(action, tuple, scheduleInfo, justification, ticketInfo);

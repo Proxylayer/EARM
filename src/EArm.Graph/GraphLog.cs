@@ -18,6 +18,12 @@ internal static partial class GraphLog
     [LoggerMessage(EventId = 1020, Level = LogLevel.Information, Message = "Retrying ({Reason}) in {DelayMs} ms, attempt {Attempt}: {Error}")]
     public static partial void Retrying(ILogger logger, string reason, double delayMs, int attempt, string error);
 
+    [LoggerMessage(EventId = 1024, Level = LogLevel.Information, Message = "PIM for Groups answered {Method} {PathAndQuery} with 403 UnauthorizedAccessException: treated as replication lag (the group or principal is new to PIM); the request is repeated on the replication schedule")]
+    public static partial void PimGroupForbiddenAsReplication(ILogger logger, string method, string pathAndQuery);
+
+    [LoggerMessage(EventId = 1025, Level = LogLevel.Debug, Message = "PIM for Groups answered {Method} {PathAndQuery} with 403 UnauthorizedAccessException (not repeated: no replication hint); a schedule list read treats it as a group PIM has not onboarded yet")]
+    public static partial void PimGroupForbidden(ILogger logger, string method, string pathAndQuery);
+
     [LoggerMessage(EventId = 1022, Level = LogLevel.Warning, Message = "The service asked for a Retry-After of {RequestedSeconds} s; waiting {AppliedSeconds} s instead (the per-attempt cap)")]
     public static partial void RetryAfterClamped(ILogger logger, double requestedSeconds, double appliedSeconds);
 

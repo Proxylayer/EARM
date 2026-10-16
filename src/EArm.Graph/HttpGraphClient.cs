@@ -677,6 +677,13 @@ public sealed partial class HttpGraphClient : IGraphClient
                 {
                     // PIM for Groups refuses the first requests about a just-created group with a 403: the replication schedule repeats it.
                     ex.IsReplication = true;
+                    GraphLog.PimGroupForbiddenAsReplication(_logger, method, logTarget);
+                    throw;
+                }
+                catch (GraphException ex) when (GraphException.IsPimGroupReplicationForbidden(ex.Status, ex.Code, uri.AbsolutePath))
+                {
+                    // Without the replication hint the 403 is not repeated; a schedule list read treats it as "PIM does not know the group yet".
+                    GraphLog.PimGroupForbidden(_logger, method, logTarget);
                     throw;
                 }
             }

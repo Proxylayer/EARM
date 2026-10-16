@@ -322,6 +322,15 @@ public abstract class PimScheduleRequestsProvider<TTuple> : ProviderBase, IOrpha
         return null;
     }
 
+    /// <summary>The retry hint of an adminAssign / adminUpdate request; the instance's own hint by default.</summary>
+    /// <param name="desired">The declared resource.</param>
+    /// <param name="action">The request action.</param>
+    protected virtual RetryHint RequestHint(ResourceInstance desired, string action)
+    {
+        ArgumentNullException.ThrowIfNull(desired);
+        return desired.RetryHint;
+    }
+
     /// <summary><see cref="FindAsync"/> with a 403 turned into the type's <see cref="AccessDenied"/> answer.</summary>
     private async Task<JsonObject?> FindCheckedAsync(IGraphClient graph, TTuple tuple, GraphApi api, RetryHint hint, string subject, ResourceIdentifier? id, CancellationToken cancellationToken)
     {
@@ -396,7 +405,7 @@ public abstract class PimScheduleRequestsProvider<TTuple> : ProviderBase, IOrpha
         GraphResponse response;
         try
         {
-            response = await graph.PostAsync(new GraphRequest(RequestsPath, desired.Api, hint: desired.RetryHint), (JsonObject)SecretJson.Reveal(body)!, cancellationToken).ConfigureAwait(false);
+            response = await graph.PostAsync(new GraphRequest(RequestsPath, desired.Api, hint: RequestHint(desired, action)), (JsonObject)SecretJson.Reveal(body)!, cancellationToken).ConfigureAwait(false);
         }
         catch (GraphException ex) when (PimScheduleRequests.IsPolicyViolation(ex))
         {

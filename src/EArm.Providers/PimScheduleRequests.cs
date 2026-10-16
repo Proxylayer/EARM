@@ -40,7 +40,8 @@ public static class PimScheduleRequests
 
     /// <summary>
     /// <c>GET {schedulesPath}?$filter={filter}</c> (every page), keeping the schedules <paramref name="keep"/> accepts that are Direct and active
-    /// (<see cref="IsDirectAndActive"/>). A 404 is an empty list: PIM answers so for a principal or group it has not seen yet.
+    /// (<see cref="IsDirectAndActive"/>). A 404 is an empty list: PIM answers so for a principal or group it has not seen yet. So is a PIM for Groups
+    /// 403 UnauthorizedAccessException (<see cref="GraphException.IsPimGroupReplicationForbidden"/>): PIM's answer for a group it has not onboarded.
     /// </summary>
     public static async Task<IReadOnlyList<JsonObject>> ListSchedulesAsync(IGraphClient graph, string schedulesPath, string filter, Func<JsonObject, bool> keep, GraphApi api, RetryHint hint, CancellationToken cancellationToken)
     {
@@ -64,6 +65,13 @@ public static class PimScheduleRequests
         {
             // PIM answers the filtered list of a principal or group it has not seen yet (created moments earlier, not replicated to PIM) with a 404
             // (ResourceNotFound) instead of an empty collection: no schedule exists for it.
+            return [];
+        }
+        catch (GraphException ex) when (GraphException.IsPimGroupReplicationForbidden(ex.Status, ex.Code, schedulesPath))
+        {
+            // PIM for Groups answers the schedule list of a group it does not know yet (not onboarded, or created moments earlier) with 403
+            // UnauthorizedAccessException instead of 404 or an empty collection: no schedule exists for it. The Graph client logs the answer (debug);
+            // a write that keeps answering 403 still fails as PimGroupAccessDenied.
             return [];
         }
 

@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Text.Json.Nodes;
@@ -137,6 +138,35 @@ public sealed class HttpGraphClientResponseTests
         Assert.False(error.IsReplication);
         Assert.Single(harness.Handler.Requests);
         Assert.Empty(harness.Delays.Delays);
+    }
+
+    [Fact]
+    public async Task EachPimForGroups403RetriedAsReplication_IsLoggedAtInformation()
+    {
+        using var harness = new ClientHarness(new ScriptedHttpHandler(
+            ScriptedResponse.Json(PimGroupForbidden, HttpStatusCode.Forbidden),
+            ScriptedResponse.Json(PimGroupForbidden, HttpStatusCode.Forbidden),
+            ScriptedResponse.Json("{\"id\":\"r1\",\"status\":\"Provisioned\"}", HttpStatusCode.Created)));
+
+        await harness.Client.PostAsync(new GraphRequest("/identityGovernance/privilegedAccess/group/assignmentScheduleRequests").WithHint(RetryHint.ExpectReplicationLag), new JsonObject(), Ct);
+
+        var lines = harness.Log.Entries.Where(e => e.EventId.Id == 1024).ToList();
+        Assert.Equal(2, lines.Count);
+        Assert.All(lines, e => Assert.Equal(Microsoft.Extensions.Logging.LogLevel.Information, e.Level));
+        Assert.All(lines, e => Assert.Contains("treated as replication lag", e.Text, StringComparison.Ordinal));
+        Assert.All(lines, e => Assert.Contains("assignmentScheduleRequests", e.Text, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task APimForGroups403WithoutTheReplicationHint_IsLoggedAtDebug()
+    {
+        using var harness = new ClientHarness(new ScriptedHttpHandler(ScriptedResponse.Json(PimGroupForbidden, HttpStatusCode.Forbidden)));
+
+        await Assert.ThrowsAsync<GraphException>(() => harness.Client.GetAsync(new GraphRequest("/identityGovernance/privilegedAccess/group/eligibilitySchedules"), Ct));
+
+        var line = Assert.Single(harness.Log.Entries, e => e.EventId.Id == 1025);
+        Assert.Equal(Microsoft.Extensions.Logging.LogLevel.Debug, line.Level);
+        Assert.DoesNotContain(harness.Log.Entries, e => e.EventId.Id == 1024);
     }
 
     [Theory]

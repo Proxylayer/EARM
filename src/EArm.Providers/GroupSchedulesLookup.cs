@@ -169,9 +169,9 @@ public static class GroupSchedulesLookup
     /// <summary>
     /// The <see cref="EngineDiagnosticCodes.PimGroupAccessDenied"/> exception for a 403 (<c>UnauthorizedAccessException</c>) from a PIM for Groups
     /// endpoint: the active roles the caller needs (Learn: privilegedaccessgroup-post-eligibilityschedulerequests,
-    /// privilegedaccessgroup-list-eligibilityschedulerequests and their assignment counterparts), with Graph's answer. Under
-    /// <see cref="RetryHint.ExpectReplicationLag"/> the client has already repeated the 403 on the replication schedule
-    /// (<see cref="GraphException.IsPimGroupReplicationForbidden"/>): Graph answers it for a group created seconds earlier.
+    /// privilegedaccessgroup-list-eligibilityschedulerequests and their assignment counterparts), with Graph's answer, and whether the client already
+    /// repeated the 403 on the replication schedule (<see cref="GraphException.IsReplication"/>, set under <see cref="RetryHint.ExpectReplicationLag"/>
+    /// by <see cref="GraphException.IsPimGroupReplicationForbidden"/>): Graph answers it for a group created seconds earlier.
     /// </summary>
     public static ProviderException AccessDenied(GraphException ex, string subject, ResourceIdentifier? id)
     {
@@ -184,10 +184,18 @@ public static class GroupSchedulesLookup
             + "Privileged Role Administrator for a role-assignable group; or ownership of the group. Privileged Role Administrator alone does not cover groups "
             + "that are not role-assignable. Activate the role in PIM (or assign it), then sign in again (earm auth login) so the token carries it. An application "
             + "needs PrivilegedEligibilitySchedule.ReadWrite.AzureADGroup / PrivilegedAssignmentSchedule.ReadWrite.AzureADGroup (Learn: "
-            + "privilegedaccessgroup-post-eligibilityschedulerequests, privilegedaccessgroup-list-eligibilityschedulerequests). If the group (or the principal) was "
-            + "just created, PIM may need more time: Graph answers this 403 for a while after the group is created (EARM already retried it for 90 s when the "
-            + "group was created in the same run); run the deployment again in a minute.",
+            + "privilegedaccessgroup-post-eligibilityschedulerequests, privilegedaccessgroup-list-eligibilityschedulerequests). " + RetryNote(ex),
             id);
+    }
+
+    /// <summary>Whether the client repeated the 403 on the replication schedule before giving up, in the words of the access-denied message.</summary>
+    private static string RetryNote(GraphException ex)
+    {
+        return ex.IsReplication
+            ? "EARM repeated the request on the replication schedule (every 5 s for up to 90 s by default) and Graph kept refusing it, so this is most likely a "
+              + "missing role rather than a group that is new to PIM; if the group (or the principal) was created only moments ago, run the deployment again in a minute."
+            : "EARM did not repeat this request (the 403 is repeated only for an adminAssign request, or when a dependency was created in this run). If the group (or the "
+              + "principal) was just created, PIM may need more time: Graph answers this 403 for a while after the group is created; run the deployment again in a minute.";
     }
 
     private static string GroupFilter(string groupId)

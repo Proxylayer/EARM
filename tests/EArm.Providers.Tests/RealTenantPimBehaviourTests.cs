@@ -149,20 +149,104 @@ public sealed class RealTenantPimBehaviourTests
         Assert.Null(await RoleManagementPolicyLookup.FindAsync(host.Fake, scope, GraphApi.V1, RetryHint.Default, ProviderHost.Ct));
     }
 
+    [Fact]
+    public async Task TheGroupPolicyAssignmentList_Answering403UnauthorizedAccessExceptionBeforeOnboarding_IsNotListed()
+    {
+        // Real tenant, probe PP1: before onboarding the lookup answers 403 UnauthorizedAccessException, not 404 or an empty collection.
+        var (host, ops, _) = GroupSetup();
+        host.Fake.Failures.Add("GET", RoleManagementPolicyLookup.AssignmentsPath, PimGroupForbidden, times: -1);
+
+        Assert.Null(await RoleManagementPolicyLookup.FindAsync(host.Fake, new PolicyScope(RoleManagementPolicyRules.GroupScope, ops, "member"), GraphApi.V1, RetryHint.Default, ProviderHost.Ct));
+    }
+
+    [Fact]
+    public async Task TheDirectoryRolePolicyAssignmentList_Answering403_StaysAnError()
+    {
+        var (host, _) = RoleSetup();
+        host.Fake.Failures.Add("GET", RoleManagementPolicyLookup.AssignmentsPath, PimGroupForbidden, times: -1);
+
+        await Assert.ThrowsAsync<GraphException>(() => RoleManagementPolicyLookup.FindAsync(host.Fake, new PolicyScope(RoleManagementPolicyRules.DirectoryRoleScope, "/", BuiltInRoles.GlobalReader), GraphApi.V1, RetryHint.Default, ProviderHost.Ct));
+    }
+
     // ---- 3: 403 from PIM for Groups is PimGroupAccessDenied ----
 
     [Fact]
-    public async Task A403FromTheGroupScheduleList_IsPimGroupAccessDenied_NamingTheActiveRolesNeeded()
+    public async Task A403FromTheGroupScheduleList_IsNoSchedule_AndThePersisting403OnTheRequest_IsPimGroupAccessDenied()
     {
+        // PIM for Groups answers a group it does not know yet (and a caller without the role) with 403 UnauthorizedAccessException on the list: the read
+        // is "no schedule"; only the write that keeps answering 403 fails, naming the active roles needed.
         var (host, ops, alice) = GroupSetup();
         host.Directory.GroupEligibility.AccessDenied = true;
+        var document = host.Resources(GroupEligibility(ops, alice));
+
+        var whatIf = await host.WhatIfAsync(document);
+        Assert.Equal(ChangeType.Create, whatIf.Change(Name).Type);
+        Assert.Null(whatIf.Change(Name).UnsupportedReason);
+
+        var run = await host.CreateAsync(document);
+
+        Assert.False(run.Succeeded);
+        Assert.Equal(EngineDiagnosticCodes.PimGroupAccessDenied, run.Op(Name).ErrorCode);
+        string error = run.Op(Name).Error ?? string.Empty;
+        Assert.Contains("ACTIVE (not just eligible)", error, StringComparison.Ordinal);
+        Assert.Contains("Privileged Role Administrator alone does not cover", error, StringComparison.Ordinal);
+        Assert.Contains("403", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AGroupScheduleList_Answering403ForAGroupPimDoesNotKnow_IsNoSchedule_AndTheEligibilityIsCreatedUnderTheReplicationHint()
+    {
+        var (host, ops, alice) = GroupSetup();
+        host.Fake.Failures.Add("GET", GroupSchedules, PimGroupForbidden, times: -1);
+        var document = host.Resources(GroupEligibility(ops, alice));
+
+        Assert.Null(await GroupSchedulesLookup.FindAsync(host.Fake, GroupSchedules, _ => true, new GroupScheduleTuple(ops, alice, "member"), GraphApi.V1, RetryHint.Default, ProviderHost.Ct));
+        Assert.Empty(await GroupSchedulesLookup.ReadGroupSchedulesAsync(host.Fake, GroupSchedules, _ => true, ops, GraphApi.V1, RetryHint.Default, ProviderHost.Ct));
+
+        var run = await host.CreateAsync(document);
+
+        Check.Succeeded(run);
+        var assign = Assert.Single(run.Writes);
+        Assert.Equal("adminAssign", Check.Body(assign)["action"]!.GetValue<string>());
+        Assert.Equal(RetryHint.ExpectReplicationLag, assign.Hint);
+        Assert.Single(host.Directory.Objects(GroupSchedules));
+    }
+
+    [Fact]
+    public async Task A403FromTheGroupScheduleList_IsAnEmptyOrphanListing_NotAnIncompleteReport()
+    {
+        var (host, ops, alice) = GroupSetup();
+        host.Fake.Failures.Add("GET", GroupSchedules, PimGroupForbidden, times: -1);
 
         var whatIf = await host.WhatIfAsync(host.Resources(GroupEligibility(ops, alice)));
 
-        string reason = whatIf.Change(Name).UnsupportedReason ?? string.Empty;
-        Assert.Contains("ACTIVE (not just eligible)", reason, StringComparison.Ordinal);
-        Assert.Contains("Privileged Role Administrator alone does not cover", reason, StringComparison.Ordinal);
-        Assert.Contains("403", reason, StringComparison.Ordinal);
+        Assert.Equal(ChangeType.Create, whatIf.Change(Name).Type);
+        Assert.Empty(whatIf.Plan.Orphans);
+        Assert.DoesNotContain(whatIf.Plan.Diagnostics, d => d.Code == EngineDiagnosticCodes.OrphanReportIncomplete || d.Code == EngineDiagnosticCodes.PimGroupAccessDenied);
+    }
+
+    [Fact]
+    public async Task ADirectoryRoleScheduleList_Answering403_StaysAnError()
+    {
+        var (host, alice) = RoleSetup();
+        host.Fake.Failures.Add("GET", RoleSchedules, PimGroupForbidden, times: -1);
+
+        await Assert.ThrowsAsync<GraphException>(() => RoleSchedulesLookup.FindAsync(host.Fake, RoleSchedules, _ => true, new RoleScheduleTuple(alice, BuiltInRoles.GlobalReader, "/", IsAppScope: false), GraphApi.V1, RetryHint.Default, ProviderHost.Ct));
+    }
+
+    [Fact]
+    public void TheAccessDeniedMessage_SaysWhetherTheClientRepeatedThe403()
+    {
+        var notRepeated = new GraphException(HttpStatusCode.Forbidden, "UnauthorizedAccessException", "Attempted to perform an unauthorized operation.", RetryHint.Default);
+        var repeated = new GraphException(HttpStatusCode.Forbidden, "UnauthorizedAccessException", "Attempted to perform an unauthorized operation.", RetryHint.ExpectReplicationLag) { IsReplication = true };
+
+        string once = GroupSchedulesLookup.AccessDenied(notRepeated, "x", null).Message;
+        string retried = GroupSchedulesLookup.AccessDenied(repeated, "x", null).Message;
+
+        Assert.Contains("EARM did not repeat this request", once, StringComparison.Ordinal);
+        Assert.DoesNotContain("kept refusing", once, StringComparison.Ordinal);
+        Assert.Contains("EARM repeated the request on the replication schedule", retried, StringComparison.Ordinal);
+        Assert.Contains("most likely a missing role", retried, StringComparison.Ordinal);
     }
 
     [Fact]
