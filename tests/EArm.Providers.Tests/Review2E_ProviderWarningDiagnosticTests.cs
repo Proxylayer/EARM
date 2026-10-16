@@ -89,6 +89,7 @@ public sealed class Review2E_ProviderWarningDiagnosticTests
     [Theory]
     [InlineData(nameof(ProviderWarnings.SoftDeleteProbeSkipped))]
     [InlineData(nameof(ProviderWarnings.GroupHasNoOwnerAtCreate))]
+    [InlineData(nameof(ProviderWarnings.GroupAdoptedByDisplayName))]
     [InlineData(nameof(ProviderWarnings.SecretExpiresSoon))]
     [InlineData(nameof(ProviderWarnings.RotationTagNotStamped))]
     [InlineData(nameof(ProviderWarnings.PasswordCredentialOrphaned))]

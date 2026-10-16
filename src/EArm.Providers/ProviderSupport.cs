@@ -28,6 +28,9 @@ public static class ProviderWarnings
     /// <summary>A group is created without owners declared: created with an application token it is ownerless ("anonymous") and cannot be managed by anyone but an administrator.</summary>
     public const string GroupHasNoOwnerAtCreate = EngineDiagnosticCodes.GroupHasNoOwnerAtCreate;
 
+    /// <summary>No group holds the declared uniqueName, and exactly one group without a uniqueName carries the declared displayName: it is adopted and its uniqueName is set.</summary>
+    public const string GroupAdoptedByDisplayName = EngineDiagnosticCodes.GroupAdoptedByDisplayName;
+
     /// <summary>A <c>addPassword</c> call failed ambiguously and a credential with the same name that EARM did not record exists: it is reported, never removed.</summary>
     public const string PasswordCredentialOrphaned = EngineDiagnosticCodes.PasswordCredentialOrphaned;
 

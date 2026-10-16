@@ -402,7 +402,7 @@ found = create.
 
 | Type (`Microsoft.Entra/...`) | Key | Template `name` |
 |---|---|---|
-| `applications`, `groups` | `uniqueName` (Graph alternate key; case-insensitive) | the `uniqueName` |
+| `applications`, `groups` | `uniqueName` (Graph alternate key; case-insensitive). Adoption fallbacks when nothing holds it: an application by its declared `appId`; a group by its declared `displayName` when exactly one group without a `uniqueName` has it (`GroupAdoptedByDisplayName`; several = `AmbiguousMatch`). The fallback value is a key hint (`ResourceKey.Hints`), not identity: deletes go by `uniqueName` only | the `uniqueName` |
 | `users` | `userPrincipalName` | the UPN |
 | `servicePrincipals` | `appId` of the application it instantiates | the `appId` (usually `[reference('app').appId]`) |
 | `applications/federatedIdentityCredentials` | `name` under the parent application | the credential's `name` |
