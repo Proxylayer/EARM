@@ -160,6 +160,47 @@ public sealed class GroupAssignmentScheduleRequestsProviderTests
         Assert.Equal("2031-01-01T00:00:00Z", Assert.Single(host.Directory.Objects(Schedules))["scheduleInfo"]!["expiration"]!["endDateTime"]!.GetValue<string>());
     }
 
+    private static EArm.Graph.GraphException LastAdmin(FakeGraphRequest request)
+    {
+        // What a real tenant answered to the adminUpdate of a group's only owner assignment.
+        return new EArm.Graph.GraphException(System.Net.HttpStatusCode.BadRequest, "CannotDeleteLastAdminAssignment", "Cannot delete the last admin assignment.", request.Hint);
+    }
+
+    [Fact]
+    public async Task AnAdminUpdateOfTheOnlyOwnerAssignment_AnsweredCannotDeleteLastAdminAssignment_IsPimLastOwnerAssignment()
+    {
+        var (host, ops, alice) = Setup();
+        SeedSchedule(host, ops, alice, accessId: "owner");
+        host.Fake.Failures.Add("POST", Requests, LastAdmin, times: -1);
+        var document = host.Resources(Active(Props(ops, alice, ", \"scheduleInfo\": { \"expiration\": { \"type\": \"afterDateTime\", \"endDateTime\": \"2031-01-01T00:00:00Z\" } }", access: "owner")));
+
+        var run = await host.CreateAsync(document);
+
+        Assert.False(run.Succeeded);
+        Assert.Equal(EngineDiagnosticCodes.PimLastOwnerAssignment, run.Op(Name).ErrorCode);
+        Assert.Contains("only owner assignment of a group", run.Op(Name).Error, StringComparison.Ordinal);
+        Assert.Contains("add another owner", run.Op(Name).Error, StringComparison.Ordinal);
+        Assert.Contains("adminUpdate", run.Op(Name).Error, StringComparison.Ordinal);
+        Assert.Equal("2030-01-01T00:00:00Z", Assert.Single(host.Directory.Objects(Schedules))["scheduleInfo"]!["expiration"]!["endDateTime"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public async Task AnAdminRemoveOfTheOnlyOwnerAssignment_AnsweredCannotDeleteLastAdminAssignment_IsPimLastOwnerAssignment()
+    {
+        var (host, ops, alice) = Setup();
+        var document = host.Resources(Active(Props(ops, alice, access: "owner")));
+        Check.Succeeded(await host.CreateAsync(document));
+        host.Fake.Failures.Add("POST", Requests, LastAdmin, times: -1);
+
+        var deletion = await host.DeleteDeclaredAsync(document);
+
+        Assert.False(deletion.Succeeded);
+        var outcome = Assert.Single(deletion.Outcomes);
+        Assert.Equal(EngineDiagnosticCodes.PimLastOwnerAssignment, outcome.ErrorCode);
+        Assert.Contains("adminRemove", outcome.Error, StringComparison.Ordinal);
+        Assert.Single(host.Directory.Objects(Schedules));
+    }
+
     [Fact]
     public async Task UndeclaredTimeBoundAssignmentsOfADeclaredTargetGroup_AreRetained_PermanentMembershipsAreNotListed()
     {

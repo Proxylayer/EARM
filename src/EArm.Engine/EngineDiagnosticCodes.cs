@@ -192,6 +192,13 @@ public static class EngineDiagnosticCodes
     /// </summary>
     public const string ActiveAssignmentTooNew = "ActiveAssignmentTooNew";
 
+    /// <summary>
+    /// Graph refused to change or remove a PIM for Groups owner assignment (adminUpdate or adminRemove) with 400 <c>CannotDeleteLastAdminAssignment</c>:
+    /// the principal is the group's only owner, and PIM replaces a schedule by removing it, which would leave the group without an owner. Add another
+    /// owner to the group first.
+    /// </summary>
+    public const string PimLastOwnerAssignment = "PimLastOwnerAssignment";
+
     /// <summary>A <c>roleManagementPolicies</c> declaration is invalid at plan time (unknown role or group, a computed value that breaks a rule, a rule id the live policy does not have).</summary>
     public const string RoleManagementPolicyInvalid = "RoleManagementPolicyInvalid";
 

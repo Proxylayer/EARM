@@ -290,6 +290,10 @@ public abstract class PimScheduleRequestsProvider<TTuple> : ProviderBase, IOrpha
         {
             throw new ProviderException(PimPolicyViolation, $"{TypeName} {key.Describe()}: the adminRemove request was refused by {PolicyOwner}: {ex.GraphMessage}");
         }
+        catch (GraphException ex) when (Refusal(ex, PimScheduleRequests.AdminRemove, $"{TypeName} {key.Describe()}", null) is { } refused)
+        {
+            throw refused;
+        }
         catch (GraphException ex) when (AccessDenied(ex, $"{TypeName} {key.Describe()}", null) is { } denied)
         {
             throw denied;
@@ -318,6 +322,19 @@ public abstract class PimScheduleRequestsProvider<TTuple> : ProviderBase, IOrpha
     /// <param name="subject">The resource or key the message names.</param>
     /// <param name="id">The resource, when known.</param>
     protected virtual ProviderException? AccessDenied(GraphException ex, string subject, ResourceIdentifier? id)
+    {
+        return null;
+    }
+
+    /// <summary>
+    /// A request refusal the type explains in its own terms (for example the last owner assignment of a group), as a <see cref="ProviderException"/>;
+    /// <c>null</c> (the default) lets the <see cref="GraphException"/> through.
+    /// </summary>
+    /// <param name="ex">Graph's answer.</param>
+    /// <param name="action">The request action (adminAssign, adminUpdate, adminRemove).</param>
+    /// <param name="subject">The resource or key the message names.</param>
+    /// <param name="id">The resource, when known.</param>
+    protected virtual ProviderException? Refusal(GraphException ex, string action, string subject, ResourceIdentifier? id)
     {
         return null;
     }
@@ -410,6 +427,10 @@ public abstract class PimScheduleRequestsProvider<TTuple> : ProviderBase, IOrpha
         catch (GraphException ex) when (PimScheduleRequests.IsPolicyViolation(ex))
         {
             throw new ProviderException(PimPolicyViolation, $"{desired.Describe()}: the {action} request was refused by {PolicyOwner}: {ex.GraphMessage}. {PolicyAdvice}", desired.Id);
+        }
+        catch (GraphException ex) when (Refusal(ex, action, desired.Describe(), desired.Id) is { } refused)
+        {
+            throw refused;
         }
         catch (GraphException ex) when (AccessDenied(ex, desired.Describe(), desired.Id) is { } denied)
         {

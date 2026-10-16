@@ -149,6 +149,18 @@ public static class PimScheduleRequests
                 || (ex.GraphMessage ?? string.Empty).Contains("duration is too short", StringComparison.OrdinalIgnoreCase));
     }
 
+    /// <summary>
+    /// True when Graph refused an adminUpdate or adminRemove because the schedule is the last owner assignment of a group (400
+    /// <c>CannotDeleteLastAdminAssignment</c>, "Cannot delete the last admin assignment."): PIM replaces a schedule by removing it.
+    /// </summary>
+    public static bool IsLastOwner(GraphException ex)
+    {
+        ArgumentNullException.ThrowIfNull(ex);
+        return ex.Status == System.Net.HttpStatusCode.BadRequest
+            && (string.Equals(ex.Code, "CannotDeleteLastAdminAssignment", StringComparison.OrdinalIgnoreCase)
+                || (ex.GraphMessage ?? string.Empty).Contains("last admin assignment", StringComparison.OrdinalIgnoreCase));
+    }
+
     /// <summary>True when Graph answered an adminAssign with "the eligibility already exists" (<c>RoleAssignmentExists</c>, or a 409).</summary>
     public static bool IsAlreadyExists(GraphException ex)
     {

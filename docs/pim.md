@@ -122,7 +122,9 @@ Graph behaviours EARM absorbs: the schedule list of a principal or group PIM has
 assignment list of a group PIM for Groups has not onboarded answers 404 `ResourceNotFound` or 403 `UnauthorizedAccessException` (both read as "not listed",
 see `PimPolicyNotAvailable`); an adminUpdate right after a schedule was replaced can answer `RoleAssignmentExists` while it settles (repeated with a bounded
 backoff, about 75 s, then an apply error); a declared `startDateTime` that is already past is left out of an adminUpdate (Graph starts the updated schedule
-now; a past start is never drift). The first PIM for Groups requests about a group (or principal) created seconds earlier answer 403
+now; a past start is never drift). PIM replaces a schedule by removing it, so it refuses the adminUpdate or adminRemove of a group's **only owner
+assignment** with 400 `CannotDeleteLastAdminAssignment`: EARM reports `PimLastOwnerAssignment` and the schedule stays as it was; give the group another
+owner first (a permanent owner, or a second owner assignment). The first PIM for Groups requests about a group (or principal) created seconds earlier answer 403
 `UnauthorizedAccessException` although the caller's role is active (accepted about 15 s later): an adminAssign request (always), and any request when a
 dependency was created in the same run, repeats that 403 on `/identityGovernance/privilegedAccess/group/*` on the replication schedule (every 5 s, up to
 90 s; each repeat is logged at information) before it reports `PimGroupAccessDenied`, whose message says whether the request was repeated.

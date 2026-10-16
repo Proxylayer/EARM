@@ -152,6 +152,25 @@ public abstract class GroupScheduleRequestsProvider : PimScheduleRequestsProvide
     }
 
     /// <summary>
+    /// An adminUpdate or adminRemove of the only owner assignment of a group, answered 400 <c>CannotDeleteLastAdminAssignment</c> (PIM replaces a schedule
+    /// by removing it, which would leave the group without an owner), is <see cref="EngineDiagnosticCodes.PimLastOwnerAssignment"/>.
+    /// </summary>
+    protected override ProviderException? Refusal(GraphException ex, string action, string subject, ResourceIdentifier? id)
+    {
+        ArgumentNullException.ThrowIfNull(ex);
+        if (action == PimScheduleRequests.AdminAssign || !PimScheduleRequests.IsLastOwner(ex))
+        {
+            return null;
+        }
+
+        string verb = action == PimScheduleRequests.AdminRemove ? "remove" : "change";
+        return new ProviderException(
+            EngineDiagnosticCodes.PimLastOwnerAssignment,
+            $"{subject}: PIM refuses to change or remove the only owner assignment of a group (the {action} request would {verb} it and leave the group without an owner); add another owner to the group first, then run again. {ex.Message}",
+            id);
+    }
+
+    /// <summary>
     /// An adminAssign always runs under <see cref="RetryHint.ExpectReplicationLag"/>: PIM for Groups answers 403 UnauthorizedAccessException for a group
     /// it does not know yet, also when the group was created by an earlier run moments ago, so the 403 is repeated on the replication schedule (bounded
     /// by the replication window, 90 s by default) before it becomes <see cref="EngineDiagnosticCodes.PimGroupAccessDenied"/>. An adminUpdate concerns a
