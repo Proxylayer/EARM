@@ -149,7 +149,9 @@ public sealed class AuthMethodScenarioTests : IntegrationTestBase
                     var tap = snapshots["temporaryAccessPass"];
                     var live = (Length: (int?)tap["defaultLength"] ?? 8, Min: (int?)tap["minimumLifetimeInMinutes"] ?? 60, Default: (int?)tap["defaultLifetimeInMinutes"] ?? 60, Max: (int?)tap["maximumLifetimeInMinutes"] ?? 480);
                     var lifetimes = new[] { (Min: 60, Default: 60, Max: 480), (Min: 15, Default: 30, Max: 120) }.First(c => c != (live.Min, live.Default, live.Max));
-                    (int Length, int Min, int Default, int Max) values = change ? (live.Length == 8 ? 9 : 8, lifetimes.Min, lifetimes.Default, lifetimes.Max) : live;
+                    // defaultLength is declared at its live value, never toggled: the real tenant accepted a PATCH of 8 -> 9 (204, within the documented
+                    // 8-48) but a GET still answered 8 more than 60 s later; the toggle relies on the lifetimes (within their documented bounds) instead.
+                    (int Length, int Min, int Default, int Max) values = change ? (live.Length, lifetimes.Min, lifetimes.Default, lifetimes.Max) : live;
                     properties["defaultLength"] = values.Length;
                     properties["minimumLifetimeInMinutes"] = values.Min;
                     properties["defaultLifetimeInMinutes"] = values.Default;
