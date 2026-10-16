@@ -49,6 +49,7 @@ public sealed class ReadYourWriteAfterCreateTests
                 "Microsoft.Entra/conditionalAccess/authenticationStrengths",
                 "Microsoft.Entra/conditionalAccess/namedLocations",
                 "Microsoft.Entra/conditionalAccess/policies",
+                "Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests",
                 "Microsoft.Entra/roleDefinitions",
                 "Microsoft.Entra/roleEligibilityScheduleRequests",
             ],

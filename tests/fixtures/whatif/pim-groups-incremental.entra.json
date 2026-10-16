@@ -1,0 +1,47 @@
+{
+  "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "variables": {
+    "ops": "44444444-0000-0000-0000-000000000100",
+    "alice": "44444444-0000-0000-0000-000000000001",
+    "admins": "44444444-0000-0000-0000-000000000010"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests",
+      "apiVersion": "2026-10-01-preview",
+      "name": "[guid(variables('ops'), variables('alice'), 'member')]",
+      "properties": {
+        "groupId": "[variables('ops')]",
+        "principalId": "[variables('alice')]",
+        "accessId": "Member",
+        "requestType": "AdminAssign",
+        "justification": "Quarterly review",
+        "scheduleInfo": { "expiration": { "type": "AfterDateTime", "endDateTime": "2030-01-01T00:00:00Z" } }
+      }
+    },
+    {
+      "type": "Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests",
+      "apiVersion": "2026-10-01-preview",
+      "name": "[guid(variables('ops'), variables('admins'), 'owner')]",
+      "properties": {
+        "groupId": "[variables('ops')]",
+        "principalId": "[variables('admins')]",
+        "accessId": "owner",
+        "scheduleInfo": { "expiration": { "type": "AfterDateTime", "endDateTime": "2029-06-30T00:00:00Z" } },
+        "ticketInfo": { "ticketNumber": "CHG0001234", "ticketSystem": "ServiceNow" }
+      }
+    },
+    {
+      "type": "Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests",
+      "apiVersion": "2026-10-01-preview",
+      "name": "[guid('pim-ops', variables('alice'), 'owner')]",
+      "properties": {
+        "group": "pim-ops",
+        "principalId": "[variables('alice')]",
+        "accessId": "owner",
+        "scheduleInfo": { "expiration": { "type": "AfterDuration", "duration": "P30D" } }
+      }
+    }
+  ]
+}

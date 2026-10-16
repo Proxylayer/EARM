@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/privilegedAccess.groupEligibilityScheduleRequests.json",
+  "title": "Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests",
+  "description": "A PIM for Groups eligibility: a user or group made eligible for the membership (accessId member) or ownership (accessId owner) of a group. The resource name is a deterministic GUID chosen with guid() (a label, not the identity); the eligibility is matched by (groupId, principalId, accessId) and read live on every run. Created with action adminAssign, changed in place with adminUpdate, removed with adminRemove; justification and ticketInfo are request metadata, sent on every request and never compared. The first request onboards the group in PIM for Groups permanently; dynamic membership and on-premises synced groups are refused.",
+  "type": "object",
+  "properties": {
+    "groupId": {
+      "description": "The target group's object id (for example [reference(resourceId('Microsoft.Entra/groups', 'ops-admins')).id]), or use group. Not both.",
+      "anyOf": [
+        { "type": "string", "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$" },
+        { "$ref": "#/$defs/expression" }
+      ]
+    },
+    "group": {
+      "description": "EARM sugar: the target group's uniqueName or object id; resolved to groupId. Not with groupId.",
+      "anyOf": [ { "type": "string", "minLength": 1 }, { "$ref": "#/$defs/expression" } ]
+    },
+    "principalId": {
+      "description": "Required: object id of the user or group made eligible.",
+      "anyOf": [
+        { "type": "string", "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$" },
+        { "$ref": "#/$defs/expression" }
+      ]
+    },
+    "accessId": {
+      "description": "Required: member (eligible membership) or owner (eligible ownership); any casing, sent in Graph's lowercase.",
+      "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+    },
+    "requestType": {
+      "description": "Optional and only AdminAssign (any casing); EARM chooses adminAssign / adminUpdate / adminRemove itself.",
+      "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+    },
+    "scheduleInfo": {
+      "description": "The eligibility period. Absent: permanent (expiration type NoExpiration), which a group's PIM policy may forbid.",
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "startDateTime": {
+              "description": "ISO 8601 start; absent or in the past means now (a past start is never drift).",
+              "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+            },
+            "expiration": {
+              "description": "When the eligibility ends.",
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "description": "NoExpiration, AfterDateTime (needs endDateTime) or AfterDuration (needs duration); any casing, sent in Graph's camelCase.",
+                      "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                    },
+                    "endDateTime": {
+                      "description": "AfterDateTime: the ISO 8601 end, after startDateTime. Compared with a 1 s tolerance.",
+                      "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                    },
+                    "duration": {
+                      "description": "AfterDuration: an ISO 8601 duration such as P365D or PT8H. Applied when the eligibility is created and never compared afterwards.",
+                      "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                    }
+                  }
+                },
+                { "$ref": "#/$defs/expression" }
+              ]
+            }
+          }
+        },
+        { "$ref": "#/$defs/expression" }
+      ]
+    },
+    "justification": {
+      "description": "Request metadata, sent on every request and never compared (default \"Deployed by earm\"); PIM policy may require it.",
+      "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+    },
+    "ticketInfo": {
+      "description": "Request metadata, sent on every request and never compared.",
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "ticketNumber": { "description": "Ticket number.", "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] },
+            "ticketSystem": { "description": "Ticket system.", "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] }
+          }
+        },
+        { "$ref": "#/$defs/expression" }
+      ]
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "expression": { "type": "string", "pattern": "^\\[.*\\]$", "description": "A template expression, for example [parameters('env')]." }
+  },
+  "x-earm": {
+    "type": "Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests",
+    "parentType": null,
+    "graphPath": "/identityGovernance/privilegedAccess/group/eligibilityScheduleRequests",
+    "apiVersions": { "2026-10-01-preview": "v1.0", "2026-10-01-preview.beta": "beta" },
+    "nameMapsTo": null,
+    "nameKind": "guid",
+    "namePattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+    "keyProperties": ["groupId", "principalId", "accessId"],
+    "requiredOnCreate": ["principalId"],
+    "defaults": {},
+    "immutable": [],
+    "createOnly": [],
+    "secure": [],
+    "relationships": [],
+    "memberKey": {},
+    "stripOnRead": ["id"],
+    "nullable": {},
+    "permissions": {
+      "application": ["PrivilegedEligibilitySchedule.ReadWrite.AzureADGroup", "Directory.Read.All"],
+      "delegated": ["PrivilegedEligibilitySchedule.ReadWrite.AzureADGroup", "Directory.Read.All"],
+      "roles": ["Privileged Role Administrator", "Identity Governance Administrator", "Groups Administrator"],
+      "notes": "Learn (privilegedaccessgroup-post-eligibilityschedulerequests, privilegedaccessgroup-list-eligibilityschedules): PrivilegedEligibilitySchedule.ReadWrite.AzureADGroup is the least privileged permission for the requests (delegated and application); reads need PrivilegedEligibilitySchedule.Read.AzureADGroup. Delegated callers need Privileged Role Administrator for a role-assignable group; for other groups Identity Governance Administrator, Groups Administrator, Directory Writer or User Administrator suffice (or the caller owns the group). Directory.Read.All covers the principal-kind check and the group uniqueName lookup. The first request onboards the group in PIM for Groups permanently. The tenant needs Microsoft Entra ID Governance (or P2)."
+    }
+  }
+}

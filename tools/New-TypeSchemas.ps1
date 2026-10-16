@@ -691,6 +691,32 @@ $specs['roleEligibilityScheduleRequests'] = [ordered]@{
     }
 }
 
+# --- privilegedAccess/groupEligibilityScheduleRequests (PIM for Groups eligibility) -------------------------------
+$specs['privilegedAccess.groupEligibilityScheduleRequests'] = [ordered]@{
+    NamePattern = $script:GuidPattern
+    Description = 'A PIM for Groups eligibility: a user or group made eligible for the membership (accessId member) or ownership (accessId owner) of a group. The resource name is a deterministic GUID chosen with guid() (a label, not the identity); the eligibility is matched by (groupId, principalId, accessId) and read live on every run. Created with action adminAssign, changed in place with adminUpdate, removed with adminRemove; justification and ticketInfo are request metadata, sent on every request and never compared. The first request onboards the group in PIM for Groups permanently; dynamic membership and on-premises synced groups are refused.'
+    Props       = [ordered]@{
+        groupId       = Guid 'The target group''s object id (for example [reference(resourceId(''Microsoft.Entra/groups'', ''ops-admins'')).id]), or use group. Not both.'
+        group         = Str 'EARM sugar: the target group''s uniqueName or object id; resolved to groupId. Not with groupId.' -Min 1
+        principalId   = Guid 'Required: object id of the user or group made eligible.'
+        accessId      = Str 'Required: member (eligible membership) or owner (eligible ownership); any casing, sent in Graph''s lowercase.'
+        requestType   = Str 'Optional and only AdminAssign (any casing); EARM chooses adminAssign / adminUpdate / adminRemove itself.'
+        scheduleInfo  = Obj -d 'The eligibility period. Absent: permanent (expiration type NoExpiration), which a group''s PIM policy may forbid.' -Props (Props ([ordered]@{
+            startDateTime = Str 'ISO 8601 start; absent or in the past means now (a past start is never drift).'
+            expiration    = Obj -d 'When the eligibility ends.' -Props (Props ([ordered]@{
+                type        = Str 'NoExpiration, AfterDateTime (needs endDateTime) or AfterDuration (needs duration); any casing, sent in Graph''s camelCase.'
+                endDateTime = Str 'AfterDateTime: the ISO 8601 end, after startDateTime. Compared with a 1 s tolerance.'
+                duration    = Str 'AfterDuration: an ISO 8601 duration such as P365D or PT8H. Applied when the eligibility is created and never compared afterwards.'
+            }))
+        }))
+        justification = Str 'Request metadata, sent on every request and never compared (default "Deployed by earm"); PIM policy may require it.'
+        ticketInfo    = Obj -d 'Request metadata, sent on every request and never compared.' -Props (Props ([ordered]@{
+            ticketNumber = Str 'Ticket number.'
+            ticketSystem = Str 'Ticket system.'
+        }))
+    }
+}
+
 # ---------------------------------------------------------------------------------------------------------------
 # Rewrite the files
 # ---------------------------------------------------------------------------------------------------------------

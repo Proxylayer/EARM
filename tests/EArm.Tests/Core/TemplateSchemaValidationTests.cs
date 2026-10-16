@@ -108,6 +108,10 @@ public sealed class TemplateSchemaValidationTests
         I(Pim, "roleEligibilityScheduleRequests", 0, ["roleDefinitionId"], "\"not-a-guid\"", "pattern"),
         I(Pim, "roleEligibilityScheduleRequests", 2, ["directoryScopeId"], "\"tenant\"", "pattern"),
         I(Pim, "roleEligibilityScheduleRequests", 1, ["scheduleInfo"], "[]", "type"),
+
+        // privilegedAccess/groupEligibilityScheduleRequests (PIM for Groups eligibility)
+        I(Pim, "privilegedAccess/groupEligibilityScheduleRequests", 0, ["principalId"], "\"not-a-guid\"", "pattern"),
+        I(Pim, "privilegedAccess/groupEligibilityScheduleRequests", 1, ["ticketInfo"], "\"CHG-1\"", "type"),
     ];
 
     public static TheoryData<int> InjectionIndexes()
@@ -222,7 +226,7 @@ public sealed class TemplateSchemaValidationTests
             Assert.Contains(definition.Type, covered);
         }
 
-        Assert.Equal(17, ResourceTypeCatalog.Default.Types.Count);
+        Assert.Equal(18, ResourceTypeCatalog.Default.Types.Count);
         foreach (string keyword in new[] { "enum", "pattern", "type", "required", "additionalProperties" })
         {
             Assert.Contains(Injections, i => i.Keyword == keyword);

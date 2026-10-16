@@ -152,7 +152,10 @@ public static class EngineDiagnosticCodes
     /// <summary>A <c>roleEligibilityScheduleRequests</c> declaration is invalid (unknown role, unit or principal, a group that is not role-assignable, a bad schedule).</summary>
     public const string RoleEligibilityInvalid = "RoleEligibilityInvalid";
 
-    /// <summary>Graph refused a PIM schedule request because a rule of the role's management policy failed (ExpirationRule, JustificationRule, TicketingRule...); the message carries Graph's text.</summary>
+    /// <summary>A <c>privilegedAccess/groupEligibilityScheduleRequests</c> declaration is invalid (unknown group or principal, a dynamic or on-premises synced group, a principal that is not a user or group).</summary>
+    public const string GroupEligibilityInvalid = "GroupEligibilityInvalid";
+
+    /// <summary>Graph refused a PIM schedule request because a rule of the role's (or group's) management policy failed (ExpirationRule, JustificationRule, TicketingRule...); the message carries Graph's text.</summary>
     public const string PimPolicyViolation = "PimPolicyViolation";
 
     /// <summary>A <c>roleDefinitions</c> declaration names a built-in role, which cannot be created, changed or deleted.</summary>

@@ -23,7 +23,7 @@ public sealed record OrphanReportResult(IReadOnlyList<ResourceChange> Rows, IRea
 /// resources; a candidate no declared resource matches is reported as an <see cref="ChangeType.Ignore"/> row marked <see cref="ResourceChange.Orphan"/>.
 /// <list type="bullet">
 /// <item>Complete mode lists every such type: small collections whole, children of the declared parents, assignments of the declared principals.</item>
-/// <item>Incremental mode lists only the assignments and grants of the declared principals (<see cref="OrphanReason.Retained"/>): an assignment whose tuple
+/// <item>Incremental mode lists only the assignments and grants of the declared principals and the eligibilities of the declared target groups (<see cref="OrphanReason.Retained"/>): an assignment whose tuple
 /// changed is created anew and the old one stays, still granting access, so the what-if says so.</item>
 /// </list>
 /// A type is not listed (with an <see cref="EngineDiagnosticCodes.OrphanReportIncomplete"/> note) when one of its declared resources is not resolved (a
@@ -71,7 +71,7 @@ internal sealed class OrphanReport
                 continue;
             }
 
-            if (!complete && source.OrphanScope != OrphanScope.DeclaredPrincipals)
+            if (!complete && !IsRetainedScope(source.OrphanScope))
             {
                 continue;
             }
@@ -113,7 +113,7 @@ internal sealed class OrphanReport
                 }
             }
 
-            var reason = source.OrphanScope == OrphanScope.DeclaredPrincipals ? OrphanReason.Retained : OrphanReason.Undeclared;
+            var reason = IsRetainedScope(source.OrphanScope) ? OrphanReason.Retained : OrphanReason.Undeclared;
             var reported = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var candidate in candidates.OrderBy(c => c.ParentName, StringComparer.Ordinal).ThenBy(c => c.Name, StringComparer.Ordinal).ThenBy(c => c.GraphId, StringComparer.Ordinal))
             {
@@ -166,6 +166,7 @@ internal sealed class OrphanReport
             }
 
             case OrphanScope.DeclaredPrincipals:
+            case OrphanScope.DeclaredTargetGroups:
             {
                 var keys = new List<ResourceKey>();
                 foreach (var instance in declared.Where(i => i.IsEvaluated))
@@ -183,6 +184,12 @@ internal sealed class OrphanReport
             default:
                 return new OrphanQuery { Api = api };
         }
+    }
+
+    /// <summary>The scopes whose candidates still grant access when undeclared: listed in both modes and reported as retained, never deleted.</summary>
+    private static bool IsRetainedScope(OrphanScope scope)
+    {
+        return scope is OrphanScope.DeclaredPrincipals or OrphanScope.DeclaredTargetGroups;
     }
 
     private static ResourceIdentifier IdentifierOf(string type, OrphanCandidate candidate)

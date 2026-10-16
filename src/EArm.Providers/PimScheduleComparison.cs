@@ -7,9 +7,9 @@ using EArm.Expressions.Values;
 namespace EArm.Providers;
 
 /// <summary>
-/// How a declared role eligibility is compared with its live schedule. <see cref="LiveView"/> reduces the schedule to what a template declares (the tuple,
-/// scope canonicalised, and <c>scheduleInfo</c> without Graph's nulls); <see cref="Align"/> then writes the declared value into that view wherever the two are
-/// equivalent under the PIM rules, so the shared <see cref="JsonDiff"/> reports only real drift:
+/// How a declared PIM schedule request (a directory role or a group eligibility) is compared with its live schedule. <see cref="ScheduleView"/> reduces the
+/// live <c>scheduleInfo</c> to what a template declares (without Graph's nulls; each type adds its identity tuple to the view); <see cref="Align"/> then
+/// writes the declared value into that view wherever the two are equivalent under the PIM rules, so the shared <see cref="JsonDiff"/> reports only real drift:
 /// <list type="bullet">
 /// <item>request metadata (<c>justification</c>, <c>ticketInfo</c>) is never compared;</item>
 /// <item>a declared <c>startDateTime</c> that is already past, or within the tolerance of the live one, is not drift (Graph starts a past schedule now);</item>
@@ -17,63 +17,43 @@ namespace EArm.Providers;
 /// compared again (Graph may report the schedule as AfterDateTime); NoExpiration has nothing else.</item>
 /// </list>
 /// </summary>
-public static class RoleEligibilityScheduleComparison
+public static class PimScheduleComparison
 {
-    /// <summary>The comparable view of a live schedule: principalId, roleDefinitionId, its scope and <c>scheduleInfo</c> (non-null members only).</summary>
-    public static JsonObject LiveView(JsonObject live)
+    /// <summary>The comparable view of a live schedule's <c>scheduleInfo</c> (non-null members only), or <c>null</c> when the schedule has none.</summary>
+    public static JsonObject? ScheduleView(JsonObject live)
     {
         ArgumentNullException.ThrowIfNull(live);
-        var view = new JsonObject();
-        if (JsonObjects.GetString(live, "principalId") is { } principalId)
+        if (!JsonObjects.TryGetIgnoreCase(live, "scheduleInfo", out var scheduleNode) || scheduleNode is not JsonObject schedule)
         {
-            view["principalId"] = RoleAssignmentsRules.NormalizeId(principalId);
+            return null;
         }
 
-        if (JsonObjects.GetString(live, "roleDefinitionId") is { } roleDefinitionId)
+        var info = new JsonObject();
+        if (JsonObjects.GetString(schedule, "startDateTime") is { } start)
         {
-            view["roleDefinitionId"] = RoleAssignmentsRules.NormalizeId(roleDefinitionId);
+            info["startDateTime"] = start;
         }
 
-        if (JsonObjects.GetString(live, "directoryScopeId") is { } directoryScope)
+        if (JsonObjects.TryGetIgnoreCase(schedule, "expiration", out var expirationNode) && expirationNode is JsonObject expiration)
         {
-            view["directoryScopeId"] = RoleAssignmentsRules.NormalizeScope(directoryScope);
-        }
-        else if (JsonObjects.GetString(live, "appScopeId") is { } appScope)
-        {
-            view["appScopeId"] = appScope;
-        }
-
-        if (JsonObjects.TryGetIgnoreCase(live, "scheduleInfo", out var scheduleNode) && scheduleNode is JsonObject schedule)
-        {
-            var info = new JsonObject();
-            if (JsonObjects.GetString(schedule, "startDateTime") is { } start)
+            var pattern = new JsonObject();
+            if (JsonObjects.GetString(expiration, "type") is { } type)
             {
-                info["startDateTime"] = start;
+                pattern["type"] = PimScheduleRules.NormalizeExpirationType(type) ?? type;
             }
 
-            if (JsonObjects.TryGetIgnoreCase(schedule, "expiration", out var expirationNode) && expirationNode is JsonObject expiration)
+            foreach (string member in new[] { "endDateTime", "duration" })
             {
-                var pattern = new JsonObject();
-                if (JsonObjects.GetString(expiration, "type") is { } type)
+                if (JsonObjects.GetString(expiration, member) is { } value)
                 {
-                    pattern["type"] = RoleEligibilityScheduleRules.NormalizeExpirationType(type) ?? type;
+                    pattern[member] = value;
                 }
-
-                foreach (string member in new[] { "endDateTime", "duration" })
-                {
-                    if (JsonObjects.GetString(expiration, member) is { } value)
-                    {
-                        pattern[member] = value;
-                    }
-                }
-
-                info["expiration"] = pattern;
             }
 
-            view["scheduleInfo"] = info;
+            info["expiration"] = pattern;
         }
 
-        return view;
+        return info;
     }
 
     /// <summary>
@@ -91,7 +71,7 @@ public static class RoleEligibilityScheduleComparison
         ArgumentNullException.ThrowIfNull(isOpaque);
         var aligned = (JsonObject)JsonValues.Clone(liveView)!;
 
-        foreach (string metadata in RoleEligibilityScheduleRules.MetadataProperties)
+        foreach (string metadata in PimScheduleRules.MetadataProperties)
         {
             if (JsonObjects.FindKey(desired, metadata) is { } key)
             {
@@ -121,8 +101,8 @@ public static class RoleEligibilityScheduleComparison
         if (JsonObjects.FindKey(declared, "startDateTime") is { } startKey && declared[startKey] is { } start)
         {
             string? liveStart = JsonObjects.GetString(live, "startDateTime");
-            bool equivalent = !isOpaque(start) && JsonValues.TryGetString(start, out var startText) && RoleEligibilityScheduleRules.TryParseDateTime(startText, out var declaredStart)
-                && (declaredStart <= now || (RoleEligibilityScheduleRules.TryParseDateTime(liveStart, out var liveStartValue) && (declaredStart - liveStartValue).Duration() <= tolerance));
+            bool equivalent = !isOpaque(start) && JsonValues.TryGetString(start, out var startText) && PimScheduleRules.TryParseDateTime(startText, out var declaredStart)
+                && (declaredStart <= now || (PimScheduleRules.TryParseDateTime(liveStart, out var liveStartValue) && (declaredStart - liveStartValue).Duration() <= tolerance));
             if (equivalent)
             {
                 result[startKey] = JsonValues.Clone(start);
@@ -144,11 +124,11 @@ public static class RoleEligibilityScheduleComparison
         if (expiration is not null && !isOpaque(expiration) && JsonObjects.FindKey(expiration, "type") is { } declaredTypeKey
             && expiration[declaredTypeKey] is { } typeNode && !isOpaque(typeNode) && JsonValues.TryGetString(typeNode, out var typeText))
         {
-            type = RoleEligibilityScheduleRules.NormalizeExpirationType(typeText);
+            type = PimScheduleRules.NormalizeExpirationType(typeText);
         }
 
-        string? liveType = RoleEligibilityScheduleRules.NormalizeExpirationType(JsonObjects.GetString(liveExpiration, "type"));
-        bool sameKind = type is not null && (type == liveType || (type == RoleEligibilityScheduleRules.AfterDuration && liveType == RoleEligibilityScheduleRules.AfterDateTime));
+        string? liveType = PimScheduleRules.NormalizeExpirationType(JsonObjects.GetString(liveExpiration, "type"));
+        bool sameKind = type is not null && (type == liveType || (type == PimScheduleRules.AfterDuration && liveType == PimScheduleRules.AfterDateTime));
         if (!sameKind)
         {
             // A different (or not yet known) expiration: the live one as it is, so the diff shows the change.
@@ -166,13 +146,13 @@ public static class RoleEligibilityScheduleComparison
         var pattern = new JsonObject { [typeKey] = type };
         switch (type)
         {
-            case RoleEligibilityScheduleRules.AfterDateTime:
+            case PimScheduleRules.AfterDateTime:
                 if (JsonObjects.FindKey(declaredExpiration, "endDateTime") is { } endKey && declaredExpiration[endKey] is { } end)
                 {
                     string? liveEnd = JsonObjects.GetString(liveExpiration, "endDateTime");
                     bool equal = !isOpaque(end) && JsonValues.TryGetString(end, out var endText)
-                        && RoleEligibilityScheduleRules.TryParseDateTime(endText, out var declaredEnd)
-                        && RoleEligibilityScheduleRules.TryParseDateTime(liveEnd, out var liveEndValue)
+                        && PimScheduleRules.TryParseDateTime(endText, out var declaredEnd)
+                        && PimScheduleRules.TryParseDateTime(liveEnd, out var liveEndValue)
                         && (declaredEnd - liveEndValue).Duration() <= tolerance;
                     if (equal)
                     {
@@ -185,7 +165,7 @@ public static class RoleEligibilityScheduleComparison
                 }
 
                 break;
-            case RoleEligibilityScheduleRules.AfterDuration:
+            case PimScheduleRules.AfterDuration:
                 // Create-time intent: whatever end Graph computed from the duration, the declared duration is what the eligibility was made with.
                 if (JsonObjects.FindKey(declaredExpiration, "duration") is { } durationKey)
                 {

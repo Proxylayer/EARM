@@ -2,7 +2,7 @@
   "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
   "contentVersion": "1.0.0.0",
   "metadata": {
-    "description": "PIM eligibility for directory roles, written like ARM's Microsoft.Authorization/roleEligibilityScheduleRequests: a role-assignable helpdesk group made permanently eligible for Helpdesk Administrator (an ARM snippet pasted as is), the same group eligible for User Administrator in one administrative unit until a fixed date, and an on-call engineer eligible for Security Reader for 180 days with a change ticket. Eligibilities are matched by (principalId, roleDefinitionId, scope); the guid() name is only a label. Needs Microsoft Entra ID P2 (or ID Governance) and a Privileged Role Administrator (or RoleEligibilitySchedule.ReadWrite.Directory); see docs/permissions.md."
+    "description": "PIM eligibility for directory roles, written like ARM's Microsoft.Authorization/roleEligibilityScheduleRequests: a role-assignable helpdesk group made permanently eligible for Helpdesk Administrator (an ARM snippet pasted as is), the same group eligible for User Administrator in one administrative unit until a fixed date, and an on-call engineer eligible for Security Reader for 180 days with a change ticket; plus PIM for Groups: the on-call engineer eligible for membership of an operations group for 90 days and the helpdesk group eligible for its ownership until a fixed date. Role eligibilities are matched by (principalId, roleDefinitionId, scope), group eligibilities by (groupId, principalId, accessId); the guid() name is only a label. The first group eligibility onboards the operations group in PIM for Groups (permanently). Needs Microsoft Entra ID P2 (or ID Governance) and a Privileged Role Administrator (or RoleEligibilitySchedule.ReadWrite.Directory and PrivilegedEligibilitySchedule.ReadWrite.AzureADGroup); see docs/permissions.md."
   },
   "parameters": {
     "onCallEngineerId":   { "type": "string", "metadata": { "description": "Object id of the on-call engineer (a user) made eligible for Security Reader." } },
@@ -10,12 +10,17 @@
     "changeTicket":       { "type": "string", "defaultValue": "CHG0001234", "metadata": { "description": "Change ticket recorded on the requests (metadata, never compared)." } }
   },
   "variables": {
-    "groupName": "pim-helpdesk-admins"
+    "groupName": "pim-helpdesk-admins",
+    "opsGroupName": "pim-ops-responders"
   },
   "resources": [
     {
       "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01-preview", "name": "[variables('groupName')]",
       "properties": { "displayName": "PIM Helpdesk Admins", "mailEnabled": false, "mailNickname": "pim-helpdesk-admins", "securityEnabled": true, "isAssignableToRole": true }
+    },
+    {
+      "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01-preview", "name": "[variables('opsGroupName')]",
+      "properties": { "displayName": "PIM Ops Responders", "mailEnabled": false, "mailNickname": "pim-ops-responders", "securityEnabled": true }
     },
     {
       "type": "Microsoft.Entra/administrativeUnits", "apiVersion": "2026-10-01-preview", "name": "EMEA Staff",
@@ -58,6 +63,33 @@
         "justification": "On-call rotation",
         "ticketInfo": { "ticketNumber": "[parameters('changeTicket')]", "ticketSystem": "ServiceNow" }
       }
+    },
+    {
+      "type": "Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests", "apiVersion": "2026-10-01-preview",
+      "name": "[guid(variables('opsGroupName'), parameters('onCallEngineerId'), 'member')]",
+      "properties": {
+        "groupId": "[reference(variables('opsGroupName')).id]",
+        "principalId": "[parameters('onCallEngineerId')]",
+        "accessId": "member",
+        "scheduleInfo": { "expiration": { "type": "AfterDuration", "duration": "P90D" } },
+        "justification": "On-call engineers activate ops membership through PIM"
+      },
+      "dependsOn": ["[resourceId('Microsoft.Entra/groups', variables('opsGroupName'))]"]
+    },
+    {
+      "type": "Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests", "apiVersion": "2026-10-01-preview",
+      "name": "[guid(variables('opsGroupName'), variables('groupName'), 'owner')]",
+      "properties": {
+        "groupId": "[reference(variables('opsGroupName')).id]",
+        "principalId": "[reference(variables('groupName')).id]",
+        "accessId": "Owner",
+        "scheduleInfo": { "expiration": { "type": "AfterDateTime", "endDateTime": "[parameters('unitEligibilityEnd')]" } },
+        "ticketInfo": { "ticketNumber": "[parameters('changeTicket')]", "ticketSystem": "ServiceNow" }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Entra/groups', variables('opsGroupName'))]",
+        "[resourceId('Microsoft.Entra/groups', variables('groupName'))]"
+      ]
     }
   ]
 }

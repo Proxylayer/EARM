@@ -1,0 +1,44 @@
+Deployment 'pim-groups-incremental' (Incremental) on tenant 11111111-1111-1111-1111-111111111111
+
+Resource and property changes are indicated with these symbols:
+  + Create
+  ~ Modify
+  - Delete
+  = NoChange
+  * Ignore
+  ? Value only known at deployment time
+  ! Change cannot be applied as planned
+
+The deployment would make the following changes:
+
+  + /providers/Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests/2e14526d-cd20-5077-91c3-77c3951bf9e5 [Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests]
+      name: "2e14526d-cd20-5077-91c3-77c3951bf9e5"
+      type: "Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests"
+      apiVersion: "2026-10-01-preview"
+      properties:
+        principalId: "44444444-0000-0000-0000-000000000001"
+        accessId: "owner"
+        scheduleInfo:
+          expiration:
+            type: "afterDuration"
+            duration: "P30D"
+        groupId: "44444444-0000-0000-0000-000000000100"
+        justification: "Deployed by earm"
+
+  ~ /providers/Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests/9fa1e932-5a10-58f3-a512-8eb1f695caba [Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests]
+      ~ properties.scheduleInfo:
+          ~ expiration:
+              ~ endDateTime: "2028-06-30T00:00:00Z" => "2029-06-30T00:00:00Z"
+      (the eligibility is changed in place with a PIM adminUpdate request)
+
+  = /providers/Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests/bb5b151e-8de0-507d-9097-d794b1960a78 [Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests]
+
+  * /providers/Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests/44444444-0000-0000-0000-000000000100_member_55555555-0000-0000-0000-000000000003 [Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests] (orphan: retained)
+      (retained: no longer declared; still grants access (eligible member: groupId '44444444-0000-0000-0000-000000000100', principalId '44444444-0000-0000-0000-000000000002', accessId 'member'). Assignments are never removed: delete it yourself if the access should end.)
+
+Resource changes: 1 to create, 1 to modify, 0 to delete, 1 unchanged, 0 ignored.
+Edges: 0 to add, 0 to remove.
+Orphans: 1 live object(s) not declared in the template (reported only; never deleted).
+Required permissions: Directory.Read.All, PrivilegedEligibilitySchedule.ReadWrite.AzureADGroup.
+
+warning AssignmentRetained: '/providers/Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests/44444444-0000-0000-0000-000000000100_member_55555555-0000-0000-0000-000000000003' (Graph id 44444444-0000-0000-0000-000000000100_member_55555555-0000-0000-0000-000000000003) is not declared by the template but still grants access (eligible member: groupId '44444444-0000-0000-0000-000000000100', principalId '44444444-0000-0000-0000-000000000002', accessId 'member'); EARM never removes it. Delete it yourself if the access should end.

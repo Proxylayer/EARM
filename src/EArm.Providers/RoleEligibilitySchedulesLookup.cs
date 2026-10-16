@@ -2,11 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json.Nodes;
-using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using EArm.Engine.Providers;
-using EArm.Expressions.Values;
 using EArm.Graph;
 using GraphApi = EArm.Graph.GraphApi;
 
@@ -21,9 +19,8 @@ public sealed record EligibilityTuple(string PrincipalId, string RoleDefinitionI
 
 /// <summary>
 /// The Graph side of PIM eligibility for directory roles, shared by <see cref="RoleEligibilityScheduleRequestsProvider"/>: the eligibility schedules of
-/// a principal (<c>GET /roleManagement/directory/roleEligibilitySchedules?$filter=…</c>, every page, kept to <c>memberType</c> Direct and matched
-/// client-side), the request body of <c>POST /roleManagement/directory/roleEligibilityScheduleRequests</c>, and the classification of PIM errors
-/// (an existing eligibility, a policy rule that failed, an eligibility that is already gone). Never cached.
+/// a principal (<c>GET /roleManagement/directory/roleEligibilitySchedules?$filter=…</c>, through <see cref="PimScheduleRequests.ListSchedulesAsync"/>,
+/// matched client-side), the request body of <c>POST /roleManagement/directory/roleEligibilityScheduleRequests</c> and the comparable live view. Never cached.
 /// </summary>
 public static class RoleEligibilitySchedulesLookup
 {
@@ -33,25 +30,6 @@ public static class RoleEligibilitySchedulesLookup
     /// <summary>The Graph collection every write goes through.</summary>
     public const string RequestsPath = "/roleManagement/directory/roleEligibilityScheduleRequests";
 
-    public const string AdminAssign = "adminAssign";
-
-    public const string AdminUpdate = "adminUpdate";
-
-    public const string AdminRemove = "adminRemove";
-
-    /// <summary>Request states that mean the request did not take effect.</summary>
-    private static readonly string[] FailedStatuses = ["Failed", "Denied", "Canceled", "Revoked", "FailedAsResourceIsLocked"];
-
-    private static readonly Regex PolicyViolationPattern = new(
-        "PolicyValidationFailed|policy rules? failed|(Expiration|Justification|Ticketing|Mfa|Approval|Enablement)Rule",
-        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
-        TimeSpan.FromSeconds(1));
-
-    private static readonly Regex GonePattern = new(
-        "RoleAssignmentDoesNotExist|RoleEligibilityScheduleNotFound|does not exist|not found",
-        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
-        TimeSpan.FromSeconds(1));
-
     /// <summary>
     /// The Direct eligibility schedules of a principal: <c>GET …/roleEligibilitySchedules?$filter=principalId eq '{id}'</c> (every page). Inherited
     /// schedules (<c>memberType</c> Group) and revoked or failed ones are left out.
@@ -59,7 +37,7 @@ public static class RoleEligibilitySchedulesLookup
     public static Task<IReadOnlyList<JsonObject>> ReadPrincipalSchedulesAsync(IGraphClient graph, string principalId, GraphApi api, RetryHint hint, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(principalId);
-        return ListAsync(graph, "principalId eq '" + Quote(RoleAssignmentsRules.NormalizeId(principalId)) + "'", principalId, api, hint, cancellationToken);
+        return ListAsync(graph, "principalId eq '" + PimScheduleRequests.Quote(RoleAssignmentsRules.NormalizeId(principalId)) + "'", principalId, api, hint, cancellationToken);
     }
 
     /// <summary>
@@ -69,37 +47,16 @@ public static class RoleEligibilitySchedulesLookup
     public static async Task<JsonObject?> FindAsync(IGraphClient graph, EligibilityTuple tuple, GraphApi api, RetryHint hint, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(tuple);
-        string filter = "principalId eq '" + Quote(RoleAssignmentsRules.NormalizeId(tuple.PrincipalId))
-            + "' and roleDefinitionId eq '" + Quote(RoleAssignmentsRules.NormalizeId(tuple.RoleDefinitionId))
-            + "' and " + tuple.ScopeProperty + " eq '" + Quote(CanonicalScope(tuple)) + "'";
+        string filter = "principalId eq '" + PimScheduleRequests.Quote(RoleAssignmentsRules.NormalizeId(tuple.PrincipalId))
+            + "' and roleDefinitionId eq '" + PimScheduleRequests.Quote(RoleAssignmentsRules.NormalizeId(tuple.RoleDefinitionId))
+            + "' and " + tuple.ScopeProperty + " eq '" + PimScheduleRequests.Quote(CanonicalScope(tuple)) + "'";
         var schedules = await ListAsync(graph, filter, tuple.PrincipalId, api, hint, cancellationToken).ConfigureAwait(false);
         return schedules.FirstOrDefault(s => Matches(s, tuple));
     }
 
-    private static async Task<IReadOnlyList<JsonObject>> ListAsync(IGraphClient graph, string filter, string principalId, GraphApi api, RetryHint hint, CancellationToken cancellationToken)
+    private static Task<IReadOnlyList<JsonObject>> ListAsync(IGraphClient graph, string filter, string principalId, GraphApi api, RetryHint hint, CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(graph);
-        var request = new GraphRequest(SchedulesPath, api, hint: hint).WithFilter(filter);
-        var items = new List<JsonObject>();
-        await foreach (var item in graph.GetAllPagesAsync(request, cancellationToken).ConfigureAwait(false))
-        {
-            if (item is JsonObject schedule && JsonObjects.KeyEquals(JsonObjects.GetString(schedule, "principalId"), principalId) && IsDirectAndActive(schedule))
-            {
-                items.Add(schedule);
-            }
-        }
-
-        return items;
-    }
-
-    /// <summary>True for a schedule assigned to the principal itself (<c>memberType</c> Direct or absent) that is not revoked or failed.</summary>
-    public static bool IsDirectAndActive(JsonObject schedule)
-    {
-        ArgumentNullException.ThrowIfNull(schedule);
-        string? memberType = JsonObjects.GetString(schedule, "memberType");
-        string? status = JsonObjects.GetString(schedule, "status");
-        return (memberType is null || memberType.Equals("Direct", StringComparison.OrdinalIgnoreCase))
-            && (status is null || !FailedStatuses.Contains(status, StringComparer.OrdinalIgnoreCase));
+        return PimScheduleRequests.ListSchedulesAsync(graph, SchedulesPath, filter, s => JsonObjects.KeyEquals(JsonObjects.GetString(s, "principalId"), principalId), api, hint, cancellationToken);
     }
 
     /// <summary>True when a live schedule (or request) carries the tuple's role and scope.</summary>
@@ -134,6 +91,18 @@ public static class RoleEligibilitySchedulesLookup
             : JsonObjects.GetString(schedule, "appScopeId") is { } appScope ? new EligibilityTuple(principalId, roleDefinitionId, appScope, IsAppScope: true) : null;
     }
 
+    /// <summary>The tuple as the request body, the applied extras and the live view carry it (ids normalised, scope canonicalised).</summary>
+    public static JsonObject TupleObject(EligibilityTuple tuple)
+    {
+        ArgumentNullException.ThrowIfNull(tuple);
+        return new JsonObject
+        {
+            ["principalId"] = RoleAssignmentsRules.NormalizeId(tuple.PrincipalId),
+            ["roleDefinitionId"] = RoleAssignmentsRules.NormalizeId(tuple.RoleDefinitionId),
+            [tuple.ScopeProperty] = CanonicalScope(tuple),
+        };
+    }
+
     /// <summary>
     /// The body of <c>POST …/roleEligibilityScheduleRequests</c>: the action, the tuple and, for adminAssign / adminUpdate, the schedule; justification and
     /// ticketInfo when given (request metadata).
@@ -142,53 +111,45 @@ public static class RoleEligibilitySchedulesLookup
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(action);
         ArgumentNullException.ThrowIfNull(tuple);
-        var body = new JsonObject
+        var body = new JsonObject { ["action"] = action };
+        foreach (var pair in TupleObject(tuple).ToList())
         {
-            ["action"] = action,
-            ["principalId"] = RoleAssignmentsRules.NormalizeId(tuple.PrincipalId),
-            ["roleDefinitionId"] = RoleAssignmentsRules.NormalizeId(tuple.RoleDefinitionId),
-            [tuple.ScopeProperty] = CanonicalScope(tuple),
-        };
-
-        if (!JsonObjects.IsAbsent(justification))
-        {
-            body["justification"] = JsonValues.Clone(justification);
+            body[pair.Key] = pair.Value?.DeepClone();
         }
 
-        if (scheduleInfo is JsonObject)
+        return PimScheduleRequests.WithScheduleAndMetadata(body, scheduleInfo, justification, ticketInfo);
+    }
+
+    /// <summary>The comparable view of a live schedule: principalId, roleDefinitionId, its scope (canonicalised) and <c>scheduleInfo</c> (non-null members only).</summary>
+    public static JsonObject LiveView(JsonObject live)
+    {
+        ArgumentNullException.ThrowIfNull(live);
+        var view = new JsonObject();
+        if (JsonObjects.GetString(live, "principalId") is { } principalId)
         {
-            body["scheduleInfo"] = JsonValues.Clone(scheduleInfo);
+            view["principalId"] = RoleAssignmentsRules.NormalizeId(principalId);
         }
 
-        if (ticketInfo is JsonObject)
+        if (JsonObjects.GetString(live, "roleDefinitionId") is { } roleDefinitionId)
         {
-            body["ticketInfo"] = JsonValues.Clone(ticketInfo);
+            view["roleDefinitionId"] = RoleAssignmentsRules.NormalizeId(roleDefinitionId);
         }
 
-        return body;
-    }
+        if (JsonObjects.GetString(live, "directoryScopeId") is { } directoryScope)
+        {
+            view["directoryScopeId"] = RoleAssignmentsRules.NormalizeScope(directoryScope);
+        }
+        else if (JsonObjects.GetString(live, "appScopeId") is { } appScope)
+        {
+            view["appScopeId"] = appScope;
+        }
 
-    /// <summary>True when Graph refused a request because a rule of the role's PIM policy failed (Graph's <c>RoleAssignmentRequestPolicyValidationFailed</c>).</summary>
-    public static bool IsPolicyViolation(GraphException ex)
-    {
-        ArgumentNullException.ThrowIfNull(ex);
-        return ex.Status == System.Net.HttpStatusCode.BadRequest
-            && (PolicyViolationPattern.IsMatch(ex.Code ?? string.Empty) || PolicyViolationPattern.IsMatch(ex.GraphMessage ?? string.Empty));
-    }
+        if (PimScheduleComparison.ScheduleView(live) is { } schedule)
+        {
+            view["scheduleInfo"] = schedule;
+        }
 
-    /// <summary>True when Graph answered an adminRemove with "the eligibility does not exist": nothing is left to remove.</summary>
-    public static bool IsAlreadyGone(GraphException ex)
-    {
-        ArgumentNullException.ThrowIfNull(ex);
-        return ex.IsNotFound
-            || (ex.Status == System.Net.HttpStatusCode.BadRequest && (GonePattern.IsMatch(ex.Code ?? string.Empty) || GonePattern.IsMatch(ex.GraphMessage ?? string.Empty)));
-    }
-
-    /// <summary>True when a request response says the request failed (status Failed, Denied, Canceled...).</summary>
-    public static bool HasFailedStatus(JsonObject? request, out string status)
-    {
-        status = JsonObjects.GetString(request, "status") ?? string.Empty;
-        return status.Length > 0 && FailedStatuses.Contains(status, StringComparer.OrdinalIgnoreCase);
+        return view;
     }
 
     /// <summary>The canonical form of the tuple's scope (directory scopes canonicalised, app scopes trimmed).</summary>
@@ -196,10 +157,5 @@ public static class RoleEligibilitySchedulesLookup
     {
         ArgumentNullException.ThrowIfNull(tuple);
         return tuple.IsAppScope ? tuple.Scope.Trim() : RoleAssignmentsRules.NormalizeScope(tuple.Scope);
-    }
-
-    private static string Quote(string value)
-    {
-        return value.Replace("'", "''", StringComparison.Ordinal);
     }
 }

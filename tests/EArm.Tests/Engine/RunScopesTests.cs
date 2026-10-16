@@ -66,6 +66,21 @@ public sealed class RunScopesTests
         Assert.Contains(create.Scopes.Single(s => s.Name == "RoleEligibilitySchedule.ReadWrite.Directory").Resources, r => r.StartsWith("/providers/Microsoft.Entra/roleEligibilityScheduleRequests/", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public async Task PimGroupEligibility_WritesWithPrivilegedEligibilityScheduleReadWrite_AndWhatIfReadsWithItsReadVariant()
+    {
+        var create = await ComputeAsync("pim-eligibility.entra.json", "pim-eligibility.parameters.json", RunVerb.Create);
+        var whatIf = await ComputeAsync("pim-eligibility.entra.json", "pim-eligibility.parameters.json", RunVerb.WhatIf);
+        var delete = await ComputeAsync("pim-eligibility.entra.json", "pim-eligibility.parameters.json", RunVerb.Delete);
+
+        Assert.Contains("PrivilegedEligibilitySchedule.ReadWrite.AzureADGroup", create.GraphScopes);
+        Assert.DoesNotContain("PrivilegedEligibilitySchedule.Read.AzureADGroup", create.GraphScopes);
+        Assert.Contains("PrivilegedEligibilitySchedule.Read.AzureADGroup", whatIf.GraphScopes);
+        Assert.DoesNotContain("PrivilegedEligibilitySchedule.ReadWrite.AzureADGroup", whatIf.GraphScopes);
+        Assert.Contains("PrivilegedEligibilitySchedule.ReadWrite.AzureADGroup", delete.GraphScopes);
+        Assert.Contains(create.Scopes.Single(s => s.Name == "PrivilegedEligibilitySchedule.ReadWrite.AzureADGroup").Resources, r => r.StartsWith("/providers/Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests/", StringComparison.Ordinal));
+    }
+
     // ---- authentication methods policy ----
 
     [Fact]

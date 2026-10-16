@@ -1,20 +1,27 @@
-Permissions required by samples/pim-eligibility.entra.json (mode: app, 5 resource(s))
+Permissions required by samples/pim-eligibility.entra.json (mode: app, 8 resource(s))
 
 Microsoft Graph application permissions
   AdministrativeUnit.ReadWrite.All
       /providers/Microsoft.Entra/administrativeUnits/EMEA Staff
       (provider)
   Directory.Read.All
+      /providers/Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests/7d7474c0-655e-53aa-85cb-eb67721a9fcf
+      /providers/Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests/c55f993b-9e7c-5cfd-93ce-a8de3f2b75c6
       /providers/Microsoft.Entra/roleEligibilityScheduleRequests/2d6d319f-e90c-52c1-8774-69afcd88a442
       /providers/Microsoft.Entra/roleEligibilityScheduleRequests/430f359a-c3de-55e6-9a65-5d151de28187
       /providers/Microsoft.Entra/roleEligibilityScheduleRequests/e605f354-f46a-5598-a195-604d76129450
       (provider)
   Group.ReadWrite.All
       /providers/Microsoft.Entra/groups/pim-helpdesk-admins
+      /providers/Microsoft.Entra/groups/pim-ops-responders
       (provider)
   Organization.Read.All
       (every deployment)
       (preflight: GET /organization)
+  PrivilegedEligibilitySchedule.ReadWrite.AzureADGroup
+      /providers/Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests/7d7474c0-655e-53aa-85cb-eb67721a9fcf
+      /providers/Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests/c55f993b-9e7c-5cfd-93ce-a8de3f2b75c6
+      (provider)
   RoleEligibilitySchedule.ReadWrite.Directory
       /providers/Microsoft.Entra/roleEligibilityScheduleRequests/2d6d319f-e90c-52c1-8774-69afcd88a442
       /providers/Microsoft.Entra/roleEligibilityScheduleRequests/430f359a-c3de-55e6-9a65-5d151de28187

@@ -493,7 +493,7 @@ live on every run. The pure rules (property set, exclusive pairs, schedule rules
 | Update | `POST` with `action: adminUpdate` and the full request (in place; never a recreate), then a read-back |
 | Delete | `POST` with `action: adminRemove` (tuple + the default justification); an eligibility that is already gone (`RoleAssignmentDoesNotExist`, 404) is not an error |
 
-Comparison: the live schedule is reduced to the tuple and `scheduleInfo` (`RoleEligibilityScheduleComparison`), and equivalent values are aligned before
+Comparison: the live schedule is reduced to the tuple and `scheduleInfo` (`RoleEligibilitySchedulesLookup.LiveView`, `PimScheduleComparison`), and equivalent values are aligned before
 the shared diff, so only real drift is a `Modify`:
 
 - the expiration `type` must match; AfterDateTime compares `endDateTime` within **1 s**;
@@ -507,6 +507,43 @@ A changed tuple is a **new** eligibility: the template's declaration is created 
 `AssignmentRetained` warning (orphan scope: the Direct eligibilities of the declared principals, `OrphanScope.DeclaredPrincipals`), never removed by a
 deploy. A request refused by the role's PIM policy (`RoleAssignmentRequestPolicyValidationFailed`: an `ExpirationRule` that forbids permanent
 eligibility, a `JustificationRule`, ...) fails the resource with `PimPolicyViolation` and Graph's text. Needs Microsoft Entra ID P2 (or ID Governance).
+
+The lifecycle (plan, adminAssign / adminUpdate / adminRemove, the read-back, `RoleAssignmentExists` adoption, `PimPolicyViolation`) is shared with
+PIM for Groups through the base class `PimScheduleRequestsProvider<TTuple>`; the schedule rules are `PimScheduleRules` (Core), the comparison
+`PimScheduleComparison` and the Graph helpers `PimScheduleRequests`. A type supplies its tuple, its lookups, its Prepare and its orphan listing.
+
+### Worked example: PIM for Groups eligibility
+
+`Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests` (`GroupEligibilityScheduleRequestsProvider`): a user or a group made eligible
+for the **membership** (`accessId: member`) or the **ownership** (`accessId: owner`) of a group through PIM for Groups. There is no ARM analogue: the
+type is namespaced like `conditionalAccess/*` (a top-level type, `parentType` null), the properties follow Graph's
+`privilegedAccessGroupEligibilityScheduleRequest`, and the schedule / metadata rules are those of `roleEligibilityScheduleRequests`. The `name` is a
+`guid(...)` label; the eligibility is found by (`groupId`, `principalId`, `accessId`). The pure rules are `GroupEligibilityScheduleRules`.
+
+| Property | Meaning |
+|---|---|
+| `groupId` / `group` | Exactly one: the target group's object id (for a group of the same template, `[reference(resourceId('Microsoft.Entra/groups', 'ops')).id]`), or the EARM sugar `group` (its uniqueName or object id, looked up in Prepare: the group must already exist) |
+| `principalId` | Required: a user or a group (a group can be an eligible member of another group); service principals and other objects are refused (`GroupEligibilityInvalid`) |
+| `accessId` | Required: `member` or `owner` (any casing, sent in Graph's lowercase) |
+| `requestType`, `scheduleInfo`, `justification`, `ticketInfo` | As for `roleEligibilityScheduleRequests`; `scheduleInfo` absent = NoExpiration |
+
+| Operation | Requests |
+|---|---|
+| Prepare | `GET /groups/{id}` (or `GET /groups(uniqueName='…')` for `group`) `?$select=id,uniqueName,displayName,groupTypes,onPremisesSyncEnabled`: a group with `groupTypes` containing `DynamicMembership` or with `onPremisesSyncEnabled: true` is refused (PIM for Groups governs neither); then `GET /directoryObjects/{principalId}` (users and groups only, never the target group itself) |
+| Read | `GET /identityGovernance/privilegedAccess/group/eligibilitySchedules?$filter=groupId eq '…' and principalId eq '…'` (Graph requires a `groupId` or `principalId` filter), every page, matched client-side on `accessId` and kept to `memberType` Direct and to schedules that are not revoked or failed |
+| Create | `POST /identityGovernance/privilegedAccess/group/eligibilityScheduleRequests { action: adminAssign, accessId, groupId, principalId, scheduleInfo, justification, ticketInfo }` (`scheduleInfo` is required by Graph and always sent), then the shared read-back. The **first request for a group onboards it in PIM for Groups, permanently** (it cannot be offboarded; its PIM policies then exist) |
+| Update | `POST` with `action: adminUpdate` |
+| Delete | `POST` with `action: adminRemove`, carrying the live schedule as `scheduleInfo`; an eligibility that is already gone is not an error |
+
+Comparison and retained eligibilities follow the directory-role type (`PimScheduleComparison`). The orphan scope is new: the Direct eligibilities of
+the **declared target groups** (`OrphanScope.DeclaredTargetGroups`; `GET …/eligibilitySchedules?$filter=groupId eq '…'` per declared group), so an
+undeclared eligibility of a group the template manages (including the old tuple after a principal or `accessId` change) is reported as
+`orphan: retained` in both modes, never removed. Eligibility never touches the group's members or owners, so it does not conflict with a pruning
+`members` / `owners` list on the same group.
+
+A group's default PIM policy often forbids permanent eligibility (the `Expiration_Admin_Eligibility` rule). Graph then refuses a NoExpiration request
+and the resource fails with `PimPolicyViolation`, whose message points at an AfterDateTime / AfterDuration expiration or at changing the group's PIM
+policy (`roleManagementPolicies`, a later phase). Needs Microsoft Entra ID Governance (or P2).
 
 ## Adding an edge kind
 

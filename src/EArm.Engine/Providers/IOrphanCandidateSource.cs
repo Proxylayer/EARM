@@ -18,6 +18,9 @@ public enum OrphanScope
 
     /// <summary>The assignments and grants of the principals (clients) the declared resources of the type name: role and app role assignments, OAuth2 permission grants. Reported as retained, in both modes.</summary>
     DeclaredPrincipals,
+
+    /// <summary>The eligibilities of the target groups the declared resources of the type name (<c>groupId</c>): PIM for Groups eligibilities. Reported as retained, in both modes, like <see cref="DeclaredPrincipals"/>.</summary>
+    DeclaredTargetGroups,
 }
 
 /// <summary>
@@ -44,7 +47,7 @@ public sealed record OrphanQuery
     /// <summary><see cref="OrphanScope.ChildrenOfDeclaredParents"/>: the declared parents that exist (their live objects).</summary>
     public IReadOnlyList<OrphanParent> Parents { get; init; } = [];
 
-    /// <summary><see cref="OrphanScope.DeclaredPrincipals"/>: the resolved keys of the declared resources of the type (the principals / clients come from them).</summary>
+    /// <summary><see cref="OrphanScope.DeclaredPrincipals"/> and <see cref="OrphanScope.DeclaredTargetGroups"/>: the resolved keys of the declared resources of the type (the principals / clients / target groups come from them).</summary>
     public IReadOnlyList<ResourceKey> DeclaredKeys { get; init; } = [];
 }
 

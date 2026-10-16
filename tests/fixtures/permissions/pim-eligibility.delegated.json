@@ -1,7 +1,7 @@
 {
   "template": "samples/pim-eligibility.entra.json",
   "mode": "delegated",
-  "resourceCount": 5,
+  "resourceCount": 8,
   "permissions": [
     {
       "name": "AdministrativeUnit.ReadWrite.All",
@@ -17,6 +17,8 @@
       "name": "Directory.Read.All",
       "kind": "graphDelegated",
       "resources": [
+        "/providers/Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests/7d7474c0-655e-53aa-85cb-eb67721a9fcf",
+        "/providers/Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests/c55f993b-9e7c-5cfd-93ce-a8de3f2b75c6",
         "/providers/Microsoft.Entra/roleEligibilityScheduleRequests/2d6d319f-e90c-52c1-8774-69afcd88a442",
         "/providers/Microsoft.Entra/roleEligibilityScheduleRequests/430f359a-c3de-55e6-9a65-5d151de28187",
         "/providers/Microsoft.Entra/roleEligibilityScheduleRequests/e605f354-f46a-5598-a195-604d76129450"
@@ -29,7 +31,19 @@
       "name": "Group.ReadWrite.All",
       "kind": "graphDelegated",
       "resources": [
-        "/providers/Microsoft.Entra/groups/pim-helpdesk-admins"
+        "/providers/Microsoft.Entra/groups/pim-helpdesk-admins",
+        "/providers/Microsoft.Entra/groups/pim-ops-responders"
+      ],
+      "reasons": [
+        "provider"
+      ]
+    },
+    {
+      "name": "PrivilegedEligibilitySchedule.ReadWrite.AzureADGroup",
+      "kind": "graphDelegated",
+      "resources": [
+        "/providers/Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests/7d7474c0-655e-53aa-85cb-eb67721a9fcf",
+        "/providers/Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests/c55f993b-9e7c-5cfd-93ce-a8de3f2b75c6"
       ],
       "reasons": [
         "provider"
@@ -64,7 +78,22 @@
         "Groups Administrator"
       ],
       "resources": [
-        "/providers/Microsoft.Entra/groups/pim-helpdesk-admins"
+        "/providers/Microsoft.Entra/groups/pim-helpdesk-admins",
+        "/providers/Microsoft.Entra/groups/pim-ops-responders"
+      ],
+      "reasons": [
+        "provider"
+      ]
+    },
+    {
+      "anyOf": [
+        "Groups Administrator",
+        "Identity Governance Administrator",
+        "Privileged Role Administrator"
+      ],
+      "resources": [
+        "/providers/Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests/7d7474c0-655e-53aa-85cb-eb67721a9fcf",
+        "/providers/Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests/c55f993b-9e7c-5cfd-93ce-a8de3f2b75c6"
       ],
       "reasons": [
         "provider"

@@ -56,7 +56,8 @@ public sealed class TemplateValidator : ITemplateValidator
         new FederatedCredentialChecker(document, diagnostics).Run();
         new ConditionalAccessPolicyChecker(document, diagnostics).Run();
         new AuthenticationMethodConfigurationChecker(document, diagnostics).Run();
-        new RoleEligibilityScheduleRequestChecker(document, diagnostics).Run();
+        new PimScheduleRequestChecker(document, diagnostics, RoleEligibilityScheduleRules.ResourceType, DiagnosticCodes.InvalidRoleEligibilityScheduleRequest, RoleEligibilityScheduleRules.Check).Run();
+        new PimScheduleRequestChecker(document, diagnostics, GroupEligibilityScheduleRules.ResourceType, DiagnosticCodes.InvalidGroupEligibilityScheduleRequest, GroupEligibilityScheduleRules.Check).Run();
 
         var semanticPaths = new HashSet<(string? Source, JsonPath Path)>();
         foreach (var diagnostic in diagnostics)

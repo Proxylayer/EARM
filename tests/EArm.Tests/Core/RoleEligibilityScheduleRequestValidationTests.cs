@@ -150,7 +150,7 @@ public sealed class RoleEligibilityScheduleRequestValidationTests
     [InlineData("Permanent", null)]
     public void NormalizeExpirationType_GivesGraphsCamelCase(string declared, string? expected)
     {
-        Assert.Equal(expected, RoleEligibilityScheduleRules.NormalizeExpirationType(declared));
+        Assert.Equal(expected, PimScheduleRules.NormalizeExpirationType(declared));
     }
 
     [Theory]
@@ -162,7 +162,7 @@ public sealed class RoleEligibilityScheduleRequestValidationTests
     [InlineData("8 hours", false)]
     public void TryParseDuration_AcceptsPositiveIso8601Durations(string text, bool valid)
     {
-        Assert.Equal(valid, RoleEligibilityScheduleRules.TryParseDuration(text, out _));
+        Assert.Equal(valid, PimScheduleRules.TryParseDuration(text, out _));
     }
 
     [Fact]
@@ -170,7 +170,7 @@ public sealed class RoleEligibilityScheduleRequestValidationTests
     {
         var properties = JsonNode.Parse("{ \"requestType\": \"AdminAssign\", \"scheduleInfo\": { \"expiration\": { \"type\": \"AfterDuration\", \"duration\": \"P1D\" } } }")!.AsObject();
 
-        RoleEligibilityScheduleRules.Normalize(properties, TemplateJson.IsExpression);
+        PimScheduleRules.Normalize(properties, TemplateJson.IsExpression);
 
         Assert.False(properties.ContainsKey("requestType"));
         Assert.Equal("afterDuration", properties["scheduleInfo"]!["expiration"]!["type"]!.GetValue<string>());

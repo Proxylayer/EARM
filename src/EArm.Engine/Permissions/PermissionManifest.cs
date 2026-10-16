@@ -227,6 +227,12 @@ public static class PermissionManifest
                 graph.Add(ForMode("Group.Read.All", mode), resource, "lookup: role-assignable group check");
             }
 
+            if (instance.Type.EndsWith("/groupEligibilityScheduleRequests", StringComparison.OrdinalIgnoreCase))
+            {
+                // PIM for Groups refuses dynamic and on-premises synced groups: GET /groups/{id}?$select=groupTypes,onPremisesSyncEnabled (Learn: group-get).
+                graph.Add(ForMode("Group.Read.All", mode), resource, "lookup: target group kind check (dynamic, on-premises synced)");
+            }
+
             users |= instance.Type.EndsWith("/users", StringComparison.OrdinalIgnoreCase);
             managerDeclared |= instance.Definition.Relationships.Any(r => r.Kind == RelationshipKind.Manager && Declares(instance, r.Property));
         }

@@ -91,5 +91,17 @@
     "parameters": {},
     "expectedText": "pim-eligibility-incremental.expected.txt",
     "expectedJson": "pim-eligibility-incremental.expected.json"
+  },
+  {
+    "name": "pim-groups-incremental",
+    "deploymentName": "pim-groups-incremental",
+    "mode": "Incremental",
+    "resultFormat": "FullResourcePayloads",
+    "tenantId": "11111111-1111-1111-1111-111111111111",
+    "template": "pim-groups-incremental.entra.json",
+    "seed": "pim-groups-incremental.seed.json",
+    "parameters": {},
+    "expectedText": "pim-groups-incremental.expected.txt",
+    "expectedJson": "pim-groups-incremental.expected.json"
   }
 ]

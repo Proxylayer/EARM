@@ -34,6 +34,7 @@ public sealed class DiscoveryTests
     [InlineData("Microsoft.Entra/conditionalAccess/authenticationContextClassReferences", typeof(AuthenticationContextClassReferencesProvider))]
     [InlineData("Microsoft.Entra/authenticationMethodConfigurations", typeof(AuthenticationMethodConfigurationsProvider))]
     [InlineData("Microsoft.Entra/roleEligibilityScheduleRequests", typeof(RoleEligibilityScheduleRequestsProvider))]
+    [InlineData("Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests", typeof(GroupEligibilityScheduleRequestsProvider))]
     [InlineData("Microsoft.Entra/conditionalAccess/authenticationStrengths", typeof(AuthenticationStrengthsProvider))]
     [InlineData("Microsoft.Entra/appRoleAssignments", typeof(AppRoleAssignmentsProvider))]
     [InlineData("Microsoft.Entra/oauth2PermissionGrants", typeof(OAuth2PermissionGrantsProvider))]
