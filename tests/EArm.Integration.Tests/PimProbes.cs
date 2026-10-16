@@ -309,8 +309,10 @@ public sealed class PimProbes : IntegrationTestBase
         string userId = await NewUserAsync("probe-pim-am");
         string groupId = await NewGroupAsync("probe-pim-am-grp");
 
-        await PimReads.SendAsync(Graph, GroupSchedulesLookup.AssignmentRequestsPath, PimReads.GroupRequest(PimScheduleRequests.AdminAssign, groupId, userId, "member", PimReads.ScheduleInfo(duration: "P1D")), Ct);
+        var requested = PimReads.ScheduleInfo(duration: "P1D");
+        var assigned = await PimReads.SendAsync(Graph, GroupSchedulesLookup.AssignmentRequestsPath, PimReads.GroupRequest(PimScheduleRequests.AdminAssign, groupId, userId, "member", requested), Ct);
         var started = DateTime.UtcNow;
+        report.Observe($"adminAssign answered status={assigned.Text("status")} targetScheduleId={assigned.Text("targetScheduleId")} id={assigned.Text("id")}");
         var members = await EventuallyAsync(() => IdsOfAsync($"/groups/{groupId}/members"), found => found.Contains(userId), seconds: 150, stepSeconds: 5);
         report.Observe(members.Contains(userId)
             ? $"the PIM active member is listed by GET /groups/{{id}}/members after {(DateTime.UtcNow - started).TotalSeconds:F0} s"
@@ -319,16 +321,33 @@ public sealed class PimProbes : IntegrationTestBase
             members.Contains(userId),
             "a PIM active group member is not a member in /groups/{id}/members: the refusal of a time-bound active membership next to a pruning members list (DeclarationConflicts.GroupAssignment) rests on it being a real member. Revisit src/EArm.Providers/DeclarationConflicts.cs and docs/providers.md (the conflict may be unnecessary).");
 
-        var schedules = PimReads.OfAccess(await PimReads.ByGroupAsync(Graph, GroupSchedulesLookup.AssignmentSchedulesPath, groupId, Ct), userId, "member");
-        report.Observe("active membership schedule: " + string.Join("; ", schedules.Select(PimReads.DescribeSchedule)));
+        // The real tenant listed the member in /members but answered the active schedule list empty right after: wait for it (observation only).
+        var schedules = await EventuallyAsync(
+            async () => PimReads.OfAccess(await PimReads.ByGroupAsync(Graph, GroupSchedulesLookup.AssignmentSchedulesPath, groupId, Ct), userId, "member"),
+            found => found.Count > 0,
+            seconds: 60,
+            stepSeconds: 5);
+        report.Observe(schedules.Count > 0
+            ? $"active membership schedule listed {(DateTime.UtcNow - started).TotalSeconds:F0} s after the adminAssign: " + string.Join("; ", schedules.Select(PimReads.DescribeSchedule))
+            : $"the active membership schedule is NOT listed by {GroupSchedulesLookup.AssignmentSchedulesPath}?$filter=groupId eq … {(DateTime.UtcNow - started).TotalSeconds:F0} s after the adminAssign, although the member is in /members");
+
+        // The remove carries the listed schedule, else the one requested; "does not exist" is the observation, so it is not retried as replication.
         try
         {
-            await PimReads.SendAsync(Graph, GroupSchedulesLookup.AssignmentRequestsPath, PimReads.GroupRequest(PimScheduleRequests.AdminRemove, groupId, userId, "member", schedules.Count > 0 ? PimScheduleComparison.ScheduleView(schedules[0]) : null), Ct);
+            var schedule = schedules.Count > 0 ? PimScheduleComparison.ScheduleView(schedules[0]) : requested;
+            await PimReads.SendAsync(Graph, GroupSchedulesLookup.AssignmentRequestsPath, PimReads.GroupRequest(PimScheduleRequests.AdminRemove, groupId, userId, "member", schedule), Ct, expectReplicationLag: false);
         }
         catch (GraphException ex) when (PimScheduleRequests.IsTooNewToRemove(ex))
         {
             // PIM refuses to remove an assignment younger than 5 minutes (Learn: pim-how-to-add-role-to-user); the user's deletion ends it.
             report.Observe($"the adminRemove was refused {(DateTime.UtcNow - started).TotalSeconds:F0} s after the adminAssign ({ProbeReport.Describe(ex)}); the membership ends with the user's deletion");
+            report.Complete();
+            return;
+        }
+        catch (GraphException ex) when (PimScheduleRequests.IsAlreadyGone(ex))
+        {
+            // Observed: 404 RoleAssignmentDoesNotExist while the schedule is not listed yet. Not a failure of the members-list assumption this probe checks.
+            report.Observe($"the adminRemove {(DateTime.UtcNow - started).TotalSeconds:F0} s after the adminAssign answered 'does not exist' ({ProbeReport.Describe(ex)}); the schedule was {(schedules.Count > 0 ? "listed" : "not listed")}; the membership ends with the user's deletion");
             report.Complete();
             return;
         }
