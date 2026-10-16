@@ -221,13 +221,14 @@ public static class PermissionManifest
                 AddRoles(instance, resource, roles);
             }
 
-            if (instance.Type.EndsWith("/roleAssignments", StringComparison.OrdinalIgnoreCase) || instance.Type.EndsWith("/roleEligibilityScheduleRequests", StringComparison.OrdinalIgnoreCase))
+            if (instance.Type.EndsWith("/roleAssignments", StringComparison.OrdinalIgnoreCase) || instance.Type.EndsWith("/roleEligibilityScheduleRequests", StringComparison.OrdinalIgnoreCase)
+                || instance.Type.EndsWith("/roleAssignmentScheduleRequests", StringComparison.OrdinalIgnoreCase))
             {
-                // A role assignment's (or eligibility's) principal may be a role-assignable group: GET /groups/{id}?$select=isAssignableToRole (Learn: group-get).
+                // A role assignment's (or eligibility's, or PIM active assignment's) principal may be a role-assignable group: GET /groups/{id}?$select=isAssignableToRole (Learn: group-get).
                 graph.Add(ForMode("Group.Read.All", mode), resource, "lookup: role-assignable group check");
             }
 
-            if (instance.Type.EndsWith("/groupEligibilityScheduleRequests", StringComparison.OrdinalIgnoreCase))
+            if (instance.Type.EndsWith("/groupEligibilityScheduleRequests", StringComparison.OrdinalIgnoreCase) || instance.Type.EndsWith("/groupAssignmentScheduleRequests", StringComparison.OrdinalIgnoreCase))
             {
                 // PIM for Groups refuses dynamic and on-premises synced groups: GET /groups/{id}?$select=groupTypes,onPremisesSyncEnabled (Learn: group-get).
                 graph.Add(ForMode("Group.Read.All", mode), resource, "lookup: target group kind check (dynamic, on-premises synced)");

@@ -22,8 +22,8 @@ public sealed class GroupEligibilityScheduleRequestsProviderTests
 {
     private const string Type = GroupEligibilityScheduleRequestsProvider.ResourceType;
     private const string Name = "7a2c9b3f-4d5e-4f60-9b0c-1d2e3f4a5b6c";
-    private const string Schedules = FakeGroupEligibility.SchedulesPath;
-    private const string Requests = FakeGroupEligibility.RequestsPath;
+    private const string Schedules = FakeGroupScheduleRequests.EligibilitySchedulesPath;
+    private const string Requests = FakeGroupScheduleRequests.EligibilityRequestsPath;
 
     private static (ProviderHost Host, string OpsId, string AliceId) Setup(Action<JsonObject>? configureOps = null)
     {

@@ -38,6 +38,15 @@ public static class GroupEligibilityScheduleRules
     /// <param name="isOpaque">True for a value that cannot be judged yet (a template expression, a deploy-time value, a secret).</param>
     public static IReadOnlyList<PimRequestFinding> Check(JsonObject properties, Func<JsonNode?, bool> isOpaque)
     {
+        return CheckGroupRequest(properties, isOpaque, "group eligibility schedule request", "make eligible", "eligible membership", "eligible ownership");
+    }
+
+    /// <summary>
+    /// The rules every PIM for Groups schedule request shares (an eligibility, an active assignment): the property set, the group, the principal, the
+    /// accessId and the shared request rules; the other parameters word the messages.
+    /// </summary>
+    internal static List<PimRequestFinding> CheckGroupRequest(JsonObject properties, Func<JsonNode?, bool> isOpaque, string requestName, string grant, string memberMeaning, string ownerMeaning)
+    {
         ArgumentNullException.ThrowIfNull(properties);
         ArgumentNullException.ThrowIfNull(isOpaque);
         var findings = new List<PimRequestFinding>();
@@ -47,17 +56,17 @@ public static class GroupEligibilityScheduleRules
         {
             if (!AllowedProperties.Contains(property.Key, StringComparer.OrdinalIgnoreCase))
             {
-                findings.Add(new(root.Append(property.Key), $"properties.{property.Key} is not a property of a group eligibility schedule request; expected groupId or group, principalId, accessId, scheduleInfo, justification, ticketInfo and requestType"));
+                findings.Add(new(root.Append(property.Key), $"properties.{property.Key} is not a property of a {requestName}; expected groupId or group, principalId, accessId, scheduleInfo, justification, ticketInfo and requestType"));
             }
         }
 
         CheckGroup(properties, isOpaque, findings);
-        CheckRequiredGuid(properties, "principalId", "properties.principalId is required: the object id of the user or group to make eligible", isOpaque, findings);
+        CheckRequiredGuid(properties, "principalId", $"properties.principalId is required: the object id of the user or group to {grant}", isOpaque, findings);
 
         var access = Property(properties, "accessId");
         if (access is null || IsAbsent(access.Value.Value))
         {
-            findings.Add(new(root.Append(access?.Key ?? "accessId"), "properties.accessId is required: member (eligible membership) or owner (eligible ownership)"));
+            findings.Add(new(root.Append(access?.Key ?? "accessId"), $"properties.accessId is required: member ({memberMeaning}) or owner ({ownerMeaning})"));
         }
         else if (!isOpaque(access.Value.Value) && !(TryString(access.Value.Value, out string? text) && NormalizeAccessId(text) is not null))
         {

@@ -48,6 +48,8 @@ public static class DiagnosticCodes
     public const string InvalidAuthenticationMethodConfiguration = "InvalidAuthenticationMethodConfiguration";
     public const string InvalidRoleEligibilityScheduleRequest = "InvalidRoleEligibilityScheduleRequest";
     public const string InvalidGroupEligibilityScheduleRequest = "InvalidGroupEligibilityScheduleRequest";
+    public const string InvalidRoleAssignmentScheduleRequest = "InvalidRoleAssignmentScheduleRequest";
+    public const string InvalidGroupAssignmentScheduleRequest = "InvalidGroupAssignmentScheduleRequest";
     public const string InvalidCopy = "InvalidCopy";
 
     // ---- Parameters ----

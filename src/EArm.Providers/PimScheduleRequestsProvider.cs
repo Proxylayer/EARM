@@ -17,8 +17,8 @@ using GraphApi = EArm.Graph.GraphApi;
 namespace EArm.Providers;
 
 /// <summary>
-/// The lifecycle every PIM schedule request type shares (<see cref="RoleEligibilityScheduleRequestsProvider"/>,
-/// <see cref="GroupEligibilityScheduleRequestsProvider"/>). The resource name is a deterministic GUID (a label); the schedule is found by the type's
+/// The lifecycle every PIM schedule request type shares (directory role eligibility and active assignment, <see cref="RoleScheduleRequestsProvider"/>;
+/// PIM for Groups eligibility and active assignment, <see cref="GroupScheduleRequestsProvider"/>). The resource name is a deterministic GUID (a label); the schedule is found by the type's
 /// identity tuple and read live on every run.
 /// <list type="bullet">
 /// <item><b>Plan</b>: the type's rules (an unsupported row on a finding), then the live schedule aligned with <see cref="PimScheduleComparison"/>; a
@@ -30,10 +30,12 @@ namespace EArm.Providers;
 /// already gone is not an error.</item>
 /// </list>
 /// A request refused by a rule of the PIM policy fails with <see cref="PimPolicyViolation"/> and Graph's text plus the type's advice. Defaults applied
-/// before the diff: an absent <c>scheduleInfo</c> is a permanent eligibility, an absent <c>justification</c> is <see cref="PimScheduleRules.DefaultJustification"/>.
+/// before the diff: an absent <c>scheduleInfo</c> is a permanent schedule (the active assignment types refuse it in their rules), an absent
+/// <c>justification</c> is <see cref="PimScheduleRules.DefaultJustification"/>. A live schedule the type must not manage (<see cref="LiveConflict"/>: the
+/// permanent assignment behind an active assignment type's tuple) is refused at plan time, on adoption and on delete (<see cref="IDeleteRefusalSource"/>).
 /// </summary>
 /// <typeparam name="TTuple">The type's identity tuple.</typeparam>
-public abstract class PimScheduleRequestsProvider<TTuple> : ProviderBase, IOrphanCandidateSource
+public abstract class PimScheduleRequestsProvider<TTuple> : ProviderBase, IOrphanCandidateSource, IDeleteRefusalSource
     where TTuple : class
 {
     /// <summary><see cref="ProviderException"/> code: Graph refused the request under the PIM policy.</summary>
@@ -101,6 +103,18 @@ public abstract class PimScheduleRequestsProvider<TTuple> : ProviderBase, IOrpha
     /// <summary>The comparable view of a live schedule (tuple + <see cref="PimScheduleComparison.ScheduleView"/>).</summary>
     protected abstract JsonObject LiveView(JsonObject live);
 
+    /// <summary>What the type's schedules are called in messages ("eligibility", "active assignment").</summary>
+    protected virtual string ScheduleNoun => "eligibility";
+
+    /// <summary>
+    /// Why a live schedule found under the tuple must not be managed by this type (for example a permanent assignment behind a time-bound active assignment
+    /// type), or <c>null</c>. Refused at plan time, when a create adopts it, and on delete.
+    /// </summary>
+    protected virtual string? LiveConflict(JsonObject live)
+    {
+        return null;
+    }
+
     /// <summary>The schedule an adminRemove request carries; none by default.</summary>
     protected virtual JsonNode? RemoveSchedule(ExistingResource live)
     {
@@ -127,7 +141,7 @@ public abstract class PimScheduleRequestsProvider<TTuple> : ProviderBase, IOrpha
 
         if (!desired.IsSymbolic && !RoleAssignmentsRules.IsGuid(desired.Id.NameLeaf))
         {
-            return Unsupported(desired, existing, $"{desired.Describe()}: the name '{desired.Id.NameLeaf}' is not a GUID; name eligibilities with a deterministic GUID, for example {NameExample}.");
+            return Unsupported(desired, existing, $"{desired.Describe()}: the name '{desired.Id.NameLeaf}' is not a GUID; name PIM schedule requests with a deterministic GUID, for example {NameExample}.");
         }
 
         if (Check(properties) is { Count: > 0 } findings)
@@ -156,10 +170,15 @@ public abstract class PimScheduleRequestsProvider<TTuple> : ProviderBase, IOrpha
             }
         }
 
+        if (LiveConflict(existing.Raw) is { } conflict)
+        {
+            return Unsupported(desired, existing, $"{desired.Describe()}: {conflict}");
+        }
+
         var aligned = new ExistingResource(existing.GraphId, PimScheduleComparison.Align(properties, existing.Properties, Clock.GetUtcNow(), TimeTolerance, IsOpaque), existing.Raw);
         var change = base.Plan(desired, aligned, options);
         return change is { Type: ChangeType.Modify, HasError: false }
-            ? change with { Reasons = [.. change.Reasons, "the eligibility is changed in place with a PIM adminUpdate request"] }
+            ? change with { Reasons = [.. change.Reasons, $"the {ScheduleNoun} is changed in place with a PIM adminUpdate request"] }
             : change;
     }
 
@@ -203,6 +222,11 @@ public abstract class PimScheduleRequestsProvider<TTuple> : ProviderBase, IOrpha
             }
 
             live = found;
+        }
+
+        if (LiveConflict(live) is { } conflict)
+        {
+            throw new ProviderException(ConflictCode, $"{desired.Describe()}: {conflict}", desired.Id);
         }
 
         return new AppliedResource(desired.Id, RequireId(live, desired), live, key, Extra(tuple));
@@ -250,6 +274,18 @@ public abstract class PimScheduleRequestsProvider<TTuple> : ProviderBase, IOrpha
         }
     }
 
+    // ---- delete refusal ----
+
+    /// <summary>A live schedule the type must not manage (<see cref="LiveConflict"/>) is kept by <c>deployment delete</c>.</summary>
+    public string? DescribeDeleteRefusal(ResourceKey key, ExistingResource live)
+    {
+        ArgumentNullException.ThrowIfNull(live);
+        return LiveConflict(live.Raw);
+    }
+
+    /// <summary>The <see cref="ProviderException"/> code of an adopted live schedule <see cref="LiveConflict"/> refuses.</summary>
+    protected virtual string ConflictCode => EngineDiagnosticCodes.PimAssignmentConflict;
+
     // ---- helpers ----
 
     /// <summary>Sends one schedule request; a PIM policy refusal becomes <see cref="PimPolicyViolation"/>, a failed request status an apply failure.</summary>
@@ -287,7 +323,7 @@ public abstract class PimScheduleRequestsProvider<TTuple> : ProviderBase, IOrpha
     {
         if (response is null || (JsonObjects.GetString(response, "targetScheduleId") ?? JsonObjects.GetId(response)) is not { } scheduleId)
         {
-            throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{desired.Describe()}: the adminAssign request returned no request object and the eligibility could not be read back.", desired.Id);
+            throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{desired.Describe()}: the adminAssign request returned no request object and the schedule could not be read back.", desired.Id);
         }
 
         var standIn = (JsonObject)JsonValues.Clone(response)!;
@@ -295,7 +331,7 @@ public abstract class PimScheduleRequestsProvider<TTuple> : ProviderBase, IOrpha
         return standIn;
     }
 
-    /// <summary>The type's normalisation plus the defaults: a permanent schedule and the neutral justification.</summary>
+    /// <summary>The type's normalisation plus the defaults: a permanent schedule (refused by the active assignment types' rules first) and the neutral justification.</summary>
     protected void Normalize(JsonObject properties)
     {
         ArgumentNullException.ThrowIfNull(properties);

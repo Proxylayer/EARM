@@ -1,0 +1,30 @@
+[
+  { "collection": "/users", "entity": { "id": "66666666-0000-0000-0000-000000000001", "userPrincipalName": "alice@contoso.com", "displayName": "Alice", "mailNickname": "alice", "accountEnabled": true } },
+  { "collection": "/users", "entity": { "id": "66666666-0000-0000-0000-000000000002", "userPrincipalName": "bob@contoso.com", "displayName": "Bob", "mailNickname": "bob", "accountEnabled": true } },
+  { "collection": "/users", "entity": { "id": "66666666-0000-0000-0000-000000000003", "userPrincipalName": "carol@contoso.com", "displayName": "Carol", "mailNickname": "carol", "accountEnabled": true } },
+  { "collection": "/groups", "entity": { "id": "66666666-0000-0000-0000-000000000100", "uniqueName": "pim-ops", "displayName": "PIM Ops", "mailNickname": "pim-ops", "mailEnabled": false, "securityEnabled": true, "groupTypes": [], "onPremisesSyncEnabled": null } },
+  { "collection": "/roleManagement/directory/roleAssignmentSchedules", "entity": {
+      "id": "77777777-0000-0000-0000-000000000001", "principalId": "66666666-0000-0000-0000-000000000001", "roleDefinitionId": "f2ef992c-3afb-46b9-b7cf-a126ee74c451",
+      "directoryScopeId": "/", "appScopeId": null, "status": "Provisioned", "assignmentType": "Assigned", "memberType": "Direct",
+      "scheduleInfo": { "startDateTime": "2026-01-15T09:30:00.217Z", "recurrence": null, "expiration": { "type": "afterDateTime", "endDateTime": "2030-01-01T00:00:00.4Z", "duration": null } } } },
+  { "collection": "/roleManagement/directory/roleAssignmentSchedules", "entity": {
+      "id": "77777777-0000-0000-0000-000000000002", "principalId": "66666666-0000-0000-0000-000000000001", "roleDefinitionId": "5d6b6bb7-de71-4623-b4af-96380a352509",
+      "directoryScopeId": "/", "appScopeId": null, "status": "Provisioned", "assignmentType": "Assigned", "memberType": "Direct",
+      "scheduleInfo": { "startDateTime": "2026-01-15T09:30:00Z", "recurrence": null, "expiration": { "type": "afterDateTime", "endDateTime": "2027-01-01T00:00:00Z", "duration": null } } } },
+  { "collection": "/roleManagement/directory/roleAssignmentSchedules", "entity": {
+      "id": "77777777-0000-0000-0000-000000000003", "principalId": "66666666-0000-0000-0000-000000000001", "roleDefinitionId": "88d8e3e3-8f55-4a1e-953a-9b9898b8876b",
+      "directoryScopeId": "/", "appScopeId": null, "status": "Provisioned", "assignmentType": "Assigned", "memberType": "Direct",
+      "scheduleInfo": { "startDateTime": "2025-03-01T00:00:00Z", "recurrence": null, "expiration": { "type": "noExpiration", "endDateTime": null, "duration": null } } } },
+  { "collection": "/identityGovernance/privilegedAccess/group/assignmentSchedules", "entity": {
+      "id": "66666666-0000-0000-0000-000000000100_member_88888888-0000-0000-0000-000000000001", "groupId": "66666666-0000-0000-0000-000000000100", "principalId": "66666666-0000-0000-0000-000000000001",
+      "accessId": "member", "status": "Provisioned", "memberType": "direct", "assignmentType": "assigned",
+      "scheduleInfo": { "startDateTime": "2026-01-15T09:30:00Z", "recurrence": null, "expiration": { "type": "afterDateTime", "endDateTime": "2026-12-31T00:00:00Z", "duration": null } } } },
+  { "collection": "/identityGovernance/privilegedAccess/group/assignmentSchedules", "entity": {
+      "id": "66666666-0000-0000-0000-000000000100_member_88888888-0000-0000-0000-000000000002", "groupId": "66666666-0000-0000-0000-000000000100", "principalId": "66666666-0000-0000-0000-000000000002",
+      "accessId": "member", "status": "Provisioned", "memberType": "direct", "assignmentType": "assigned",
+      "scheduleInfo": { "startDateTime": "2026-02-01T00:00:00Z", "recurrence": null, "expiration": { "type": "afterDateTime", "endDateTime": "2026-11-30T00:00:00Z", "duration": null } } } },
+  { "collection": "/identityGovernance/privilegedAccess/group/assignmentSchedules", "entity": {
+      "id": "66666666-0000-0000-0000-000000000100_member_88888888-0000-0000-0000-000000000003", "groupId": "66666666-0000-0000-0000-000000000100", "principalId": "66666666-0000-0000-0000-000000000003",
+      "accessId": "member", "status": "Provisioned", "memberType": "direct", "assignmentType": "assigned",
+      "scheduleInfo": { "startDateTime": "2024-06-01T00:00:00Z", "recurrence": null, "expiration": { "type": "noExpiration", "endDateTime": null, "duration": null } } } }
+]

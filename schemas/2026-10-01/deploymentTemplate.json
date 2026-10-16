@@ -214,7 +214,11 @@
         { "if": { "properties": { "type": { "const": "Microsoft.Entra/roleEligibilityScheduleRequests" } }, "required": ["type"] },
           "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/roleEligibilityScheduleRequests.json" }, { "$ref": "#/$defs/expression" } ] } } } },
         { "if": { "properties": { "type": { "const": "Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests" } }, "required": ["type"] },
-          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/privilegedAccess.groupEligibilityScheduleRequests.json" }, { "$ref": "#/$defs/expression" } ] } } } }
+          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/privilegedAccess.groupEligibilityScheduleRequests.json" }, { "$ref": "#/$defs/expression" } ] } } } },
+        { "if": { "properties": { "type": { "const": "Microsoft.Entra/roleAssignmentScheduleRequests" } }, "required": ["type"] },
+          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/roleAssignmentScheduleRequests.json" }, { "$ref": "#/$defs/expression" } ] } } } },
+        { "if": { "properties": { "type": { "const": "Microsoft.Entra/privilegedAccess/groupAssignmentScheduleRequests" } }, "required": ["type"] },
+          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/privilegedAccess.groupAssignmentScheduleRequests.json" }, { "$ref": "#/$defs/expression" } ] } } } }
       ]
     },
     "childResource": {

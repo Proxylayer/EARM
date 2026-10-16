@@ -13,7 +13,7 @@ using GraphApi = EArm.Graph.GraphApi;
 namespace EArm.Providers;
 
 /// <summary>
-/// The Graph side every PIM schedule request type shares (directory role eligibility, PIM for Groups eligibility): the request actions, the schedule list
+/// The Graph side every PIM schedule request type shares (directory role and PIM for Groups eligibilities and active assignments): the request actions, the schedule list
 /// read (every page, kept to <c>memberType</c> Direct and to schedules that are not revoked or failed), the request metadata of a request body, and the
 /// classification of PIM errors (a policy rule that failed, a schedule that is already gone, a request that ended in a failed status). Never cached.
 /// </summary>
@@ -69,6 +69,17 @@ public static class PimScheduleRequests
         string? status = JsonObjects.GetString(schedule, "status");
         return (memberType is null || memberType.Equals("Direct", StringComparison.OrdinalIgnoreCase))
             && (status is null || !FailedStatuses.Contains(status, StringComparer.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// True for an active assignment schedule an administrator assigned (<c>assignmentType</c> Assigned, any casing, or absent); an activation of an
+    /// eligibility (<c>Activated</c>) belongs to the eligible principal, not to the template.
+    /// </summary>
+    public static bool IsAssigned(JsonObject schedule)
+    {
+        ArgumentNullException.ThrowIfNull(schedule);
+        string? assignmentType = JsonObjects.GetString(schedule, "assignmentType");
+        return assignmentType is null || assignmentType.Equals("Assigned", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>Adds the schedule (when given) and the request metadata (justification, ticketInfo) to a request body.</summary>

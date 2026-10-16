@@ -1,0 +1,51 @@
+Deployment 'pim-active-incremental' (Incremental) on tenant 11111111-1111-1111-1111-111111111111
+
+Resource and property changes are indicated with these symbols:
+  + Create
+  ~ Modify
+  - Delete
+  = NoChange
+  * Ignore
+  ? Value only known at deployment time
+  ! Change cannot be applied as planned
+
+The deployment would make the following changes:
+
+  ~ /providers/Microsoft.Entra/privilegedAccess/groupAssignmentScheduleRequests/1c8ea0c7-236b-5e71-8db3-dc985d283dfe [Microsoft.Entra/privilegedAccess/groupAssignmentScheduleRequests]
+      ~ properties.scheduleInfo:
+          ~ expiration:
+              ~ endDateTime: "2026-12-31T00:00:00Z" => "2027-03-31T00:00:00Z"
+      (the active assignment is changed in place with a PIM adminUpdate request)
+
+  = /providers/Microsoft.Entra/roleAssignmentScheduleRequests/3faba3b6-1c65-52f2-a22e-1c2e50f1e153 [Microsoft.Entra/roleAssignmentScheduleRequests]
+
+  + /providers/Microsoft.Entra/roleAssignmentScheduleRequests/ce8ab368-cd5d-5625-a18b-d3103e5ca9a8 [Microsoft.Entra/roleAssignmentScheduleRequests]
+      name: "ce8ab368-cd5d-5625-a18b-d3103e5ca9a8"
+      type: "Microsoft.Entra/roleAssignmentScheduleRequests"
+      apiVersion: "2026-10-01-preview"
+      properties:
+        principalId: "66666666-0000-0000-0000-000000000002"
+        roleDefinitionId: "fe930be7-5e62-47db-91af-98c3a49a38b1"
+        scheduleInfo:
+          expiration:
+            type: "afterDuration"
+            duration: "P30D"
+        ticketInfo:
+          ticketNumber: "CHG0004321"
+          ticketSystem: "ServiceNow"
+        directoryScopeId: "/"
+        justification: "Deployed by earm"
+
+  * /providers/Microsoft.Entra/privilegedAccess/groupAssignmentScheduleRequests/66666666-0000-0000-0000-000000000100_member_88888888-0000-0000-0000-000000000002 [Microsoft.Entra/privilegedAccess/groupAssignmentScheduleRequests] (orphan: retained)
+      (retained: no longer declared; still grants access (active member: groupId '66666666-0000-0000-0000-000000000100', principalId '66666666-0000-0000-0000-000000000002', accessId 'member'). Assignments are never removed: delete it yourself if the access should end.)
+
+  * /providers/Microsoft.Entra/roleAssignmentScheduleRequests/77777777-0000-0000-0000-000000000002 [Microsoft.Entra/roleAssignmentScheduleRequests] (orphan: retained)
+      (retained: no longer declared; still grants access (active: principalId '66666666-0000-0000-0000-000000000001', roleDefinitionId '5d6b6bb7-de71-4623-b4af-96380a352509', directoryScopeId '/'). Assignments are never removed: delete it yourself if the access should end.)
+
+Resource changes: 1 to create, 1 to modify, 0 to delete, 1 unchanged, 0 ignored.
+Edges: 0 to add, 0 to remove.
+Orphans: 2 live object(s) not declared in the template (reported only; never deleted).
+Required permissions: Directory.Read.All, PrivilegedAssignmentSchedule.ReadWrite.AzureADGroup, RoleAssignmentSchedule.ReadWrite.Directory.
+
+warning AssignmentRetained: '/providers/Microsoft.Entra/privilegedAccess/groupAssignmentScheduleRequests/66666666-0000-0000-0000-000000000100_member_88888888-0000-0000-0000-000000000002' (Graph id 66666666-0000-0000-0000-000000000100_member_88888888-0000-0000-0000-000000000002) is not declared by the template but still grants access (active member: groupId '66666666-0000-0000-0000-000000000100', principalId '66666666-0000-0000-0000-000000000002', accessId 'member'); EARM never removes it. Delete it yourself if the access should end.
+warning AssignmentRetained: '/providers/Microsoft.Entra/roleAssignmentScheduleRequests/77777777-0000-0000-0000-000000000002' (Graph id 77777777-0000-0000-0000-000000000002) is not declared by the template but still grants access (active: principalId '66666666-0000-0000-0000-000000000001', roleDefinitionId '5d6b6bb7-de71-4623-b4af-96380a352509', directoryScopeId '/'); EARM never removes it. Delete it yourself if the access should end.

@@ -46,6 +46,7 @@ public sealed class RunScopesTests
         { "tenant-security.entra.json", "tenant-security.parameters.json" },
         { "authentication-methods.entra.json", "authentication-methods.parameters.json" },
         { "pim-eligibility.entra.json", "pim-eligibility.parameters.json" },
+        { "pim-active.entra.json", "pim-active.parameters.json" },
         { "orders-api.entra.json", null },
     };
 
@@ -79,6 +80,36 @@ public sealed class RunScopesTests
         Assert.DoesNotContain("PrivilegedEligibilitySchedule.ReadWrite.AzureADGroup", whatIf.GraphScopes);
         Assert.Contains("PrivilegedEligibilitySchedule.ReadWrite.AzureADGroup", delete.GraphScopes);
         Assert.Contains(create.Scopes.Single(s => s.Name == "PrivilegedEligibilitySchedule.ReadWrite.AzureADGroup").Resources, r => r.StartsWith("/providers/Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests/", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task PimRoleActiveAssignment_WritesWithRoleAssignmentScheduleReadWrite_AndWhatIfReadsWithItsReadVariant()
+    {
+        var create = await ComputeAsync("pim-active.entra.json", "pim-active.parameters.json", RunVerb.Create);
+        var whatIf = await ComputeAsync("pim-active.entra.json", "pim-active.parameters.json", RunVerb.WhatIf);
+        var delete = await ComputeAsync("pim-active.entra.json", "pim-active.parameters.json", RunVerb.Delete);
+
+        Assert.Contains("RoleAssignmentSchedule.ReadWrite.Directory", create.GraphScopes);
+        Assert.DoesNotContain("RoleAssignmentSchedule.Read.Directory", create.GraphScopes);
+        Assert.Contains("RoleAssignmentSchedule.Read.Directory", whatIf.GraphScopes);
+        Assert.DoesNotContain("RoleAssignmentSchedule.ReadWrite.Directory", whatIf.GraphScopes);
+        Assert.Contains("RoleAssignmentSchedule.ReadWrite.Directory", delete.GraphScopes);
+        Assert.Contains(create.Scopes.Single(s => s.Name == "RoleAssignmentSchedule.ReadWrite.Directory").Resources, r => r.StartsWith("/providers/Microsoft.Entra/roleAssignmentScheduleRequests/", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task PimGroupActiveAssignment_WritesWithPrivilegedAssignmentScheduleReadWrite_AndWhatIfReadsWithItsReadVariant()
+    {
+        var create = await ComputeAsync("pim-active.entra.json", "pim-active.parameters.json", RunVerb.Create);
+        var whatIf = await ComputeAsync("pim-active.entra.json", "pim-active.parameters.json", RunVerb.WhatIf);
+        var delete = await ComputeAsync("pim-active.entra.json", "pim-active.parameters.json", RunVerb.Delete);
+
+        Assert.Contains("PrivilegedAssignmentSchedule.ReadWrite.AzureADGroup", create.GraphScopes);
+        Assert.DoesNotContain("PrivilegedAssignmentSchedule.Read.AzureADGroup", create.GraphScopes);
+        Assert.Contains("PrivilegedAssignmentSchedule.Read.AzureADGroup", whatIf.GraphScopes);
+        Assert.DoesNotContain("PrivilegedAssignmentSchedule.ReadWrite.AzureADGroup", whatIf.GraphScopes);
+        Assert.Contains("PrivilegedAssignmentSchedule.ReadWrite.AzureADGroup", delete.GraphScopes);
+        Assert.Contains(create.Scopes.Single(s => s.Name == "PrivilegedAssignmentSchedule.ReadWrite.AzureADGroup").Resources, r => r.StartsWith("/providers/Microsoft.Entra/privilegedAccess/groupAssignmentScheduleRequests/", StringComparison.Ordinal));
     }
 
     // ---- authentication methods policy ----

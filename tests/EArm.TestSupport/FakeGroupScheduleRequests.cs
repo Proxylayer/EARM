@@ -10,26 +10,51 @@ using EArm.Graph;
 namespace EArm.TestSupport;
 
 /// <summary>
-/// PIM for Groups eligibility in the fake tenant. <see cref="FakeDirectory"/> routes
-/// <c>POST /identityGovernance/privilegedAccess/group/eligibilityScheduleRequests</c> here: <c>adminAssign</c> creates a Direct schedule in
-/// <c>/identityGovernance/privilegedAccess/group/eligibilitySchedules</c> (its id is <c>{groupId}_{accessId}_{requestId}</c>, which the response carries as
-/// <c>targetScheduleId</c>), <c>adminUpdate</c> replaces its <c>scheduleInfo</c>, <c>adminRemove</c> removes it. The Graph rules modelled:
+/// PIM for Groups schedule requests in the fake tenant: eligibility (<see cref="Eligibility"/>) or time-bound active assignment (<see cref="Assignment"/>).
+/// <see cref="FakeDirectory"/> routes <c>POST {requests}</c> here: <c>adminAssign</c> creates a Direct schedule in <c>{schedules}</c> (its id is
+/// <c>{groupId}_{accessId}_{requestId}</c>, which the response carries as <c>targetScheduleId</c>; an active assignment schedule also carries
+/// <c>assignmentType</c> assigned), <c>adminUpdate</c> replaces its <c>scheduleInfo</c>, <c>adminRemove</c> removes it. The Graph rules modelled:
 /// <c>accessId</c> (member | owner), <c>groupId</c>, <c>principalId</c> and <c>scheduleInfo</c> are required on every request; the group must exist and
 /// be neither dynamic nor synchronised from on-premises; the principal must be a user or a group; a second adminAssign of the same tuple is
-/// <c>400 RoleAssignmentExists</c>; an update or remove of a missing eligibility is <c>400 RoleAssignmentDoesNotExist</c>; with
-/// <see cref="RequireExpiration"/> (the group's default policy, whose Expiration_Admin_Eligibility rule forbids permanent eligibility) a NoExpiration
+/// <c>400 RoleAssignmentExists</c>; an update or remove of a missing schedule is <c>400 RoleAssignmentDoesNotExist</c>; with
+/// <see cref="RequireExpiration"/> (the group's default policy, whose Expiration_Admin_* rule forbids permanent schedules) a NoExpiration
 /// request is <c>400 RoleAssignmentRequestPolicyValidationFailed</c>. The schedule list refuses a read without a <c>groupId</c> or <c>principalId</c>
 /// filter (<c>400</c>, as Graph does). The first accepted request for a group onboards it (<see cref="OnboardedGroups"/>), permanently.
 /// </summary>
-public sealed class FakeGroupEligibility
+public sealed class FakeGroupScheduleRequests
 {
-    public const string RequestsPath = "/identityGovernance/privilegedAccess/group/eligibilityScheduleRequests";
+    public const string EligibilityRequestsPath = "/identityGovernance/privilegedAccess/group/eligibilityScheduleRequests";
 
-    public const string SchedulesPath = "/identityGovernance/privilegedAccess/group/eligibilitySchedules";
+    public const string EligibilitySchedulesPath = "/identityGovernance/privilegedAccess/group/eligibilitySchedules";
+
+    public const string AssignmentRequestsPath = "/identityGovernance/privilegedAccess/group/assignmentScheduleRequests";
+
+    public const string AssignmentSchedulesPath = "/identityGovernance/privilegedAccess/group/assignmentSchedules";
 
     private readonly HashSet<string> _onboarded = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>The groups' PIM policy forbids permanent eligibility (Expiration_Admin_Eligibility): a NoExpiration request is refused.</summary>
+    private readonly bool _assignment;
+
+    private FakeGroupScheduleRequests(string requestsPath, string schedulesPath, bool assignment)
+    {
+        RequestsPath = requestsPath;
+        SchedulesPath = schedulesPath;
+        _assignment = assignment;
+    }
+
+    /// <summary>PIM for Groups eligibility (<c>eligibilityScheduleRequests</c> / <c>eligibilitySchedules</c>).</summary>
+    public static FakeGroupScheduleRequests Eligibility() => new(EligibilityRequestsPath, EligibilitySchedulesPath, assignment: false);
+
+    /// <summary>PIM for Groups active assignment (<c>assignmentScheduleRequests</c> / <c>assignmentSchedules</c>).</summary>
+    public static FakeGroupScheduleRequests Assignment() => new(AssignmentRequestsPath, AssignmentSchedulesPath, assignment: true);
+
+    /// <summary>The request collection this fake answers.</summary>
+    public string RequestsPath { get; }
+
+    /// <summary>The schedule collection this fake maintains.</summary>
+    public string SchedulesPath { get; }
+
+    /// <summary>The groups' PIM policy forbids permanent schedules (Expiration_Admin_*): a NoExpiration request is refused.</summary>
     public bool RequireExpiration { get; set; }
 
     /// <summary>Every request body received, in order.</summary>
@@ -38,12 +63,12 @@ public sealed class FakeGroupEligibility
     /// <summary>The groups PIM for Groups has onboarded (on their first accepted request; never offboarded).</summary>
     public IReadOnlyCollection<string> OnboardedGroups => _onboarded;
 
-    internal static bool IsRequests(string collectionPath)
+    internal bool IsRequests(string collectionPath)
     {
         return collectionPath.TrimEnd('/').Equals(RequestsPath, StringComparison.OrdinalIgnoreCase);
     }
 
-    internal static bool IsSchedules(string collectionPath)
+    internal bool IsSchedules(string collectionPath)
     {
         return collectionPath.TrimEnd('/').Equals(SchedulesPath, StringComparison.OrdinalIgnoreCase);
     }
@@ -55,7 +80,7 @@ public sealed class FakeGroupEligibility
         if (string.IsNullOrWhiteSpace(filter)
             || (filter.IndexOf("groupId eq", StringComparison.OrdinalIgnoreCase) < 0 && filter.IndexOf("principalId eq", StringComparison.OrdinalIgnoreCase) < 0))
         {
-            throw FakeDirectory.BadRequest("A $filter on groupId or principalId is required to list PIM for Groups eligibility schedules.", hint);
+            throw FakeDirectory.BadRequest("A $filter on groupId or principalId is required to list PIM for Groups schedules.", hint);
         }
     }
 
@@ -103,7 +128,7 @@ public sealed class FakeGroupEligibility
 
                 var scheduleInfo = Schedule(request, now, hint);
                 string scheduleId = groupId + "_" + accessId + "_" + requestId;
-                schedules.Add(new JsonObject
+                var schedule = new JsonObject
                 {
                     ["id"] = scheduleId,
                     ["groupId"] = groupId,
@@ -115,7 +140,13 @@ public sealed class FakeGroupEligibility
                     ["status"] = "Provisioned",
                     ["memberType"] = "direct",
                     ["scheduleInfo"] = scheduleInfo,
-                });
+                };
+                if (_assignment)
+                {
+                    schedule["assignmentType"] = "assigned";
+                }
+
+                schedules.Add(schedule);
                 _onboarded.Add(groupId);
                 return Response(requestId, "Provisioned", action, request, scheduleId, scheduleInfo.DeepClone());
             }
@@ -176,7 +207,7 @@ public sealed class FakeGroupEligibility
 
         if (!principal.Collection.Equals("/users", StringComparison.OrdinalIgnoreCase) && !principal.Collection.Equals("/groups", StringComparison.OrdinalIgnoreCase))
         {
-            throw FakeDirectory.BadRequest("Only users and groups can be eligible for a group's membership or ownership.", hint);
+            throw FakeDirectory.BadRequest("Only users and groups can hold a group's membership or ownership through PIM.", hint);
         }
     }
 

@@ -12,51 +12,60 @@ using GraphApi = EArm.Graph.GraphApi;
 
 namespace EArm.Providers;
 
-/// <summary>The identity of a PIM for Groups eligibility: the target group, the principal and the relationship (<c>member</c> or <c>owner</c>).</summary>
-public sealed record GroupEligibilityTuple(string GroupId, string PrincipalId, string AccessId);
+/// <summary>The identity of a PIM for Groups schedule (an eligibility or an active assignment): the target group, the principal and the relationship (<c>member</c> or <c>owner</c>).</summary>
+public sealed record GroupScheduleTuple(string GroupId, string PrincipalId, string AccessId);
 
 /// <summary>
-/// The Graph side of PIM for Groups eligibility, shared by <see cref="GroupEligibilityScheduleRequestsProvider"/>: the eligibility schedules of a group
-/// (<c>GET /identityGovernance/privilegedAccess/group/eligibilitySchedules?$filter=groupId eq '…'</c>; Graph requires a groupId or principalId filter),
-/// matched client-side on principalId and accessId through <see cref="PimScheduleRequests.ListSchedulesAsync"/>; the request body of
-/// <c>POST …/eligibilityScheduleRequests</c>; the comparable live view; and the target group read (<c>GET /groups/{id}</c> or
-/// <c>GET /groups(uniqueName='…')</c>) with the kinds PIM for Groups refuses (dynamic membership, synchronised from on-premises). Never cached.
+/// The Graph side of PIM for Groups, shared by <see cref="GroupEligibilityScheduleRequestsProvider"/> and <see cref="GroupAssignmentScheduleRequestsProvider"/>:
+/// the schedules of a group (<c>GET {schedules}?$filter=groupId eq '…'</c>; Graph requires a groupId or principalId filter), matched client-side on
+/// principalId and accessId through <see cref="PimScheduleRequests.ListSchedulesAsync"/>; the request body of <c>POST {requests}</c>; the comparable live
+/// view; and the target group read (<c>GET /groups/{id}</c> or <c>GET /groups(uniqueName='…')</c>) with the kinds PIM for Groups refuses (dynamic
+/// membership, synchronised from on-premises). The schedule collection and an extra filter (an active assignment keeps <c>assignmentType</c> assigned)
+/// are the caller's. Never cached.
 /// </summary>
-public static class GroupEligibilitySchedulesLookup
+public static class GroupSchedulesLookup
 {
     /// <summary>The Graph collection of eligibility schedules (current and future-dated eligibilities).</summary>
-    public const string SchedulesPath = "/identityGovernance/privilegedAccess/group/eligibilitySchedules";
+    public const string EligibilitySchedulesPath = "/identityGovernance/privilegedAccess/group/eligibilitySchedules";
 
-    /// <summary>The Graph collection every write goes through.</summary>
-    public const string RequestsPath = "/identityGovernance/privilegedAccess/group/eligibilityScheduleRequests";
+    /// <summary>The Graph collection every eligibility write goes through.</summary>
+    public const string EligibilityRequestsPath = "/identityGovernance/privilegedAccess/group/eligibilityScheduleRequests";
+
+    /// <summary>The Graph collection of active assignment schedules (PIM assignments, activations and the memberships of an onboarded group).</summary>
+    public const string AssignmentSchedulesPath = "/identityGovernance/privilegedAccess/group/assignmentSchedules";
+
+    /// <summary>The Graph collection every active assignment write goes through.</summary>
+    public const string AssignmentRequestsPath = "/identityGovernance/privilegedAccess/group/assignmentScheduleRequests";
 
     /// <summary>The group properties the target group check selects.</summary>
     public static readonly string[] GroupProperties = ["id", "uniqueName", "displayName", "groupTypes", "onPremisesSyncEnabled"];
 
     /// <summary>
-    /// The Direct eligibility schedules of a group: <c>GET …/eligibilitySchedules?$filter=groupId eq '{id}'</c> (every page). Inherited schedules and
-    /// revoked or failed ones are left out.
+    /// The Direct schedules of a group in <paramref name="schedulesPath"/>: <c>GET {schedulesPath}?$filter=groupId eq '{id}'</c> (every page), kept to
+    /// those <paramref name="keep"/> accepts. Inherited schedules and revoked or failed ones are left out.
     /// </summary>
-    public static Task<IReadOnlyList<JsonObject>> ReadGroupSchedulesAsync(IGraphClient graph, string groupId, GraphApi api, RetryHint hint, CancellationToken cancellationToken)
+    public static Task<IReadOnlyList<JsonObject>> ReadGroupSchedulesAsync(IGraphClient graph, string schedulesPath, Func<JsonObject, bool> keep, string groupId, GraphApi api, RetryHint hint, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(groupId);
-        return PimScheduleRequests.ListSchedulesAsync(graph, SchedulesPath, GroupFilter(groupId), s => JsonObjects.KeyEquals(JsonObjects.GetString(s, "groupId"), groupId), api, hint, cancellationToken);
+        ArgumentNullException.ThrowIfNull(keep);
+        return PimScheduleRequests.ListSchedulesAsync(graph, schedulesPath, GroupFilter(groupId), s => JsonObjects.KeyEquals(JsonObjects.GetString(s, "groupId"), groupId) && keep(s), api, hint, cancellationToken);
     }
 
     /// <summary>
-    /// The Direct eligibility of the tuple, or <c>null</c>: <c>GET …/eligibilitySchedules?$filter=groupId eq '…' and principalId eq '…'</c>, re-matched
-    /// client-side on the group, the principal (GUID-aware) and the accessId.
+    /// The Direct schedule of the tuple in <paramref name="schedulesPath"/>, or <c>null</c>: <c>GET {schedulesPath}?$filter=groupId eq '…' and
+    /// principalId eq '…'</c>, re-matched client-side on the group, the principal (GUID-aware) and the accessId.
     /// </summary>
-    public static async Task<JsonObject?> FindAsync(IGraphClient graph, GroupEligibilityTuple tuple, GraphApi api, RetryHint hint, CancellationToken cancellationToken)
+    public static async Task<JsonObject?> FindAsync(IGraphClient graph, string schedulesPath, Func<JsonObject, bool> keep, GroupScheduleTuple tuple, GraphApi api, RetryHint hint, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(tuple);
+        ArgumentNullException.ThrowIfNull(keep);
         string filter = GroupFilter(tuple.GroupId) + " and principalId eq '" + PimScheduleRequests.Quote(RoleAssignmentsRules.NormalizeId(tuple.PrincipalId)) + "'";
-        var schedules = await PimScheduleRequests.ListSchedulesAsync(graph, SchedulesPath, filter, s => Matches(s, tuple), api, hint, cancellationToken).ConfigureAwait(false);
+        var schedules = await PimScheduleRequests.ListSchedulesAsync(graph, schedulesPath, filter, s => Matches(s, tuple) && keep(s), api, hint, cancellationToken).ConfigureAwait(false);
         return schedules.FirstOrDefault();
     }
 
     /// <summary>True when a live schedule (or request) carries the tuple's group, principal and accessId.</summary>
-    public static bool Matches(JsonObject schedule, GroupEligibilityTuple tuple)
+    public static bool Matches(JsonObject schedule, GroupScheduleTuple tuple)
     {
         ArgumentNullException.ThrowIfNull(schedule);
         ArgumentNullException.ThrowIfNull(tuple);
@@ -66,7 +75,7 @@ public static class GroupEligibilitySchedulesLookup
     }
 
     /// <summary>The tuple as the request body, the applied extras and the live view carry it (ids normalised, accessId lowercase).</summary>
-    public static JsonObject TupleObject(GroupEligibilityTuple tuple)
+    public static JsonObject TupleObject(GroupScheduleTuple tuple)
     {
         ArgumentNullException.ThrowIfNull(tuple);
         return new JsonObject
@@ -78,10 +87,10 @@ public static class GroupEligibilitySchedulesLookup
     }
 
     /// <summary>
-    /// The body of <c>POST …/eligibilityScheduleRequests</c>: the action, the tuple, the schedule (Graph documents <c>scheduleInfo</c> as required on every
+    /// The body of <c>POST {requests}</c>: the action, the tuple, the schedule (Graph documents <c>scheduleInfo</c> as required on every
     /// request), and justification / ticketInfo when given (request metadata).
     /// </summary>
-    public static JsonObject RequestBody(string action, GroupEligibilityTuple tuple, JsonNode? scheduleInfo, JsonNode? justification, JsonNode? ticketInfo)
+    public static JsonObject RequestBody(string action, GroupScheduleTuple tuple, JsonNode? scheduleInfo, JsonNode? justification, JsonNode? ticketInfo)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(action);
         ArgumentNullException.ThrowIfNull(tuple);

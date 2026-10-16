@@ -1,0 +1,208 @@
+{
+  "status": "Succeeded",
+  "deploymentName": "pim-active-incremental",
+  "tenantId": "11111111-1111-1111-1111-111111111111",
+  "mode": "Incremental",
+  "changes": [
+    {
+      "resourceId": "/providers/Microsoft.Entra/privilegedAccess/groupAssignmentScheduleRequests/1c8ea0c7-236b-5e71-8db3-dc985d283dfe",
+      "changeType": "Modify",
+      "before": {
+        "name": "1c8ea0c7-236b-5e71-8db3-dc985d283dfe",
+        "type": "Microsoft.Entra/privilegedAccess/groupAssignmentScheduleRequests",
+        "apiVersion": "2026-10-01-preview",
+        "properties": {
+          "groupId": "66666666-0000-0000-0000-000000000100",
+          "principalId": "66666666-0000-0000-0000-000000000001",
+          "accessId": "member",
+          "justification": "On-call extended",
+          "scheduleInfo": {
+            "expiration": {
+              "type": "afterDateTime",
+              "endDateTime": "2026-12-31T00:00:00Z"
+            }
+          }
+        }
+      },
+      "after": {
+        "name": "1c8ea0c7-236b-5e71-8db3-dc985d283dfe",
+        "type": "Microsoft.Entra/privilegedAccess/groupAssignmentScheduleRequests",
+        "apiVersion": "2026-10-01-preview",
+        "properties": {
+          "groupId": "66666666-0000-0000-0000-000000000100",
+          "principalId": "66666666-0000-0000-0000-000000000001",
+          "accessId": "member",
+          "justification": "On-call extended",
+          "scheduleInfo": {
+            "expiration": {
+              "type": "afterDateTime",
+              "endDateTime": "2027-03-31T00:00:00Z"
+            }
+          }
+        }
+      },
+      "delta": [
+        {
+          "path": "properties.scheduleInfo",
+          "propertyChangeType": "Modify",
+          "before": {
+            "expiration": {
+              "type": "afterDateTime",
+              "endDateTime": "2026-12-31T00:00:00Z"
+            }
+          },
+          "after": {
+            "expiration": {
+              "type": "afterDateTime",
+              "endDateTime": "2027-03-31T00:00:00Z"
+            }
+          },
+          "children": [
+            {
+              "path": "expiration",
+              "propertyChangeType": "Modify",
+              "before": {
+                "type": "afterDateTime",
+                "endDateTime": "2026-12-31T00:00:00Z"
+              },
+              "after": {
+                "type": "afterDateTime",
+                "endDateTime": "2027-03-31T00:00:00Z"
+              },
+              "children": [
+                {
+                  "path": "endDateTime",
+                  "propertyChangeType": "Modify",
+                  "before": "2026-12-31T00:00:00Z",
+                  "after": "2027-03-31T00:00:00Z"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "unsupportedReason": null,
+      "reasons": [
+        "the active assignment is changed in place with a PIM adminUpdate request"
+      ]
+    },
+    {
+      "resourceId": "/providers/Microsoft.Entra/roleAssignmentScheduleRequests/3faba3b6-1c65-52f2-a22e-1c2e50f1e153",
+      "changeType": "NoChange",
+      "before": {
+        "name": "3faba3b6-1c65-52f2-a22e-1c2e50f1e153",
+        "type": "Microsoft.Entra/roleAssignmentScheduleRequests",
+        "apiVersion": "2026-10-01-preview",
+        "properties": {
+          "principalId": "66666666-0000-0000-0000-000000000001",
+          "roleDefinitionId": "f2ef992c-3afb-46b9-b7cf-a126ee74c451",
+          "directoryScopeId": "/",
+          "justification": "Audit support",
+          "scheduleInfo": {
+            "expiration": {
+              "type": "afterDateTime",
+              "endDateTime": "2030-01-01T00:00:00Z"
+            }
+          }
+        }
+      },
+      "after": {
+        "name": "3faba3b6-1c65-52f2-a22e-1c2e50f1e153",
+        "type": "Microsoft.Entra/roleAssignmentScheduleRequests",
+        "apiVersion": "2026-10-01-preview",
+        "properties": {
+          "principalId": "66666666-0000-0000-0000-000000000001",
+          "roleDefinitionId": "f2ef992c-3afb-46b9-b7cf-a126ee74c451",
+          "justification": "Audit support",
+          "scheduleInfo": {
+            "expiration": {
+              "type": "afterDateTime",
+              "endDateTime": "2030-01-01T00:00:00Z"
+            }
+          },
+          "directoryScopeId": "/"
+        }
+      },
+      "unsupportedReason": null
+    },
+    {
+      "resourceId": "/providers/Microsoft.Entra/roleAssignmentScheduleRequests/ce8ab368-cd5d-5625-a18b-d3103e5ca9a8",
+      "changeType": "Create",
+      "after": {
+        "name": "ce8ab368-cd5d-5625-a18b-d3103e5ca9a8",
+        "type": "Microsoft.Entra/roleAssignmentScheduleRequests",
+        "apiVersion": "2026-10-01-preview",
+        "properties": {
+          "principalId": "66666666-0000-0000-0000-000000000002",
+          "roleDefinitionId": "fe930be7-5e62-47db-91af-98c3a49a38b1",
+          "scheduleInfo": {
+            "expiration": {
+              "type": "afterDuration",
+              "duration": "P30D"
+            }
+          },
+          "ticketInfo": {
+            "ticketNumber": "CHG0004321",
+            "ticketSystem": "ServiceNow"
+          },
+          "directoryScopeId": "/",
+          "justification": "Deployed by earm"
+        }
+      },
+      "unsupportedReason": null
+    },
+    {
+      "resourceId": "/providers/Microsoft.Entra/privilegedAccess/groupAssignmentScheduleRequests/66666666-0000-0000-0000-000000000100_member_88888888-0000-0000-0000-000000000002",
+      "changeType": "Ignore",
+      "orphan": "retained",
+      "graphId": "66666666-0000-0000-0000-000000000100_member_88888888-0000-0000-0000-000000000002",
+      "unsupportedReason": null,
+      "reasons": [
+        "retained: no longer declared; still grants access (active member: groupId '66666666-0000-0000-0000-000000000100', principalId '66666666-0000-0000-0000-000000000002', accessId 'member'). Assignments are never removed: delete it yourself if the access should end."
+      ]
+    },
+    {
+      "resourceId": "/providers/Microsoft.Entra/roleAssignmentScheduleRequests/77777777-0000-0000-0000-000000000002",
+      "changeType": "Ignore",
+      "orphan": "retained",
+      "graphId": "77777777-0000-0000-0000-000000000002",
+      "unsupportedReason": null,
+      "reasons": [
+        "retained: no longer declared; still grants access (active: principalId '66666666-0000-0000-0000-000000000001', roleDefinitionId '5d6b6bb7-de71-4623-b4af-96380a352509', directoryScopeId '/'). Assignments are never removed: delete it yourself if the access should end."
+      ]
+    }
+  ],
+  "diagnostics": [
+    {
+      "level": "Warning",
+      "code": "AssignmentRetained",
+      "target": null,
+      "message": "'/providers/Microsoft.Entra/privilegedAccess/groupAssignmentScheduleRequests/66666666-0000-0000-0000-000000000100_member_88888888-0000-0000-0000-000000000002' (Graph id 66666666-0000-0000-0000-000000000100_member_88888888-0000-0000-0000-000000000002) is not declared by the template but still grants access (active member: groupId '66666666-0000-0000-0000-000000000100', principalId '66666666-0000-0000-0000-000000000002', accessId 'member'); EARM never removes it. Delete it yourself if the access should end."
+    },
+    {
+      "level": "Warning",
+      "code": "AssignmentRetained",
+      "target": null,
+      "message": "'/providers/Microsoft.Entra/roleAssignmentScheduleRequests/77777777-0000-0000-0000-000000000002' (Graph id 77777777-0000-0000-0000-000000000002) is not declared by the template but still grants access (active: principalId '66666666-0000-0000-0000-000000000001', roleDefinitionId '5d6b6bb7-de71-4623-b4af-96380a352509', directoryScopeId '/'); EARM never removes it. Delete it yourself if the access should end."
+    }
+  ],
+  "requiredPermissions": [
+    "Directory.Read.All",
+    "PrivilegedAssignmentSchedule.ReadWrite.AzureADGroup",
+    "RoleAssignmentSchedule.ReadWrite.Directory"
+  ],
+  "unresolvedReferences": [],
+  "summary": {
+    "create": 1,
+    "modify": 1,
+    "delete": 0,
+    "noChange": 1,
+    "ignore": 0,
+    "unsupported": 0,
+    "orphans": 2,
+    "edges": {
+      "add": 0,
+      "remove": 0
+    }
+  }
+}

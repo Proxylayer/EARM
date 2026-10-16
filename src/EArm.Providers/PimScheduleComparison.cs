@@ -56,6 +56,14 @@ public static class PimScheduleComparison
         return info;
     }
 
+    /// <summary>True when a live schedule never expires (expiration type noExpiration, or no expiration at all).</summary>
+    public static bool IsPermanent(JsonObject live)
+    {
+        ArgumentNullException.ThrowIfNull(live);
+        string? type = ScheduleView(live)?["expiration"] is JsonObject expiration ? JsonObjects.GetString(expiration, "type") : null;
+        return type is null || string.Equals(PimScheduleRules.NormalizeExpirationType(type), PimScheduleRules.NoExpiration, StringComparison.Ordinal);
+    }
+
     /// <summary>
     /// A copy of <paramref name="liveView"/> in which every member equivalent to its declared counterpart carries the declared value (see the type summary).
     /// </summary>

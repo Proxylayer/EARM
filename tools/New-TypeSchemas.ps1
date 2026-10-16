@@ -717,6 +717,60 @@ $specs['privilegedAccess.groupEligibilityScheduleRequests'] = [ordered]@{
     }
 }
 
+# --- roleAssignmentScheduleRequests (PIM time-bound active assignment, ARM-styled) --------------------------------
+$specs['roleAssignmentScheduleRequests'] = [ordered]@{
+    NamePattern = $script:GuidPattern
+    Description = 'A PIM time-bound ACTIVE directory role assignment, shaped like ARM''s Microsoft.Authorization/roleAssignmentScheduleRequests. The resource name is a deterministic GUID chosen with guid() (a label, not the identity); the assignment is matched by (principalId, roleDefinitionId, directoryScopeId or appScopeId) and read live on every run. Created with action adminAssign, changed in place with adminUpdate, removed with adminRemove; justification and ticketInfo are request metadata, sent on every request and never compared. The schedule must be time-bound (AfterDateTime or AfterDuration): a permanent active assignment is Microsoft.Entra/roleAssignments, and the same principal, role and scope may not be declared by both. condition, conditionVersion and the target*/linked*ScheduleId properties of ARM are refused.'
+    Props       = [ordered]@{
+        principalId        = Guid 'Required: object id of the user, role-assignable group or service principal the role is assigned to.'
+        roleDefinitionId   = Guid 'The role template id (use roleTemplate(''Display Name'')), or use role. Not both.'
+        role               = Str 'EARM sugar: role template id, built-in role name, custom role display name or id; resolved to roleDefinitionId. Not with roleDefinitionId.' -Min 1
+        directoryScopeId   = Str 'Scope: ''/'' (tenant, default), ''/administrativeUnits/{id}'' or ''/{objectId}''. At most one of directoryScopeId, administrativeUnit and appScopeId.' -Pattern '^/'
+        administrativeUnit = Str 'EARM sugar for an administrative-unit scope: the unit''s object id or its displayName; resolved to directoryScopeId.' -Min 1
+        appScopeId         = Str 'An app-specific scope instead of a directory scope (''/'' for tenant-wide app scopes).' -Min 1
+        requestType        = Str 'Optional and only AdminAssign (any casing), so ARM snippets paste unchanged; EARM chooses adminAssign / adminUpdate / adminRemove itself.'
+        scheduleInfo       = Obj -d 'Required: the assignment period, time-bound (NoExpiration is refused: use Microsoft.Entra/roleAssignments for a permanent assignment).' -Props (Props ([ordered]@{
+            startDateTime = Str 'ISO 8601 start; absent or in the past means now (a past start is never drift).'
+            expiration    = Obj -d 'Required: when the assignment ends.' -Props (Props ([ordered]@{
+                type        = Str 'AfterDateTime (needs endDateTime) or AfterDuration (needs duration); any casing, sent in Graph''s camelCase. NoExpiration is refused.'
+                endDateTime = Str 'AfterDateTime: the ISO 8601 end, after startDateTime. Compared with a 1 s tolerance.'
+                duration    = Str 'AfterDuration: an ISO 8601 duration such as P30D or PT8H. Applied when the assignment is created and never compared afterwards.'
+            }))
+        }))
+        justification      = Str 'Request metadata, sent on every request and never compared (default "Deployed by earm"); PIM policy may require it.'
+        ticketInfo         = Obj -d 'Request metadata, sent on every request and never compared.' -Props (Props ([ordered]@{
+            ticketNumber = Str 'Ticket number.'
+            ticketSystem = Str 'Ticket system.'
+        }))
+    }
+}
+
+# --- privilegedAccess/groupAssignmentScheduleRequests (PIM for Groups time-bound active assignment) ---------------
+$specs['privilegedAccess.groupAssignmentScheduleRequests'] = [ordered]@{
+    NamePattern = $script:GuidPattern
+    Description = 'A PIM for Groups time-bound ACTIVE assignment: a user or group made an active member (accessId member) or owner (accessId owner) of a group until a date or for a duration. The resource name is a deterministic GUID chosen with guid() (a label, not the identity); the assignment is matched by (groupId, principalId, accessId) and read live on every run. Created with action adminAssign, changed in place with adminUpdate, removed with adminRemove; justification and ticketInfo are request metadata, sent on every request and never compared. The schedule must be time-bound (a permanent membership is the group''s members / owners), and the target group may not declare an authoritative members (owners) list, nor the principal list the group in memberOf (ownerOf). The first request onboards the group in PIM for Groups permanently; dynamic membership and on-premises synced groups are refused.'
+    Props       = [ordered]@{
+        groupId       = Guid 'The target group''s object id (for example [reference(resourceId(''Microsoft.Entra/groups'', ''ops-admins'')).id]), or use group. Not both.'
+        group         = Str 'EARM sugar: the target group''s uniqueName or object id; resolved to groupId. Not with groupId.' -Min 1
+        principalId   = Guid 'Required: object id of the user or group made an active member or owner.'
+        accessId      = Str 'Required: member (active membership) or owner (active ownership); any casing, sent in Graph''s lowercase.'
+        requestType   = Str 'Optional and only AdminAssign (any casing); EARM chooses adminAssign / adminUpdate / adminRemove itself.'
+        scheduleInfo  = Obj -d 'Required: the assignment period, time-bound (NoExpiration is refused: declare a permanent membership in the group''s members / owners).' -Props (Props ([ordered]@{
+            startDateTime = Str 'ISO 8601 start; absent or in the past means now (a past start is never drift).'
+            expiration    = Obj -d 'Required: when the assignment ends.' -Props (Props ([ordered]@{
+                type        = Str 'AfterDateTime (needs endDateTime) or AfterDuration (needs duration); any casing, sent in Graph''s camelCase. NoExpiration is refused.'
+                endDateTime = Str 'AfterDateTime: the ISO 8601 end, after startDateTime. Compared with a 1 s tolerance.'
+                duration    = Str 'AfterDuration: an ISO 8601 duration such as P30D or PT8H. Applied when the assignment is created and never compared afterwards.'
+            }))
+        }))
+        justification = Str 'Request metadata, sent on every request and never compared (default "Deployed by earm"); PIM policy may require it.'
+        ticketInfo    = Obj -d 'Request metadata, sent on every request and never compared.' -Props (Props ([ordered]@{
+            ticketNumber = Str 'Ticket number.'
+            ticketSystem = Str 'Ticket system.'
+        }))
+    }
+}
+
 # ---------------------------------------------------------------------------------------------------------------
 # Rewrite the files
 # ---------------------------------------------------------------------------------------------------------------

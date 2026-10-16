@@ -18,7 +18,8 @@ namespace EArm.Core.Validation;
 public sealed record PimRequestFinding(JsonPath Path, string Message, bool SchemaCovered = false);
 
 /// <summary>
-/// The pure rules every PIM schedule request type shares (<c>roleEligibilityScheduleRequests</c>, <c>privilegedAccess/groupEligibilityScheduleRequests</c>):
+/// The pure rules every PIM schedule request type shares (<c>roleEligibilityScheduleRequests</c>, <c>roleAssignmentScheduleRequests</c>,
+/// <c>privilegedAccess/groupEligibilityScheduleRequests</c>, <c>privilegedAccess/groupAssignmentScheduleRequests</c>):
 /// <c>requestType</c> (only <c>AdminAssign</c>; the engine chooses the Graph action), the request metadata (<c>justification</c>, <c>ticketInfo</c>) and the
 /// schedule (<c>scheduleInfo</c>: the expiration type, the endDateTime / duration each type needs, ISO 8601 values, end after start), plus the
 /// normalisation to Graph's camelCase. Values the caller cannot judge yet are skipped through the <c>isOpaque</c> predicate.
@@ -136,6 +137,48 @@ public static class PimScheduleRules
         {
             expiration[typeKey] = normalized;
         }
+    }
+
+    /// <summary>
+    /// The rule of the active assignment types: the schedule must be time-bound. An absent <c>scheduleInfo</c> or <c>expiration</c>, or an expiration of
+    /// type NoExpiration, is a finding that points at <paramref name="permanentAlternative"/> (where permanent active assignments are declared). The
+    /// shape, the type enum and the endDateTime / duration rules are <see cref="CheckRequest"/>'s; opaque values are skipped.
+    /// </summary>
+    public static void CheckTimeBound(JsonObject properties, Func<JsonNode?, bool> isOpaque, List<PimRequestFinding> findings, string permanentAlternative)
+    {
+        ArgumentNullException.ThrowIfNull(properties);
+        ArgumentNullException.ThrowIfNull(isOpaque);
+        ArgumentNullException.ThrowIfNull(findings);
+        ArgumentException.ThrowIfNullOrWhiteSpace(permanentAlternative);
+        string advice = $"an active assignment requested through PIM must be time-bound: declare scheduleInfo.expiration with type AfterDateTime (and endDateTime) or AfterDuration (and duration); for a permanent active assignment use {permanentAlternative}";
+        var schedule = Property(properties, "scheduleInfo");
+        if (schedule is null || IsAbsent(schedule.Value.Value))
+        {
+            findings.Add(new(JsonPath.Root.Append(schedule?.Key ?? "scheduleInfo"), $"properties.scheduleInfo is required: {advice}"));
+            return;
+        }
+
+        if (isOpaque(schedule.Value.Value) || schedule.Value.Value is not JsonObject info)
+        {
+            return;
+        }
+
+        var schedulePath = JsonPath.Root.Append(schedule.Value.Key);
+        var expiration = Property(info, "expiration");
+        if (expiration is null || IsAbsent(expiration.Value.Value))
+        {
+            findings.Add(new(schedulePath.Append(expiration?.Key ?? "expiration"), $"properties.{schedule.Value.Key}.expiration is required: {advice}"));
+            return;
+        }
+
+        if (isOpaque(expiration.Value.Value) || expiration.Value.Value is not JsonObject pattern
+            || Judged(pattern, "type", isOpaque) is not (string typeKey, var type)
+            || !TryString(type, out string? text) || NormalizeExpirationType(text) != NoExpiration)
+        {
+            return;
+        }
+
+        findings.Add(new(schedulePath.Append(expiration.Value.Key).Append(typeKey), $"properties.{schedule.Value.Key}.{expiration.Value.Key}.{typeKey} NoExpiration is not allowed: {advice}"));
     }
 
     /// <summary>Adds a "required" finding when <paramref name="name"/> is absent, else a schema-covered finding when its known value is not a GUID.</summary>

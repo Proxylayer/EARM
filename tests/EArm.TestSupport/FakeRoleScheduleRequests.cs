@@ -10,25 +10,50 @@ using EArm.Graph;
 namespace EArm.TestSupport;
 
 /// <summary>
-/// PIM eligibility for directory roles in the fake tenant. <see cref="FakeDirectory"/> routes
-/// <c>POST /roleManagement/directory/roleEligibilityScheduleRequests</c> here: <c>adminAssign</c> creates a Direct schedule in
-/// <c>/roleManagement/directory/roleEligibilitySchedules</c> (its id is the request id, which the response carries as <c>targetScheduleId</c>),
-/// <c>adminUpdate</c> replaces its <c>scheduleInfo</c>, <c>adminRemove</c> revokes it. The Graph rules modelled: one scope (<c>directoryScopeId</c> or
-/// <c>appScopeId</c>) is required; the principal must exist and a group must be role-assignable; a second adminAssign of the same tuple is
-/// <c>400 RoleAssignmentExists</c>; an update or remove of a missing eligibility is <c>400 RoleAssignmentDoesNotExist</c>; with
-/// <see cref="RequireExpiration"/> (a seeded policy whose ExpirationRule forbids permanent eligibility) a NoExpiration request is
+/// PIM schedule requests for directory roles in the fake tenant: eligibility (<see cref="Eligibility"/>) or time-bound active assignment
+/// (<see cref="Assignment"/>). <see cref="FakeDirectory"/> routes <c>POST {requests}</c> here: <c>adminAssign</c> creates a Direct schedule in
+/// <c>{schedules}</c> (its id is the request id, which the response carries as <c>targetScheduleId</c>; an active assignment schedule also carries
+/// <c>assignmentType</c> Assigned), <c>adminUpdate</c> replaces its <c>scheduleInfo</c>, <c>adminRemove</c> revokes it. The Graph rules modelled: one
+/// scope (<c>directoryScopeId</c> or <c>appScopeId</c>) is required; the principal must exist and a group must be role-assignable; a second adminAssign
+/// of the same tuple is <c>400 RoleAssignmentExists</c>; an update or remove of a missing schedule is <c>400 RoleAssignmentDoesNotExist</c>; with
+/// <see cref="RequireExpiration"/> (a seeded policy whose ExpirationRule forbids permanent schedules) a NoExpiration request is
 /// <c>400 RoleAssignmentRequestPolicyValidationFailed</c>. With <see cref="ProcessingLagLists"/> a request is accepted at once but its schedule change only
 /// becomes visible after that many schedule list reads (PIM processes requests asynchronously).
 /// </summary>
-public sealed class FakeRoleEligibility
+public sealed class FakeRoleScheduleRequests
 {
-    public const string RequestsPath = "/roleManagement/directory/roleEligibilityScheduleRequests";
+    public const string EligibilityRequestsPath = "/roleManagement/directory/roleEligibilityScheduleRequests";
 
-    public const string SchedulesPath = "/roleManagement/directory/roleEligibilitySchedules";
+    public const string EligibilitySchedulesPath = "/roleManagement/directory/roleEligibilitySchedules";
+
+    public const string AssignmentRequestsPath = "/roleManagement/directory/roleAssignmentScheduleRequests";
+
+    public const string AssignmentSchedulesPath = "/roleManagement/directory/roleAssignmentSchedules";
 
     private readonly List<PendingChange> _pending = [];
 
-    /// <summary>The role management policy forbids permanent eligibility (its ExpirationRule): a NoExpiration request is refused.</summary>
+    private readonly bool _assignment;
+
+    private FakeRoleScheduleRequests(string requestsPath, string schedulesPath, bool assignment)
+    {
+        RequestsPath = requestsPath;
+        SchedulesPath = schedulesPath;
+        _assignment = assignment;
+    }
+
+    /// <summary>PIM eligibility for directory roles (<c>roleEligibilityScheduleRequests</c> / <c>roleEligibilitySchedules</c>).</summary>
+    public static FakeRoleScheduleRequests Eligibility() => new(EligibilityRequestsPath, EligibilitySchedulesPath, assignment: false);
+
+    /// <summary>PIM active assignment of directory roles (<c>roleAssignmentScheduleRequests</c> / <c>roleAssignmentSchedules</c>).</summary>
+    public static FakeRoleScheduleRequests Assignment() => new(AssignmentRequestsPath, AssignmentSchedulesPath, assignment: true);
+
+    /// <summary>The request collection this fake answers.</summary>
+    public string RequestsPath { get; }
+
+    /// <summary>The schedule collection this fake maintains.</summary>
+    public string SchedulesPath { get; }
+
+    /// <summary>The role management policy forbids permanent schedules (its ExpirationRule): a NoExpiration request is refused.</summary>
     public bool RequireExpiration { get; set; }
 
     /// <summary>How many schedule list reads miss a request's change after it was accepted (default 0: visible at once).</summary>
@@ -37,12 +62,12 @@ public sealed class FakeRoleEligibility
     /// <summary>Every request body received, in order.</summary>
     public List<JsonObject> Requests { get; } = [];
 
-    internal static bool IsRequests(string collectionPath)
+    internal bool IsRequests(string collectionPath)
     {
         return collectionPath.TrimEnd('/').Equals(RequestsPath, StringComparison.OrdinalIgnoreCase);
     }
 
-    internal static bool IsSchedules(string collectionPath)
+    internal bool IsSchedules(string collectionPath)
     {
         return collectionPath.TrimEnd('/').Equals(SchedulesPath, StringComparison.OrdinalIgnoreCase);
     }
@@ -115,6 +140,11 @@ public sealed class FakeRoleEligibility
                     ["memberType"] = "Direct",
                     ["scheduleInfo"] = scheduleInfo,
                 };
+                if (_assignment)
+                {
+                    schedule["assignmentType"] = "Assigned";
+                }
+
                 Queue(new PendingChange(schedule, Assigns: true, list => list.Add((JsonObject)schedule.DeepClone())), schedules);
                 return Response(requestId, "Provisioned", action, request, requestId, scheduleInfo.DeepClone());
             }
@@ -178,7 +208,7 @@ public sealed class FakeRoleEligibility
         if (principal.Collection.Equals("/groups", StringComparison.OrdinalIgnoreCase)
             && (principal.Object["isAssignableToRole"] is not JsonValue assignable || assignable.GetValueKind() != JsonValueKind.True))
         {
-            throw FakeDirectory.BadRequest("The group must be role-assignable (isAssignableToRole) to be eligible for a directory role.", hint);
+            throw FakeDirectory.BadRequest("The group must be role-assignable (isAssignableToRole) to hold a directory role.", hint);
         }
     }
 

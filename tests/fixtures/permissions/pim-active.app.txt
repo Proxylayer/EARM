@@ -1,0 +1,32 @@
+Permissions required by samples/pim-active.entra.json (mode: app, 7 resource(s))
+
+Microsoft Graph application permissions
+  Directory.Read.All
+      /providers/Microsoft.Entra/privilegedAccess/groupAssignmentScheduleRequests/df030239-5ef3-5795-a8c4-d62d1c17796f
+      /providers/Microsoft.Entra/privilegedAccess/groupAssignmentScheduleRequests/ec03e90e-2dac-5868-bd47-b8257c4e4728
+      /providers/Microsoft.Entra/roleAssignmentScheduleRequests/77ab2633-a75e-56ac-b28f-9560661ea2ae
+      /providers/Microsoft.Entra/roleAssignmentScheduleRequests/78a2bfef-87e2-59c4-a528-167e9c09a2c5
+      /providers/Microsoft.Entra/roleAssignments/957dbd0e-d03e-5877-8106-6ff4cebc14e9
+      (provider)
+  Group.ReadWrite.All
+      /providers/Microsoft.Entra/groups/pim-incident-responders
+      /providers/Microsoft.Entra/groups/pim-ops-oncall
+      (provider)
+  Organization.Read.All
+      (every deployment)
+      (preflight: GET /organization)
+  PrivilegedAssignmentSchedule.ReadWrite.AzureADGroup
+      /providers/Microsoft.Entra/privilegedAccess/groupAssignmentScheduleRequests/df030239-5ef3-5795-a8c4-d62d1c17796f
+      /providers/Microsoft.Entra/privilegedAccess/groupAssignmentScheduleRequests/ec03e90e-2dac-5868-bd47-b8257c4e4728
+      (provider)
+  RoleAssignmentSchedule.ReadWrite.Directory
+      /providers/Microsoft.Entra/roleAssignmentScheduleRequests/77ab2633-a75e-56ac-b28f-9560661ea2ae
+      /providers/Microsoft.Entra/roleAssignmentScheduleRequests/78a2bfef-87e2-59c4-a528-167e9c09a2c5
+      (provider)
+  RoleManagement.ReadWrite.Directory
+      /providers/Microsoft.Entra/groups/pim-incident-responders
+      /providers/Microsoft.Entra/roleAssignments/957dbd0e-d03e-5877-8106-6ff4cebc14e9
+      (provider)
+
+note: Application permissions are Microsoft Graph app roles granted (with admin consent) to the service principal EARM signs in with (AZURE_CLIENT_ID, or the managed identity). Application.ReadWrite.OwnedBy replaces Application.ReadWrite.All for applications the service principal owns.
+note: Edge permissions are listed for every relationship property the template declares (including an empty array, which removes edges). Key Vault access is an Azure RBAC / access-policy requirement of the signed-in identity, not a Graph permission.

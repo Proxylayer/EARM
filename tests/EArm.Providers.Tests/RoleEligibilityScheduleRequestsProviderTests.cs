@@ -21,8 +21,8 @@ public sealed class RoleEligibilityScheduleRequestsProviderTests
 {
     private const string Type = RoleEligibilityScheduleRequestsProvider.ResourceType;
     private const string Name = "6f1b8a2e-3c4d-4e5f-8a9b-0c1d2e3f4a5b";
-    private const string Schedules = FakeRoleEligibility.SchedulesPath;
-    private const string Requests = FakeRoleEligibility.RequestsPath;
+    private const string Schedules = FakeRoleScheduleRequests.EligibilitySchedulesPath;
+    private const string Requests = FakeRoleScheduleRequests.EligibilityRequestsPath;
 
     private static (ProviderHost Host, string AliceId) Setup()
     {

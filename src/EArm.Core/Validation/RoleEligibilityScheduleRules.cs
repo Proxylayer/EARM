@@ -39,6 +39,15 @@ public static class RoleEligibilityScheduleRules
     /// <param name="isOpaque">True for a value that cannot be judged yet (a template expression, a deploy-time value, a secret).</param>
     public static IReadOnlyList<PimRequestFinding> Check(JsonObject properties, Func<JsonNode?, bool> isOpaque)
     {
+        return CheckRoleRequest(properties, isOpaque, "role eligibility schedule request", "PIM eligibility for directory roles", "make eligible");
+    }
+
+    /// <summary>
+    /// The rules every directory role schedule request shares (an eligibility, an active assignment): the property set, the principal, the role, the scope
+    /// and the shared request rules; <paramref name="requestName"/>, <paramref name="feature"/> and <paramref name="grant"/> word the messages.
+    /// </summary>
+    internal static List<PimRequestFinding> CheckRoleRequest(JsonObject properties, Func<JsonNode?, bool> isOpaque, string requestName, string feature, string grant)
+    {
         ArgumentNullException.ThrowIfNull(properties);
         ArgumentNullException.ThrowIfNull(isOpaque);
         var findings = new List<PimRequestFinding>();
@@ -48,15 +57,15 @@ public static class RoleEligibilityScheduleRules
         {
             if (IsArmOnlyProperty(property.Key))
             {
-                findings.Add(new(root.Append(property.Key), $"properties.{property.Key} is an ARM property that PIM eligibility for directory roles does not support; remove it"));
+                findings.Add(new(root.Append(property.Key), $"properties.{property.Key} is an ARM property that {feature} does not support; remove it"));
             }
             else if (!AllowedProperties.Contains(property.Key, StringComparer.OrdinalIgnoreCase))
             {
-                findings.Add(new(root.Append(property.Key), $"properties.{property.Key} is not a property of a role eligibility schedule request; expected principalId, roleDefinitionId or role, directoryScopeId or administrativeUnit or appScopeId, scheduleInfo, justification, ticketInfo and requestType"));
+                findings.Add(new(root.Append(property.Key), $"properties.{property.Key} is not a property of a {requestName}; expected principalId, roleDefinitionId or role, directoryScopeId or administrativeUnit or appScopeId, scheduleInfo, justification, ticketInfo and requestType"));
             }
         }
 
-        CheckRequiredGuid(properties, "principalId", "properties.principalId is required: the object id of the user, role-assignable group or service principal to make eligible", isOpaque, findings);
+        CheckRequiredGuid(properties, "principalId", $"properties.principalId is required: the object id of the user, role-assignable group or service principal to {grant}", isOpaque, findings);
         CheckRole(properties, isOpaque, findings);
         CheckScope(properties, isOpaque, findings);
         CheckRequest(properties, isOpaque, findings);

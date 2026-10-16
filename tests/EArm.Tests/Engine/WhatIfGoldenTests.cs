@@ -103,7 +103,7 @@ public sealed class WhatIfGoldenTests
     {
         var all = WhatIfScenario.All();
 
-        Assert.Equal(["create-incremental", "modify-incremental", "modify-resource-id-only", "orphans-complete", "retained-incremental", "auth-methods-incremental", "pim-eligibility-incremental", "pim-groups-incremental"], all.Select(s => s.Name).ToList());
+        Assert.Equal(["create-incremental", "modify-incremental", "modify-resource-id-only", "orphans-complete", "retained-incremental", "auth-methods-incremental", "pim-eligibility-incremental", "pim-groups-incremental", "pim-active-incremental"], all.Select(s => s.Name).ToList());
         foreach (var scenario in all)
         {
             Assert.True(System.IO.File.Exists(scenario.PathOf(scenario.Template)), scenario.Template);

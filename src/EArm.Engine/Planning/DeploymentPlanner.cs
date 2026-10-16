@@ -142,6 +142,10 @@ public sealed class DeploymentPlanner
         // 5. Graph and batches.
         var graph = DependencyGraph.Build(instances, analysis.Static, evaluator, catalog, diagnostics);
         ThrowIfErrors(diagnostics);
+
+        // 5a. Template-level conflicts no single row can see (IDeclarationConflictSource), before any Graph call.
+        AddDeclarationConflicts(document, instances, diagnostics);
+        ThrowIfErrors(diagnostics);
         EngineLog.GraphBuilt(_logger, graph.Edges.Count, graph.Batches.Count);
         foreach (var batch in graph.Batches)
         {
@@ -228,6 +232,23 @@ public sealed class DeploymentPlanner
         }
 
         diagnostics.Sort(DiagnosticOrder.Instance);
+    }
+
+    /// <summary>The conflicts the providers that implement <see cref="IDeclarationConflictSource"/> find among the expanded instances, as errors.</summary>
+    private void AddDeclarationConflicts(TemplateDocument document, IReadOnlyList<ResourceInstance> instances, List<Diagnostic> diagnostics)
+    {
+        foreach (var instance in instances)
+        {
+            if (instance.IsIgnored || _registry.Get(instance.Type) is not IDeclarationConflictSource source)
+            {
+                continue;
+            }
+
+            foreach (var conflict in source.DescribeConflicts(instance, instances))
+            {
+                diagnostics.Add(Diagnostic.Error(conflict.Code, conflict.Message, conflict.Path, document.LocationOf(conflict.Path), document.SourcePath));
+            }
+        }
     }
 
     private static void ThrowIfErrors(List<Diagnostic> diagnostics)

@@ -155,6 +155,20 @@ public static class EngineDiagnosticCodes
     /// <summary>A <c>privilegedAccess/groupEligibilityScheduleRequests</c> declaration is invalid (unknown group or principal, a dynamic or on-premises synced group, a principal that is not a user or group).</summary>
     public const string GroupEligibilityInvalid = "GroupEligibilityInvalid";
 
+    /// <summary>A <c>roleAssignmentScheduleRequests</c> declaration is invalid (unknown role, unit or principal, a group that is not role-assignable, a bad or permanent schedule).</summary>
+    public const string RoleAssignmentScheduleInvalid = "RoleAssignmentScheduleInvalid";
+
+    /// <summary>A <c>privilegedAccess/groupAssignmentScheduleRequests</c> declaration is invalid (unknown group or principal, a dynamic or on-premises synced group, a principal that is not a user or group, a bad or permanent schedule).</summary>
+    public const string GroupAssignmentScheduleInvalid = "GroupAssignmentScheduleInvalid";
+
+    /// <summary>
+    /// A time-bound PIM active assignment (<c>roleAssignmentScheduleRequests</c>, <c>privilegedAccess/groupAssignmentScheduleRequests</c>) would fight
+    /// another declaration or a permanent live assignment: the same role assignment declared by <c>roleAssignments</c> or a principal's
+    /// <c>directoryRoles</c>, a target group whose <c>members</c> / <c>owners</c> list prunes it or a principal's <c>memberOf</c> / <c>ownerOf</c> that would
+    /// re-add it permanently (refused before planning), or a permanent assignment under the same tuple (refused at plan time, on adoption, kept on delete).
+    /// </summary>
+    public const string PimAssignmentConflict = "PimAssignmentConflict";
+
     /// <summary>Graph refused a PIM schedule request because a rule of the role's (or group's) management policy failed (ExpirationRule, JustificationRule, TicketingRule...); the message carries Graph's text.</summary>
     public const string PimPolicyViolation = "PimPolicyViolation";
 

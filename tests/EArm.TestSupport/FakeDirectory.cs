@@ -46,6 +46,10 @@ public sealed class FakeDirectory
         "roleManagement/directory/roleEligibilitySchedules",
         "identityGovernance/privilegedAccess/group/eligibilityScheduleRequests",
         "identityGovernance/privilegedAccess/group/eligibilitySchedules",
+        "roleManagement/directory/roleAssignmentScheduleRequests",
+        "roleManagement/directory/roleAssignmentSchedules",
+        "identityGovernance/privilegedAccess/group/assignmentScheduleRequests",
+        "identityGovernance/privilegedAccess/group/assignmentSchedules",
         "policies/authenticationStrengthPolicies",
         "policies/authenticationMethodsPolicy/authenticationMethodConfigurations",
         "applications",
@@ -122,10 +126,16 @@ public sealed class FakeDirectory
     public int ConditionalAccessLagAttempts { get; set; }
 
     /// <summary>PIM eligibility for directory roles (the request endpoint, the schedules, the seeded policy and the processing lag).</summary>
-    public FakeRoleEligibility RoleEligibility { get; } = new();
+    public FakeRoleScheduleRequests RoleEligibility { get; } = FakeRoleScheduleRequests.Eligibility();
+
+    /// <summary>PIM time-bound active assignment of directory roles (the request endpoint, the schedules, the seeded policy and the processing lag).</summary>
+    public FakeRoleScheduleRequests RoleAssignmentSchedules { get; } = FakeRoleScheduleRequests.Assignment();
 
     /// <summary>PIM for Groups eligibility (the request endpoint, the schedules, the seeded group policy and the onboarded groups).</summary>
-    public FakeGroupEligibility GroupEligibility { get; } = new();
+    public FakeGroupScheduleRequests GroupEligibility { get; } = FakeGroupScheduleRequests.Eligibility();
+
+    /// <summary>PIM for Groups time-bound active assignment (the request endpoint, the schedules, the seeded group policy and the onboarded groups).</summary>
+    public FakeGroupScheduleRequests GroupAssignmentSchedules { get; } = FakeGroupScheduleRequests.Assignment();
 
     /// <summary>The clock the 30-day soft-delete retention is measured with; tests move it to expire a deleted item.</summary>
     public TimeProvider Clock { get; set; } = TimeProvider.System;
@@ -386,38 +396,44 @@ public sealed class FakeDirectory
                 throw BadRequest("Listing /directory/deletedItems requires a type cast (for example /directory/deletedItems/microsoft.graph.application).", hint);
             }
 
-            if (FakeRoleEligibility.IsRequests(collectionPath))
+            foreach (var roles in new[] { RoleEligibility, RoleAssignmentSchedules })
             {
-                return method == "POST"
-                    ? (HttpStatusCode.Created, RoleEligibility.Submit(body, Collection(FakeRoleEligibility.SchedulesPath), LocatePrincipal, hint))
-                    : throw MethodNotAllowed($"{method} is not supported on '{collectionPath}' by the fake.", hint);
-            }
-
-            if (FakeRoleEligibility.IsSchedules(collectionPath))
-            {
-                if (method != "GET")
+                if (roles.IsRequests(collectionPath))
                 {
-                    throw MethodNotAllowed($"{method} is not supported on '{collectionPath}': schedules change only through schedule requests.", hint);
+                    return method == "POST"
+                        ? (HttpStatusCode.Created, roles.Submit(body, Collection(roles.SchedulesPath), LocatePrincipal, hint))
+                        : throw MethodNotAllowed($"{method} is not supported on '{collectionPath}' by the fake.", hint);
                 }
 
-                RoleEligibility.BeforeList(Collection(collectionPath));
-            }
-
-            if (FakeGroupEligibility.IsRequests(collectionPath))
-            {
-                return method == "POST"
-                    ? (HttpStatusCode.Created, GroupEligibility.Submit(body, Collection(FakeGroupEligibility.SchedulesPath), LocatePrincipal, hint))
-                    : throw MethodNotAllowed($"{method} is not supported on '{collectionPath}' by the fake.", hint);
-            }
-
-            if (FakeGroupEligibility.IsSchedules(collectionPath))
-            {
-                if (method != "GET")
+                if (roles.IsSchedules(collectionPath))
                 {
-                    throw MethodNotAllowed($"{method} is not supported on '{collectionPath}': schedules change only through schedule requests.", hint);
+                    if (method != "GET")
+                    {
+                        throw MethodNotAllowed($"{method} is not supported on '{collectionPath}': schedules change only through schedule requests.", hint);
+                    }
+
+                    roles.BeforeList(Collection(collectionPath));
+                }
+            }
+
+            foreach (var groups in new[] { GroupEligibility, GroupAssignmentSchedules })
+            {
+                if (groups.IsRequests(collectionPath))
+                {
+                    return method == "POST"
+                        ? (HttpStatusCode.Created, groups.Submit(body, Collection(groups.SchedulesPath), LocatePrincipal, hint))
+                        : throw MethodNotAllowed($"{method} is not supported on '{collectionPath}' by the fake.", hint);
                 }
 
-                FakeGroupEligibility.RequireFilter(query, hint);
+                if (groups.IsSchedules(collectionPath))
+                {
+                    if (method != "GET")
+                    {
+                        throw MethodNotAllowed($"{method} is not supported on '{collectionPath}': schedules change only through schedule requests.", hint);
+                    }
+
+                    FakeGroupScheduleRequests.RequireFilter(query, hint);
+                }
             }
 
             if (method == "POST" && FakeAuthenticationMethodsPolicy.IsCollection(collectionPath))

@@ -103,5 +103,17 @@
     "parameters": {},
     "expectedText": "pim-groups-incremental.expected.txt",
     "expectedJson": "pim-groups-incremental.expected.json"
+  },
+  {
+    "name": "pim-active-incremental",
+    "deploymentName": "pim-active-incremental",
+    "mode": "Incremental",
+    "resultFormat": "FullResourcePayloads",
+    "tenantId": "11111111-1111-1111-1111-111111111111",
+    "template": "pim-active-incremental.entra.json",
+    "seed": "pim-active-incremental.seed.json",
+    "parameters": {},
+    "expectedText": "pim-active-incremental.expected.txt",
+    "expectedJson": "pim-active-incremental.expected.json"
   }
 ]

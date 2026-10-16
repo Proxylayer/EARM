@@ -1,0 +1,48 @@
+{
+  "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "variables": {
+    "ops": "66666666-0000-0000-0000-000000000100",
+    "alice": "66666666-0000-0000-0000-000000000001",
+    "bob": "66666666-0000-0000-0000-000000000002",
+    "globalReader": "f2ef992c-3afb-46b9-b7cf-a126ee74c451",
+    "userAdministrator": "fe930be7-5e62-47db-91af-98c3a49a38b1"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Entra/roleAssignmentScheduleRequests",
+      "apiVersion": "2026-10-01-preview",
+      "name": "[guid(variables('alice'), variables('globalReader'), 'active')]",
+      "properties": {
+        "principalId": "[variables('alice')]",
+        "roleDefinitionId": "[variables('globalReader')]",
+        "requestType": "AdminAssign",
+        "justification": "Audit support",
+        "scheduleInfo": { "expiration": { "type": "AfterDateTime", "endDateTime": "2030-01-01T00:00:00Z" } }
+      }
+    },
+    {
+      "type": "Microsoft.Entra/roleAssignmentScheduleRequests",
+      "apiVersion": "2026-10-01-preview",
+      "name": "[guid(variables('bob'), variables('userAdministrator'), 'active')]",
+      "properties": {
+        "principalId": "[variables('bob')]",
+        "roleDefinitionId": "[variables('userAdministrator')]",
+        "scheduleInfo": { "expiration": { "type": "AfterDuration", "duration": "P30D" } },
+        "ticketInfo": { "ticketNumber": "CHG0004321", "ticketSystem": "ServiceNow" }
+      }
+    },
+    {
+      "type": "Microsoft.Entra/privilegedAccess/groupAssignmentScheduleRequests",
+      "apiVersion": "2026-10-01-preview",
+      "name": "[guid(variables('ops'), variables('alice'), 'member', 'active')]",
+      "properties": {
+        "groupId": "[variables('ops')]",
+        "principalId": "[variables('alice')]",
+        "accessId": "Member",
+        "justification": "On-call extended",
+        "scheduleInfo": { "expiration": { "type": "AfterDateTime", "endDateTime": "2027-03-31T00:00:00Z" } }
+      }
+    }
+  ]
+}

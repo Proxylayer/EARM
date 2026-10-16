@@ -493,7 +493,7 @@ live on every run. The pure rules (property set, exclusive pairs, schedule rules
 | Update | `POST` with `action: adminUpdate` and the full request (in place; never a recreate), then a read-back |
 | Delete | `POST` with `action: adminRemove` (tuple + the default justification); an eligibility that is already gone (`RoleAssignmentDoesNotExist`, 404) is not an error |
 
-Comparison: the live schedule is reduced to the tuple and `scheduleInfo` (`RoleEligibilitySchedulesLookup.LiveView`, `PimScheduleComparison`), and equivalent values are aligned before
+Comparison: the live schedule is reduced to the tuple and `scheduleInfo` (`RoleSchedulesLookup.LiveView`, `PimScheduleComparison`), and equivalent values are aligned before
 the shared diff, so only real drift is a `Modify`:
 
 - the expiration `type` must match; AfterDateTime compares `endDateTime` within **1 s**;
@@ -508,9 +508,12 @@ A changed tuple is a **new** eligibility: the template's declaration is created 
 deploy. A request refused by the role's PIM policy (`RoleAssignmentRequestPolicyValidationFailed`: an `ExpirationRule` that forbids permanent
 eligibility, a `JustificationRule`, ...) fails the resource with `PimPolicyViolation` and Graph's text. Needs Microsoft Entra ID P2 (or ID Governance).
 
-The lifecycle (plan, adminAssign / adminUpdate / adminRemove, the read-back, `RoleAssignmentExists` adoption, `PimPolicyViolation`) is shared with
-PIM for Groups through the base class `PimScheduleRequestsProvider<TTuple>`; the schedule rules are `PimScheduleRules` (Core), the comparison
-`PimScheduleComparison` and the Graph helpers `PimScheduleRequests`. A type supplies its tuple, its lookups, its Prepare and its orphan listing.
+The lifecycle (plan, adminAssign / adminUpdate / adminRemove, the read-back, `RoleAssignmentExists` adoption, `PimPolicyViolation`, the live-conflict
+hook) is shared by every PIM type through the base class `PimScheduleRequestsProvider<TTuple>`; the schedule rules are `PimScheduleRules` (Core), the
+comparison `PimScheduleComparison` and the Graph helpers `PimScheduleRequests`. Under it, `RoleScheduleRequestsProvider` (the directory role tuple,
+sugar, Prepare and orphan listing, over `RoleSchedulesLookup`) serves the eligibility and the active assignment types alike, and
+`GroupScheduleRequestsProvider` (over `GroupSchedulesLookup`) the two PIM for Groups types; a concrete type supplies its endpoints, rules, messages and
+the schedules it keeps.
 
 ### Worked example: PIM for Groups eligibility
 
@@ -544,6 +547,47 @@ undeclared eligibility of a group the template manages (including the old tuple 
 A group's default PIM policy often forbids permanent eligibility (the `Expiration_Admin_Eligibility` rule). Graph then refuses a NoExpiration request
 and the resource fails with `PimPolicyViolation`, whose message points at an AfterDateTime / AfterDuration expiration or at changing the group's PIM
 policy (`roleManagementPolicies`, a later phase). Needs Microsoft Entra ID Governance (or P2).
+
+### Worked example: PIM active assignments
+
+`Microsoft.Entra/roleAssignmentScheduleRequests` (`RoleAssignmentScheduleRequestsProvider`, ARM analogue `Microsoft.Authorization/roleAssignmentScheduleRequests`)
+and `Microsoft.Entra/privilegedAccess/groupAssignmentScheduleRequests` (`GroupAssignmentScheduleRequestsProvider`) are the **active**, **time-bound**
+counterparts of the two eligibility types: same properties, sugar, identity tuple, lifecycle and comparison, against the assignment endpoints. The
+pure rules (`RoleAssignmentScheduleRules`, `GroupAssignmentScheduleRules`) are the eligibility rules plus one: the schedule must be time-bound
+(`PimScheduleRules.CheckTimeBound`). An absent `scheduleInfo` or `expiration`, or NoExpiration, is refused offline (`InvalidRoleAssignmentScheduleRequest`,
+`InvalidGroupAssignmentScheduleRequest`) and at plan time for computed values: a permanent active directory role assignment is `Microsoft.Entra/roleAssignments`,
+a permanent membership or ownership is the group's `members` / `owners`.
+
+| Operation | Directory roles | PIM for Groups |
+|---|---|---|
+| Read | `GET /roleManagement/directory/roleAssignmentSchedules?$filter=principalId eq … and roleDefinitionId eq … and directoryScopeId eq …` (Learn: `$filter` supported on these), kept to `memberType` Direct and `assignmentType` **Assigned** | `GET /identityGovernance/privilegedAccess/group/assignmentSchedules?$filter=groupId eq … and principalId eq …` (a groupId or principalId filter is required), matched on `accessId`, kept to Direct and `assignmentType` **assigned** |
+| Create / Update / Delete | `POST /roleManagement/directory/roleAssignmentScheduleRequests` with adminAssign / adminUpdate / adminRemove | `POST /identityGovernance/privilegedAccess/group/assignmentScheduleRequests` (`scheduleInfo` always sent; the remove carries the live schedule); the first request onboards the group |
+
+An `Activated` schedule is a principal's activation of an eligibility, never the template's, so it is left out. The assignment schedule list also
+carries the **permanent** assignments made outside PIM (Learn, unifiedRoleAssignmentSchedule: "directly through the role assignments API"; for an
+onboarded group, the members added through the groups API); Graph marks their origin unreliably (`createdUsing` may be null or the schedule's own
+id), so EARM tells them apart by the expiration: a permanent schedule under the declared tuple is **not** the type's. `LiveConflict` refuses it at
+plan time (an unsupported row with `PimAssignmentConflict` wording), when a create adopts it after `RoleAssignmentExists` (the resource fails), and on
+`deployment delete` (`IDeleteRefusalSource`: kept, `NotDeletable`); EARM never converts it into a time-bound assignment or removes it. The orphan
+listing (`DeclaredPrincipals` for roles, `DeclaredTargetGroups` for groups) reports only time-bound schedules (`active:`, `active member:`,
+`active owner:`); permanent ones are reported by `roleAssignments` or belong to the group's lists.
+
+**Template conflicts** (`IDeclarationConflictSource`, `DeclarationConflicts`): the planner asks these providers once the instances are expanded and the
+dependency graph built, before any Graph call, in what-if and deployment alike. An error `PimAssignmentConflict` is raised when
+
+- a `roleAssignmentScheduleRequests` and a `roleAssignments` resource, or an entry of the principal's `directoryRoles`, name the same principal, role and
+  scope: Graph holds one assignment for both, so one type makes it time-bound and the other permanent (and re-creates it when it expires);
+- a `privilegedAccess/groupAssignmentScheduleRequests` targets a group of the template that declares `members` (for `accessId: member`) or `owners` (for
+  `owner`), even an empty list. A PIM active member is a real member (it appears in `/groups/{id}/members`), so the authoritative list would remove it
+  in the edge pass. Listing the principal in `members` instead would make the membership permanent, so the conflict is refused outright rather than
+  allowed when the principal is listed; drop the list or use `groupEligibilityScheduleRequests` (eligibility never touches the members);
+- the principal of a `groupAssignmentScheduleRequests` lists the target group in `memberOf` / `ownerOf` (ensure-only: re-added permanently when the
+  schedule ends).
+
+Values are compared as written, per expanded instance: two values match when they reference the same declared resource (`reference()` / `resourceId()`,
+resolved per copy iteration), are the same literal, or the same expression text outside copy loops; a role also matches between `role` names and
+`roleTemplate('…')`, a scope defaults to `/`, and a computed `accessId` conflicts with either list. Differently spelled values (a literal object id
+against a reference) are not matched; the live check above covers what is already deployed.
 
 ## Adding an edge kind
 

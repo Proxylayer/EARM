@@ -1,0 +1,85 @@
+{
+  "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "Time-bound ACTIVE access through PIM, written like ARM's Microsoft.Authorization/roleAssignmentScheduleRequests: a role-assignable incident response group made an active Security Administrator for 30 days with a change ticket (an ARM snippet pasted as is) and permanently assigned Security Reader through Microsoft.Entra/roleAssignments (a different role, so the two never meet); the on-call engineer an active Exchange Administrator until a fixed date; plus PIM for Groups: the on-call engineer an active member of an operations group for 7 days and the incident response group its active owner until the same date. Active assignments must be time-bound (a permanent one is roleAssignments, or the group's members / owners); the operations group declares no members / owners list, since that authoritative list would remove the PIM active member. Role assignments are matched by (principalId, roleDefinitionId, scope), group assignments by (groupId, principalId, accessId); the guid() name is only a label. Needs Microsoft Entra ID P2 (or ID Governance) and a Privileged Role Administrator (or RoleAssignmentSchedule.ReadWrite.Directory and PrivilegedAssignmentSchedule.ReadWrite.AzureADGroup); see docs/permissions.md."
+  },
+  "parameters": {
+    "onCallEngineerId": { "type": "string", "metadata": { "description": "Object id of the on-call engineer (a user)." } },
+    "activeUntil":      { "type": "string", "metadata": { "description": "ISO 8601 end of the date-bound active assignments." } },
+    "changeTicket":     { "type": "string", "defaultValue": "CHG0004321", "metadata": { "description": "Change ticket recorded on the requests (metadata, never compared)." } }
+  },
+  "variables": {
+    "incidentGroupName": "pim-incident-responders",
+    "opsGroupName": "pim-ops-oncall"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01-preview", "name": "[variables('incidentGroupName')]",
+      "properties": { "displayName": "PIM Incident Responders", "mailEnabled": false, "mailNickname": "pim-incident-responders", "securityEnabled": true, "isAssignableToRole": true }
+    },
+    {
+      "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01-preview", "name": "[variables('opsGroupName')]",
+      "properties": { "displayName": "PIM Ops On-Call", "mailEnabled": false, "mailNickname": "pim-ops-oncall", "securityEnabled": true }
+    },
+    {
+      "type": "Microsoft.Entra/roleAssignments", "apiVersion": "2026-10-01-preview",
+      "name": "[guid(variables('incidentGroupName'), 'Security Reader', '/')]",
+      "properties": {
+        "principalId": "[reference(variables('incidentGroupName')).id]",
+        "role": "Security Reader"
+      },
+      "dependsOn": ["[resourceId('Microsoft.Entra/groups', variables('incidentGroupName'))]"]
+    },
+    {
+      "type": "Microsoft.Entra/roleAssignmentScheduleRequests", "apiVersion": "2026-10-01-preview",
+      "name": "[guid(variables('incidentGroupName'), 'Security Administrator', 'active')]",
+      "properties": {
+        "principalId": "[reference(variables('incidentGroupName')).id]",
+        "roleDefinitionId": "[roleTemplate('Security Administrator')]",
+        "requestType": "AdminAssign",
+        "justification": "Incident response surge capacity",
+        "scheduleInfo": { "expiration": { "type": "AfterDuration", "duration": "P30D" } },
+        "ticketInfo": { "ticketNumber": "[parameters('changeTicket')]", "ticketSystem": "ServiceNow" }
+      },
+      "dependsOn": ["[resourceId('Microsoft.Entra/groups', variables('incidentGroupName'))]"]
+    },
+    {
+      "type": "Microsoft.Entra/roleAssignmentScheduleRequests", "apiVersion": "2026-10-01-preview",
+      "name": "[guid(parameters('onCallEngineerId'), 'Exchange Administrator', 'active')]",
+      "properties": {
+        "principalId": "[parameters('onCallEngineerId')]",
+        "role": "Exchange Administrator",
+        "scheduleInfo": { "expiration": { "type": "AfterDateTime", "endDateTime": "[parameters('activeUntil')]" } },
+        "justification": "Mailbox migration window"
+      }
+    },
+    {
+      "type": "Microsoft.Entra/privilegedAccess/groupAssignmentScheduleRequests", "apiVersion": "2026-10-01-preview",
+      "name": "[guid(variables('opsGroupName'), parameters('onCallEngineerId'), 'member', 'active')]",
+      "properties": {
+        "groupId": "[reference(variables('opsGroupName')).id]",
+        "principalId": "[parameters('onCallEngineerId')]",
+        "accessId": "member",
+        "scheduleInfo": { "expiration": { "type": "AfterDuration", "duration": "P7D" } },
+        "justification": "On-call week"
+      },
+      "dependsOn": ["[resourceId('Microsoft.Entra/groups', variables('opsGroupName'))]"]
+    },
+    {
+      "type": "Microsoft.Entra/privilegedAccess/groupAssignmentScheduleRequests", "apiVersion": "2026-10-01-preview",
+      "name": "[guid(variables('opsGroupName'), variables('incidentGroupName'), 'owner', 'active')]",
+      "properties": {
+        "groupId": "[reference(variables('opsGroupName')).id]",
+        "principalId": "[reference(variables('incidentGroupName')).id]",
+        "accessId": "Owner",
+        "scheduleInfo": { "expiration": { "type": "AfterDateTime", "endDateTime": "[parameters('activeUntil')]" } },
+        "ticketInfo": { "ticketNumber": "[parameters('changeTicket')]", "ticketSystem": "ServiceNow" }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Entra/groups', variables('opsGroupName'))]",
+        "[resourceId('Microsoft.Entra/groups', variables('incidentGroupName'))]"
+      ]
+    }
+  ]
+}
