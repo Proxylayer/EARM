@@ -11,6 +11,7 @@ Two kinds of tests live here:
 |---|---|---|
 | Scenarios | `ApplicationScenarioTests`, `DirectoryScenarioTests`, `ConditionalAccessScenarioTests`, `RoleScenarioTests`, `CleanupScenarioTests` | Create, what-if (NoChange), drift, Complete mode (report only, never deletes), `deployment delete -f` (reverse dependency order), secure outputs and edges, run through the real CLI in-process (`Program.BuildRootCommand`). EARM keeps no state, so every scenario finds its objects by key, as a real run does. |
 | Verification probes (`[Trait("Category","Verify")]`) | `GraphBehaviourProbes` | One test per open verification TODO. Each exercises one real Graph behaviour the code assumes and asserts the assumption. |
+| Spike probes (`[Trait("Category","Spike")]`) | `DelegatedAuthSpikeProbes` | Interactive, separately gated (`EARM_IT_AUTH_SPIKE=1`); record how Microsoft Entra answers delegated-auth questions. See [Delegated-auth spike (DES-0002)](#delegated-auth-spike-des-0002). |
 
 ## Prerequisites
 
@@ -180,3 +181,73 @@ A probe asserts an assumption the code makes and names the file to change; the o
 
 When all probes of a letter are green the matching verification item can be closed; paste the diagnostic output of
 the **recorded** items into the TODO or into [docs/providers.md](../../docs/providers.md).
+
+## Delegated-auth spike (DES-0002)
+
+Phase 0 of DES-0002: EARM's user sign-in moves from the Azure CLI public client with `graph/.default` to the **Microsoft Graph Command
+Line Tools** public client (`14d82eec-204b-4c2f-b7e8-296a70dab67e`) with explicit delegated Graph scopes. `DelegatedAuthSpikeProbes`
+(`[Trait("Category","Spike")]`) answers the open questions against your dev tenant before any product code changes. The probes are
+**interactive** (browser sign-in and consent prompts), so they run only on request: without `EARM_IT_AUTH_SPIKE=1` every one of them skips
+with the reason, also in a full `test.ps1` run.
+
+They do not use the real-tenant fixture and never touch EARM's own sign-in: no `earm auth login` record, no `earm` token cache. They use
+Azure.Identity directly (`InteractiveBrowserCredential`, or `DeviceCodeCredential`) with their own persisted cache **`earm-spike`** and record
+files under `%TEMP%\earm-it\auth-spike\`, and delete both when the class finishes. They run alone (no parallel collection), in the order
+S1..S5, and share **one** interactive sign-in per client id: expect one browser prompt for the Graph CLI Tools client, one more for the
+incremental consent of S2 (and possibly for Key Vault in S1), and up to two for the optional Azure CLI comparison.
+
+The probes **record** what Microsoft Entra answers; they fail only when the harness cannot run (bad configuration, the shared sign-in was
+cancelled or refused). Every probe prints its diagnostics (client id, requested scopes, outcome, the token claims `aud`, `scp`, `tid`,
+`appid`, never the token, and the AADSTS code and message of a failure) and ends with a summary of `RESULT` lines. Everything is also
+appended live to `%TEMP%\earm-it\auth-spike\spike-<timestamp>.log`, which is kept.
+
+| Variable | Required | Meaning |
+|---|---|---|
+| `EARM_IT_AUTH_SPIKE` | `=1` | Enables the spike. |
+| `EARM_IT_TENANT` | yes | The dev tenant the spike signs in to. |
+| `EARM_CLOUD` | no | `public` (default), `usgov`, `usgovdod`, `china`: authority, Graph and Key Vault endpoints come from `GraphCloud` (S5 reports them). |
+| `EARM_IT_AUTH_SPIKE_EXTRA_SCOPES` | no | Comma-separated Graph scope names S2 adds incrementally. Default `Policy.Read.All`. Pick one you have **not** consented to for the Graph CLI Tools client, or S2c cannot show the consent error. |
+| `EARM_IT_KEYVAULT_URL` | no | `https://<vault>.vault.azure.net` (a vault of the selected cloud). With it, S1 lists secret metadata with the Key Vault token and reports the HTTP status only. |
+| `EARM_IT_KEYVAULT_SECRET` | no | A secret name in that vault: S1 lists its versions (metadata, no value) instead of the vault's secrets. |
+| `EARM_IT_AUTH_SPIKE_AZCLI` | `=1` | Runs S4, the Azure CLI client comparison. |
+| `EARM_IT_AUTH_SPIKE_DEVICECODE` | `=1` | Device code instead of the browser (headless). The code is written to standard error and the live log; watch the log in a second terminal. |
+| `EARM_IT_AUTH_SPIKE_KEEP` | `=1` | Keeps the `earm-spike` cache and the record files (to re-run probes without signing in again). Delete them later with a run without it. |
+
+```powershell
+$env:EARM_IT_TENANT = '<tenant-id>'
+$env:EARM_IT_AUTH_SPIKE = '1'
+$env:EARM_IT_KEYVAULT_URL = 'https://<vault>.vault.azure.net'   # optional (S1c)
+$env:EARM_IT_AUTH_SPIKE_AZCLI = '1'                             # optional (S4)
+
+pwsh -File test.ps1 -Target EArm.Integration.Tests -Filter "Category=Spike" -Detailed                                   # all probes, diagnostics streamed
+pwsh -File test.ps1 -Target EArm.Integration.Tests -Filter "FullyQualifiedName~It_Spike_S2" -Detailed                   # one probe
+Get-Content (Get-ChildItem $env:TEMP\earm-it\auth-spike\spike-*.log | Sort-Object LastWriteTime | Select-Object -Last 1) -Wait   # live log (device code)
+Select-String -Path $env:TEMP\earm-it\auth-spike\spike-*.log -Pattern 'RESULT'                                          # the answers
+
+# headless:
+$env:EARM_IT_AUTH_SPIKE_DEVICECODE = '1'
+```
+
+Without `EARM_IT_AUTH_SPIKE` the same filter reports `SKIPPED ... ` (every probe skipped with the reason); that is the expected result of a
+normal run.
+
+| RESULT | Meaning | Feeds the decision |
+|---|---|---|
+| `S1a` / `S1b` | Can the Graph CLI Tools client get a Key Vault token (`https://vault.azure.net/user_impersonation`, `/.default`)? `GRANTED [silently ...]` means the Graph sign-in's refresh token is enough; `GRANTED [... then interactive]` means an extra prompt; `DENIED (AADSTS65002)` or `(AADSTS650057)` means the client is not pre-authorized for Key Vault. | **Key Vault approach**: one client for Graph and `reference()` secrets, or a second client / credential for Key Vault. |
+| `S1c` | HTTP status of a metadata `GET` against the vault with that token: `200` usable, `401` token rejected, `403` token accepted but no data-plane permission (RBAC / access policy). | Confirms S1a/S1b in practice. |
+| `S2a` | The base sign-in (`User.Read`, `Organization.Read.All`). | Baseline of the login flow. |
+| `S2b` | Silent request with a new credential, the record and `DisableAutomaticAuthentication`: expected `GRANTED`. | The silent path of every later command works as today. |
+| `S2c` | Silent request for base + extra scopes: the exception type and AADSTS code (expected `AUTH-REQUIRED [AuthenticationRequiredException]`, often `AADSTS65001`), with no prompt. `GRANTED` means the extra scopes were already consented (revoke and re-run). | **Silent consent error mapping**: what EARM must recognise and turn into "consent needed: run `earm auth login --scopes ...`". |
+| `S2d` | The same set with prompting allowed: the incremental consent prompt. | **Incremental-consent flow** of `earm auth login` / the permission check. |
+| `S2e` | A fresh credential with the same record, silent, extended set: expected `GRANTED`. | Consent is persisted and the record + cache serve it silently afterwards. |
+| `S3` | Silent `graph/.default` after consent: which scopes `scp` carries; whether every scope consented in the run is present. | **Whether `.default` suffices** after consent, or EARM must always request explicit scopes. |
+| `S4a` / `S4b` | Azure CLI client: `Policy.ReadWrite.ConditionalAccess` (expected `DENIED (AADSTS65002)`), Key Vault `.default` (expected `GRANTED`). | **Confirms the AADSTS65002 root cause**: the Azure CLI client is not pre-authorized for granular Graph scopes. |
+| `S5` | The cloud, authority, token endpoint, Graph and Key Vault endpoints used (and the authority of each sign-in record). | USGov / other clouds work through `GraphCloud`. |
+
+> **Consent side effect.** Consenting to scopes for the Microsoft Graph Command Line Tools client is **not** private to EARM or to this spike: the
+> same enterprise application (and its oauth2PermissionGrant) is used by Microsoft Graph PowerShell and the Graph CLI, so whatever you consent to
+> here they get too, and the spike's cleanup does not revoke it. On the consent prompt, do **not** tick "Consent on behalf of your organization"
+> unless you intend a tenant-wide grant for every user. To revoke afterwards: *Entra ID > Enterprise applications > Microsoft Graph Command Line
+> Tools > Permissions* (user consent under *User consent*, admin consent with *Review permissions* / revoke), or delete the grant with Graph:
+> `GET /oauth2PermissionGrants?$filter=clientId eq '<servicePrincipal id of 14d82eec...>'` then `DELETE /oauth2PermissionGrants/<id>` (or `PATCH`
+> its `scope` to remove just the extra scope).
