@@ -279,7 +279,9 @@ read find nothing and a delete a no-op; the fake directory answers 400 to any na
 `Plan` refuses (an unsupported what-if row, a failed create) a name outside the overlay pattern
 (`^[A-Za-z0-9][A-Za-z0-9_-]{2,119}$`: 3-120 letters, digits, `-` or `_`, starting with a letter or digit), a non-https `issuer`, an empty `subject`, `claimsMatchingExpression` on `2026-10-01-preview`
 (Graph v1.0; it needs `2026-10-01-preview.beta`), an `issuer` + `subject` pair already used by another credential of the application (live, or declared
-elsewhere in the same deployment) and a 21st credential. A rename is a new resource: the old credential stays (Complete mode
+elsewhere in the same deployment) and a 21st credential. Written literally, a duplicate pair (two declarations, or a `copy` loop with a literal
+subject) and a duplicate `audiences` value are already refused offline by `deployment validate` (`DuplicateFederatedCredentialSubject`,
+`DuplicateFederatedCredentialAudience`). A rename is a new resource: the old credential stays (Complete mode
 lists it as undeclared; nothing deletes it), so a rename that keeps issuer and subject is refused until you delete the old
 credential. Permissions follow the parent rule of the password credentials above.
 

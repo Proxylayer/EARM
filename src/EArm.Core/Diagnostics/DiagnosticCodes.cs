@@ -42,6 +42,8 @@ public static class DiagnosticCodes
     public const string DynamicMembershipConflict = "DynamicMembershipConflict";
     public const string DirectoryRolesRequireRoleAssignableGroup = "DirectoryRolesRequireRoleAssignableGroup";
     public const string AssignedLicensesRequireUsageLocation = "AssignedLicensesRequireUsageLocation";
+    public const string DuplicateFederatedCredentialAudience = "DuplicateFederatedCredentialAudience";
+    public const string DuplicateFederatedCredentialSubject = "DuplicateFederatedCredentialSubject";
     public const string InvalidCopy = "InvalidCopy";
 
     // ---- Parameters ----

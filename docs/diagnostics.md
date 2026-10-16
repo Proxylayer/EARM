@@ -77,6 +77,8 @@ diagnostic codes, so they have no table row here; see "Graph batch item codes" i
 | `DynamicMembershipConflict` | Error | `members` declared on a dynamic group (`groupTypes` contains `DynamicMembership`) or a dynamic administrative unit (`membershipType: Dynamic`). |
 | `DirectoryRolesRequireRoleAssignableGroup` | Error | `directoryRoles` on a group without a literal `isAssignableToRole: true`. |
 | `AssignedLicensesRequireUsageLocation` | Error | `assignedLicenses` on a user that declares no `usageLocation`. |
+| `DuplicateFederatedCredentialAudience` | Error | A federated identity credential's literal `audiences` array lists the same value twice; Graph refuses it with `400 Request contains a property with duplicate values`. |
+| `DuplicateFederatedCredentialSubject` | Error | Two federated identity credentials of the same application declare the same literal `issuer` and `subject` (Graph requires the pair to be unique per application), or a `copy` loop of two or more credentials has a literal `issuer` and `subject`, so every iteration declares the same pair (make the subject depend on `copyIndex()`). Pairs computed by expressions are checked at plan time by the provider (an unsupported row). |
 | `InvalidCopy` | Error | `copy` is missing `name`/`count`, `name` is not a literal string, `count` is negative or not an integer, `mode` is not `serial`/`parallel`, or `batchSize` is not positive. Also a `copy` block in `variables` (variable iteration is not supported). |
 
 ## Parameters

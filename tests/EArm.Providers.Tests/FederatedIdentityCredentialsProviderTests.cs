@@ -250,8 +250,10 @@ public sealed class FederatedIdentityCredentialsProviderTests
     [Fact]
     public async Task DuplicatePair_AcrossTwoCredentials_IsOneUnsupportedRow()
     {
+        // Computed subjects: the same pair written literally is already a validation error (DuplicateFederatedCredentialSubject); this is the plan-time check.
         var host = new ProviderHost();
-        var document = host.Resources(App() + ", " + Fic("github-a", "repo:contoso/orders:ref:refs/heads/main") + ", " + Fic("github-b", "repo:contoso/orders:ref:refs/heads/main"));
+        const string Subject = "[concat('repo:contoso/orders:ref:refs/heads/', 'main')]";
+        var document = host.Resources(App() + ", " + Fic("github-a", Subject) + ", " + Fic("github-b", Subject));
 
         var whatIf = await host.WhatIfAsync(document);
         var error = Assert.Single(whatIf.Plan.Changes, c => c.HasError);
