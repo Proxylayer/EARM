@@ -58,7 +58,11 @@ public sealed class ConditionalAccessScenarioTests : IntegrationTestBase
         Assert.True(drifted is not null && (bool?)drifted["isTrusted"] == false, "The drift PATCH (isTrusted: false) never became visible on a GET of the IP location.");
         var driftedListed = await FindOneEventuallyAsync(NamedLocations, "displayName", ipName, found => found is not null && (bool?)found["isTrusted"] == false);
         Assert.True(driftedListed is not null && (bool?)driftedListed["isTrusted"] == false, "The drift PATCH (isTrusted: false) never became visible in a filtered list of the named locations.");
-        AssertChange(await Fixture.Cli.WhatIfAsync(run, Ct, "--exit-code-on-changes"), "/namedLocations/" + ipName, "Modify", "what-if after drift");
+        // Even after the test's own GET and list show isTrusted: false, the CLI's read can still land on a replica that serves the
+        // previous value (Graph is eventually consistent on property values too, run 5 saw isTrusted: true -> NoChange). EARM cannot
+        // tell a stale replica from the truth, so the what-if is re-run until it sees the drift; the next run corrects drift anyway.
+        var driftPreview = await EventuallyAsync(() => Fixture.Cli.WhatIfAsync(run, Ct, "--exit-code-on-changes"), preview => preview.ExitCode == 5 && preview.ChangeTypeOf("/namedLocations/" + ipName) == "Modify", seconds: 60);
+        AssertChange(driftPreview, "/namedLocations/" + ipName, "Modify", "what-if after drift");
         AssertCreated(await Fixture.Cli.CreateAsync(run, Ct), "create after drift");
         AssertNoChanges(await Fixture.Cli.WhatIfAsync(run, Ct, "--exit-code-on-changes"), "what-if after repair");
 

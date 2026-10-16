@@ -140,6 +140,10 @@ load ──► validate ──► expand ──► graph ──► [per batch: r
   not per object). This is a probability reduction, not a guarantee: a list that stays empty through all four reads while the object exists still plans
   a create (Graph has no unique key for these types to refuse the duplicate). `deployment delete` benefits too: it finds the declared objects with the
   same what-if reads.
+- **Stale property values after an out-of-band change.** Graph is eventually consistent on property values too, and EARM cannot tell a stale
+  replica from the current state: a `what-if` or `create` run moments after somebody changed an object outside EARM (in the portal, or by a
+  direct Graph call) can still read the previous values for a short time, even after another reader already sees the new ones. Such a run reports
+  `NoChange` for the drifted object (or patches against the old values); the next run reads the current state and corrects the drift.
 - **A failure after the primary write.** A provider that writes in several steps (create the object, then owners, licenses, a restore...) and fails after the first hands the partial result over
   (`ProviderException.Partial`: `UsersProvider` does it when `assignLicense` fails after `POST /users`); for any other provider the executor looks the object up by key after a failed create. Either way the
   object's one-time secret (a generated password) is written to **the secure outputs file** and the resource is reported failed with the object's Graph id (`ResourceApplyFailed`,
