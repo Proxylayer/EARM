@@ -17,7 +17,7 @@ namespace EArm.Graph.Tests;
 [Collection(Review1BEnvironmentCollection.Name)]
 public sealed class AuthTests
 {
-    private const string Scope = "https://graph.microsoft.com/.default";
+    private static readonly TokenScopes Scope = TokenScopes.Default("https://graph.microsoft.com");
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
@@ -63,13 +63,13 @@ public sealed class AuthTests
         var provider = new AzureIdentityTokenProvider(credential, GraphAuthMode.Default, clock);
 
         Assert.Equal("graph-1", (await provider.GetTokenAsync(Scope, Ct)).Value);
-        Assert.Equal("vault-1", (await provider.GetTokenAsync("https://vault.azure.net/.default", Ct)).Value);
+        Assert.Equal("vault-1", (await provider.GetTokenAsync(TokenScopes.Default("https://vault.azure.net"), Ct)).Value);
         provider.Invalidate(Scope);
 
         Assert.Equal("graph-2", (await provider.GetTokenAsync(Scope, Ct)).Value);
-        Assert.Equal("vault-1", (await provider.GetTokenAsync("https://vault.azure.net/.default", Ct)).Value);
+        Assert.Equal("vault-1", (await provider.GetTokenAsync(TokenScopes.Default("https://vault.azure.net"), Ct)).Value);
         Assert.Equal(3, credential.Calls);
-        Assert.Equal([Scope, "https://vault.azure.net/.default", Scope], credential.Scopes);
+        Assert.Equal([Scope.ToString(), "https://vault.azure.net/.default", Scope.ToString()], credential.Scopes);
     }
 
     [Fact]
@@ -152,7 +152,7 @@ public sealed class AuthTests
     [Fact]
     public void InteractiveGuidanceOnlyPointsAtAuthLogin()
     {
-        var text = GraphAuthGuidance.NotSignedIn(GraphAuthMode.Interactive, Scope, new CredentialUnavailableException("No interactive sign-in found."));
+        var text = GraphAuthGuidance.NotSignedIn(GraphAuthMode.Interactive, Scope.ToString(), new CredentialUnavailableException("No interactive sign-in found."));
 
         Assert.Contains("earm auth login", text, StringComparison.Ordinal);
         Assert.DoesNotContain("AZURE_CLIENT_SECRET", text, StringComparison.Ordinal);

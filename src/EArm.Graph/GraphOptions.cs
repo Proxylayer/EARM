@@ -1,4 +1,5 @@
 using System;
+using EArm.Graph.Auth;
 
 namespace EArm.Graph;
 
@@ -7,6 +8,12 @@ public sealed class GraphOptions
 {
     /// <summary>The cloud (Graph host) the client talks to. Default <see cref="GraphCloud.Public"/>.</summary>
     public GraphCloud Cloud { get; set; } = GraphCloud.Public;
+
+    /// <summary>
+    /// The scopes of the Graph token the client attaches. <c>null</c> (the default) means <see cref="Cloud"/>'s <see cref="GraphCloud.GraphScopes"/> (<c>.default</c>);
+    /// explicit delegated scopes must belong to the same cloud's Graph origin.
+    /// </summary>
+    public TokenScopes? Scopes { get; set; }
 
     /// <summary>Per-call timeout (one HTTP attempt, response body included). Default 120 s.</summary>
     public TimeSpan Timeout { get; set; } = TimeSpan.FromSeconds(120);

@@ -99,16 +99,16 @@ public sealed class Review3I_AuthAndTransportTests
 
         public string Next { get; set; } = "same-token";
 
-        public ValueTask<GraphToken> GetTokenAsync(string scope, CancellationToken cancellationToken)
+        public ValueTask<GraphToken> GetTokenAsync(TokenScopes scope, CancellationToken cancellationToken)
         {
             return ValueTask.FromResult(new GraphToken(Next, DateTimeOffset.UtcNow.AddHours(1)));
         }
 
-        public void Invalidate(string scope)
+        public void Invalidate(TokenScopes scope)
         {
         }
 
-        public ValueTask<GraphToken> RefreshTokenAsync(string scope, string? claims, CancellationToken cancellationToken)
+        public ValueTask<GraphToken> RefreshTokenAsync(TokenScopes scope, string? claims, CancellationToken cancellationToken)
         {
             Refreshes++;
             LastClaims = claims;
@@ -159,12 +159,12 @@ public sealed class Review3I_AuthAndTransportTests
     {
         private int _generation = 1;
 
-        public ValueTask<GraphToken> GetTokenAsync(string scope, CancellationToken cancellationToken)
+        public ValueTask<GraphToken> GetTokenAsync(TokenScopes scope, CancellationToken cancellationToken)
         {
             return ValueTask.FromResult(new GraphToken("token-" + _generation, DateTimeOffset.UtcNow.AddHours(1)));
         }
 
-        public void Invalidate(string scope)
+        public void Invalidate(TokenScopes scope)
         {
             _generation++;
         }
@@ -195,16 +195,16 @@ public sealed class Review3I_AuthAndTransportTests
 
         public string? Claims { get; private set; }
 
-        public ValueTask<GraphToken> GetTokenAsync(string scope, CancellationToken cancellationToken)
+        public ValueTask<GraphToken> GetTokenAsync(TokenScopes scope, CancellationToken cancellationToken)
         {
             return ValueTask.FromResult(new GraphToken(_current, DateTimeOffset.UtcNow.AddHours(1)));
         }
 
-        public void Invalidate(string scope)
+        public void Invalidate(TokenScopes scope)
         {
         }
 
-        public ValueTask<GraphToken> RefreshTokenAsync(string scope, string? claims, CancellationToken cancellationToken)
+        public ValueTask<GraphToken> RefreshTokenAsync(TokenScopes scope, string? claims, CancellationToken cancellationToken)
         {
             Claims = claims;
             _current = claims is null ? _current : "with-claims";
@@ -259,7 +259,7 @@ public sealed class Review3I_AuthAndTransportTests
     {
         var credential = new CapturingCredential();
         var provider = new AzureIdentityTokenProvider(credential);
-        const string scope = "https://graph.microsoft.com/.default";
+        var scope = TokenScopes.Default("https://graph.microsoft.com");
 
         var first = await provider.GetTokenAsync(scope, Ct);
         var challenged = await provider.RefreshTokenAsync(scope, "{\"access_token\":{}}", Ct);
@@ -278,7 +278,7 @@ public sealed class Review3I_AuthAndTransportTests
     {
         var credential = new CapturingCredential();
         var provider = new AzureIdentityTokenProvider(credential);
-        const string scope = "https://graph.microsoft.com/.default";
+        var scope = TokenScopes.Default("https://graph.microsoft.com");
         await provider.GetTokenAsync(scope, Ct);
 
         var refreshed = await provider.RefreshTokenAsync(scope, null, Ct);

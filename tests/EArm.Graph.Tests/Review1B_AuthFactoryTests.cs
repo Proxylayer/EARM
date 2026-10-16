@@ -22,7 +22,7 @@ namespace EArm.Graph.Tests;
 [Collection(Review1BEnvironmentCollection.Name)]
 public sealed class Review1B_AuthFactoryTests
 {
-    private const string Scope = "https://graph.microsoft.com/.default";
+    private static readonly TokenScopes Scope = TokenScopes.Default("https://graph.microsoft.com");
 
     private static readonly string[] AllowedChain = ["EnvironmentCredential", "WorkloadIdentityCredential", "ManagedIdentityCredential"];
 
@@ -267,7 +267,7 @@ public sealed class Review1B_AuthFactoryTests
         using var provider = new AzureIdentityTokenProvider(credential, GraphAuthMode.Default, logger: new TestLogger<AzureIdentityTokenProvider>(log));
 
         await provider.GetTokenAsync(Scope, Ct);
-        await provider.GetTokenAsync("https://vault.azure.net/.default", Ct);
+        await provider.GetTokenAsync(TokenScopes.Default("https://vault.azure.net"), Ct);
 
         var line = Assert.Single(log.Entries, static e => e.EventId.Id == 1043);
         Assert.Equal(Microsoft.Extensions.Logging.LogLevel.Information, line.Level);
@@ -651,9 +651,9 @@ public sealed class Review1B_AuthFactoryTests
     [Fact]
     public void TheDefaultGuidanceListsEveryWayToSignIn()
     {
-        var text = GraphAuthGuidance.NotSignedIn(GraphAuthMode.Default, Scope, null);
+        var text = GraphAuthGuidance.NotSignedIn(GraphAuthMode.Default, Scope.ToString(), null);
 
-        Assert.Contains(Scope, text, StringComparison.Ordinal);
+        Assert.Contains(Scope.ToString(), text, StringComparison.Ordinal);
         Assert.DoesNotContain("Credentials tried", text, StringComparison.Ordinal);
         foreach (var fragment in new[] { "AZURE_TENANT_ID", "AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET", "AZURE_CLIENT_CERTIFICATE_PATH", "AZURE_FEDERATED_TOKEN_FILE", "managed identity", "earm auth login", "--device-code" })
         {
@@ -664,7 +664,7 @@ public sealed class Review1B_AuthFactoryTests
     [Fact]
     public void TheInteractiveGuidanceOnlyPointsAtAuthLogin()
     {
-        var text = GraphAuthGuidance.NotSignedIn(GraphAuthMode.Interactive, Scope, null);
+        var text = GraphAuthGuidance.NotSignedIn(GraphAuthMode.Interactive, Scope.ToString(), null);
 
         Assert.Contains("Run 'earm auth login'", text, StringComparison.Ordinal);
         Assert.DoesNotContain("service principal", text, StringComparison.Ordinal);
@@ -711,7 +711,7 @@ public sealed class Review1B_AuthFactoryTests
     [Fact]
     public void TheExpiredSignInGuidanceNamesBothWaysOutAndHidesNothingButSecrets()
     {
-        var text = GraphAuthGuidance.NotSignedIn(GraphAuthMode.Auto, Scope, new InteractiveSignInExpiredException("bob@contoso.example", new CredentialUnavailableException("refresh token expired. client_secret=Sup3rS3cret")));
+        var text = GraphAuthGuidance.NotSignedIn(GraphAuthMode.Auto, Scope.ToString(), new InteractiveSignInExpiredException("bob@contoso.example", new CredentialUnavailableException("refresh token expired. client_secret=Sup3rS3cret")));
 
         Assert.Contains("bob@contoso.example", text, StringComparison.Ordinal);
         Assert.Contains("earm auth login", text, StringComparison.Ordinal);

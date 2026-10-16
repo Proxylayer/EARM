@@ -31,11 +31,11 @@ internal sealed class FakeTokenProvider : IGraphTokenProvider
         }
     }
 
-    public ValueTask<GraphToken> GetTokenAsync(string scope, CancellationToken cancellationToken)
+    public ValueTask<GraphToken> GetTokenAsync(TokenScopes scope, CancellationToken cancellationToken)
     {
         lock (_gate)
         {
-            Scopes.Add(scope);
+            Scopes.Add(scope.ToString());
             if (Failure is not null)
             {
                 throw Failure;
@@ -45,7 +45,7 @@ internal sealed class FakeTokenProvider : IGraphTokenProvider
         }
     }
 
-    public void Invalidate(string scope)
+    public void Invalidate(TokenScopes scope)
     {
         lock (_gate)
         {

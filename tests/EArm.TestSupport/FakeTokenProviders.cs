@@ -45,11 +45,11 @@ public sealed class FakeJwtTokenProvider : IGraphTokenProvider
         };
     }
 
-    public ValueTask<GraphToken> GetTokenAsync(string scope, CancellationToken cancellationToken)
+    public ValueTask<GraphToken> GetTokenAsync(TokenScopes scope, CancellationToken cancellationToken)
     {
         lock (_gate)
         {
-            RequestedScopes.Add(scope);
+            RequestedScopes.Add(scope.ToString());
             if (Failure is not null)
             {
                 throw Failure;
@@ -59,7 +59,7 @@ public sealed class FakeJwtTokenProvider : IGraphTokenProvider
         }
     }
 
-    public void Invalidate(string scope)
+    public void Invalidate(TokenScopes scope)
     {
         lock (_gate)
         {

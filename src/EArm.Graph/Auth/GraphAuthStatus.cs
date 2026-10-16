@@ -56,7 +56,7 @@ public sealed record GraphAuthStatus
             _ => record is null ? "default credential chain (environment, workload identity, managed identity)" : "interactive sign-in, then the default chain",
         };
 
-        var token = await tokens.GetTokenAsync(options.Cloud.GraphScope, cancellationToken).ConfigureAwait(false);
+        var token = await tokens.GetTokenAsync(options.Cloud.GraphScopes, cancellationToken).ConfigureAwait(false);
         var decoded = TokenClaims.TryDecode(token.Value, out var claims);
         return new GraphAuthStatus
         {

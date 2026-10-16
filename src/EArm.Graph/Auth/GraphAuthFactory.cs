@@ -285,7 +285,7 @@ public class GraphAuthFactory
     /// <summary>The seam that actually talks to the identity provider (browser or device code); tests override it so no browser or network is involved.</summary>
     internal virtual async Task<AuthenticationRecord> AuthenticateAsync(GraphAuthOptions options, bool deviceCode, Func<DeviceCodeInfo, CancellationToken, Task>? deviceCodeCallback, CancellationToken cancellationToken)
     {
-        var context = new TokenRequestContext([options.Cloud.GraphScope]);
+        var context = new TokenRequestContext([.. options.Cloud.GraphScopes.Scopes]);
         if (deviceCode)
         {
             return await new DeviceCodeCredential(BuildDeviceCodeLoginOptions(options, deviceCodeCallback)).AuthenticateAsync(context, cancellationToken).ConfigureAwait(false);

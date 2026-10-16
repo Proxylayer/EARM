@@ -40,12 +40,12 @@ public sealed class GraphPreflightTests
 
         public int Invalidations { get; private set; }
 
-        public ValueTask<GraphToken> GetTokenAsync(string scope, CancellationToken cancellationToken)
+        public ValueTask<GraphToken> GetTokenAsync(TokenScopes scope, CancellationToken cancellationToken)
         {
             return ValueTask.FromResult(new GraphToken(_token, DateTimeOffset.UtcNow.AddHours(1)));
         }
 
-        public void Invalidate(string scope)
+        public void Invalidate(TokenScopes scope)
         {
             Invalidations++;
         }

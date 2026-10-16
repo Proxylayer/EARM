@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using EArm.Graph.Auth;
 
 namespace EArm.Graph;
 
@@ -80,7 +81,16 @@ public sealed record GraphCloud
     public string GraphScope => GraphOrigin + "/.default";
 
     /// <summary>The scope that requests a Key Vault data-plane token (<c>https://vault.azure.net/.default</c> in the public cloud).</summary>
-    public string KeyVaultScope => "https://" + KeyVaultSuffix + "/.default";
+    public string KeyVaultScope => KeyVaultResource + "/.default";
+
+    /// <summary>The Key Vault data-plane resource origin (<c>https://vault.azure.net</c> in the public cloud).</summary>
+    public string KeyVaultResource => "https://" + KeyVaultSuffix;
+
+    /// <summary>The <c>.default</c> scope set of Graph (<see cref="GraphScope"/>): the default token request of the Graph client and the preflight.</summary>
+    public TokenScopes GraphScopes => TokenScopes.Default(GraphOrigin);
+
+    /// <summary>The <c>.default</c> scope set of Key Vault (<see cref="KeyVaultScope"/>): the default token request of the Key Vault client.</summary>
+    public TokenScopes KeyVaultScopes => TokenScopes.Default(KeyVaultResource);
 
     /// <summary>The cloud for a key (case-insensitive); null or empty means <see cref="Public"/>.</summary>
     /// <exception cref="GraphConfigurationException">The value is not one of the supported cloud keys; the message lists the valid values.</exception>

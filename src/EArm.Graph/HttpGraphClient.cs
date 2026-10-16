@@ -68,6 +68,7 @@ public sealed partial class HttpGraphClient : IGraphClient
     private readonly TimeProvider _time;
     private readonly SemaphoreSlim _gate;
     private readonly string _userAgent;
+    private readonly TokenScopes _scopes;
     private long _responsesStarted;
 
     public HttpGraphClient(HttpClient http, IGraphTokenProvider tokens, RetryPolicy retryPolicy, GraphOptions? options = null, ILogger? logger = null, TimeProvider? timeProvider = null)
@@ -83,10 +84,14 @@ public sealed partial class HttpGraphClient : IGraphClient
         _time = timeProvider ?? TimeProvider.System;
         _gate = new SemaphoreSlim(Math.Max(1, _options.MaxParallel));
         _userAgent = "EARM/" + _options.UserAgentVersion;
+        _scopes = TokenScopeGuard.Resolve(_options.Scopes, _options.Cloud.GraphScopes, _options.Cloud, nameof(options));
     }
 
     /// <summary>The cloud (Graph host) this client talks to.</summary>
     public GraphCloud Cloud => _options.Cloud;
+
+    /// <summary>The scopes of the Graph token this client attaches (<see cref="GraphOptions.Scopes"/>, or the cloud's <c>.default</c>).</summary>
+    public TokenScopes Scopes => _scopes;
 
     /// <summary>
     /// A <see cref="HttpClient"/> configured for Graph: no redirects, no cookies, gzip/deflate, platform TLS defaults, a connection lifetime
@@ -540,7 +545,7 @@ public sealed partial class HttpGraphClient : IGraphClient
             }
         }
 
-        var scope = _options.Cloud.GraphScope;
+        var scope = _scopes;
         var write = IsWrite(method);
         var attempt = new AuthAttempt();
 
@@ -566,7 +571,7 @@ public sealed partial class HttpGraphClient : IGraphClient
     /// credential hands back the very token that was just rejected, repeating the call cannot help: the failure is terminal and says so, instead of
     /// the same request being sent again.
     /// </summary>
-    private async Task RefreshTokenAsync(string scope, AuthAttempt attempt, CancellationToken cancellationToken)
+    private async Task RefreshTokenAsync(TokenScopes scope, AuthAttempt attempt, CancellationToken cancellationToken)
     {
         var fresh = await _tokens.RefreshTokenAsync(scope, attempt.Claims, cancellationToken).ConfigureAwait(false);
         if (attempt.TokenValue is not null && string.Equals(fresh.Value, attempt.TokenValue, StringComparison.Ordinal))
@@ -585,7 +590,7 @@ public sealed partial class HttpGraphClient : IGraphClient
         return !(method.Equals("GET", StringComparison.OrdinalIgnoreCase) || method.Equals("HEAD", StringComparison.OrdinalIgnoreCase) || method.Equals("OPTIONS", StringComparison.OrdinalIgnoreCase));
     }
 
-    private async Task<GraphResponse> SendOnceAsync(string method, Uri uri, IReadOnlyDictionary<string, string> headers, string? payload, RetryHint hint, string scope, bool write, AuthAttempt attempt, CancellationToken cancellationToken)
+    private async Task<GraphResponse> SendOnceAsync(string method, Uri uri, IReadOnlyDictionary<string, string> headers, string? payload, RetryHint hint, TokenScopes scope, bool write, AuthAttempt attempt, CancellationToken cancellationToken)
     {
         var clientRequestId = Guid.NewGuid().ToString();
         var logTarget = GraphUrl.RedactForLog(uri);

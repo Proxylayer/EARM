@@ -44,8 +44,10 @@ public sealed class KeyVaultClient
     private readonly ILogger _logger;
     private readonly TimeProvider _time;
     private readonly string _userAgent;
+    private readonly TokenScopes _scopes;
 
-    public KeyVaultClient(HttpClient http, IGraphTokenProvider tokens, RetryPolicy retryPolicy, GraphCloud cloud, TimeSpan? timeout = null, ILogger? logger = null, TimeProvider? timeProvider = null, string? userAgentVersion = null)
+    /// <param name="scopes">The Key Vault token scopes. <c>null</c> means <paramref name="cloud"/>'s <see cref="GraphCloud.KeyVaultScopes"/> (<c>.default</c>); explicit scopes must belong to the cloud's vault resource.</param>
+    public KeyVaultClient(HttpClient http, IGraphTokenProvider tokens, RetryPolicy retryPolicy, GraphCloud cloud, TimeSpan? timeout = null, ILogger? logger = null, TimeProvider? timeProvider = null, string? userAgentVersion = null, TokenScopes? scopes = null)
     {
         ArgumentNullException.ThrowIfNull(http);
         ArgumentNullException.ThrowIfNull(tokens);
@@ -60,7 +62,11 @@ public sealed class KeyVaultClient
         _time = timeProvider ?? TimeProvider.System;
         _userAgent = "EARM/" + (userAgentVersion ?? GraphVersion.Current);
         AllowedVaults = ParseAllowedVaults(Environment.GetEnvironmentVariable(AllowedVaultsVariable));
+        _scopes = TokenScopeGuard.Resolve(scopes, cloud.KeyVaultScopes, cloud, nameof(scopes));
     }
+
+    /// <summary>The scopes of the Key Vault token this client attaches.</summary>
+    public TokenScopes Scopes => _scopes;
 
     /// <summary>
     /// The vault names this client may read (<see cref="AllowedVaultsVariable"/>, read when the client is created); <c>null</c> means every vault. A configured but
@@ -193,7 +199,7 @@ public sealed class KeyVaultClient
             throw new ArgumentException($"Key Vault '{Shorten(vaultName)}' is not allowed: {AllowedVaultsVariable} permits only {(allowed.Count == 0 ? "no vault" : string.Join(", ", allowed.Select(Shorten)))}.", nameof(vaultName));
         }
 
-        var scope = _cloud.KeyVaultScope;
+        var scope = _scopes;
         return await _retryPolicy.ExecuteAsync(
             token => SendOnceAsync(uri, scope, token),
             RetryHint.Default,
@@ -205,7 +211,7 @@ public sealed class KeyVaultClient
             cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task<string> SendOnceAsync(Uri uri, string scope, CancellationToken cancellationToken)
+    private async Task<string> SendOnceAsync(Uri uri, TokenScopes scope, CancellationToken cancellationToken)
     {
         var clientRequestId = Guid.NewGuid().ToString();
         var graphToken = await _tokens.GetTokenAsync(scope, cancellationToken).ConfigureAwait(false);

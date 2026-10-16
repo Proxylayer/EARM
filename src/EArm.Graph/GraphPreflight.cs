@@ -47,8 +47,10 @@ public sealed class GraphPreflight
     private readonly GraphCloud _cloud;
     private readonly GraphAuthMode _mode;
     private readonly ILogger _logger;
+    private readonly TokenScopes _scopes;
 
-    public GraphPreflight(IGraphTokenProvider tokens, IGraphClient graph, GraphCloud cloud, GraphAuthMode mode, ILogger? logger = null)
+    /// <param name="scopes">The Graph token scopes to inspect: the same set the Graph client attaches. <c>null</c> means <paramref name="cloud"/>'s <c>.default</c>.</param>
+    public GraphPreflight(IGraphTokenProvider tokens, IGraphClient graph, GraphCloud cloud, GraphAuthMode mode, ILogger? logger = null, TokenScopes? scopes = null)
     {
         ArgumentNullException.ThrowIfNull(tokens);
         ArgumentNullException.ThrowIfNull(graph);
@@ -58,13 +60,17 @@ public sealed class GraphPreflight
         _cloud = cloud;
         _mode = mode;
         _logger = logger ?? NullLogger.Instance;
+        _scopes = TokenScopeGuard.Resolve(scopes, cloud.GraphScopes, cloud, nameof(scopes));
     }
+
+    /// <summary>The scopes of the Graph token the preflight inspects.</summary>
+    public TokenScopes Scopes => _scopes;
 
     /// <exception cref="GraphTransportException">No token (<see cref="GraphTransportFailure.NotAuthenticated"/>), Graph rejected it, or the network failed.</exception>
     /// <exception cref="GraphException">Graph answered the organization read with an error other than 401 / 403.</exception>
     public async Task<GraphPreflightResult> RunAsync(CancellationToken cancellationToken)
     {
-        var token = await _tokens.GetTokenAsync(_cloud.GraphScope, cancellationToken).ConfigureAwait(false);
+        var token = await _tokens.GetTokenAsync(_scopes, cancellationToken).ConfigureAwait(false);
         var hasClaims = TokenClaims.TryDecode(token.Value, out var claims);
 
         JsonObject? organization = null;
@@ -78,7 +84,7 @@ public sealed class GraphPreflight
         }
         catch (GraphException ex) when (ex.IsUnauthorized)
         {
-            _tokens.Invalidate(_cloud.GraphScope);
+            _tokens.Invalidate(_scopes);
             throw new GraphTransportException(
                 GraphTransportFailure.NotAuthenticated,
                 $"Microsoft Graph rejected the access token ({ex.Code}). Check that the identity belongs to the intended tenant and cloud ({_cloud.Key}), then sign in again. Request id {ex.RequestId ?? "n/a"}.",
