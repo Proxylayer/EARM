@@ -25,6 +25,7 @@ internal sealed class ProbeReport
     public void Observe(string message)
     {
         TestContext.Current.SendDiagnosticMessage($"[probe {_name}] {message}");
+        TestContext.Current.TestOutputHelper?.WriteLine($"[probe {_name}] {message}");
     }
 
     /// <summary>Asserts an assumption of the code; <paramref name="fixHint"/> says what to change when it does not hold.</summary>

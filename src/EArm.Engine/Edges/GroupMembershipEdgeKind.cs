@@ -11,12 +11,14 @@ namespace EArm.Engine.Edges;
 /// <summary>
 /// Group membership: target side <c>groups.members</c> (authoritative set), principal side
 /// <c>memberOf</c> on users, service principals and groups. Live reads: <c>GET /groups/{g}/members?$select=id</c>
-/// for the target, <c>GET /{users|servicePrincipals|groups}/{p}/memberOf?$select=id</c> (groups only) for the
+/// plus <c>GET /groups/{g}/members/microsoft.graph.servicePrincipal?$select=id</c> for the target,<c>GET /{users|servicePrincipals|groups}/{p}/memberOf?$select=id</c> (groups only) for the
 /// principal. Writes: <c>POST /groups/{g}/members/$ref</c>, <c>DELETE /groups/{g}/members/{p}/$ref</c>. Dynamic
 /// groups reject manual membership (validation error).
 /// </summary>
 public sealed class GroupMembershipEdgeKind : IEdgeKindHandler
 {
+    private const string ServicePrincipalCast = "microsoft.graph.servicePrincipal";
+
     public EdgeKind Kind => EdgeKind.GroupMembership;
 
     public EdgePhase Phase => EdgePhase.A;
@@ -49,11 +51,41 @@ public sealed class GroupMembershipEdgeKind : IEdgeKindHandler
         IReadOnlyDictionary<string, JsonObject?>? edges = null;
         if (includeEdges)
         {
-            edges = await EdgeReads.ReadIdsAsync(context, "/groups/" + GraphPath.Segment(targetId) + "/members", api, cancellationToken).ConfigureAwait(false);
+            edges = await ReadMembersAsync(targetId, api, context, cancellationToken).ConfigureAwait(false);
         }
 
         return new EdgeTargetState(true, dynamic, "groups", edges);
     }
+
+    /// <summary>
+    /// The live members of a group. v1.0 <c>GET /groups/{g}/members</c> omits service principal members (confirmed against a real
+    /// tenant: beta, the type cast and <c>$expand=members</c> list them, and re-adding one answers "already exist"), so the service
+    /// principals are read through the type cast <c>/groups/{g}/members/microsoft.graph.servicePrincipal</c> and merged in.
+    /// </summary>
+    private static async Task<Dictionary<string, JsonObject?>> ReadMembersAsync(string groupId, GraphApi api, EdgeGraphContext context, CancellationToken cancellationToken)
+    {
+        string path = "/groups/" + GraphPath.Segment(groupId) + "/members";
+        var members = await EdgeReads.ReadIdsAsync(context, path, api, cancellationToken).ConfigureAwait(false);
+        var servicePrincipals = await EdgeReads.ReadIdsAsync(context, path + "/" + ServicePrincipalCast, api, cancellationToken).ConfigureAwait(false);
+        foreach (var (id, extra) in servicePrincipals)
+        {
+            if (members.ContainsKey(id))
+            {
+                continue;
+            }
+
+            var typed = extra ?? new JsonObject();
+            if (JsonObjects.GetString(typed, "@odata.type") is null)
+            {
+                typed["@odata.type"] = "#" + ServicePrincipalCast;
+            }
+
+            members[id] = typed;
+        }
+
+        return members;
+    }
+
 
     public async Task<EdgePrincipalState> ReadPrincipalAsync(string principalId, string principalType, GraphApi api, EdgeGraphContext context, CancellationToken cancellationToken)
     {

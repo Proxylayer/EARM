@@ -235,7 +235,7 @@ public sealed class FakeGraphClient : IGraphClient
             throw scripted;
         }
 
-        return Directory.Handle(method, request.Path, request.UrlParameters, request.EffectiveHeaders(), body, request.Hint, PageSize);
+        return Directory.Handle(method, request.Path, request.UrlParameters, request.EffectiveHeaders(), body, request.Hint, PageSize, request.Api == GraphApi.Beta);
     }
 
     private void Log(FakeGraphRequest request)

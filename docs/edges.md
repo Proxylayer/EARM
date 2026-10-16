@@ -36,6 +36,11 @@ declarations (`user.memberOf` naming a group whose `members` names the user) are
 | Directory role assignment | none | `directoryRoles: [{ role \| roleDefinitionId, directoryScopeId \| administrativeUnit }]` on users, **role-assignable** groups, service principals | `Microsoft.Entra/roleAssignments` | `POST /roleManagement/directory/roleAssignments`, `DELETE …/{id}` |
 | License (action-backed, not an edge) | none | `assignedLicenses: [{ skuId \| skuPartNumber, disabledPlans }]` on users (direct assignments only; `usageLocation` required) and groups (group-based licensing) | none | `POST /users\|groups/{id}/assignLicense { addLicenses, removeLicenses }` |
 
+Live group members are read with `GET /groups/{g}/members?$select=id` **and** `GET /groups/{g}/members/microsoft.graph.servicePrincipal?$select=id`:
+v1.0 `/members` leaves service principal members out (observed on a real tenant; beta, the type cast and `$expand=members` list them), so without
+the second read a service principal member would be planned as an add on every run and never pruned. Probe h
+(`tests/EArm.Integration.Tests/GroupMembershipProbes.cs`) records whether this still holds.
+
 ### Entry shapes
 
 ```json

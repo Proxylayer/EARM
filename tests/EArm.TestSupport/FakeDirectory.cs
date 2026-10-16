@@ -308,7 +308,8 @@ public sealed class FakeDirectory
 
     // ---- request handling ----
 
-    internal (HttpStatusCode Status, JsonNode? Body) Handle(string method, string path, IReadOnlyDictionary<string, string>? query, IReadOnlyDictionary<string, string>? headers, JsonNode? body, RetryHint hint, int pageSize)
+    /// <param name="beta">True for a request to the beta endpoint; the v1.0 quirks this fake models (see <see cref="HandleReferenceNavigation"/>) do not apply there.</param>
+    internal (HttpStatusCode Status, JsonNode? Body) Handle(string method, string path, IReadOnlyDictionary<string, string>? query, IReadOnlyDictionary<string, string>? headers, JsonNode? body, RetryHint hint, int pageSize, bool beta = false)
     {
         lock (_gate)
         {
@@ -331,7 +332,7 @@ public sealed class FakeDirectory
 
             return route.Nav is null
                 ? HandleCollectionOrEntity(method, route, query, headers, body, hint, pageSize)
-                : HandleNavigation(method, route, query, headers, body, hint, pageSize);
+                : HandleNavigation(method, route, query, headers, body, hint, pageSize, beta);
         }
     }
 
@@ -420,7 +421,7 @@ public sealed class FakeDirectory
         }
     }
 
-    private (HttpStatusCode, JsonNode?) HandleNavigation(string method, Route route, IReadOnlyDictionary<string, string>? query, IReadOnlyDictionary<string, string>? headers, JsonNode? body, RetryHint hint, int pageSize)
+    private (HttpStatusCode, JsonNode?) HandleNavigation(string method, Route route, IReadOnlyDictionary<string, string>? query, IReadOnlyDictionary<string, string>? headers, JsonNode? body, RetryHint hint, int pageSize, bool beta)
     {
         string collectionPath = "/" + route.Root;
         var entity = route.Selector is null ? null : Locate(collectionPath, route.Selector);
@@ -471,7 +472,7 @@ public sealed class FakeDirectory
         string navPath = collectionPath + "/" + entityId + "/" + nav;
         if (ReferenceNavigations.Contains(nav))
         {
-            return HandleReferenceNavigation(method, route, navPath, nav, query, body, hint, pageSize);
+            return HandleReferenceNavigation(method, route, navPath, nav, query, body, hint, pageSize, beta);
         }
 
         // Child collection (federatedIdentityCredentials, appRoleAssignedTo, appRoleAssignments...).
@@ -522,7 +523,12 @@ public sealed class FakeDirectory
         }
     }
 
-    private (HttpStatusCode, JsonNode?) HandleReferenceNavigation(string method, Route route, string navPath, string nav, IReadOnlyDictionary<string, string>? query, JsonNode? body, RetryHint hint, int pageSize)
+    /// <summary>
+    /// A reference navigation. Listing it models two real-tenant behaviours (probe h, GroupMembershipProbes): a type cast
+    /// (<c>/groups/{id}/members/microsoft.graph.servicePrincipal</c>) lists only the objects of that type, and v1.0
+    /// <c>GET /groups/{id}/members</c> omits service principal members (beta, the type cast and <c>$expand=members</c> list them).
+    /// </summary>
+    private (HttpStatusCode, JsonNode?) HandleReferenceNavigation(string method, Route route, string navPath, string nav, IReadOnlyDictionary<string, string>? query, JsonNode? body, RetryHint hint, int pageSize, bool beta)
     {
         bool single = SingleValuedNavigations.Contains(nav);
         if (route.IsRef)
@@ -586,16 +592,27 @@ public sealed class FakeDirectory
             return (HttpStatusCode.OK, ProjectOne(WithODataType(target), SchemaOfId(GetString(target, "id")), query, hint));
         }
 
+        string? cast = route.ChildSelector is { IsAlternateKey: false } selector && selector.Value.StartsWith("microsoft.graph.", StringComparison.OrdinalIgnoreCase) ? "#" + selector.Value : null;
+        bool omitServicePrincipals = cast is null && !beta && nav.Equals("members", StringComparison.OrdinalIgnoreCase) && route.Root.Equals("groups", StringComparison.OrdinalIgnoreCase);
         var objects = new List<JsonObject>();
         foreach (var id in ReferencedIds(navPath, nav))
         {
             if (LocateById(id, out _) is { } referenced)
             {
-                objects.Add(WithODataType(referenced));
+                var typed = WithODataType(referenced);
+                string? type = GetString(typed, "@odata.type");
+                if ((cast is not null && !string.Equals(type, cast, StringComparison.OrdinalIgnoreCase))
+                    || (omitServicePrincipals && string.Equals(type, "#microsoft.graph.servicePrincipal", StringComparison.OrdinalIgnoreCase)))
+                {
+                    continue;
+                }
+
+                objects.Add(typed);
             }
         }
 
-        return (HttpStatusCode.OK, Page(ProjectMixed(Filter(objects, query, hint), query), route.Root + "/" + GetString(Locate("/" + route.Root, route.Selector!)!, "id") + "/" + nav, query, pageSize));
+        string listPath = route.Root + "/" + GetString(Locate("/" + route.Root, route.Selector!)!, "id") + "/" + nav + (cast is null ? string.Empty : "/" + cast[1..]);
+        return (HttpStatusCode.OK, Page(ProjectMixed(Filter(objects, query, hint), query), listPath, query, pageSize));
     }
 
     /// <summary>

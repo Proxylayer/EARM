@@ -323,6 +323,24 @@ public sealed class EdgePassTests
     // ---- beyond the lifecycle ----
 
     [Fact]
+    public async Task ServicePrincipalMember_OmittedByV1Members_IsReadThroughTheTypeCast_AndTheNextWhatIfIsNoChange()
+    {
+        // Real tenant (probe h): v1.0 GET /groups/{id}/members leaves service principal members out; the fake models that.
+        var tenant = await EdgeTenant.UpToAsync(1);
+        var v1Members = await tenant.Host.Fake.GetAsync(new GraphRequest($"/groups/{tenant.GroupId}/members").WithSelect("id"), ProviderHost.Ct);
+        Assert.DoesNotContain(tenant.SpId, v1Members!["value"]!.AsArray().Select(m => m!["id"]!.GetValue<string>()));
+        Assert.Contains(tenant.SpId, tenant.Host.Directory.References($"/groups/{tenant.GroupId}/members"));
+
+        var whatIf = await tenant.WhatIfAsync(EdgeTenant.T1Template);
+
+        Check.NoWrites(whatIf);
+        var groupRow = whatIf.Change("test-group");
+        Assert.Equal(ChangeType.NoChange, groupRow.Type);
+        Assert.DoesNotContain(groupRow.Deltas, d => d.Path.ToString() == "properties.members");
+        Assert.Contains(whatIf.Requests, r => r.Method == "GET" && r.Path == $"/groups/{tenant.GroupId}/members/microsoft.graph.servicePrincipal");
+    }
+
+    [Fact]
     public async Task MoreThanTwentyMembers_GoThroughBatch()
     {
         var host = new ProviderHost();

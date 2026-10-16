@@ -30,14 +30,14 @@ public static class FakeDirectoryHttp
 
         if (request.Method == "POST" && relative.Equals("/$batch", StringComparison.Ordinal))
         {
-            return Json(HttpStatusCode.OK, Batch(directory, body as JsonObject));
+            return Json(HttpStatusCode.OK, Batch(directory, body as JsonObject, api == "/beta"));
         }
 
-        var (status, answer) = Invoke(directory, request.Method, relative, request.Uri.Query, request.Headers, body);
+        var (status, answer) = Invoke(directory, request.Method, relative, request.Uri.Query, request.Headers, body, api == "/beta");
         return Json(status, answer);
     }
 
-    private static JsonNode Batch(FakeDirectory directory, JsonObject? envelope)
+    private static JsonNode Batch(FakeDirectory directory, JsonObject? envelope, bool beta)
     {
         var responses = new JsonArray();
         foreach (var item in envelope?["requests"]?.AsArray() ?? [])
@@ -53,7 +53,7 @@ public static class FakeDirectoryHttp
                 headers[pair.Key] = pair.Value?.GetValue<string>() ?? string.Empty;
             }
 
-            var (status, answer) = Invoke(directory, sub?["method"]?.GetValue<string>() ?? "GET", subPath, subQuery, headers, sub?["body"]);
+            var (status, answer) = Invoke(directory, sub?["method"]?.GetValue<string>() ?? "GET", subPath, subQuery, headers, sub?["body"], beta);
             var entry = new JsonObject { ["id"] = sub?["id"]?.DeepClone(), ["status"] = (int)status };
             if (answer is not null)
             {
@@ -66,11 +66,11 @@ public static class FakeDirectoryHttp
         return new JsonObject { ["responses"] = responses };
     }
 
-    private static (HttpStatusCode Status, JsonNode? Body) Invoke(FakeDirectory directory, string method, string path, string query, IReadOnlyDictionary<string, string> headers, JsonNode? body)
+    private static (HttpStatusCode Status, JsonNode? Body) Invoke(FakeDirectory directory, string method, string path, string query, IReadOnlyDictionary<string, string> headers, JsonNode? body, bool beta)
     {
         try
         {
-            return directory.Handle(method.ToUpperInvariant(), path, ParseQuery(query), headers, body, RetryHint.Default, PageSize);
+            return directory.Handle(method.ToUpperInvariant(), path, ParseQuery(query), headers, body, RetryHint.Default, PageSize, beta);
         }
         catch (GraphException ex)
         {
