@@ -72,9 +72,12 @@ public sealed class Review1B_AuthFactoryTests
             return Interactive ?? new FakeCredential().Returns("interactive-token", DateTimeOffset.UtcNow.AddHours(1));
         }
 
-        internal override Task<AuthenticationRecord> AuthenticateAsync(GraphAuthOptions options, bool deviceCode, Func<DeviceCodeInfo, CancellationToken, Task>? deviceCodeCallback, CancellationToken cancellationToken)
+        public List<(GraphAuthOptions Options, TokenScopes Scopes, AuthenticationRecord? Account)> Requests { get; } = [];
+
+        internal override Task<AuthenticationRecord> AuthenticateAsync(GraphAuthOptions options, TokenScopes scopes, AuthenticationRecord? account, bool deviceCode, Func<DeviceCodeInfo, CancellationToken, Task>? deviceCodeCallback, CancellationToken cancellationToken)
         {
             LastDeviceCode = deviceCode;
+            Requests.Add((options, scopes, account));
             return Authenticator is null ? Task.FromResult(AuthTests.Record()) : Authenticator(deviceCode, deviceCodeCallback);
         }
     }
@@ -356,7 +359,8 @@ public sealed class Review1B_AuthFactoryTests
     {
         using var env = new EnvironmentScope().Set("AZURE_AUTHORITY_HOST", "https://evil.example/");
         var cloud = GraphCloud.Parse(cloudKey);
-        var auth = new GraphAuthOptions { Cloud = cloud };
+        // china has no default sign-in app: a new sign-in there needs --client-id.
+        var auth = new GraphAuthOptions { Cloud = cloud, ClientId = cloud == GraphCloud.China ? "44444444-4444-4444-4444-444444444444" : null };
 
         Assert.Equal(expectedAuthority, GraphAuthFactory.BuildDefaultChainOptions(auth).AuthorityHost.AbsoluteUri);
         Assert.Equal(expectedAuthority, GraphAuthFactory.BuildInteractiveOptions(auth, AuthTests.Record()).AuthorityHost.AbsoluteUri);
@@ -549,7 +553,7 @@ public sealed class Review1B_AuthFactoryTests
             var store = new AuthRecordStore(path);
             var factory = new Factory(store);
 
-            var record = await factory.LoginAsync(new GraphAuthOptions(), deviceCode, null, Ct);
+            var record = await factory.LoginAsync(new GraphAuthOptions(), [GraphCloud.Public.SignInScopes], deviceCode, null, Ct);
 
             Assert.Equal("alice@contoso.example", record.Username);
             Assert.Equal(deviceCode, factory.LastDeviceCode);
@@ -571,7 +575,7 @@ public sealed class Review1B_AuthFactoryTests
             var store = new AuthRecordStore(path);
             var factory = new Factory(store) { Authenticator = (_, _) => throw new AuthenticationFailedException("AADSTS50126: Invalid username or password.") };
 
-            var error = await Assert.ThrowsAsync<GraphTransportException>(() => factory.LoginAsync(new GraphAuthOptions(), false, null, Ct));
+            var error = await Assert.ThrowsAsync<GraphTransportException>(() => factory.LoginAsync(new GraphAuthOptions(), [GraphCloud.Public.SignInScopes], false, null, Ct));
 
             Assert.Equal(GraphTransportFailure.NotAuthenticated, error.Failure);
             Assert.StartsWith("Sign-in failed:", error.Message, StringComparison.Ordinal);
@@ -598,7 +602,7 @@ public sealed class Review1B_AuthFactoryTests
         {
             var factory = new Factory(new AuthRecordStore(path)) { Authenticator = (_, _) => throw new InvalidOperationException(reason) };
 
-            var error = await Assert.ThrowsAsync<GraphTransportException>(() => factory.LoginAsync(new GraphAuthOptions(), true, null, Ct));
+            var error = await Assert.ThrowsAsync<GraphTransportException>(() => factory.LoginAsync(new GraphAuthOptions(), [GraphCloud.Public.SignInScopes], true, null, Ct));
 
             Assert.Contains("secure (encrypted) token storage", error.Message, StringComparison.Ordinal);
             Assert.Contains("never stores tokens unencrypted", error.Message, StringComparison.Ordinal);
@@ -620,7 +624,7 @@ public sealed class Review1B_AuthFactoryTests
             using var cts = new CancellationTokenSource();
             await cts.CancelAsync();
 
-            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => factory.LoginAsync(new GraphAuthOptions(), false, null, cts.Token));
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => factory.LoginAsync(new GraphAuthOptions(), [GraphCloud.Public.SignInScopes], false, null, cts.Token));
         }
         finally
         {
@@ -636,7 +640,7 @@ public sealed class Review1B_AuthFactoryTests
         {
             var factory = new Factory(new AuthRecordStore(path)) { Authenticator = (_, _) => throw new AuthenticationFailedException("AADSTS7000215: Invalid client secret provided. client_secret=Sup3rS3cret") };
 
-            var error = await Assert.ThrowsAsync<GraphTransportException>(() => factory.LoginAsync(new GraphAuthOptions(), false, null, Ct));
+            var error = await Assert.ThrowsAsync<GraphTransportException>(() => factory.LoginAsync(new GraphAuthOptions(), [GraphCloud.Public.SignInScopes], false, null, Ct));
 
             Assert.DoesNotContain("Sup3rS3cret", error.Message, StringComparison.Ordinal);
         }

@@ -27,7 +27,10 @@ public sealed record GraphAuthOptions
     /// <summary>The tenant to sign in to (<c>--tenant</c> / <c>EARM_TENANT_ID</c>); null lets the credential choose.</summary>
     public string? TenantId { get; init; }
 
-    /// <summary>The public-client app registration used by the interactive sign-in (<c>--client-id</c> / <c>EARM_CLIENT_ID</c>); null uses Azure.Identity's default public client.</summary>
+    /// <summary>
+    /// The public-client app used by the interactive sign-in (<c>--client-id</c> / <c>EARM_CLIENT_ID</c>). Null uses the client of the stored sign-in record,
+    /// and for a new sign-in the cloud's default (<see cref="PublicClients.DefaultFor"/>: Microsoft Graph Command Line Tools; none in the china cloud).
+    /// </summary>
     public string? ClientId { get; init; }
 
     public GraphCloud Cloud { get; init; } = GraphCloud.Public;

@@ -20,9 +20,10 @@ public sealed class AuthCommandTests
 {
     private const string RecordJson = "{\"username\":\"alice@contoso.example\",\"authority\":\"login.microsoftonline.com\",\"homeAccountId\":\"oid.tid\",\"tenantId\":\"11111111-1111-1111-1111-111111111111\",\"clientId\":\"04b07795-8ddb-461a-bbee-02f9e1bf7b46\",\"version\":\"1.0\"}";
 
-    private static AuthenticationRecord Record()
+    private static AuthenticationRecord Record(string? clientId = null)
     {
-        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(RecordJson));
+        var json = clientId is null ? RecordJson : RecordJson.Replace(PublicClients.AzureCli, clientId, StringComparison.Ordinal);
+        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(json));
         return AuthenticationRecord.Deserialize(stream);
     }
 
@@ -42,19 +43,21 @@ public sealed class AuthCommandTests
 
         public bool? CallbackSupplied { get; private set; }
 
-        public override async Task<AuthenticationRecord> LoginAsync(GraphAuthOptions options, bool deviceCode, Func<DeviceCodeInfo, CancellationToken, Task>? deviceCodeCallback, CancellationToken cancellationToken)
+        /// <summary>Every interactive request: the scopes and, for a consent after the sign-in, the account it was made as.</summary>
+        public System.Collections.Generic.List<(TokenScopes Scopes, AuthenticationRecord? Account)> Requests { get; } = [];
+
+        internal override Task<AuthenticationRecord> AuthenticateAsync(GraphAuthOptions options, TokenScopes scopes, AuthenticationRecord? account, bool deviceCode, Func<DeviceCodeInfo, CancellationToken, Task>? deviceCodeCallback, CancellationToken cancellationToken)
         {
             DeviceCode = deviceCode;
-            Options = options;
+            Options ??= options;
+            Requests.Add((scopes, account));
             if (Failure is not null)
             {
                 throw Failure;
             }
 
             CallbackSupplied = deviceCodeCallback is not null;
-            var record = Record();
-            await RecordStore.SaveAsync(record, cancellationToken);
-            return record;
+            return Task.FromResult(account ?? Record(options.ClientId));
         }
     }
 

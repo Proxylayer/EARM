@@ -92,6 +92,18 @@ public sealed record GraphCloud
     /// <summary>The <c>.default</c> scope set of Key Vault (<see cref="KeyVaultScope"/>): the default token request of the Key Vault client.</summary>
     public TokenScopes KeyVaultScopes => TokenScopes.Default(KeyVaultResource);
 
+    /// <summary>
+    /// The delegated base set of a plain <c>earm auth login</c>: <c>User.Read</c> (the signed-in profile) and <c>Organization.Read.All</c> (the preflight's
+    /// <c>GET /organization</c>), which every deployment run requests too.
+    /// </summary>
+    public TokenScopes SignInScopes => TokenScopes.Explicit(GraphOrigin, "User.Read", "Organization.Read.All");
+
+    /// <summary>
+    /// The delegated Key Vault scope (<c>https://vault.azure.net/user_impersonation</c> in the public cloud) that needs a one-time interactive consent; after
+    /// it, <see cref="KeyVaultScopes"/> (<c>.default</c>) is obtained silently.
+    /// </summary>
+    public TokenScopes KeyVaultConsentScopes => TokenScopes.Explicit(KeyVaultResource, "user_impersonation");
+
     /// <summary>The cloud for a key (case-insensitive); null or empty means <see cref="Public"/>.</summary>
     /// <exception cref="GraphConfigurationException">The value is not one of the supported cloud keys; the message lists the valid values.</exception>
     public static GraphCloud Parse(string? value)

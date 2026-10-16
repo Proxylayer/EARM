@@ -30,7 +30,7 @@ Valid on every verb (recursive).
 | `-o`, `--output table\|json\|none` | Output format. Default `table`. `none` prints nothing (useful with `--exit-code-on-changes`). |
 | `--auth auto\|default\|interactive` | How tokens are obtained. Default: `EARM_AUTH`, then `auto` (a cached `earm auth login` sign-in when there is one, else the default credential chain). |
 | `--tenant <id\|domain>` | Tenant to sign in to. Default: `EARM_TENANT_ID`. |
-| `--client-id <guid>` | App registration (public client) used by `earm auth login`. Default: `EARM_CLIENT_ID`, then the Azure.Identity developer client. |
+| `--client-id <guid>` | Public-client app the interactive sign-in uses. Default: `EARM_CLIENT_ID`, then the client of the stored sign-in, then Microsoft Graph Command Line Tools (`14d82eec-204b-4c2f-b7e8-296a70dab67e`; none in the `china` cloud, where `earm auth login` requires `--client-id`). |
 | `--verbose` | Debug logging on stderr: every Graph call (method, path, status, timing, request id; secret-looking query values masked); tokens, Authorization headers and bodies are never logged. |
 | `--debug` | Trace logging on stderr: as `--verbose` plus token acquisition and retry details (never the tokens). Also prints the full exception (with stack trace) of an unexpected error; `EARM_DEBUG=1` does the same. |
 | `--evaluation-timeout <seconds>` | Wall-clock budget of one evaluation (a variable, the properties of a resource, an output; the time between evaluations, such as network calls, never counts). Default: `EARM_EVALUATION_TIMEOUT`, then 60. `0` disables the time limit (the step limit of [format.md](format.md#evaluation-limits) still applies); the largest value, for the flag and the variable alike, is 86,400 (24 hours). A value that is not a number of seconds in that range (`abc`, `NaN`, `Infinity`, a negative or larger number) is a one-line usage error (exit 1), never an "Unexpected error"; an invalid `EARM_EVALUATION_TIMEOUT` is ignored. An exceeded budget is the diagnostic `EvaluationBudgetExceeded`. |
@@ -45,7 +45,7 @@ Environment: `EARM_AUTH`, `EARM_TENANT_ID`, `EARM_CLIENT_ID`, `EARM_EVALUATION_T
 | 0 | Success (with `--exit-code-on-changes`: `what-if` planned no change, `create` succeeded and wrote nothing). |
 | 1 | Deployment or operation failure; a template or parameter file that cannot be loaded; a malformed argument or a usage error; a type without a provider; a refusal (confirmation declined, non-interactive without `--yes`, a replacement that was not confirmed: `RecreateNotConfirmed`); an **unexpected error**, printed as one line `Unexpected error (<type>): <message>` (the full exception only with `--debug` / `EARM_DEBUG=1`), a file access problem (`Access denied: ...`, `A file operation failed ...`) or running out of memory. |
 | 2 | Validation failure: the template has errors (offline validation, expansion or the dependency graph). |
-| 3 | Authentication or preflight failure: no credential signs in, a Graph token that is rejected, an unreadable Key Vault reference. |
+| 3 | Authentication or preflight failure: no credential signs in, an expired interactive sign-in, a sign-in that lacks consent for a requested scope (`Consent needed`), a Graph token that is rejected, an unreadable Key Vault reference. |
 | 5 | `--exit-code-on-changes`: `what-if` (and `create --what-if`) planned a Create, Modify or Delete (or an edge add or remove); `create` **succeeded** and applied at least one (a failed `create` exits 1). Orphan report rows never count: they are reported, never written. A secret-bearing property of an existing object is never compared, so it never counts either. |
 
 Code four is retired: it meant a locked local state, and EARM keeps no local state. It is not reused, so the other codes keep their meaning.
@@ -76,21 +76,38 @@ EARM obtains tokens with Azure.Identity; nothing is delegated to a command-line 
 
 | Mode | Behaviour |
 |---|---|
-| `auto` (default) | The cached sign-in of `earm auth login` when one exists, otherwise `default`. There is **no fallback**: when a cached sign-in exists but cannot produce a token silently (expired or revoked refresh token), the run fails with "your interactive sign-in expired: run `earm auth login`, or pass `--auth default`" instead of quietly acting as a different identity. A record that belongs to another cloud is ignored (logged). |
+| `auto` (default) | The cached sign-in of `earm auth login` when one exists, otherwise `default`. There is **no fallback**: when a cached sign-in exists but cannot produce a token silently (expired or revoked refresh token), the run fails with "your interactive sign-in expired: run `earm auth login`, or pass `--auth default`" instead of quietly acting as a different identity. A sign-in that is valid but lacks consent for a requested scope fails with "Consent needed" instead (see [Consent](#consent)). A record that belongs to another cloud is ignored (logged). |
 | `default` | `DefaultAzureCredential` restricted to credentials that start no process: **environment** (`AZURE_TENANT_ID` + `AZURE_CLIENT_ID` + `AZURE_CLIENT_SECRET`, or `AZURE_CLIENT_CERTIFICATE_PATH`, or `AZURE_USERNAME`/`AZURE_PASSWORD`), **workload identity** (`AZURE_FEDERATED_TOKEN_FILE`) and **managed identity** (`AZURE_CLIENT_ID` selects a user-assigned one). The Azure CLI, Azure Developer CLI, Azure PowerShell, Visual Studio and Visual Studio Code credentials are excluded. `AZURE_TOKEN_CREDENTIALS` is refused unless it is `prod` or one of the three credentials above. |
 | `interactive` | Only the cached sign-in; fails with "run `earm auth login`" when there is none. |
 
 The identity of the first token (tenant id, object id, app id, user principal name or app id) is logged once at Information level (shown by `--verbose`); the token itself never is.
 An unknown `--auth`, `--tenant`, `--client-id` or `EARM_CLOUD` value is a plain failure (exit 1) whose message names the setting and lists the valid values.
 
-### `earm auth login [--device-code] [--tenant <id>] [--client-id <guid>]`
+### `earm auth login [--device-code] [--scopes <list>] [-f <template> [-p ...] [--verb create|whatif|delete]] [--tenant <id>] [--client-id <guid>]`
 
 Signs in as a user: a browser window by default, `--device-code` on a machine without one. The tokens go to a persistent **encrypted** token cache named
 `earm` (DPAPI on Windows, Keychain on macOS, the secret service on Linux); unencrypted storage is never enabled, and when the platform cannot protect the cache the login
 fails with a message that says so. The non-secret account record is stored owner-only at `%LOCALAPPDATA%\EArm\auth\record.json` (`$XDG_DATA_HOME/earm/auth/record.json`
-elsewhere). The default app registration is the Azure.Identity developer client, whose tokens only carry the Graph permissions it is pre-authorized for; to use the
-administrative scopes EARM needs (see [permissions.md](permissions.md)), register your own public-client application with the needed **delegated** permissions, a
-`http://localhost` redirect URI (and "allow public client flows" for `--device-code`), and pass its id with `--client-id` / `EARM_CLIENT_ID`. Exit 0; 3 when the sign-in fails.
+elsewhere); every login writes a fresh record naming the client it used.
+
+**Sign-in app.** Nobody registers an application: the default client is the Microsoft first-party app **Microsoft Graph Command Line Tools**
+(`14d82eec-204b-4c2f-b7e8-296a70dab67e`, the app Microsoft Graph PowerShell uses) in the `public`, `usgov` and `usgovdod` clouds. It requests delegated scopes
+dynamically, so EARM acts with **your** delegated permissions, limited to the scopes consented. The app does not exist in Azure operated by 21Vianet: with
+`EARM_CLOUD=china`, `login` without `--client-id` fails (exit 1) and asks for the id of a public-client app registration of your own (delegated Graph permissions, a
+`http://localhost` redirect URI, and "allow public client flows" for `--device-code`). `--client-id` / `EARM_CLIENT_ID` selects such an app in any cloud.
+
+**Scopes.** A plain `login` requests the base set `User.Read` and `Organization.Read.All`. To consent ahead of time what later runs will request:
+
+| Option | Meaning |
+|---|---|
+| `--scopes <list>` | Extra delegated scopes, space- or comma-separated: Microsoft Graph names (`Group.ReadWrite.All`), Graph scopes qualified with the cloud's Graph origin, or the Key Vault scope (`https://vault.azure.net/user_impersonation`). |
+| `-f`, `--template-file <template>` | Consent the scopes one run of the template requests (the set `earm permissions -f <template> --verb <verb>` lists), computed offline. When the template has Key Vault parameter references, a second interactive request consents `https://<vault suffix>/user_impersonation` as the same account. |
+| `-p`, `--parameters <value>` | Parameter values of `-f`, as for the deployment verbs (`@file.json` or `name=value`; they decide copy counts and conditions). |
+| `--verb create\|whatif\|delete` | Which run of `-f` to consent for. Default `create`. |
+
+`--scopes` and `-f` combine (union, plus the base set). An unloadable template exits 1, a template with validation errors 2, as `earm permissions` does.
+With `--auth default` they do not apply (a service principal or managed identity uses the application permissions an administrator granted it) and `login` exits 1.
+Exit 0; 3 when the sign-in fails.
 `login` never waits for a browser that nobody can use: with **standard input and output both redirected** (a script, a pipeline) and no `--device-code` it fails at once
 (exit 1) and says to add `--device-code`; with `--auth default` (or `EARM_AUTH=default`) it fails at once too, because the default credential chain (environment variables,
 workload identity, managed identity) signs nobody in: `login` is only for interactive sign-in.
@@ -99,11 +116,29 @@ workload identity, managed identity) signs nobody in: `login` is only for intera
 
 Deletes the sign-in record and the files of the `earm` token cache. Service principal, workload identity and managed identity sign-ins come from the environment and are not affected.
 
-### `earm auth status`
+### `earm auth status [-f <template> [-p ...] [--verb create|whatif|delete]]`
 
-Acquires a token the way an online verb would and prints the mode, cloud, tenant, principal (user principal name, or app id for an app-only token), object id, delegated scopes or
-application roles and the expiry, read from the token's claims **without validating** them (display only; the token is never printed). Exit 3 with the sign-in guidance
-(the credentials that were tried and how to configure one) when nothing signs in.
+Acquires a token the way an online verb would and prints the mode, cloud, tenant, principal (user principal name, or app id for an app-only token), object id, the client
+(application) id with its name when it is Microsoft Graph Command Line Tools or Microsoft Azure CLI, the delegated scopes (`scp`) or application roles and the expiry, read from
+the token's claims **without validating** them (display only; the token is never printed). Exit 3 with the sign-in guidance (the credentials that were tried and how to
+configure one) when nothing signs in.
+
+With `-f <template>` (and `-p`, `--verb` as for `login`, default `create`), it also lists the delegated scopes that run requires and those missing from the token's `scp`
+(`requiredScopes`, `missingScopes`, `keyVaultNeeded` with `-o json`), with the `earm auth login` command that consents them. Missing scopes do not change the exit code (0).
+`-f` with an app-only identity (`--auth default`, or a service principal token) exits 1: delegated scopes do not apply; see `earm permissions --mode app`.
+
+### Consent
+
+Runs get their tokens silently. When the sign-in is valid but has not been granted a requested scope (the identity platform answers AADSTS65001), the run fails with exit
+code 3 and a `Consent needed` message instead of "sign-in expired": it names the missing scopes and the command that grants them once, interactively
+(`earm auth login --scopes <missing>`, or `earm auth login -f <template>` for everything a template needs). Signing in again without those scopes does not help.
+If your organization requires admin consent for a scope, an administrator grants it to the sign-in app instead.
+
+Consent is recorded for the **sign-in app**, not for EARM: a grant to Microsoft Graph Command Line Tools is shared by every tool that signs in with that app (Microsoft
+Graph PowerShell, the Microsoft Graph CLI). Review or revoke it under My Apps (`https://myapps.microsoft.com`) or, as an administrator, under Enterprise applications.
+
+A sign-in record from an earlier version uses the Microsoft Azure CLI app (`04b07795-8ddb-461a-bbee-02f9e1bf7b46`). It keeps working for what that app is pre-authorized
+for, with one warning per run (and a note in `auth status`) recommending `earm auth login`, which switches to the default app.
 
 ### Migrating from the Azure CLI transport
 

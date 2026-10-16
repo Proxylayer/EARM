@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -28,7 +29,23 @@ public sealed record GraphAuthStatus
 
     public string? AppId { get; init; }
 
+    /// <summary>The client (application) the token was issued to: the token's <c>appid</c>/<c>azp</c>, else the client of the stored sign-in.</summary>
+    public string? ClientId { get; init; }
+
+    /// <summary>The display name of <see cref="ClientId"/> when it is one of the known Microsoft apps (<see cref="PublicClients.NameOf"/>).</summary>
+    public string? ClientName => PublicClients.NameOf(ClientId);
+
+    /// <summary>The delegated scopes of the token (<c>scp</c>).</summary>
     public IReadOnlyList<string> Scopes { get; init; } = [];
+
+    /// <summary>The delegated Graph scopes a template run requires (<c>auth status -f</c>); null when no template was given.</summary>
+    public IReadOnlyList<string>? RequiredScopes { get; init; }
+
+    /// <summary>The <see cref="RequiredScopes"/> the token's <c>scp</c> does not carry (case-insensitive); empty when none are missing or no template was given.</summary>
+    public IReadOnlyList<string> MissingScopes { get; init; } = [];
+
+    /// <summary>True when the template run also needs the Key Vault consent (<see cref="GraphCloud.KeyVaultConsentScopes"/>).</summary>
+    public bool KeyVaultNeeded { get; init; }
 
     public IReadOnlyList<string> Roles { get; init; } = [];
 
@@ -68,11 +85,25 @@ public sealed record GraphAuthStatus
             Principal = decoded ? claims.PrincipalName : null,
             ObjectId = decoded ? claims.ObjectId : null,
             AppId = decoded ? claims.AppId : null,
+            ClientId = (decoded ? claims.AppId : null) ?? (record is null || options.Mode == GraphAuthMode.Default ? null : GraphAuthFactory.InteractiveClientId(options, record)),
             Scopes = decoded ? claims.Scopes : [],
             Roles = decoded ? claims.Roles : [],
             ExpiresOn = decoded ? claims.ExpiresOn ?? token.ExpiresOn : token.ExpiresOn,
             SignInRecord = record is null ? null : store.FilePath,
             SignInAccount = record?.Username,
+        };
+    }
+
+    /// <summary>This status compared with the delegated scopes a run requires: <see cref="MissingScopes"/> are the required names absent from <c>scp</c>.</summary>
+    public GraphAuthStatus WithRequired(IReadOnlyList<string> requiredScopes, bool keyVaultNeeded)
+    {
+        ArgumentNullException.ThrowIfNull(requiredScopes);
+        var granted = new HashSet<string>(Scopes, StringComparer.OrdinalIgnoreCase);
+        return this with
+        {
+            RequiredScopes = requiredScopes,
+            MissingScopes = requiredScopes.Where(scope => !granted.Contains(scope)).ToList(),
+            KeyVaultNeeded = keyVaultNeeded,
         };
     }
 }

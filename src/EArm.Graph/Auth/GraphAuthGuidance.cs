@@ -19,6 +19,11 @@ public static partial class GraphAuthGuidance
             return InteractiveExpired(expired, scope);
         }
 
+        if (ConsentRequiredException.FindIn(failure) is { } consent)
+        {
+            return ConsentNeeded(consent);
+        }
+
         var builder = new StringBuilder();
         builder.Append("Not signed in: no credential produced an access token for ").Append(scope).Append('.');
 
@@ -71,6 +76,54 @@ public static partial class GraphAuthGuidance
         builder.AppendLine("  - run 'earm auth login' to sign in again (add --device-code on a machine without a browser); or");
         builder.Append("  - pass '--auth default' (or set EARM_AUTH=default) to use the service principal, workload identity or managed identity of this environment instead.");
         return builder.ToString();
+    }
+
+    /// <summary>The one-line note on shared consent: a grant to the sign-in app applies to every tool that signs in with that app.</summary>
+    public const string SharedConsentNote = "Note: consent is granted to the sign-in app (Microsoft Graph Command Line Tools by default) and is shared by every tool that signs in with that app, such as Microsoft Graph PowerShell; review or revoke it under My Apps (https://myapps.microsoft.com) or Enterprise applications.";
+
+    /// <summary>
+    /// The message for a sign-in that is valid but lacks consent for some delegated scopes (AADSTS65001): which scopes of which resource, and the exact
+    /// command that consents them (<c>earm auth login --scopes ...</c>, or <c>earm auth login -f &lt;template&gt;</c> for everything a template needs).
+    /// </summary>
+    public static string ConsentNeeded(ConsentRequiredException consent)
+    {
+        ArgumentNullException.ThrowIfNull(consent);
+        var builder = new StringBuilder();
+        builder.Append("Consent needed: your sign-in");
+        if (!string.IsNullOrWhiteSpace(consent.Account))
+        {
+            builder.Append(" (").Append(SecretRedactor.RedactText(consent.Account)).Append(')');
+        }
+
+        // Graph scopes are listed by name (as --scopes and a token's scp take them); a Key Vault scope fully qualified.
+        var listed = IsKeyVault(consent.Scopes.Resource) ? consent.Scopes.Scopes : consent.Scopes.Names;
+        builder.Append(" has not been granted ").Append(string.Join(' ', listed)).Append(" for ").Append(consent.Scopes.Resource)
+            .AppendLine(" (AADSTS65001), so no access token could be obtained without a consent prompt.");
+        builder.AppendLine("Grant it once, interactively, with:");
+        builder.Append("  earm auth login").Append(consent.Scopes.IsDefault ? string.Empty : " --scopes " + string.Join(' ', listed)).Append(ClientArgument(consent.ClientId)).AppendLine();
+        builder.Append("or consent everything a template needs: earm auth login -f <template> [-p ...] [--verb create|whatif|delete]").Append(ClientArgument(consent.ClientId)).AppendLine();
+        builder.AppendLine("If your organization requires admin consent, ask an administrator to grant these delegated permissions to the sign-in app.");
+        builder.Append(SharedConsentNote);
+        return builder.ToString();
+    }
+
+    /// <summary><c> --client-id X</c> for a sign-in to a custom app (so the consent goes to the same app); empty for the known Microsoft apps (a new login switches to the default).</summary>
+    private static string ClientArgument(string? clientId)
+    {
+        return string.IsNullOrWhiteSpace(clientId) || PublicClients.NameOf(clientId) is not null ? string.Empty : " --client-id " + clientId;
+    }
+
+    private static bool IsKeyVault(string resource)
+    {
+        foreach (var cloud in GraphCloud.All)
+        {
+            if (string.Equals(resource, cloud.KeyVaultResource, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>The per-credential lines of an Azure.Identity failure ("EnvironmentCredential authentication unavailable. ..."), redacted and shortened.</summary>

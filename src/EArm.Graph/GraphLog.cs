@@ -48,6 +48,12 @@ internal static partial class GraphLog
     [LoggerMessage(EventId = 1045, Level = LogLevel.Information, Message = "Ignoring the stored interactive sign-in: it belongs to {Authority} but the cloud is {Cloud}; using the default credential chain")]
     public static partial void AuthRecordIgnored(ILogger logger, string authority, string cloud);
 
+    [LoggerMessage(EventId = 1046, Level = LogLevel.Information, Message = "Additional consent is needed for {Scopes}; starting the interactive consent prompt")]
+    public static partial void ConsentPrompting(ILogger logger, string scopes);
+
+    [LoggerMessage(EventId = 1047, Level = LogLevel.Warning, Message = "The stored sign-in of {Account} uses the Microsoft Azure CLI app ({ClientId}), which is pre-authorized for a fixed set of Microsoft Graph permissions only and cannot consent to the delegated scopes EARM requests. Run 'earm auth login' again to switch to the default sign-in app, Microsoft Graph Command Line Tools ({DefaultClientId}).")]
+    public static partial void LegacyClientRecord(ILogger logger, string? account, string clientId, string defaultClientId);
+
     [LoggerMessage(EventId = 1050, Level = LogLevel.Debug, Message = "Acquired a token for {Scope} (expires {ExpiresOn:u}) from {Credential}")]
     public static partial void TokenAcquired(ILogger logger, string scope, DateTimeOffset expiresOn, string credential);
 }

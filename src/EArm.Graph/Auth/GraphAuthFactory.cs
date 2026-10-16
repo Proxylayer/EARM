@@ -27,6 +27,9 @@ public sealed record GraphLogoutResult(bool RecordDeleted, int CacheFilesDeleted
 /// sign-in cannot produce a token silently, the call fails with guidance (<c>earm auth login</c>, or <c>--auth default</c>) instead of quietly
 /// acting as a different identity.</item>
 /// </list>
+/// The interactive sign-in uses the client of <c>--client-id</c>, else the client of the stored record, else the cloud's default
+/// (<see cref="PublicClients.DefaultFor"/>: Microsoft Graph Command Line Tools). A record of the Azure CLI app of earlier versions keeps working, with one
+/// warning recommending <c>earm auth login</c>.
 /// The methods are virtual so tests can substitute fake credentials without a browser.
 /// </summary>
 public class GraphAuthFactory
@@ -53,6 +56,7 @@ public class GraphAuthFactory
 
     private readonly ILogger _logger;
     private readonly IReadOnlyList<string>? _cacheDirectories;
+    private int _legacyClientWarned;
 
     /// <param name="recordStore">Where the sign-in record lives; default <see cref="AuthRecordStore.DefaultPath"/>.</param>
     /// <param name="logger">Diagnostics.</param>
@@ -66,13 +70,53 @@ public class GraphAuthFactory
 
     public AuthRecordStore RecordStore { get; }
 
-    /// <summary>The token provider for the options.</summary>
+    /// <summary>The token provider for the options; a consent failure fails the request (<see cref="ConsentRequiredException"/>), it never prompts.</summary>
     /// <exception cref="InvalidOperationException">An environment variable asks for a credential that would start an external process.</exception>
-    public virtual IGraphTokenProvider Create(GraphAuthOptions options)
+    public IGraphTokenProvider Create(GraphAuthOptions options)
+    {
+        return Create(options, consentPrompter: null);
+    }
+
+    /// <summary>
+    /// The token provider for the options. With <paramref name="consentPrompter"/> (opt-in, from <see cref="CreateConsentPrompter"/>), a silent request that
+    /// needs consent runs that prompt for exactly the missing scope set and retries silently once; without one it fails with <see cref="ConsentRequiredException"/>.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">An environment variable asks for a credential that would start an external process.</exception>
+    public virtual IGraphTokenProvider Create(GraphAuthOptions options, IConsentPrompter? consentPrompter)
     {
         ArgumentNullException.ThrowIfNull(options);
         var credential = CreateCredential(options);
-        return new AzureIdentityTokenProvider(credential, options.Mode, logger: _logger);
+        var record = InteractiveRecord(options);
+        var signIn = record is null ? null : new SignInAccount(record.Username, InteractiveClientId(options, record));
+        return new AzureIdentityTokenProvider(credential, options.Mode, logger: _logger, signIn: signIn, consentPrompter: record is null ? null : consentPrompter);
+    }
+
+    /// <summary>
+    /// The interactive incremental-consent prompt for the stored sign-in (browser, or device code), or null when the options do not use a stored sign-in
+    /// (<c>--auth default</c>, no record, or a record of another cloud): only an interactive sign-in can consent. The caller decides whether a person is
+    /// there to answer it (an interactive terminal); a non-interactive run passes no prompter and fails with <see cref="ConsentRequiredException"/>.
+    /// </summary>
+    /// <param name="options">The run's authentication options.</param>
+    /// <param name="deviceCode">Prompt with the device-code flow instead of a browser.</param>
+    /// <param name="deviceCodeCallback">Shows the device-code instructions; null prints them to standard error.</param>
+    /// <param name="notice">Told what is about to be prompted for (a line for standard error), before the prompt starts.</param>
+    public virtual IConsentPrompter? CreateConsentPrompter(GraphAuthOptions options, bool deviceCode, Func<DeviceCodeInfo, CancellationToken, Task>? deviceCodeCallback, Action<string>? notice)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        var record = InteractiveRecord(options);
+        return record is null ? null : new InteractiveConsentPrompter(this, options, record, deviceCode, deviceCodeCallback, notice);
+    }
+
+    /// <summary>The stored record the options sign in with (interactive or auto mode, same cloud), or null.</summary>
+    private AuthenticationRecord? InteractiveRecord(GraphAuthOptions options)
+    {
+        if (options.Mode == GraphAuthMode.Default)
+        {
+            return null;
+        }
+
+        var record = RecordStore.TryLoad();
+        return record is not null && MatchesCloud(record, options.Cloud) ? record : null;
     }
 
     /// <summary>The credential for the options (see the class summary for the modes).</summary>
@@ -97,6 +141,7 @@ public class GraphAuthFactory
                     return new UnavailableCredential($"The stored interactive sign-in belongs to another cloud ({record.Authority}); EARM_CLOUD is {options.Cloud.Key}. Run 'earm auth login' again for this cloud.");
                 }
 
+                WarnIfLegacyClient(options, record);
                 return CreateInteractive(options, record);
             }
 
@@ -107,6 +152,7 @@ public class GraphAuthFactory
                 {
                     // S-08: a stored interactive sign-in means "act as this person". If it cannot produce a token silently, FAIL with guidance; falling
                     // through to the default chain would silently act as a different identity (a service principal from the environment, a managed identity).
+                    WarnIfLegacyClient(options, record);
                     return new InteractiveOnlyCredential(CreateInteractive(options, record), record.Username);
                 }
 
@@ -176,7 +222,7 @@ public class GraphAuthFactory
         };
         // The record remembers the client and tenant of the sign-in ('earm auth login --client-id ...'): without an explicit option the
         // silent refresh must go to the same application, or MSAL finds no account in the cache for the default client.
-        var clientId = !string.IsNullOrEmpty(options.ClientId) ? options.ClientId : RecordClientId(record);
+        var clientId = InteractiveClientId(options, record);
         if (!string.IsNullOrEmpty(clientId))
         {
             interactive.ClientId = clientId;
@@ -188,6 +234,41 @@ public class GraphAuthFactory
             interactive.TenantId = tenantId;
         }
         return interactive;
+    }
+
+    /// <summary>The client of a stored sign-in: <c>--client-id</c>, else the record's, else the cloud's default (null in china: Azure.Identity's own default).</summary>
+    internal static string? InteractiveClientId(GraphAuthOptions options, AuthenticationRecord record)
+    {
+        if (!string.IsNullOrEmpty(options.ClientId))
+        {
+            return options.ClientId;
+        }
+
+        var recorded = RecordClientId(record);
+        return !string.IsNullOrEmpty(recorded) ? recorded : PublicClients.TryDefaultFor(options.Cloud);
+    }
+
+    /// <summary>The client of a new sign-in: <c>--client-id</c>, else the cloud's default.</summary>
+    /// <exception cref="GraphConfigurationException">No <c>--client-id</c> in a cloud without a default client (china).</exception>
+    public static string LoginClientId(GraphAuthOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        return !string.IsNullOrEmpty(options.ClientId) ? options.ClientId : PublicClients.DefaultFor(options.Cloud);
+    }
+
+    /// <summary>One warning per factory when the stored record signs in to the Azure CLI app of earlier versions (and no <c>--client-id</c> overrides it).</summary>
+    private void WarnIfLegacyClient(GraphAuthOptions options, AuthenticationRecord record)
+    {
+        if (!string.IsNullOrEmpty(options.ClientId))
+        {
+            return;
+        }
+
+        var recorded = RecordClientId(record);
+        if (PublicClients.IsAzureCli(recorded) && Interlocked.Exchange(ref _legacyClientWarned, 1) == 0)
+        {
+            GraphLog.LegacyClientRecord(_logger, record.Username, recorded!, PublicClients.GraphCommandLineTools);
+        }
     }
 
     private static string? RecordClientId(AuthenticationRecord record)
@@ -220,11 +301,8 @@ public class GraphAuthFactory
         {
             TokenCachePersistenceOptions = new TokenCachePersistenceOptions { Name = CacheName },
             AuthorityHost = options.Cloud.AuthorityHost,
+            ClientId = LoginClientId(options),
         };
-        if (!string.IsNullOrEmpty(options.ClientId))
-        {
-            browser.ClientId = options.ClientId;
-        }
 
         if (!string.IsNullOrEmpty(options.TenantId))
         {
@@ -241,11 +319,8 @@ public class GraphAuthFactory
             TokenCachePersistenceOptions = new TokenCachePersistenceOptions { Name = CacheName },
             AuthorityHost = options.Cloud.AuthorityHost,
             DeviceCodeCallback = deviceCodeCallback ?? PrintDeviceCode,
+            ClientId = LoginClientId(options),
         };
-        if (!string.IsNullOrEmpty(options.ClientId))
-        {
-            device.ClientId = options.ClientId;
-        }
 
         if (!string.IsNullOrEmpty(options.TenantId))
         {
@@ -255,19 +330,77 @@ public class GraphAuthFactory
         return device;
     }
 
+    /// <summary>An interactive request as the account of <paramref name="record"/> (incremental consent): its client and tenant, the same <c>earm</c> cache, the account as login hint.</summary>
+    internal static InteractiveBrowserCredentialOptions BuildBrowserConsentOptions(GraphAuthOptions options, AuthenticationRecord record)
+    {
+        var browser = BuildInteractiveOptions(options, record);
+        browser.DisableAutomaticAuthentication = false;
+        browser.LoginHint = record.Username;
+        return browser;
+    }
+
+    /// <inheritdoc cref="BuildBrowserConsentOptions"/>
+    internal static DeviceCodeCredentialOptions BuildDeviceCodeConsentOptions(GraphAuthOptions options, AuthenticationRecord record, Func<DeviceCodeInfo, CancellationToken, Task>? deviceCodeCallback)
+    {
+        var device = new DeviceCodeCredentialOptions
+        {
+            TokenCachePersistenceOptions = new TokenCachePersistenceOptions { Name = CacheName },
+            AuthorityHost = options.Cloud.AuthorityHost,
+            DeviceCodeCallback = deviceCodeCallback ?? PrintDeviceCode,
+            AuthenticationRecord = record,
+        };
+        var clientId = InteractiveClientId(options, record);
+        if (!string.IsNullOrEmpty(clientId))
+        {
+            device.ClientId = clientId;
+        }
+
+        var tenantId = !string.IsNullOrEmpty(options.TenantId) ? options.TenantId : RecordTenantId(record);
+        if (!string.IsNullOrEmpty(tenantId))
+        {
+            device.TenantId = tenantId;
+        }
+
+        return device;
+    }
+
     /// <summary>
     /// Interactive sign-in (browser, or device code) against the persistent encrypted cache named <see cref="CacheName"/>, then stores the
     /// resulting <see cref="AuthenticationRecord"/>. Unencrypted token storage is never enabled: when the platform cannot protect the cache
     /// the sign-in fails with a message that says so.
+    /// <para>
+    /// <paramref name="scopes"/> are the consents to obtain, one token request per resource: the first is the sign-in itself (a Microsoft Graph set such as
+    /// <see cref="GraphCloud.SignInScopes"/>); each further set (for example <see cref="GraphCloud.KeyVaultConsentScopes"/>) is a second interactive request
+    /// as the same account. The client is <c>--client-id</c>, else the cloud's default (<see cref="LoginClientId"/>); the record always names it, so a new
+    /// sign-in replaces a record of another client.
+    /// </para>
     /// </summary>
+    /// <param name="options">The authentication options (cloud, tenant, client).</param>
+    /// <param name="scopes">The consents to obtain; at least one.</param>
+    /// <param name="deviceCode">Use the device-code flow instead of a browser.</param>
     /// <param name="deviceCodeCallback">Shows the device-code instructions; null prints them to standard error.</param>
-    public virtual async Task<AuthenticationRecord> LoginAsync(GraphAuthOptions options, bool deviceCode, Func<DeviceCodeInfo, CancellationToken, Task>? deviceCodeCallback, CancellationToken cancellationToken)
+    /// <param name="cancellationToken">Cancels the sign-in.</param>
+    /// <exception cref="GraphConfigurationException">No <c>--client-id</c> in a cloud without a default client (china).</exception>
+    /// <exception cref="GraphTransportException">The sign-in or a consent failed (<see cref="GraphTransportFailure.NotAuthenticated"/>).</exception>
+    public virtual async Task<AuthenticationRecord> LoginAsync(GraphAuthOptions options, IReadOnlyList<TokenScopes> scopes, bool deviceCode, Func<DeviceCodeInfo, CancellationToken, Task>? deviceCodeCallback, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(scopes);
+        if (scopes.Count == 0)
+        {
+            throw new ArgumentException("At least one scope set is required.", nameof(scopes));
+        }
+
+        var login = options with { ClientId = LoginClientId(options) };
         AuthenticationRecord record;
         try
         {
-            record = await AuthenticateAsync(options, deviceCode, deviceCodeCallback, cancellationToken).ConfigureAwait(false);
+            record = await AuthenticateAsync(login, scopes[0], account: null, deviceCode, deviceCodeCallback, cancellationToken).ConfigureAwait(false);
+            for (var i = 1; i < scopes.Count; i++)
+            {
+                var granted = await AuthenticateAsync(login, scopes[i], record, deviceCode, deviceCodeCallback, cancellationToken).ConfigureAwait(false);
+                EnsureSameAccount(record, granted);
+            }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -282,16 +415,45 @@ public class GraphAuthFactory
         return record;
     }
 
-    /// <summary>The seam that actually talks to the identity provider (browser or device code); tests override it so no browser or network is involved.</summary>
-    internal virtual async Task<AuthenticationRecord> AuthenticateAsync(GraphAuthOptions options, bool deviceCode, Func<DeviceCodeInfo, CancellationToken, Task>? deviceCodeCallback, CancellationToken cancellationToken)
+    /// <summary>
+    /// The seam that actually talks to the identity provider (browser or device code): one interactive request for <paramref name="scopes"/>. Without
+    /// <paramref name="account"/> it is a new sign-in (the client of <see cref="LoginClientId"/>); with it, an incremental consent as that account (its client
+    /// and tenant, the account as login hint). Tests override it so no browser or network is involved.
+    /// </summary>
+    internal virtual async Task<AuthenticationRecord> AuthenticateAsync(GraphAuthOptions options, TokenScopes scopes, AuthenticationRecord? account, bool deviceCode, Func<DeviceCodeInfo, CancellationToken, Task>? deviceCodeCallback, CancellationToken cancellationToken)
     {
-        var context = new TokenRequestContext([.. options.Cloud.GraphScopes.Scopes]);
+        ArgumentNullException.ThrowIfNull(scopes);
+        var context = new TokenRequestContext([.. scopes.Scopes]);
         if (deviceCode)
         {
-            return await new DeviceCodeCredential(BuildDeviceCodeLoginOptions(options, deviceCodeCallback)).AuthenticateAsync(context, cancellationToken).ConfigureAwait(false);
+            var deviceOptions = account is null ? BuildDeviceCodeLoginOptions(options, deviceCodeCallback) : BuildDeviceCodeConsentOptions(options, account, deviceCodeCallback);
+            return await new DeviceCodeCredential(deviceOptions).AuthenticateAsync(context, cancellationToken).ConfigureAwait(false);
         }
 
-        return await new InteractiveBrowserCredential(BuildBrowserLoginOptions(options)).AuthenticateAsync(context, cancellationToken).ConfigureAwait(false);
+        var browserOptions = account is null ? BuildBrowserLoginOptions(options) : BuildBrowserConsentOptions(options, account);
+        return await new InteractiveBrowserCredential(browserOptions).AuthenticateAsync(context, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>A consent prompt must be answered by the account of the sign-in: a different account would leave the stored sign-in without the grant.</summary>
+    /// <exception cref="InvalidOperationException">The prompt was completed as another account.</exception>
+    internal static void EnsureSameAccount(AuthenticationRecord expected, AuthenticationRecord actual)
+    {
+        if (!string.Equals(HomeAccountIdOf(expected), HomeAccountIdOf(actual), StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException($"The consent prompt was completed as {actual.Username}, not as the signed-in account {expected.Username}; nothing was consented for {expected.Username}. Run it again and choose {expected.Username}.");
+        }
+    }
+
+    private static string? HomeAccountIdOf(AuthenticationRecord record)
+    {
+        try
+        {
+            return record.HomeAccountId;
+        }
+        catch (NullReferenceException)
+        {
+            return null;
+        }
     }
 
     /// <summary>
@@ -397,7 +559,8 @@ public class GraphAuthFactory
     /// <summary>
     /// The interactive credential of <c>auto</c> mode, with the no-fallback rule: any failure to obtain a token silently becomes an
     /// <see cref="InteractiveSignInExpiredException"/> (which <see cref="GraphAuthGuidance.NotSignedIn"/> turns into "run 'earm auth login' or pass
-    /// '--auth default'"). Nothing else is tried.
+    /// '--auth default'"). Nothing else is tried. A consent failure (<see cref="ConsentRequiredException.IsConsentFailure"/>) passes through unchanged:
+    /// the sign-in is fine, it lacks consent, which the token provider reports (or prompts for).
     /// </summary>
     private sealed class InteractiveOnlyCredential : TokenCredential
     {
@@ -416,7 +579,7 @@ public class GraphAuthFactory
             {
                 return _inner.GetToken(requestContext, cancellationToken);
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex) when (ex is not OperationCanceledException && !ConsentRequiredException.IsConsentFailure(ex))
             {
                 throw new InteractiveSignInExpiredException(_account, ex);
             }
@@ -428,7 +591,7 @@ public class GraphAuthFactory
             {
                 return await _inner.GetTokenAsync(requestContext, cancellationToken).ConfigureAwait(false);
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex) when (ex is not OperationCanceledException && !ConsentRequiredException.IsConsentFailure(ex))
             {
                 throw new InteractiveSignInExpiredException(_account, ex);
             }
