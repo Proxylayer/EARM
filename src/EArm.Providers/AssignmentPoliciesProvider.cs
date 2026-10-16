@@ -79,6 +79,7 @@ public sealed class AssignmentPoliciesProvider : ProviderBase, IOrphanCandidateS
     public override ResourceChange Plan(ResourceInstance desired, ExistingResource? existing, PlanOptions options)
     {
         ArgumentNullException.ThrowIfNull(desired);
+        ArgumentNullException.ThrowIfNull(options);
         if (existing is not null && desired.Properties is { } properties && AssignmentPolicyShape.ProjectLive(properties, existing.Properties) is JsonObject projected)
         {
             existing = existing with { Properties = projected };

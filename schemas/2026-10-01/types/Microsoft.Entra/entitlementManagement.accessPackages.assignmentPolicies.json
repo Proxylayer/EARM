@@ -5,17 +5,277 @@
   "description": "An assignment policy of an access package (accessPackageAssignmentPolicy). A child of the package; the child name is the policy's displayName, unique within the package. Only declared properties are compared; an update is a PUT of the live policy with the declared values merged in.",
   "type": "object",
   "properties": {
-    "displayName": { "description": "Set from the child name; declaring it is only allowed when it equals the name.", "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] },
+    "displayName": {
+      "description": "Set from the child name; declaring it is only allowed when it equals the name.",
+      "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+    },
     "description": { "description": "Description.", "anyOf": [ { "type": [ "string", "null" ] }, { "$ref": "#/$defs/expression" } ] },
-    "allowedTargetScope": { "description": "Who may request or be assigned: notSpecified, specificDirectoryUsers, specificConnectedOrganizationUsers, specificDirectoryServicePrincipals, allMemberUsers, allDirectoryUsers, allDirectoryServicePrincipals, allConfiguredConnectedOrganizationUsers, allExternalUsers.", "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] },
-    "specificAllowedTargets": { "description": "Subject sets for the specific* scopes, for example [{ \"@odata.type\": \"#microsoft.graph.groupMembers\", \"groupId\": \"...\" }]; compared order-insensitively.", "anyOf": [ { "type": [ "array", "null" ] }, { "$ref": "#/$defs/expression" } ] },
-    "expiration": { "description": "expirationPattern: { type: noExpiration | afterDateTime | afterDuration, endDateTime, duration }. Keep a duration within the eligibility maximum of a PIM for Groups role the package grants.", "anyOf": [ { "type": [ "object", "null" ] }, { "$ref": "#/$defs/expression" } ] },
-    "requestorSettings": { "description": "accessPackageAssignmentRequestorSettings.", "anyOf": [ { "type": [ "object", "null" ] }, { "$ref": "#/$defs/expression" } ] },
-    "requestApprovalSettings": { "description": "accessPackageAssignmentApprovalSettings: isApprovalRequiredForAdd, isApprovalRequiredForUpdate, isRequestorJustificationRequired, stages (1 to 3 approval stages with primaryApprovers, fallbackPrimaryApprovers, escalationApprovers ...).", "anyOf": [ { "type": [ "object", "null" ] }, { "$ref": "#/$defs/expression" } ] },
-    "reviewSettings": { "description": "accessPackageAssignmentReviewSettings (optional access reviews).", "anyOf": [ { "type": [ "object", "null" ] }, { "$ref": "#/$defs/expression" } ] },
-    "automaticRequestSettings": { "description": "accessPackageAutomaticRequestSettings (auto-assignment policies only).", "anyOf": [ { "type": [ "object", "null" ] }, { "$ref": "#/$defs/expression" } ] },
-    "questions": { "description": "accessPackageQuestion array.", "anyOf": [ { "type": [ "array", "null" ] }, { "$ref": "#/$defs/expression" } ] },
-    "notificationSettings": { "description": "accessPackageNotificationSettings.", "anyOf": [ { "type": [ "object", "null" ] }, { "$ref": "#/$defs/expression" } ] }
+    "allowedTargetScope": {
+      "description": "Who may request or be assigned: notSpecified, specificDirectoryUsers, specificConnectedOrganizationUsers, specificDirectoryServicePrincipals, allMemberUsers, allDirectoryUsers, allDirectoryServicePrincipals, allConfiguredConnectedOrganizationUsers, allExternalUsers.",
+      "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+    },
+    "specificAllowedTargets": {
+      "description": "Subject sets for the specific* scopes; compared order-insensitively.",
+      "anyOf": [
+        {
+          "type": [ "array", "null" ],
+          "items": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "@odata.type": {
+                    "description": "The subject set type: #microsoft.graph.groupMembers, #microsoft.graph.singleUser, #microsoft.graph.requestorManager, #microsoft.graph.internalSponsors, #microsoft.graph.externalSponsors, #microsoft.graph.targetUserSponsors, #microsoft.graph.connectedOrganizationMembers ...",
+                    "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                  },
+                  "groupId": {
+                    "description": "groupMembers: the group's object id.",
+                    "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                  },
+                  "userId": {
+                    "description": "singleUser: the user's object id.",
+                    "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                  }
+                }
+              },
+              { "$ref": "#/$defs/expression" }
+            ]
+          }
+        },
+        { "$ref": "#/$defs/expression" }
+      ]
+    },
+    "expiration": {
+      "description": "expirationPattern. Keep a duration within the eligibility maximum of a PIM for Groups role the package grants.",
+      "anyOf": [
+        {
+          "type": [ "object", "null" ],
+          "properties": {
+            "type": {
+              "description": "notSpecified, noExpiration, afterDateTime or afterDuration.",
+              "anyOf": [
+                { "type": "string", "enum": [ "notSpecified", "noExpiration", "afterDateTime", "afterDuration" ] },
+                { "$ref": "#/$defs/expression" }
+              ]
+            },
+            "endDateTime": {
+              "description": "afterDateTime: when the assignment ends (ISO 8601).",
+              "anyOf": [ { "type": [ "string", "null" ] }, { "$ref": "#/$defs/expression" } ]
+            },
+            "duration": {
+              "description": "afterDuration: the ISO 8601 duration, for example P180D.",
+              "anyOf": [ { "type": [ "string", "null" ] }, { "$ref": "#/$defs/expression" } ]
+            }
+          }
+        },
+        { "$ref": "#/$defs/expression" }
+      ]
+    },
+    "requestorSettings": {
+      "description": "accessPackageAssignmentRequestorSettings (enableTargetsToSelfAddAccess, enableTargetsToSelfRemoveAccess, onBehalfRequestors ...).",
+      "anyOf": [ { "type": [ "object", "null" ] }, { "$ref": "#/$defs/expression" } ]
+    },
+    "requestApprovalSettings": {
+      "description": "accessPackageAssignmentApprovalSettings.",
+      "anyOf": [
+        {
+          "type": [ "object", "null" ],
+          "properties": {
+            "isApprovalRequiredForAdd": {
+              "description": "Whether a request to add access needs approval.",
+              "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/expression" } ]
+            },
+            "isApprovalRequiredForUpdate": {
+              "description": "Whether a request to update access needs approval.",
+              "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/expression" } ]
+            },
+            "isRequestorJustificationRequired": {
+              "description": "Whether the requestor must justify the request.",
+              "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/expression" } ]
+            },
+            "stages": {
+              "description": "One to three approval stages ([] when no approval is required).",
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "durationBeforeAutomaticDenial": {
+                            "description": "ISO 8601 duration before the request is denied, for example P14D.",
+                            "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                          },
+                          "isApproverJustificationRequired": {
+                            "description": "Whether the approver must justify the decision.",
+                            "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/expression" } ]
+                          },
+                          "isEscalationEnabled": {
+                            "description": "Whether the request escalates.",
+                            "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/expression" } ]
+                          },
+                          "durationBeforeEscalation": {
+                            "description": "ISO 8601 duration before escalation.",
+                            "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                          },
+                          "primaryApprovers": {
+                            "description": "The approvers, compared as a set.",
+                            "anyOf": [
+                              {
+                                "type": "array",
+                                "items": {
+                                  "anyOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "@odata.type": {
+                                          "description": "The subject set type: #microsoft.graph.groupMembers, #microsoft.graph.singleUser, #microsoft.graph.requestorManager, #microsoft.graph.internalSponsors, #microsoft.graph.externalSponsors, #microsoft.graph.targetUserSponsors, #microsoft.graph.connectedOrganizationMembers ...",
+                                          "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                                        },
+                                        "groupId": {
+                                          "description": "groupMembers: the group's object id.",
+                                          "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                                        },
+                                        "userId": {
+                                          "description": "singleUser: the user's object id.",
+                                          "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                                        }
+                                      }
+                                    },
+                                    { "$ref": "#/$defs/expression" }
+                                  ]
+                                }
+                              },
+                              { "$ref": "#/$defs/expression" }
+                            ]
+                          },
+                          "fallbackPrimaryApprovers": {
+                            "description": "The fallback approvers.",
+                            "anyOf": [
+                              {
+                                "type": [ "array", "null" ],
+                                "items": {
+                                  "anyOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "@odata.type": {
+                                          "description": "The subject set type: #microsoft.graph.groupMembers, #microsoft.graph.singleUser, #microsoft.graph.requestorManager, #microsoft.graph.internalSponsors, #microsoft.graph.externalSponsors, #microsoft.graph.targetUserSponsors, #microsoft.graph.connectedOrganizationMembers ...",
+                                          "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                                        },
+                                        "groupId": {
+                                          "description": "groupMembers: the group's object id.",
+                                          "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                                        },
+                                        "userId": {
+                                          "description": "singleUser: the user's object id.",
+                                          "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                                        }
+                                      }
+                                    },
+                                    { "$ref": "#/$defs/expression" }
+                                  ]
+                                }
+                              },
+                              { "$ref": "#/$defs/expression" }
+                            ]
+                          },
+                          "escalationApprovers": {
+                            "description": "The escalation approvers.",
+                            "anyOf": [
+                              {
+                                "type": [ "array", "null" ],
+                                "items": {
+                                  "anyOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "@odata.type": {
+                                          "description": "The subject set type: #microsoft.graph.groupMembers, #microsoft.graph.singleUser, #microsoft.graph.requestorManager, #microsoft.graph.internalSponsors, #microsoft.graph.externalSponsors, #microsoft.graph.targetUserSponsors, #microsoft.graph.connectedOrganizationMembers ...",
+                                          "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                                        },
+                                        "groupId": {
+                                          "description": "groupMembers: the group's object id.",
+                                          "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                                        },
+                                        "userId": {
+                                          "description": "singleUser: the user's object id.",
+                                          "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                                        }
+                                      }
+                                    },
+                                    { "$ref": "#/$defs/expression" }
+                                  ]
+                                }
+                              },
+                              { "$ref": "#/$defs/expression" }
+                            ]
+                          },
+                          "fallbackEscalationApprovers": {
+                            "description": "The fallback escalation approvers.",
+                            "anyOf": [
+                              {
+                                "type": [ "array", "null" ],
+                                "items": {
+                                  "anyOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "@odata.type": {
+                                          "description": "The subject set type: #microsoft.graph.groupMembers, #microsoft.graph.singleUser, #microsoft.graph.requestorManager, #microsoft.graph.internalSponsors, #microsoft.graph.externalSponsors, #microsoft.graph.targetUserSponsors, #microsoft.graph.connectedOrganizationMembers ...",
+                                          "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                                        },
+                                        "groupId": {
+                                          "description": "groupMembers: the group's object id.",
+                                          "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                                        },
+                                        "userId": {
+                                          "description": "singleUser: the user's object id.",
+                                          "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                                        }
+                                      }
+                                    },
+                                    { "$ref": "#/$defs/expression" }
+                                  ]
+                                }
+                              },
+                              { "$ref": "#/$defs/expression" }
+                            ]
+                          }
+                        }
+                      },
+                      { "$ref": "#/$defs/expression" }
+                    ]
+                  }
+                },
+                { "$ref": "#/$defs/expression" }
+              ]
+            }
+          }
+        },
+        { "$ref": "#/$defs/expression" }
+      ]
+    },
+    "reviewSettings": {
+      "description": "accessPackageAssignmentReviewSettings (optional access reviews).",
+      "anyOf": [ { "type": [ "object", "null" ] }, { "$ref": "#/$defs/expression" } ]
+    },
+    "automaticRequestSettings": {
+      "description": "accessPackageAutomaticRequestSettings (auto-assignment policies only).",
+      "anyOf": [ { "type": [ "object", "null" ] }, { "$ref": "#/$defs/expression" } ]
+    },
+    "questions": {
+      "description": "accessPackageQuestion array.",
+      "anyOf": [
+        { "type": [ "array", "null" ], "items": { "anyOf": [ { "type": "object" }, { "$ref": "#/$defs/expression" } ] } },
+        { "$ref": "#/$defs/expression" }
+      ]
+    },
+    "notificationSettings": {
+      "description": "accessPackageNotificationSettings.",
+      "anyOf": [ { "type": [ "object", "null" ] }, { "$ref": "#/$defs/expression" } ]
+    }
   },
   "additionalProperties": true,
   "$defs": {

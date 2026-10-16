@@ -5,10 +5,19 @@
   "description": "An entitlement management catalog (accessPackageCatalog). The resource name is the displayName, unique in the tenant.",
   "type": "object",
   "properties": {
-    "displayName": { "description": "Set from the resource name; declaring it is only allowed when it equals the name.", "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] },
+    "displayName": {
+      "description": "Set from the resource name; declaring it is only allowed when it equals the name.",
+      "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+    },
     "description": { "description": "Description.", "anyOf": [ { "type": [ "string", "null" ] }, { "$ref": "#/$defs/expression" } ] },
-    "state": { "description": "published (default on create) or unpublished.", "anyOf": [ { "enum": [ "published", "unpublished" ] }, { "$ref": "#/$defs/expression" } ] },
-    "isExternallyVisible": { "description": "Whether users of connected organizations can request packages of the catalog. Defaults to false on create.", "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/expression" } ] }
+    "state": {
+      "description": "published (default on create) or unpublished.",
+      "anyOf": [ { "type": "string", "enum": [ "published", "unpublished" ] }, { "$ref": "#/$defs/expression" } ]
+    },
+    "isExternallyVisible": {
+      "description": "Whether users of connected organizations can request packages of the catalog. Defaults to false on create.",
+      "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/expression" } ]
+    }
   },
   "additionalProperties": true,
   "$defs": {

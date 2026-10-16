@@ -5,12 +5,24 @@
   "description": "A group role an access package grants (accessPackageResourceRoleScope). Found by the tuple (accessPackageId, resourceOriginId, role); the GUID name is a label. The group must be a resource of the package's catalog.",
   "type": "object",
   "properties": {
-    "accessPackageId": { "description": "Required: the access package's object id, for example [reference('package').id].", "anyOf": [ { "type": "string", "minLength": 1 }, { "$ref": "#/$defs/expression" } ] },
-    "resourceOriginId": { "description": "Required: the group's object id, for example [reference('group').id].", "anyOf": [ { "type": "string", "minLength": 1 }, { "$ref": "#/$defs/expression" } ] },
-    "role": { "description": "Required: the group role's display name. Eligible Member and Eligible Owner (PIM for Groups eligibility) are offered only for a group onboarded in PIM for Groups.", "anyOf": [ { "enum": [ "Member", "Owner", "Eligible Member", "Eligible Owner" ] }, { "$ref": "#/$defs/expression" } ] },
-    "originSystem": { "description": "AadGroup (the default, and the only origin EARM manages).", "anyOf": [ { "enum": [ "AadGroup" ] }, { "$ref": "#/$defs/expression" } ] }
+    "accessPackageId": {
+      "description": "Required: the access package's object id, for example [reference('package').id].",
+      "anyOf": [ { "type": "string", "minLength": 1 }, { "$ref": "#/$defs/expression" } ]
+    },
+    "resourceOriginId": {
+      "description": "Required: the group's object id, for example [reference('group').id].",
+      "anyOf": [ { "type": "string", "minLength": 1 }, { "$ref": "#/$defs/expression" } ]
+    },
+    "role": {
+      "description": "Required: the group role's display name. Eligible Member and Eligible Owner (PIM for Groups eligibility) are offered only for a group onboarded in PIM for Groups.",
+      "anyOf": [ { "type": "string", "enum": [ "Member", "Owner", "Eligible Member", "Eligible Owner" ] }, { "$ref": "#/$defs/expression" } ]
+    },
+    "originSystem": {
+      "description": "AadGroup (the default, and the only origin EARM manages).",
+      "anyOf": [ { "type": "string", "enum": [ "AadGroup" ] }, { "$ref": "#/$defs/expression" } ]
+    }
   },
-  "additionalProperties": false,
+  "additionalProperties": true,
   "$defs": {
     "expression": { "type": "string", "pattern": "^\\[.*\\]$", "description": "A template expression, for example [parameters('env')]." }
   },

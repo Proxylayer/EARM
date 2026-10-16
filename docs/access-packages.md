@@ -121,7 +121,8 @@ that display name, with its `originId` (`Member_<groupId>`, `Owner_<groupId>` fo
 [list resource role scopes](https://learn.microsoft.com/en-us/graph/api/accesspackage-list-resourcerolescopes?view=graph-rest-1.0)), to
 `POST …/accessPackages/{id}/resourceRoleScopes` with `scope { originId: <groupId>, originSystem: AadGroup, isRootScope: true }`
 ([create](https://learn.microsoft.com/en-us/graph/api/accesspackage-post-resourcerolescopes?view=graph-rest-1.0)). A group that is not a resource of
-the package's catalog, or a role the catalog does not offer, is `AccessPackageRoleNotAvailable`.
+the package's catalog, or an active role the catalog does not offer, is `AccessPackageRoleNotAvailable`; an eligible role of a group PIM for Groups has
+not onboarded is `PimGroupNotOnboarded` (below).
 
 Role scopes have no update ([resource role scope](https://learn.microsoft.com/en-us/graph/api/resources/accesspackageresourcerolescope?view=graph-rest-1.0)):
 every property is part of the key, and `deployment delete` uses `DELETE …/accessPackages/{id}/resourceRoleScopes/{id}`
@@ -145,8 +146,19 @@ The caveats:
   separate roles in the catalog's role list, and their `originId` format is **not documented**. That is why EARM discovers the role by its display
   name instead of building the id. This is verified against Learn only; the integration test `ResourceRoleScope_EligibleMember` confirms it on a
   real tenant.
-- The group must be **onboarded** in PIM for Groups first (its first PIM schedule request or policy update, see [pim.md](pim.md#group-onboarding)).
-  Before that, the catalog offers only Member and Owner, and `Eligible Member` is `AccessPackageRoleNotAvailable`.
+- **Prerequisite: the group must be onboarded in PIM for Groups first.** "Once the resource is managed by PIM, eligible roles can be added as its role
+  assignment in an access package" ([assign eligibility through access packages](https://learn.microsoft.com/en-us/entra/id-governance/entitlement-management-access-package-eligible)),
+  and a group cannot be onboarded explicitly: PIM onboards it on its first eligibility or assignment schedule request, or in the portal
+  ([PIM for Groups API overview](https://learn.microsoft.com/en-us/graph/api/resources/privilegedidentitymanagement-for-groups-api-overview); see
+  [pim.md](pim.md#group-onboarding)). EARM does not onboard groups for you. Before onboarding the catalog offers only Member and Owner, and a role
+  scope for `Eligible Member` / `Eligible Owner` is **`PimGroupNotOnboarded`**, in the style of the PIM policies' `PimPolicyNotAvailable`:
+  - when the package and the group's catalog resource already exist, the check runs while planning (`what-if` shows it): the row is an error, unless a
+    `privilegedAccess/groupEligibilityScheduleRequests` or `groupAssignmentScheduleRequests` of the **same deployment** names the group, in which case
+    the row is deferred (an Ignore row with a `PimGroupNotOnboarded` warning), the request onboards the group, and the **next run** creates the role
+    scope;
+  - when the package or the catalog resource is created in the same run, the create reports `PimGroupNotOnboarded` (saying whether a request of the
+    deployment onboards the group: then run again).
+  The beta `privilegedAccess` register API is not used (it stops returning data on 28 October 2026).
 - The group's PIM policy caps the eligibility (`Expiration_Admin_Eligibility`): if the package's assignment outlives it, PIM removes the eligibility
   while entitlement management still shows the person as assigned. Keep the policy's `expiration` within the group's eligibility maximum (EARM does
   not compare the two yet).

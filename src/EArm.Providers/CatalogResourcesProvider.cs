@@ -130,6 +130,8 @@ public sealed class CatalogResourcesProvider : ProviderBase, IApplyOrderSource
     {
         ArgumentNullException.ThrowIfNull(desired);
         ArgumentNullException.ThrowIfNull(existing);
+        ArgumentNullException.ThrowIfNull(change);
+        ArgumentNullException.ThrowIfNull(graph);
         return Task.FromResult(new AppliedResource(desired.Id, existing.GraphId, existing.Raw, ResolveKey(desired)));
     }
 

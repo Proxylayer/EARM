@@ -69,7 +69,7 @@ public sealed class TypeSchemaGeneratorTests
         await process.WaitForExitAsync(timeout.Token);
 
         Assert.True(process.ExitCode == 0, "New-TypeSchemas.ps1 failed: " + await stderr + await stdout);
-        Assert.Contains("Rewrote 21 type schema file(s)", await stdout, StringComparison.Ordinal);
+        Assert.Contains("Rewrote 26 type schema file(s)", await stdout, StringComparison.Ordinal);
     }
 
     [Fact]

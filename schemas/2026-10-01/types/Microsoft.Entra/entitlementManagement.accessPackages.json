@@ -5,10 +5,19 @@
   "description": "An access package. The resource name is the displayName, unique in the tenant (EARM refuses two packages with one name in any catalogs).",
   "type": "object",
   "properties": {
-    "displayName": { "description": "Set from the resource name; declaring it is only allowed when it equals the name.", "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] },
-    "catalogId": { "description": "Required on create, immutable: the catalog's object id, for example [reference('catalog').id].", "anyOf": [ { "type": "string", "minLength": 1 }, { "$ref": "#/$defs/expression" } ] },
+    "displayName": {
+      "description": "Set from the resource name; declaring it is only allowed when it equals the name.",
+      "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+    },
+    "catalogId": {
+      "description": "Required on create, immutable: the catalog's object id, for example [reference('catalog').id].",
+      "anyOf": [ { "type": "string", "minLength": 1 }, { "$ref": "#/$defs/expression" } ]
+    },
     "description": { "description": "Description.", "anyOf": [ { "type": [ "string", "null" ] }, { "$ref": "#/$defs/expression" } ] },
-    "isHidden": { "description": "Whether the package is hidden from the My Access portal (requestable only by a direct link). Defaults to false on create.", "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/expression" } ] }
+    "isHidden": {
+      "description": "Whether the package is hidden from the My Access portal (requestable only by a direct link). Defaults to false on create.",
+      "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/expression" } ]
+    }
   },
   "additionalProperties": true,
   "$defs": {

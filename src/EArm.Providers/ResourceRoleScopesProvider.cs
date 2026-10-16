@@ -125,6 +125,7 @@ public sealed class ResourceRoleScopesProvider : ProviderBase, IApplyOrderSource
     public override ResourceChange Plan(ResourceInstance desired, ExistingResource? existing, PlanOptions options)
     {
         ArgumentNullException.ThrowIfNull(desired);
+        ArgumentNullException.ThrowIfNull(options);
         if (existing is not null || desired.IsIgnored || !_notOnboarded.TryGetValue(desired, out var notOnboarded))
         {
             return base.Plan(desired, existing, options);
@@ -261,6 +262,8 @@ public sealed class ResourceRoleScopesProvider : ProviderBase, IApplyOrderSource
     {
         ArgumentNullException.ThrowIfNull(desired);
         ArgumentNullException.ThrowIfNull(existing);
+        ArgumentNullException.ThrowIfNull(change);
+        ArgumentNullException.ThrowIfNull(graph);
         return Task.FromResult(new AppliedResource(desired.Id, existing.GraphId, existing.Raw, ResolveKey(desired)));
     }
 

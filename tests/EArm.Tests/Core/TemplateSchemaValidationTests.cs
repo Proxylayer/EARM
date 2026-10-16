@@ -28,6 +28,7 @@ public sealed class TemplateSchemaValidationTests
     private const string Pim = "pim-eligibility";
     private const string PimActive = "pim-active";
     private const string PimPolicies = "pim-policies";
+    private const string AccessPackages = "access-packages";
     private const string SchemaUri = "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#";
 
     private static readonly TemplateLoader Loader = new();
@@ -126,6 +127,13 @@ public sealed class TemplateSchemaValidationTests
         // roleManagementPolicies (PIM policy rules)
         I(PimPolicies, "roleManagementPolicies", 0, ["rules", 4, "isDefaultRecipientsEnabled"], "\"yes\"", "type"),
         I(PimPolicies, "roleManagementPolicies", 1, ["rules", 0], "{ \"maximumDuration\": \"PT1H\" }", "required"),
+
+        // entitlement management (access packages)
+        I(AccessPackages, "entitlementManagement/catalogs", 0, ["state"], "\"draft\"", "enum"),
+        I(AccessPackages, "entitlementManagement/catalogResources", 0, ["originSystem"], "\"SharePointOnline\"", "enum"),
+        I(AccessPackages, "entitlementManagement/accessPackages", 0, ["isHidden"], "\"no\"", "type"),
+        I(AccessPackages, "entitlementManagement/resourceRoleScopes", 0, ["role"], "\"Contributor\"", "enum"),
+        I(AccessPackages, "entitlementManagement/accessPackages/assignmentPolicies", 0, ["expiration", "type"], "\"afterAWhile\"", "enum"),
     ];
 
     public static TheoryData<int> InjectionIndexes()
@@ -240,7 +248,7 @@ public sealed class TemplateSchemaValidationTests
             Assert.Contains(definition.Type, covered);
         }
 
-        Assert.Equal(21, ResourceTypeCatalog.Default.Types.Count);
+        Assert.Equal(26, ResourceTypeCatalog.Default.Types.Count);
         foreach (string keyword in new[] { "enum", "pattern", "type", "required", "additionalProperties" })
         {
             Assert.Contains(Injections, i => i.Keyword == keyword);

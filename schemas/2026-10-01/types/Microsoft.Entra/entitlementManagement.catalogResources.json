@@ -5,11 +5,20 @@
   "description": "A group added to an entitlement management catalog (accessPackageResource, written through accessPackageResourceRequest adminAdd / adminRemove). Found by the tuple (catalogId, originId); the GUID name is a label.",
   "type": "object",
   "properties": {
-    "catalogId": { "description": "Required: the catalog's object id, for example [reference('catalog').id].", "anyOf": [ { "type": "string", "minLength": 1 }, { "$ref": "#/$defs/expression" } ] },
-    "originId": { "description": "Required: the group's object id, for example [reference('group').id].", "anyOf": [ { "type": "string", "minLength": 1 }, { "$ref": "#/$defs/expression" } ] },
-    "originSystem": { "description": "AadGroup (the default, and the only origin EARM manages).", "anyOf": [ { "enum": [ "AadGroup" ] }, { "$ref": "#/$defs/expression" } ] }
+    "catalogId": {
+      "description": "Required: the catalog's object id, for example [reference('catalog').id].",
+      "anyOf": [ { "type": "string", "minLength": 1 }, { "$ref": "#/$defs/expression" } ]
+    },
+    "originId": {
+      "description": "Required: the group's object id, for example [reference('group').id].",
+      "anyOf": [ { "type": "string", "minLength": 1 }, { "$ref": "#/$defs/expression" } ]
+    },
+    "originSystem": {
+      "description": "AadGroup (the default, and the only origin EARM manages).",
+      "anyOf": [ { "type": "string", "enum": [ "AadGroup" ] }, { "$ref": "#/$defs/expression" } ]
+    }
   },
-  "additionalProperties": false,
+  "additionalProperties": true,
   "$defs": {
     "expression": { "type": "string", "pattern": "^\\[.*\\]$", "description": "A template expression, for example [parameters('env')]." }
   },
