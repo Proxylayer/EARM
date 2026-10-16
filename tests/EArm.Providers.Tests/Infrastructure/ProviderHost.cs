@@ -43,6 +43,8 @@ internal sealed class ProviderHost
         Logs = new LogSink();
         Delays = new NoDelayProvider();
         ReplicationDelays = new NoDelayProvider();
+        AbsenceDelays = new NoDelayProvider();
+        AbsenceCheck = new KeyAbsenceCheck { Delay = AbsenceDelays };
         Retry = new RetryPolicy(new RetryOptions(), Delays, Logs.For<RetryPolicy>());
         EdgeKinds = ProviderDiscovery.CreateEdgeKinds(Catalog);
     }
@@ -63,6 +65,12 @@ internal sealed class ProviderHost
 
     /// <summary>The executor's own replication wait after an uncertain create (<see cref="ReplicationWait"/>), kept apart from the retry policy's delays.</summary>
     public NoDelayProvider ReplicationDelays { get; }
+
+    /// <summary>The waits between the extra reads that confirm an empty key read of a lagging type (<see cref="KeyAbsenceCheck"/>), planner and executor.</summary>
+    public NoDelayProvider AbsenceDelays { get; }
+
+    /// <summary>The planner's and the executor's <see cref="KeyAbsenceCheck"/>, on <see cref="AbsenceDelays"/> (no real waiting).</summary>
+    public KeyAbsenceCheck AbsenceCheck { get; set; }
 
     public RetryPolicy Retry { get; }
 
@@ -148,6 +156,7 @@ internal sealed class ProviderHost
             EdgeKinds = EdgeKinds,
             SignedInPrincipalId = SignedInPrincipalId,
             AppOnlyToken = AppOnlyToken,
+            KeyAbsenceCheck = AbsenceCheck,
         };
     }
 
@@ -158,7 +167,7 @@ internal sealed class ProviderHost
 
     public DeploymentExecutor Executor()
     {
-        return new DeploymentExecutor(Registry, Fake, Logs.For<DeploymentExecutor>(), new ReplicationWait { Delay = ReplicationDelays });
+        return new DeploymentExecutor(Registry, Fake, Logs.For<DeploymentExecutor>(), new ReplicationWait { Delay = ReplicationDelays }, AbsenceCheck);
     }
 
     /// <summary>Expansion and ordering only (no Graph reads): the instances the providers would see.</summary>

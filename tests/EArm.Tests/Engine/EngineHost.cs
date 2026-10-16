@@ -288,6 +288,7 @@ internal sealed class EngineHost
         Registry = registry ?? EchoProvider.RegistryForCatalog(Catalog);
         Delays = new RecordingDelayProvider();
         ReplicationDelays = new RecordingDelayProvider();
+        AbsenceDelays = new RecordingDelayProvider();
         Retry = new RetryPolicy(new RetryOptions(), Delays, NullLogger<RetryPolicy>.Instance);
     }
 
@@ -305,6 +306,9 @@ internal sealed class EngineHost
 
     /// <summary>The executor's own replication wait after an uncertain create (<see cref="ReplicationWait"/>), kept apart from the retry policy's delays.</summary>
     public RecordingDelayProvider ReplicationDelays { get; }
+
+    /// <summary>The waits between the extra reads that confirm an empty key read of a lagging type (<see cref="KeyAbsenceCheck"/>).</summary>
+    public RecordingDelayProvider AbsenceDelays { get; }
 
     public RetryPolicy Retry { get; }
 
@@ -326,6 +330,7 @@ internal sealed class EngineHost
             Parallelism = parallelism,
             Catalog = Catalog,
             RetryPolicy = Retry,
+            KeyAbsenceCheck = new KeyAbsenceCheck { Delay = AbsenceDelays },
         };
     }
 
@@ -336,7 +341,7 @@ internal sealed class EngineHost
 
     public DeploymentExecutor Executor()
     {
-        return new DeploymentExecutor(Registry, Graph, NullLogger<DeploymentExecutor>.Instance, new ReplicationWait { Delay = ReplicationDelays });
+        return new DeploymentExecutor(Registry, Graph, NullLogger<DeploymentExecutor>.Instance, new ReplicationWait { Delay = ReplicationDelays }, new KeyAbsenceCheck { Delay = AbsenceDelays });
     }
 
     public Task<DeploymentPlan> WhatIfAsync(TemplateDocument document, DeploymentMode mode = DeploymentMode.Incremental, PlannerOptions? options = null)

@@ -42,6 +42,12 @@ public sealed record PlannerOptions
     /// </summary>
     public RetryPolicy? RetryPolicy { get; init; }
 
+    /// <summary>
+    /// How an empty key read of a type whose key read lags (<see cref="IResourceProvider.KeyReadLagsCreate"/>) is confirmed before a create is
+    /// planned; <c>null</c> is <see cref="KeyAbsenceCheck.Default"/>. Tests pass one with a delay provider that does not sleep.
+    /// </summary>
+    public KeyAbsenceCheck? KeyAbsenceCheck { get; init; }
+
     /// <summary>The edge-kind handlers of the edge pass; part A by default, part B kinds plug in here.</summary>
     public EdgeKindRegistry? EdgeKinds { get; init; }
 

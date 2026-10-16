@@ -122,12 +122,24 @@ load ──► validate ──► expand ──► graph ──► [per batch: r
   after a create could plan (and `POST`) it again: a duplicate, because those types have no unique key. For a provider whose key read is such a list
   (`IResourceProvider.KeyReadLagsCreate`, true in `ProviderBase` for the `displayName`-keyed types: Conditional Access policies, named locations,
   authentication strengths, administrative units, custom role definitions) the executor reads the key again after every successful create (including
-  the create half of a replacement) until it returns the created id, on the same `ReplicationWait` schedule (every 5 s, up to 90 s of scheduled waiting;
-  tests pass a delay provider that does not sleep). A create the list shows at once costs one extra read and no wait. The wait never fails the create:
+  the create half of a replacement) until it has returned the created id **twice in a row** (`ReplicationWait.ConsecutiveVisibleReads`, 2 s apart:
+  `StableGap`), on the same `ReplicationWait` schedule (every 5 s after a miss, up to 90 s of scheduled waiting; tests pass a delay provider that does not
+  sleep). One hit is not enough because the list **flaps**: in a real-tenant run the create saw its object, and a `what-if` started moments later got an
+  empty list again. A miss after a hit starts the count again. A create the list shows at once costs two extra reads and one 2 s gap. The wait never fails the create:
   when the object does not show up in time, or the read itself fails, the create is reported done with the `CreatedObjectNotVisible` warning. While
   waiting, a 404, a replication-lag 400 or an `AmbiguousMatch` (the deleted object of a replacement still listed next to the new one) counts as
   "not yet"; the reads are not cancellable, and a Ctrl+C ends the wait with the warning. This is one executor step rather than code in each provider:
   the providers already expose the key read, the wait reuses the executor's replication schedule, and the warning is reported the same way for every type.
+- **Absence is confirmed before a create is planned.** Because the same lists flap, an empty key read of a `KeyReadLagsCreate` type is not proof that the
+  object does not exist: `what-if` would show a create for an object that exists, and `create` would `POST` a duplicate. When the key read finds nothing,
+  the planner (what-if) and the executor (create, right before the `POST`) read the key `KeyAbsenceCheck.ExtraReads` more times (3, `Interval` 4 s apart,
+  on the run's delay provider: tests do not sleep); a create is planned only when **every** read is empty, and the first read that finds the object wins
+  (it is adopted as existing: `NoChange` or `Modify`, never created again). The executor's last extra read is the final look before the `POST`, so no
+  separate pre-`POST` read is needed. Cost: objects that exist and types keyed by an id or an alternate key pay nothing; a genuinely new object of these
+  types costs 3 more reads and 12 s of waiting in `what-if`, and the same again in `create` (reads of one batch run in parallel, so the wait is per batch,
+  not per object). This is a probability reduction, not a guarantee: a list that stays empty through all four reads while the object exists still plans
+  a create (Graph has no unique key for these types to refuse the duplicate). `deployment delete` benefits too: it finds the declared objects with the
+  same what-if reads.
 - **A failure after the primary write.** A provider that writes in several steps (create the object, then owners, licenses, a restore...) and fails after the first hands the partial result over
   (`ProviderException.Partial`: `UsersProvider` does it when `assignLicense` fails after `POST /users`); for any other provider the executor looks the object up by key after a failed create. Either way the
   object's one-time secret (a generated password) is written to **the secure outputs file** and the resource is reported failed with the object's Graph id (`ResourceApplyFailed`,
@@ -517,7 +529,7 @@ public interface IResourceProvider
   one-time secret to the secure outputs file and reports the resource failed with its Graph id; a provider that does not do this is covered by a re-read by key after a failed create (the object is reported, but a value Graph only returned in the lost response,
   such as a generated password, is gone). `UsersProvider` does it for `assignLicense`; the other providers' post-create steps (group owners and licenses, restore, ...) rely on the re-read until they adopt `Partial`.
   `CreateIsRepeatable` says whether the create is an upsert (`ProviderBase`: `uniqueName`- and id-keyed types and federated credentials); any other create is never repeated by the executor's retry policy after a 5xx or a lost connection.
-  `KeyReadLagsCreate` says whether the key read can miss a new object for a while (`ProviderBase`: the `displayName`-keyed types, found with a `$filter` list); the executor then reads the key back after each successful create (see "Read-your-write after a create" above).
+  `KeyReadLagsCreate` says whether the key read can miss a new object for a while (`ProviderBase`: the `displayName`-keyed types, found with a `$filter` list); the executor then reads the key back after each successful create (see "Read-your-write after a create" above), and planner and executor confirm an empty key read with more reads before planning a create ("Absence is confirmed before a create is planned").
 - `PrepareAsync` runs on the evaluated instance right before `ResolveKey`, in the planner (what-if) and the
   executor, inside the retry policy with the default hint. It is where a provider resolves name sugar against Graph
   (`resourceAppId` → `resourceId`, `appRole` → `appRoleId`, `scopes` → `scope`) by rewriting `Properties` in place,

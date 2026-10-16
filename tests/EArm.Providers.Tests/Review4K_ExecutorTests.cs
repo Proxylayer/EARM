@@ -79,7 +79,7 @@ public sealed partial class Review4K_ExecutorTests
     {
         var options = plannerOptions is null ? host.Options() : plannerOptions(host.Options());
         var plan = await new DeploymentPlanner(host.Registry, host.Fake, options, host.Logs.For<DeploymentPlanner>()).PlanAsync(document, mode, PlanMode.Create, Ct);
-        var executor = new DeploymentExecutor(host.Registry, graph ?? host.Fake, logger ?? host.Logs.For<DeploymentExecutor>());
+        var executor = new DeploymentExecutor(host.Registry, graph ?? host.Fake, logger ?? host.Logs.For<DeploymentExecutor>(), keyAbsenceCheck: host.AbsenceCheck);
         var result = await executor.ExecuteAsync(plan, execute ?? new ExecuteOptions { Parallelism = 1 }, token ?? Ct);
         return new Outcome(plan, result);
     }

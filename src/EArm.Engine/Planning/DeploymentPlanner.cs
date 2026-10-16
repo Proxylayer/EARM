@@ -346,8 +346,11 @@ public sealed class DeploymentPlanner
             };
         }
 
-        // Identity is resolved live, by key, on every run (a renamed object is a new one).
-        var existing = await WithRetryAsync(ct => provider.ReadAsync(key, _graph, ct), RetryHint.Default, cancellationToken).ConfigureAwait(false);
+        // Identity is resolved live, by key, on every run (a renamed object is a new one). A key read that can miss an existing object
+        // (KeyReadLagsCreate) is repeated before "nothing found" is planned as a create (KeyAbsenceCheck), so what-if and create agree.
+        var existing = await (_options.KeyAbsenceCheck ?? KeyAbsenceCheck.Default)
+            .ReadAsync(provider, key, ct => WithRetryAsync(c => provider.ReadAsync(key, _graph, c), RetryHint.Default, ct), _logger, cancellationToken)
+            .ConfigureAwait(false);
         var warnings = new List<Diagnostic>();
         if (existing is not null)
         {

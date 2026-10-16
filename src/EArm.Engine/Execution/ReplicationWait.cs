@@ -30,6 +30,24 @@ public sealed record ReplicationWait
         init => field = value >= TimeSpan.Zero ? value : throw new ArgumentOutOfRangeException(nameof(Window), value, "The window must not be negative.");
     } = PolicyDefaults.ReplicationWindow;
 
+    /// <summary>
+    /// Read-your-write after a create of a type whose key read lags (<c>KeyReadLagsCreate</c>): how many reads IN A ROW must list the created
+    /// object before the create is taken as visible. Graph's list endpoint for these types flaps (one replica lists the object, the next does
+    /// not), so one hit is not enough; a miss after a hit starts the count again. At least 1.
+    /// </summary>
+    public int ConsecutiveVisibleReads
+    {
+        get;
+        init => field = value >= 1 ? value : throw new ArgumentOutOfRangeException(nameof(ConsecutiveVisibleReads), value, "At least one read is required.");
+    } = 2;
+
+    /// <summary>The wait between two reads that both list the object (shorter than <see cref="Interval"/>; counted against <see cref="Window"/> too).</summary>
+    public TimeSpan StableGap
+    {
+        get;
+        init => field = value > TimeSpan.Zero ? value : throw new ArgumentOutOfRangeException(nameof(StableGap), value, "The gap must be positive.");
+    } = TimeSpan.FromSeconds(2);
+
     /// <summary>Waits between the reads; tests pass one that does not sleep.</summary>
     public IDelayProvider Delay
     {

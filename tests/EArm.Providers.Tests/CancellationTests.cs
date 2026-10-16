@@ -49,7 +49,7 @@ public sealed class CancellationTests
                 return response;
             },
         };
-        var executor = new DeploymentExecutor(host.Registry, graph, host.Logs.For<DeploymentExecutor>());
+        var executor = new DeploymentExecutor(host.Registry, graph, host.Logs.For<DeploymentExecutor>(), keyAbsenceCheck: host.AbsenceCheck);
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => executor.ExecuteAsync(plan, new ExecuteOptions { Parallelism = 1 }, cts.Token));
         return (host, document);

@@ -136,7 +136,8 @@ public sealed class LaggingDeleteRetryTests
         var run = await host.CreateAsync(host.Resources(country));
 
         Check.Succeeded(run);
-        Assert.Equal(1, host.ReplicationDelays.Count - delaysBefore);
+        // One wait for the refused delete, one between the two reads read-your-write needs to see the replacement in a row.
+        Assert.Equal(2, host.ReplicationDelays.Count - delaysBefore);
         var only = Assert.Single(host.Directory.Objects(LocPath));
         Assert.Equal("#microsoft.graph.countryNamedLocation", only["@odata.type"]!.GetValue<string>());
     }

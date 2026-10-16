@@ -36,6 +36,7 @@ internal sealed class EngineServices : IDisposable
     private readonly HttpClient _http;
     private readonly IGraphTokenProvider _tokens;
     private readonly ReplicationWait _replicationWait;
+    private readonly KeyAbsenceCheck _keyAbsenceCheck;
 
     private EngineServices(ConnectionSettings connection, GraphCloud cloud, GraphAuthOptions auth, ILoggerFactory loggerFactory, RunAuthentication run, TextWriter stderr)
     {
@@ -61,6 +62,7 @@ internal sealed class EngineServices : IDisposable
 
         var time = overrides?.Time ?? TimeProvider.System;
         _replicationWait = new ReplicationWait { Delay = overrides?.Delay ?? TaskDelayProvider.Instance };
+        _keyAbsenceCheck = new KeyAbsenceCheck { Delay = overrides?.Delay ?? TaskDelayProvider.Instance };
         RetryPolicy = new RetryPolicy(new RetryOptions(), overrides?.Delay ?? TaskDelayProvider.Instance, loggerFactory.CreateLogger<RetryPolicy>());
         var options = new GraphOptions { Cloud = cloud, MaxParallel = Math.Max(1, connection.Parallelism), Scopes = graphScopes };
         Graph = new HttpGraphClient(_http, _tokens, RetryPolicy, options, loggerFactory.CreateLogger<HttpGraphClient>(), time);
@@ -136,16 +138,24 @@ internal sealed class EngineServices : IDisposable
     /// <summary>Edge-kind handlers of the edge pass: the engine's part A kinds plus every <c>[EntraEdgeKind]</c> handler discovered in EArm.Providers (part B).</summary>
     public EdgeKindRegistry EdgeKinds { get; }
 
-    /// <summary>The planner; no outer retry policy because <see cref="HttpGraphClient"/> retries every call itself. The discovered edge kinds are supplied unless the options name their own.</summary>
+    /// <summary>
+    /// The planner; no outer retry policy because <see cref="HttpGraphClient"/> retries every call itself. The discovered edge kinds and the
+    /// key absence check (on this run's delay provider) are supplied unless the options name their own.
+    /// </summary>
     public DeploymentPlanner CreatePlanner(PlannerOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
-        return new DeploymentPlanner(Providers, Graph, options.EdgeKinds is null ? options with { EdgeKinds = EdgeKinds } : options, LoggerFactory.CreateLogger<DeploymentPlanner>());
+        var effective = options with
+        {
+            EdgeKinds = options.EdgeKinds ?? EdgeKinds,
+            KeyAbsenceCheck = options.KeyAbsenceCheck ?? _keyAbsenceCheck,
+        };
+        return new DeploymentPlanner(Providers, Graph, effective, LoggerFactory.CreateLogger<DeploymentPlanner>());
     }
 
     public DeploymentExecutor CreateExecutor()
     {
-        return new DeploymentExecutor(Providers, Graph, LoggerFactory.CreateLogger<DeploymentExecutor>(), _replicationWait);
+        return new DeploymentExecutor(Providers, Graph, LoggerFactory.CreateLogger<DeploymentExecutor>(), _replicationWait, _keyAbsenceCheck);
     }
 
     /// <summary>Resolves parameter-file Key Vault references with a Key Vault token of the signed-in identity.</summary>

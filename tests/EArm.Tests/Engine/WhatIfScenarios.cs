@@ -117,6 +117,7 @@ internal sealed record WhatIfScenario(
             TenantId = TenantId,
             Catalog = catalog,
             EdgeKinds = ProviderDiscovery.CreateEdgeKinds(catalog),
+            KeyAbsenceCheck = new KeyAbsenceCheck { Delay = new RecordingDelayProvider() },
         };
         var parameters = Parameters.Aggregate(ParameterSet.Empty, (set, p) => set.WithInline(p.Key, p.Value));
         var document = await new TemplateLoader(catalog).LoadAsync(PathOf(Template), parameters, ct);

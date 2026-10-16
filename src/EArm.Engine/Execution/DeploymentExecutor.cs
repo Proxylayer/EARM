@@ -40,12 +40,14 @@ public sealed class DeploymentExecutor
     private readonly IGraphClient _graph;
     private readonly ILogger _logger;
     private readonly ReplicationWait _replicationWait;
+    private readonly KeyAbsenceCheck _keyAbsenceCheck;
 
     /// <param name="registry">The resource providers.</param>
     /// <param name="graph">The Graph client.</param>
     /// <param name="logger">Diagnostics.</param>
     /// <param name="replicationWait">How long an object is looked for after a create with an uncertain outcome; default <see cref="ReplicationWait.Default"/>.</param>
-    public DeploymentExecutor(ProviderRegistry registry, IGraphClient graph, ILogger<DeploymentExecutor> logger, ReplicationWait? replicationWait = null)
+    /// <param name="keyAbsenceCheck">How an empty key read of a type whose key read lags is confirmed before it is created; default <see cref="KeyAbsenceCheck.Default"/>.</param>
+    public DeploymentExecutor(ProviderRegistry registry, IGraphClient graph, ILogger<DeploymentExecutor> logger, ReplicationWait? replicationWait = null, KeyAbsenceCheck? keyAbsenceCheck = null)
     {
         ArgumentNullException.ThrowIfNull(registry);
         ArgumentNullException.ThrowIfNull(graph);
@@ -54,6 +56,7 @@ public sealed class DeploymentExecutor
         _graph = graph;
         _logger = logger;
         _replicationWait = replicationWait ?? ReplicationWait.Default;
+        _keyAbsenceCheck = keyAbsenceCheck ?? KeyAbsenceCheck.Default;
     }
 
     public async Task<DeploymentResult> ExecuteAsync(DeploymentPlan plan, ExecuteOptions options, CancellationToken cancellationToken)
@@ -541,8 +544,12 @@ public sealed class DeploymentExecutor
             }
 
             // Reads use the default hint: a 404 here means "create", not "not replicated yet". Identity is resolved live, by key, on every run
-            // (a renamed object is a new one).
-            var existing = await WithRetryAsync(ct => provider.ReadAsync(key, _owner._graph, ct), RetryHint.Default, cancellationToken).ConfigureAwait(false);
+            // (a renamed object is a new one). A key read that can miss an existing object (KeyReadLagsCreate) is repeated before "nothing found"
+            // becomes a create (KeyAbsenceCheck): its last read is the final look right before the POST, and an object any read finds is adopted
+            // (NoChange or Modify) instead of being created a second time.
+            var existing = await _owner._keyAbsenceCheck
+                .ReadAsync(provider, key, ct => WithRetryAsync(c => provider.ReadAsync(key, _owner._graph, c), RetryHint.Default, ct), Logger, cancellationToken)
+                .ConfigureAwait(false);
 
             if (existing is not null && !TryClaim(instance, existing.GraphId, out var other))
             {
@@ -766,8 +773,9 @@ public sealed class DeploymentExecutor
         /// <summary>
         /// Read-your-write after a successful create, for a provider whose key read can miss a new object for a while
         /// (<see cref="IResourceProvider.KeyReadLagsCreate"/>: the <c>$filter=displayName eq</c> lists). The key is read again every
-        /// <see cref="ReplicationWait.Interval"/> until it returns the created id or <see cref="ReplicationWait.Window"/> of waiting was scheduled, so a run
-        /// started right after this one finds the object instead of planning (and POSTing) it again. Never fails the create: when the object does not
+        /// <see cref="ReplicationWait.Interval"/> until it has returned the created id <see cref="ReplicationWait.ConsecutiveVisibleReads"/> times in a row
+        /// (<see cref="ReplicationWait.StableGap"/> apart; the list flaps, so a miss after a hit starts the count again) or <see cref="ReplicationWait.Window"/>
+        /// of waiting was scheduled, so a run started right after this one finds the object instead of planning (and POSTing) it again. Never fails the create: when the object does not
         /// show up in time (or the read itself fails), the <see cref="EngineDiagnosticCodes.CreatedObjectNotVisible"/> warning says so. The reads are not
         /// cancellable (the create is done; a cancelled read must not be mistaken for a cancelled create); a cancellation ends the wait with the warning.
         /// </summary>
@@ -781,15 +789,14 @@ public sealed class DeploymentExecutor
             var wait = _owner._replicationWait;
             var waited = TimeSpan.Zero;
             string? readFailure = null;
+            int visibleInARow = 0;
             while (true)
             {
+                bool visible = false;
                 try
                 {
                     var found = await WithRetryAsync(ct => provider.ReadAsync(key, _owner._graph, ct), RetryHint.Default, CancellationToken.None).ConfigureAwait(false);
-                    if (found is not null && string.Equals(found.GraphId, graphId, StringComparison.OrdinalIgnoreCase))
-                    {
-                        return;
-                    }
+                    visible = found is not null && string.Equals(found.GraphId, graphId, StringComparison.OrdinalIgnoreCase);
                 }
                 catch (GraphException ex) when (ex.IsNotFound || GraphException.IsReplicationError(ex.Status, ex.Code, ex.GraphMessage))
                 {
@@ -805,22 +812,32 @@ public sealed class DeploymentExecutor
                     break;
                 }
 
-                if (cancellationToken.IsCancellationRequested || waited + wait.Interval > wait.Window)
+                visibleInARow = visible ? visibleInARow + 1 : 0;
+                if (visibleInARow >= wait.ConsecutiveVisibleReads)
+                {
+                    return;
+                }
+
+                var pause = visible ? wait.StableGap : wait.Interval;
+                if (cancellationToken.IsCancellationRequested || waited + pause > wait.Window)
                 {
                     break;
                 }
 
                 try
                 {
-                    await wait.Delay.DelayAsync(wait.Interval, cancellationToken).ConfigureAwait(false);
+                    await wait.Delay.DelayAsync(pause, cancellationToken).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
                     break;
                 }
 
-                waited += wait.Interval;
-                EngineLog.WaitingForReplication(Logger, key.Describe(), waited.TotalSeconds, wait.Window.TotalSeconds);
+                waited += pause;
+                if (!visible)
+                {
+                    EngineLog.WaitingForReplication(Logger, key.Describe(), waited.TotalSeconds, wait.Window.TotalSeconds);
+                }
             }
 
             string why = readFailure is not null

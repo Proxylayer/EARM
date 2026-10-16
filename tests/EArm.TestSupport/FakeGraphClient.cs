@@ -23,6 +23,7 @@ public sealed class FakeGraphClient : IGraphClient
     private readonly object _gate = new();
     private readonly List<FakeGraphRequest> _requests = [];
     private readonly List<ListLag> _listLags = [];
+    private readonly List<ListFlap> _listFlaps = [];
 
     public FakeGraphClient()
         : this(new FakeDirectory())
@@ -67,6 +68,21 @@ public sealed class FakeGraphClient : IGraphClient
         lock (_gate)
         {
             _listLags.Add(new ListLag(collectionPath.TrimEnd('/'), lists));
+        }
+    }
+
+    /// <summary>
+    /// Simulates a FLAPPING list (Graph's <c>$filter=displayName eq</c> lists served by replicas that disagree): the next list reads of
+    /// <paramref name="collectionPath"/> follow <paramref name="visibleOnRead"/> in order - <c>true</c> lists the collection as it is, <c>false</c>
+    /// lists nothing at all; once the pattern is used up, lists are normal again. A GET by id is not affected.
+    /// </summary>
+    public void FlapLists(string collectionPath, params bool[] visibleOnRead)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(collectionPath);
+        ArgumentNullException.ThrowIfNull(visibleOnRead);
+        lock (_gate)
+        {
+            _listFlaps.Add(new ListFlap(collectionPath.TrimEnd('/'), visibleOnRead));
         }
     }
 
@@ -139,9 +155,11 @@ public sealed class FakeGraphClient : IGraphClient
     {
         ArgumentNullException.ThrowIfNull(request);
         HashSet<string> hidden;
+        bool listNothing;
         lock (_gate)
         {
             hidden = new HashSet<string>(_listLags.Where(l => l.Matches(request.Path)).SelectMany(l => l.TakeHiddenForOneList()), StringComparer.OrdinalIgnoreCase);
+            listNothing = _listFlaps.Where(f => f.Matches(request.Path)).Select(f => !f.TakeVisibility()).ToList().Any(hide => hide);
         }
 
         var current = request;
@@ -157,7 +175,7 @@ public sealed class FakeGraphClient : IGraphClient
             {
                 foreach (var item in items)
                 {
-                    if (item is not null && !(hidden.Count > 0 && item is JsonObject listed && listed["id"] is JsonValue listedId && listedId.TryGetValue<string>(out var id) && hidden.Contains(id)))
+                    if (item is not null && !listNothing && !(hidden.Count > 0 && item is JsonObject listed && listed["id"] is JsonValue listedId && listedId.TryGetValue<string>(out var id) && hidden.Contains(id)))
                     {
                         yield return item;
                     }
@@ -225,6 +243,23 @@ public sealed class FakeGraphClient : IGraphClient
         lock (_gate)
         {
             _requests.Add(request);
+        }
+    }
+
+    /// <summary>One <see cref="FlapLists"/> rule: the visibility of the next list reads of a collection.</summary>
+    private sealed class ListFlap(string collectionPath, bool[] visibleOnRead)
+    {
+        private int _next;
+
+        public bool Matches(string path)
+        {
+            return string.Equals(path.TrimEnd('/'), collectionPath, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>Whether this list read shows the collection (counting the read against the pattern).</summary>
+        public bool TakeVisibility()
+        {
+            return _next < visibleOnRead.Length ? visibleOnRead[_next++] : true;
         }
     }
 

@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using EArm.Core.Types;
 using EArm.Engine;
 using EArm.Engine.Execution;
+using EArm.Engine.Planning;
 using EArm.Engine.Providers;
 using EArm.Providers.Tests.Infrastructure;
 using Xunit;
@@ -63,10 +64,12 @@ public sealed class ReadYourWriteAfterCreateTests
         Check.Succeeded(run);
         Check.NoDiagnostic(run, EngineDiagnosticCodes.CreatedObjectNotVisible);
         Assert.Single(run.Writes);
-        Assert.Equal(3, host.ReplicationDelays.Count);
 
-        // The plan read, then three reads that miss the new object and the one that finds it.
-        Assert.Equal(1 + 3 + 1, ListReads(run, LocPath));
+        // Three misses (an interval each), then a hit, the short gap and the second hit in a row.
+        Assert.Equal(3 + 1, host.ReplicationDelays.Count);
+
+        // The plan read and its three absence-confirming reads, then three reads that miss the new object and the two that find it.
+        Assert.Equal(1 + 3 + 3 + 2, ListReads(run, LocPath));
 
         var rerun = await host.CreateAsync(host.Resources(IpLocation()));
         Check.Succeeded(rerun);
@@ -75,7 +78,7 @@ public sealed class ReadYourWriteAfterCreateTests
     }
 
     [Fact]
-    public async Task ACreateTheListShowsAtOnce_CostsOneExtraReadAndNoWait()
+    public async Task ACreateTheListShowsAtOnce_CostsTwoReadsAndOneShortGap()
     {
         var host = new ProviderHost();
 
@@ -83,8 +86,9 @@ public sealed class ReadYourWriteAfterCreateTests
 
         Check.Succeeded(run);
         Check.NoDiagnostic(run, EngineDiagnosticCodes.CreatedObjectNotVisible);
-        Assert.Equal(0, host.ReplicationDelays.Count);
-        Assert.Equal(2, ListReads(run, LocPath));
+        Assert.Equal(1, host.ReplicationDelays.Count);
+        Assert.Equal(KeyAbsenceCheck.Default.ExtraReads, host.AbsenceDelays.Count);
+        Assert.Equal(1 + KeyAbsenceCheck.Default.ExtraReads + 2, ListReads(run, LocPath));
     }
 
     [Fact]
@@ -108,7 +112,7 @@ public sealed class ReadYourWriteAfterCreateTests
         var wait = ReplicationWait.Default;
         int expectedDelays = (int)(wait.Window / wait.Interval);
         Assert.Equal(expectedDelays, host.ReplicationDelays.Count);
-        Assert.Equal(1 + expectedDelays + 1, ListReads(run, LocPath));
+        Assert.Equal(1 + KeyAbsenceCheck.Default.ExtraReads + expectedDelays + 1, ListReads(run, LocPath));
     }
 
     [Fact]
