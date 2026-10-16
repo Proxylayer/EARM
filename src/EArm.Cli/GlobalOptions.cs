@@ -34,7 +34,7 @@ internal static class GlobalOptions
     /// <summary><c>--client-id</c>: the public-client app registration of the interactive sign-in (else <c>EARM_CLIENT_ID</c>).</summary>
     public static Option<string?> ClientId { get; } = new("--client-id")
     {
-        Description = "App registration (client id) used by the interactive sign-in 'earm auth login'. Default: EARM_CLIENT_ID, then the Azure.Identity developer client.",
+        Description = "App registration (client id) used by the interactive sign-in 'earm auth login'. Default: EARM_CLIENT_ID, then the client of the stored sign-in, then Microsoft Graph Command Line Tools (none in the china cloud).",
         Recursive = true,
     };
 

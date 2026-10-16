@@ -66,7 +66,7 @@ internal static class SchemaCommand
 
         var schemaDir = new Option<string?>("--schema-dir")
         {
-            Description = "Directory to extract the schemas to. Default: %LOCALAPPDATA%\\EArm\\schemas\\2026-10-01 (~/.local/share/EArm/schemas/2026-10-01 elsewhere).",
+            Description = "Directory to extract the schemas to. Default: %LOCALAPPDATA%\\EArm\\schemas\\2026-10-01 (~/Library/Application Support/EArm/schemas/2026-10-01 on macOS, ~/.local/share/EArm/schemas/2026-10-01 on Linux).",
         };
 
         var command = new Command("install", "Extracts the schemas and maps them to **/*.entra.json and **/*.entra.jsonc in VS Code (json.schemas), preserving the other settings.");
