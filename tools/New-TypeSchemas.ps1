@@ -776,7 +776,7 @@ $policyApprover = Obj '' -Required 'id', 'userType' -Props (Props ([ordered]@{
     id          = Guid 'Required: the object id of the approving user or group.'
     userType    = Str 'Required: User (a single user approves; Graph singleUser) or Group (any member approves; Graph groupMembers). Any casing.'
     description = Str 'ARM display text; read-only in Graph, never compared or sent.'
-    isBackup    = Bool 'Whether the approver is a backup approver (false and absent are the same).'
+    isBackup    = Bool 'Whether the approver is a backup approver. Only false (the default, the same as absent) is accepted: Graph does not return isBackup when the policy is read, so true could never be verified.'
 }))
 $specs['roleManagementPolicies'] = [ordered]@{
     NamePattern = $script:GuidPattern

@@ -339,6 +339,13 @@ internal static class RoleManagementPolicyRuleChecks
             {
                 CheckEnum(approver, "userType", UserTypes, approverPath, approverWhere, isOpaque, findings);
             }
+
+            // Graph accepts isBackup on a PATCH but never returns it on a policy read: true could neither be verified nor checked for drift (every plan
+            // would show a Modify), so only false (the default, the same as absent) is accepted.
+            if (Judged(approver, "isBackup", isOpaque) is ({ } backupKey, JsonValue backup) && backup.TryGetValue(out bool isBackup) && isBackup)
+            {
+                findings.Add(new(approverPath.Append(backupKey), $"{approverWhere}.{backupKey} true is not supported: Graph does not return isBackup when the policy is read, so EARM could neither verify it nor detect drift (every plan would show a change). Leave isBackup out (false is the default)"));
+            }
         }
 
         return array.Count;

@@ -605,7 +605,7 @@ against a reference) are not matched; the live check above covers what is alread
 | approver `{ id, userType: User }` | `{ @odata.type: #microsoft.graph.singleUser, userId }` |
 | approver `{ id, userType: Group }` | `{ @odata.type: #microsoft.graph.groupMembers, groupId }` |
 
-An approver's `description` is read-only in Graph (never compared or sent); `isBackup: false` and absent are the same.
+An approver's `description` is read-only in Graph (never compared or sent); `isBackup: false` and absent are the same. `isBackup: true` is refused offline (`InvalidRoleManagementPolicy`): Graph accepts it on a PATCH but never returns it when the policy is read (real-tenant probe PP3), so EARM could neither verify it nor detect drift and every plan would show a change.
 
 The policy is named by its **assignment**: `scopeType` (`DirectoryRole`, or Graph's `Directory`; `Group`), `scopeId` (`/`, or the group's object id) and
 `roleDefinitionId` (the role template id, or `member` / `owner`), or by the sugar `role` (resolved like `roleAssignments`' `role`; DirectoryRole, `/`) or

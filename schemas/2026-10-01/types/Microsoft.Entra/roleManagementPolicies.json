@@ -186,7 +186,7 @@
                                                         "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
                                                       },
                                                       "isBackup": {
-                                                        "description": "Whether the approver is a backup approver (false and absent are the same).",
+                                                        "description": "Whether the approver is a backup approver. Only false (the default, the same as absent) is accepted: Graph does not return isBackup when the policy is read, so true could never be verified.",
                                                         "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/expression" } ]
                                                       }
                                                     },
@@ -228,7 +228,7 @@
                                                         "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
                                                       },
                                                       "isBackup": {
-                                                        "description": "Whether the approver is a backup approver (false and absent are the same).",
+                                                        "description": "Whether the approver is a backup approver. Only false (the default, the same as absent) is accepted: Graph does not return isBackup when the policy is read, so true could never be verified.",
                                                         "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/expression" } ]
                                                       }
                                                     },

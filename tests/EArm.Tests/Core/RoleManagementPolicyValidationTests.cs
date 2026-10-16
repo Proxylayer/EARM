@@ -108,6 +108,7 @@ public sealed class RoleManagementPolicyValidationTests
     [InlineData("{ \"id\": \"Approval_EndUser_Assignment\", \"setting\": { \"isApprovalRequired\": true, \"approvalStages\": [ { \"primaryApprovers\": [] } ] } }", "has no primaryApprovers")]
     [InlineData("{ \"id\": \"Approval_EndUser_Assignment\", \"setting\": { \"approvalStages\": [ { \"primaryApprovers\": [ { \"id\": \"" + Approver + "\", \"userType\": \"Role\" } ] } ] } }", "must be one of User, Group")]
     [InlineData("{ \"id\": \"Approval_EndUser_Assignment\", \"setting\": { \"approvalStages\": [ { \"isEscalationEnabled\": true, \"primaryApprovers\": [ { \"id\": \"" + Approver + "\", \"userType\": \"User\" } ] } ] } }", "no escalationApprovers")]
+    [InlineData("{ \"id\": \"Approval_EndUser_Assignment\", \"setting\": { \"approvalStages\": [ { \"primaryApprovers\": [ { \"id\": \"" + Approver + "\", \"userType\": \"Group\", \"isBackup\": true } ] } ] } }", "Graph does not return isBackup")]
     [InlineData("{ \"id\": \"Approval_EndUser_Assignment\", \"setting\": { \"approvalMode\": \"Quorum\" } }", "must be one of SingleStage")]
     [InlineData("{ \"id\": \"Approval_EndUser_Assignment\", \"setting\": { \"approvalStages\": [ {}, {}, {} ] } }", "one or two stages")]
     [InlineData("{ \"id\": \"AuthenticationContext_EndUser_Assignment\", \"isEnabled\": true }", "no claimValue is declared")]

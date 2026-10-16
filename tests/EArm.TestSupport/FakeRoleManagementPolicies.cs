@@ -195,7 +195,7 @@ public sealed class FakeRoleManagementPolicies
         return (JsonObject)rule.DeepClone();
     }
 
-    /// <summary>Graph echoes approvers with their display name in <c>description</c> (read-only).</summary>
+    /// <summary>Graph echoes approvers with their display name in <c>description</c> (read-only) and without <c>isBackup</c> (accepted, never returned).</summary>
     private static JsonNode? Echo(string name, JsonNode? value)
     {
         if (name == "setting" && value is JsonObject setting && setting["approvalStages"] is JsonArray stages)
@@ -207,6 +207,7 @@ public sealed class FakeRoleManagementPolicies
                     foreach (var approver in (stage[list] as JsonArray)?.OfType<JsonObject>() ?? [])
                     {
                         approver["description"] = "approver " + ((string?)approver["userId"] ?? (string?)approver["groupId"]);
+                        approver.Remove("isBackup");
                     }
                 }
             }
