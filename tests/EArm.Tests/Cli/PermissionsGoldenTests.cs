@@ -29,6 +29,7 @@ public sealed class PermissionsGoldenTests
             ("pim-eligibility", "pim-eligibility"),
             ("pim-active", "pim-active"),
             ("pim-policies", "pim-policies"),
+            ("privileged-access", "privileged-access"),
         ];
         foreach (var (sample, parameters) in samples)
         {

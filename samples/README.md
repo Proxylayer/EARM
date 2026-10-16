@@ -14,6 +14,7 @@ to a Key Vault secret unless you replace its parameter file's `reference` entry.
 | [`pim-eligibility.entra.json`](pim-eligibility.entra.json) | PIM eligibility for directory roles in ARM's `roleEligibilityScheduleRequests` shape: a role-assignable group permanently eligible for Helpdesk Administrator (an ARM snippet as is), the same group eligible for User Administrator in an administrative unit until a fixed date (`role` / `administrativeUnit` sugar), and a user eligible for Security Reader for 180 days with a change ticket; plus PIM for Groups (`privilegedAccess/groupEligibilityScheduleRequests`): the same user eligible for membership of an operations group for 90 days, and the helpdesk group eligible for its ownership until the fixed date | [`pim-eligibility.parameters.json`](pim-eligibility.parameters.json) (the engineer's object id and the end date) |
 | [`pim-active.entra.json`](pim-active.entra.json) | Time-bound active access through PIM: a role-assignable incident response group an active Security Administrator for 30 days with a change ticket (ARM's `roleAssignmentScheduleRequests` shape, pasted as is) next to its permanent Security Reader assignment (`roleAssignments`, a different role), a user an active Exchange Administrator until a fixed date (`role` sugar); plus PIM for Groups (`privilegedAccess/groupAssignmentScheduleRequests`): the same user an active member of an operations group for 7 days and the incident group its active owner until the fixed date | [`pim-active.parameters.json`](pim-active.parameters.json) (the engineer's object id and the end date) |
 | [`pim-policies.entra.json`](pim-policies.entra.json) | PIM policy rules in ARM's `roleManagementPolicies` shape: Global Administrator and Privileged Role Administrator activations capped at 8 hours with MFA and a justification, approved by an emergency approvers group, permanent eligibility allowed, an extra alert recipient (an ARM rule pasted as is); the PIM for Groups membership policy of an operations group with the same activation rules; and the eligibilities they govern (applied after the policies) | [`pim-policies.parameters.json`](pim-policies.parameters.json) (the approvers group and the engineer's object ids) |
+| [`privileged-access.entra.json`](privileged-access.entra.json) | A combined privileged access design: a restricted management administrative unit protecting the break-glass accounts and a role-assignable emergency group that holds Global Administrator and Privileged Role Administrator permanently (excluded from Conditional Access); tier 0 and tier 1 role-assignable groups eligible (PIM) for their directory roles under `roleManagementPolicies` (8-hour activations, justification, approval by the emergency group; the PIM authentication context for tier 0, MFA for tier 1); an on-call engineer eligible for tier 1 membership (PIM for Groups) under the group's own policy; a Conditional Access policy demanding a phishing-resistant authentication strength on the PIM authentication context (report-only by default, `caPolicyState`); passkeys enabled for everyone without an allow-list and one-time Temporary Access Passes for the admin tiers. User functions build the shared policy rules | [`privileged-access.parameters.json`](privileged-access.parameters.json) (the break-glass account ids, tier 0 admins and the engineer's object id) |
 
 ## Try them
 
@@ -35,7 +36,7 @@ Notes:
   `earm deployment delete -f <template> -p '@<parameters>'`.
 - `orders-api.parameters.json` references a Key Vault secret (`contoso-kv` / `bg-initial`). Offline validation never reads it; for a real run replace
   it with `{ "value": "…" }` through `-p initialPassword=…` or point it at a vault you can read.
-- Conditional Access policies in both samples are `enabledForReportingButNotEnforced`: report-only. Switching one to `enabled` needs `--allow-ca-enforce`.
+- Conditional Access policies in the samples are `enabledForReportingButNotEnforced`: report-only. Switching one to `enabled` needs `--allow-ca-enforce`.
   Keep an emergency-access exclusion (the `tenant-security` sample has one) before enforcing anything.
 - `tenant-security.entra.json` needs Entra ID P1 and, for the role-assignable group and the directory roles, a Privileged Role Administrator
   (or an application with `RoleManagement.ReadWrite.Directory`).
@@ -59,5 +60,12 @@ Notes:
   ids change; the policies are never created and `earm deployment delete` keeps them (`NotDeletable`): revert a setting by declaring the value to
   restore. If PIM for Groups lists no policy for the new operations group until the group is onboarded, the first run defers the group policy
   (`PimPolicyNotAvailable` warning) while its eligibility onboards the group; run the deployment again to apply it.
+- `privileged-access.entra.json` needs Microsoft Entra ID P2 (or ID Governance) and a **delegated** Global Administrator or Privileged Role
+  Administrator run: objects in a restricted management administrative unit cannot be changed with application permissions, and after the first run
+  only those two roles (or a role scoped to the unit) can change the emergency group's members. Point `emergencyAccountIds` at your real break-glass
+  accounts and keep them excluded from every Conditional Access policy. PIM refuses MFA and an authentication context together on activation, which is
+  why tier 0 uses the context and tier 1 MFA. The first run defers the tier 1 group's PIM policy (`PimPolicyNotAvailable` warning) while the engineer's
+  eligibility onboards the group; run it again to apply the policy. Leave `caPolicyState` report-only until the sign-in logs show the policy's effect;
+  `enabled` needs `--allow-ca-enforce`.
 - `app-with-sp-and-secret.entra.json` returns the client secret exactly once, in the run that creates or rotates it; rerunning without changing `secretTag`
   prints that output as `null` with a warning. Change `secretTag` to rotate.

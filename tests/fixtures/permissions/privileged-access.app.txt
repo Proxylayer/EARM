@@ -1,0 +1,80 @@
+Permissions required by samples/privileged-access.entra.json (mode: app, 19 resource(s))
+
+Microsoft Graph application permissions
+  AdministrativeUnit.ReadWrite.All
+      /providers/Microsoft.Entra/administrativeUnits/Emergency access
+      (edge: members; provider)
+  Application.Read.All
+      /providers/Microsoft.Entra/conditionalAccess/policies/CA-PIM-Activation-PhishingResistant
+      (provider)
+  Application.ReadWrite.All
+      /providers/Microsoft.Entra/groups/pa-emergency-access
+      /providers/Microsoft.Entra/groups/pa-tier0-admins
+      (edge: members (when a member is a service principal))
+  AuthenticationContext.ReadWrite.All
+      /providers/Microsoft.Entra/conditionalAccess/authenticationContextClassReferences/c20
+      (provider)
+  Directory.Read.All
+      /providers/Microsoft.Entra/groups/pa-emergency-access
+      /providers/Microsoft.Entra/groups/pa-tier0-admins
+      /providers/Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests/0b4ec69a-3700-50ea-9456-72938dfd3188
+      /providers/Microsoft.Entra/roleEligibilityScheduleRequests/31cedf60-65e0-5948-be13-eba65fea691d
+      /providers/Microsoft.Entra/roleEligibilityScheduleRequests/d7f5ffc7-eab7-58c4-a8c2-5a459f2e5dd0
+      /providers/Microsoft.Entra/roleEligibilityScheduleRequests/e5a04472-a61c-5120-906b-e643941cc7f4
+      /providers/Microsoft.Entra/roleEligibilityScheduleRequests/f800e7c9-0273-5513-a47f-10a6d2fba273
+      /providers/Microsoft.Entra/roleManagementPolicies/275566d1-3b4c-5c2a-a532-70e004d7a8eb
+      /providers/Microsoft.Entra/roleManagementPolicies/a3e443e3-709d-5f1b-b6b0-f92a59010097
+      /providers/Microsoft.Entra/roleManagementPolicies/c1e639d4-e6d4-5a6c-9631-ec4c422ee18b
+      /providers/Microsoft.Entra/roleManagementPolicies/efb79212-2551-5cb1-91d1-e4ef132570c7
+      /providers/Microsoft.Entra/roleManagementPolicies/f8d40f1e-2339-5f6f-ac44-6d27ddfe59b9
+      (edge: directoryRoles; edge: members; provider)
+  Group.ReadWrite.All
+      /providers/Microsoft.Entra/groups/pa-emergency-access
+      /providers/Microsoft.Entra/groups/pa-tier0-admins
+      /providers/Microsoft.Entra/groups/pa-tier1-admins
+      (provider)
+  GroupMember.ReadWrite.All
+      /providers/Microsoft.Entra/groups/pa-emergency-access
+      /providers/Microsoft.Entra/groups/pa-tier0-admins
+      (edge: members; provider)
+  Organization.Read.All
+      (every deployment)
+      (preflight: GET /organization)
+  Policy.Read.All
+      /providers/Microsoft.Entra/conditionalAccess/authenticationStrengths/PIM phishing-resistant
+      /providers/Microsoft.Entra/conditionalAccess/policies/CA-PIM-Activation-PhishingResistant
+      (provider)
+  Policy.ReadWrite.AuthenticationMethod
+      /providers/Microsoft.Entra/authenticationMethodConfigurations/fido2
+      /providers/Microsoft.Entra/authenticationMethodConfigurations/temporaryAccessPass
+      (provider)
+  Policy.ReadWrite.ConditionalAccess
+      /providers/Microsoft.Entra/conditionalAccess/authenticationStrengths/PIM phishing-resistant
+      /providers/Microsoft.Entra/conditionalAccess/policies/CA-PIM-Activation-PhishingResistant
+      (provider)
+  PrivilegedEligibilitySchedule.ReadWrite.AzureADGroup
+      /providers/Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests/0b4ec69a-3700-50ea-9456-72938dfd3188
+      (provider)
+  RoleEligibilitySchedule.ReadWrite.Directory
+      /providers/Microsoft.Entra/roleEligibilityScheduleRequests/31cedf60-65e0-5948-be13-eba65fea691d
+      /providers/Microsoft.Entra/roleEligibilityScheduleRequests/d7f5ffc7-eab7-58c4-a8c2-5a459f2e5dd0
+      /providers/Microsoft.Entra/roleEligibilityScheduleRequests/e5a04472-a61c-5120-906b-e643941cc7f4
+      /providers/Microsoft.Entra/roleEligibilityScheduleRequests/f800e7c9-0273-5513-a47f-10a6d2fba273
+      (provider)
+  RoleManagement.ReadWrite.Directory
+      /providers/Microsoft.Entra/groups/pa-emergency-access
+      /providers/Microsoft.Entra/groups/pa-tier0-admins
+      /providers/Microsoft.Entra/groups/pa-tier1-admins
+      (edge: directoryRoles; provider)
+  RoleManagementPolicy.ReadWrite.AzureADGroup
+      /providers/Microsoft.Entra/roleManagementPolicies/c1e639d4-e6d4-5a6c-9631-ec4c422ee18b
+      (provider)
+  RoleManagementPolicy.ReadWrite.Directory
+      /providers/Microsoft.Entra/roleManagementPolicies/275566d1-3b4c-5c2a-a532-70e004d7a8eb
+      /providers/Microsoft.Entra/roleManagementPolicies/a3e443e3-709d-5f1b-b6b0-f92a59010097
+      /providers/Microsoft.Entra/roleManagementPolicies/efb79212-2551-5cb1-91d1-e4ef132570c7
+      /providers/Microsoft.Entra/roleManagementPolicies/f8d40f1e-2339-5f6f-ac44-6d27ddfe59b9
+      (provider)
+
+note: Application permissions are Microsoft Graph app roles granted (with admin consent) to the service principal EARM signs in with (AZURE_CLIENT_ID, or the managed identity). Application.ReadWrite.OwnedBy replaces Application.ReadWrite.All for applications the service principal owns.
+note: Edge permissions are listed for every relationship property the template declares (including an empty array, which removes edges). Key Vault access is an Azure RBAC / access-policy requirement of the signed-in identity, not a Graph permission.

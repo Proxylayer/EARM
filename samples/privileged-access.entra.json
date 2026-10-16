@@ -1,0 +1,212 @@
+{
+  "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "Privileged access baseline. Emergency access: the break-glass accounts and a role-assignable emergency group that holds Global Administrator and Privileged Role Administrator permanently are protected by a restricted management administrative unit and excluded from Conditional Access. Day-to-day admin access is just in time: tier 0 and tier 1 role-assignable groups are eligible (PIM) for their directory roles, whose PIM policies cap activations at 8 hours, require a justification and the emergency group's approval, and require either the PIM authentication context (tier 0) or MFA (tier 1); PIM accepts one or the other on activation, not both. An on-call engineer is eligible for membership of the tier 1 group (PIM for Groups) under the group's own membership policy. A Conditional Access policy demands a phishing-resistant authentication strength whenever the PIM authentication context is requested (report-only unless caPolicyState says otherwise). Passkeys (FIDO2) are enabled for everyone without an allow-list, and one-time Temporary Access Passes are enabled for the admin tiers so they can register passkeys. Needs Microsoft Entra ID P2 (or ID Governance), a delegated Global Administrator or Privileged Role Administrator run (objects in a restricted management administrative unit cannot be changed with application permissions), --allow-ca-enforce to enforce the policy; see samples/README.md and docs/pim.md."
+  },
+  "parameters": {
+    "emergencyAccountIds": { "type": "array", "metadata": { "description": "Object ids of the existing emergency-access (break-glass) user accounts. They become the members of the emergency group (authoritative) and of the restricted management administrative unit." } },
+    "tier0AdminIds":       { "type": "array", "defaultValue": [], "metadata": { "description": "Object ids of the tier 0 administrators (members of the tier 0 group, authoritative). They are eligible, never active, for the tier 0 roles." } },
+    "onCallEngineerId":    { "type": "string", "metadata": { "description": "Object id of the on-call engineer (a user) made eligible for membership of the tier 1 group." } },
+    "pimAuthContextId":    { "type": "string", "defaultValue": "c20", "metadata": { "description": "The authentication context (c1 to c99) tier 0 activations must satisfy; pick one the tenant does not use yet." } },
+    "caPolicyState":       { "type": "string", "defaultValue": "enabledForReportingButNotEnforced", "allowedValues": ["enabledForReportingButNotEnforced", "enabled", "disabled"], "metadata": { "description": "State of the Conditional Access policy. 'enabled' also needs --allow-ca-enforce." } }
+  },
+  "variables": {
+    "emergencyGroup": "pa-emergency-access",
+    "tier0Group": "pa-tier0-admins",
+    "tier1Group": "pa-tier1-admins",
+    "authStrength": "PIM phishing-resistant",
+    "tier0Roles": ["Global Administrator", "Privileged Role Administrator"],
+    "tier1Roles": ["Security Administrator", "User Administrator"],
+    "activationExpiration": { "id": "Expiration_EndUser_Assignment", "isExpirationRequired": true, "maximumDuration": "PT8H" },
+    "permanentEligibility": { "id": "Expiration_Admin_Eligibility", "isExpirationRequired": false },
+    "mfaAndJustification": { "id": "Enablement_EndUser_Assignment", "enabledRules": ["MultiFactorAuthentication", "Justification"] },
+    "justificationOnly": { "id": "Enablement_EndUser_Assignment", "enabledRules": ["Justification"] }
+  },
+  "functions": [{ "namespace": "pa", "members": {
+    "approvedBy": {
+      "parameters": [{ "name": "groupId", "type": "string" }],
+      "output": { "type": "object", "value": {
+        "id": "Approval_EndUser_Assignment",
+        "setting": {
+          "isApprovalRequired": true,
+          "isRequestorJustificationRequired": true,
+          "approvalMode": "SingleStage",
+          "approvalStages": [ {
+            "approvalStageTimeOutInDays": 1,
+            "isApproverJustificationRequired": true,
+            "isEscalationEnabled": false,
+            "primaryApprovers": [ { "id": "[parameters('groupId')]", "userType": "Group", "description": "Emergency access group" } ]
+          } ]
+        } } }
+    },
+    "authContext": {
+      "parameters": [{ "name": "claimValue", "type": "string" }],
+      "output": { "type": "object", "value": { "id": "AuthenticationContext_EndUser_Assignment", "isEnabled": true, "claimValue": "[parameters('claimValue')]" } }
+    } } }],
+  "resources": [
+    {
+      "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01-preview", "name": "[variables('emergencyGroup')]",
+      "comments": "Permanent (not PIM) Global Administrator and Privileged Role Administrator: emergency access must not depend on PIM, approvals or MFA providers. Groups in a restricted management administrative unit cannot be governed by PIM, which is why this group gets roleAssignments-style permanent roles.",
+      "properties": {
+        "displayName": "Emergency access", "description": "Break-glass accounts: permanent tenant-wide admin, excluded from Conditional Access",
+        "mailEnabled": false, "mailNickname": "pa-emergency-access", "securityEnabled": true, "isAssignableToRole": true,
+        "members": "[parameters('emergencyAccountIds')]",
+        "directoryRoles": [ { "role": "Global Administrator" }, { "role": "Privileged Role Administrator" } ]
+      }
+    },
+    {
+      "type": "Microsoft.Entra/administrativeUnits", "apiVersion": "2026-10-01-preview", "name": "Emergency access",
+      "comments": "Restricted management: tenant-wide administrators (Global Administrator included) can no longer change these accounts or the group; only roles scoped to this unit can. isMemberManagementRestricted is fixed at creation.",
+      "properties": {
+        "description": "Restricted management: emergency-access accounts and their group",
+        "isMemberManagementRestricted": true,
+        "members": "[concat(parameters('emergencyAccountIds'), createArray(reference(variables('emergencyGroup')).id))]"
+      }
+    },
+    {
+      "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01-preview", "name": "[variables('tier0Group')]",
+      "properties": {
+        "displayName": "Tier 0 admins", "description": "Eligible (PIM) for tenant-wide privileged roles",
+        "mailEnabled": false, "mailNickname": "pa-tier0-admins", "securityEnabled": true, "isAssignableToRole": true,
+        "members": "[parameters('tier0AdminIds')]"
+      }
+    },
+    {
+      "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01-preview", "name": "[variables('tier1Group')]",
+      "comments": "No members list: membership is just in time through PIM for Groups (a pruning members list would not conflict with eligibility, but the point is to have no standing members).",
+      "properties": {
+        "displayName": "Tier 1 admins", "description": "Eligible (PIM) for operational admin roles; membership through PIM for Groups",
+        "mailEnabled": false, "mailNickname": "pa-tier1-admins", "securityEnabled": true, "isAssignableToRole": true
+      }
+    },
+    {
+      "type": "Microsoft.Entra/conditionalAccess/authenticationContextClassReferences", "apiVersion": "2026-10-01-preview",
+      "name": "[parameters('pimAuthContextId')]",
+      "properties": { "displayName": "PIM privileged activation", "description": "Requested by PIM when a tier 0 role is activated", "isAvailable": true }
+    },
+    {
+      "type": "Microsoft.Entra/conditionalAccess/authenticationStrengths", "apiVersion": "2026-10-01-preview", "name": "[variables('authStrength')]",
+      "properties": {
+        "description": "Passkey (FIDO2), Windows Hello for Business or multifactor certificate",
+        "allowedCombinations": ["fido2", "windowsHelloForBusiness", "x509CertificateMultiFactor"]
+      }
+    },
+    {
+      "type": "Microsoft.Entra/conditionalAccess/policies", "apiVersion": "2026-10-01-preview", "name": "CA-PIM-Activation-PhishingResistant",
+      "properties": {
+        "state": "[parameters('caPolicyState')]",
+        "conditions": {
+          "clientAppTypes": ["all"],
+          "users": { "includeUsers": ["All"], "excludeGroups": ["[reference(variables('emergencyGroup')).id]"] },
+          "applications": { "includeAuthenticationContextClassReferences": ["[reference(resourceId('Microsoft.Entra/conditionalAccess/authenticationContextClassReferences', parameters('pimAuthContextId'))).id]"] }
+        },
+        "grantControls": { "operator": "OR", "authenticationStrength": { "id": "[reference(variables('authStrength')).id]" } }
+      }
+    },
+    {
+      "copy": { "name": "tier0Policies", "count": "[length(variables('tier0Roles'))]" },
+      "type": "Microsoft.Entra/roleManagementPolicies", "apiVersion": "2026-10-01-preview",
+      "name": "[guid('pa-policy', variables('tier0Roles')[copyIndex()])]",
+      "properties": {
+        "role": "[variables('tier0Roles')[copyIndex()]]",
+        "rules": [
+          "[variables('activationExpiration')]",
+          "[variables('justificationOnly')]",
+          "[pa.authContext(parameters('pimAuthContextId'))]",
+          "[pa.approvedBy(reference(variables('emergencyGroup')).id)]",
+          "[variables('permanentEligibility')]"
+        ]
+      }
+    },
+    {
+      "copy": { "name": "tier1Policies", "count": "[length(variables('tier1Roles'))]" },
+      "type": "Microsoft.Entra/roleManagementPolicies", "apiVersion": "2026-10-01-preview",
+      "name": "[guid('pa-policy', variables('tier1Roles')[copyIndex()])]",
+      "properties": {
+        "role": "[variables('tier1Roles')[copyIndex()]]",
+        "rules": [
+          "[variables('activationExpiration')]",
+          "[variables('mfaAndJustification')]",
+          "[pa.approvedBy(reference(variables('emergencyGroup')).id)]",
+          "[variables('permanentEligibility')]"
+        ]
+      }
+    },
+    {
+      "copy": { "name": "tier0Eligibilities", "count": "[length(variables('tier0Roles'))]" },
+      "type": "Microsoft.Entra/roleEligibilityScheduleRequests", "apiVersion": "2026-10-01-preview",
+      "name": "[guid(variables('tier0Group'), variables('tier0Roles')[copyIndex()], '/')]",
+      "properties": {
+        "principalId": "[reference(variables('tier0Group')).id]",
+        "role": "[variables('tier0Roles')[copyIndex()]]",
+        "justification": "Tier 0 admins activate tenant-wide roles through PIM, with approval"
+      }
+    },
+    {
+      "copy": { "name": "tier1Eligibilities", "count": "[length(variables('tier1Roles'))]" },
+      "type": "Microsoft.Entra/roleEligibilityScheduleRequests", "apiVersion": "2026-10-01-preview",
+      "name": "[guid(variables('tier1Group'), variables('tier1Roles')[copyIndex()], '/')]",
+      "properties": {
+        "principalId": "[reference(variables('tier1Group')).id]",
+        "role": "[variables('tier1Roles')[copyIndex()]]",
+        "justification": "Tier 1 admins activate operational roles through PIM, with approval"
+      }
+    },
+    {
+      "type": "Microsoft.Entra/roleManagementPolicies", "apiVersion": "2026-10-01-preview",
+      "name": "[guid('pa-policy', variables('tier1Group'), 'member')]",
+      "comments": "PIM for Groups lists this policy only once the group is onboarded: on the first run the policy row is deferred (PimPolicyNotAvailable warning) while the eligibility below onboards the group; the next run applies it.",
+      "properties": {
+        "group": "[reference(variables('tier1Group')).id]",
+        "accessId": "member",
+        "rules": [
+          "[variables('activationExpiration')]",
+          "[variables('mfaAndJustification')]",
+          "[pa.approvedBy(reference(variables('emergencyGroup')).id)]",
+          { "id": "Expiration_Admin_Eligibility", "isExpirationRequired": true, "maximumDuration": "P365D" }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests", "apiVersion": "2026-10-01-preview",
+      "name": "[guid(variables('tier1Group'), parameters('onCallEngineerId'), 'member')]",
+      "properties": {
+        "group": "[reference(variables('tier1Group')).id]",
+        "principalId": "[parameters('onCallEngineerId')]",
+        "accessId": "member",
+        "scheduleInfo": { "expiration": { "type": "AfterDuration", "duration": "P180D" } },
+        "justification": "On-call engineers activate tier 1 membership through PIM, with approval"
+      }
+    },
+    {
+      "type": "Microsoft.Entra/authenticationMethodConfigurations", "apiVersion": "2026-10-01-preview", "name": "fido2",
+      "comments": "No allow-list (keyRestrictions not enforced): every passkey model can register. Restrict models later with a passkey profile (see the authentication-methods sample).",
+      "properties": {
+        "state": "enabled",
+        "isSelfServiceRegistrationAllowed": true,
+        "includeTargets": [ { "id": "all_users", "targetType": "group" } ]
+      }
+    },
+    {
+      "type": "Microsoft.Entra/authenticationMethodConfigurations", "apiVersion": "2026-10-01-preview", "name": "temporaryAccessPass",
+      "properties": {
+        "state": "enabled",
+        "isUsableOnce": true,
+        "defaultLength": 12,
+        "minimumLifetimeInMinutes": 60,
+        "defaultLifetimeInMinutes": 60,
+        "maximumLifetimeInMinutes": 480,
+        "includeTargets": [
+          { "id": "[reference(variables('tier0Group')).id]", "targetType": "group" },
+          { "id": "[reference(variables('tier1Group')).id]", "targetType": "group" }
+        ]
+      }
+    }
+  ],
+  "outputs": {
+    "emergencyGroupId": { "type": "string", "value": "[reference(variables('emergencyGroup')).id]" },
+    "tier0GroupId":     { "type": "string", "value": "[reference(variables('tier0Group')).id]" },
+    "tier1GroupId":     { "type": "string", "value": "[reference(variables('tier1Group')).id]" }
+  }
+}

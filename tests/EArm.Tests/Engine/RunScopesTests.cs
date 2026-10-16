@@ -48,6 +48,7 @@ public sealed class RunScopesTests
         { "pim-eligibility.entra.json", "pim-eligibility.parameters.json" },
         { "pim-active.entra.json", "pim-active.parameters.json" },
         { "pim-policies.entra.json", "pim-policies.parameters.json" },
+        { "privileged-access.entra.json", "privileged-access.parameters.json" },
         { "orders-api.entra.json", null },
     };
 
