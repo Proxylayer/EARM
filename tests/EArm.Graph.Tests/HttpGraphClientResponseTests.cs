@@ -94,6 +94,64 @@ public sealed class HttpGraphClientResponseTests
         Assert.Equal([TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5)], harness.Delays.Delays);
     }
 
+    // The real tenant answer to a PIM for Groups request sent 1-6 s after the group was created (accepted about 15 s later).
+    private const string PimGroupForbidden = "{\"error\":{\"code\":\"UnauthorizedAccessException\",\"message\":\"Attempted to perform an unauthorized operation.\"}}";
+
+    [Fact]
+    public async Task APimForGroupsRequestAnswered403UnauthorizedAccessExceptionIsRetriedUnderReplicationLag()
+    {
+        using var harness = new ClientHarness(new ScriptedHttpHandler(
+            ScriptedResponse.Json(PimGroupForbidden, HttpStatusCode.Forbidden),
+            ScriptedResponse.Json(PimGroupForbidden, HttpStatusCode.Forbidden),
+            ScriptedResponse.Json("{\"id\":\"r1\",\"status\":\"Provisioned\"}", HttpStatusCode.Created)));
+
+        var response = await harness.Client.PostAsync(new GraphRequest("/identityGovernance/privilegedAccess/group/eligibilityScheduleRequests").WithHint(RetryHint.ExpectReplicationLag), new JsonObject(), Ct);
+
+        Assert.True(response.IsCreated);
+        Assert.Equal(3, harness.Handler.Requests.Count);
+        Assert.Equal([TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5)], harness.Delays.Delays);
+    }
+
+    [Fact]
+    public async Task APimForGroupsListThatKeepsAnswering403StopsAfterTheReplicationWindow()
+    {
+        using var harness = new ClientHarness();
+        harness.Handler.Fallback = _ => ScriptedResponse.Json(PimGroupForbidden, HttpStatusCode.Forbidden);
+
+        var error = await Assert.ThrowsAsync<GraphException>(() => harness.Client.GetAsync(new GraphRequest("/identityGovernance/privilegedAccess/group/assignmentSchedules").WithHint(RetryHint.ExpectReplicationLag), Ct));
+
+        Assert.True(error.IsForbidden);
+        Assert.True(error.IsReplication);
+        Assert.Equal(19, harness.Handler.Requests.Count);
+        Assert.Equal(18, harness.Delays.Delays.Count);
+    }
+
+    [Fact]
+    public async Task APimForGroups403WithoutTheReplicationHintFailsAtOnce()
+    {
+        using var harness = new ClientHarness(new ScriptedHttpHandler(ScriptedResponse.Json(PimGroupForbidden, HttpStatusCode.Forbidden)));
+
+        var error = await Assert.ThrowsAsync<GraphException>(() => harness.Client.PostAsync(new GraphRequest("/identityGovernance/privilegedAccess/group/eligibilityScheduleRequests"), new JsonObject(), Ct));
+
+        Assert.True(error.IsForbidden);
+        Assert.False(error.IsReplication);
+        Assert.Single(harness.Handler.Requests);
+        Assert.Empty(harness.Delays.Delays);
+    }
+
+    [Theory]
+    [InlineData("/roleManagement/directory/roleEligibilityScheduleRequests", "UnauthorizedAccessException")]
+    [InlineData("/identityGovernance/privilegedAccess/group/eligibilityScheduleRequests", "Authorization_RequestDenied")]
+    public async Task OtherForbiddenAnswersAreNotRetriedEvenUnderReplicationLag(string path, string code)
+    {
+        using var harness = new ClientHarness(new ScriptedHttpHandler(ScriptedResponse.Error(HttpStatusCode.Forbidden, code, "Denied.")));
+
+        var error = await Assert.ThrowsAsync<GraphException>(() => harness.Client.PostAsync(new GraphRequest(path).WithHint(RetryHint.ExpectReplicationLag), new JsonObject(), Ct));
+
+        Assert.False(error.IsReplication);
+        Assert.Single(harness.Handler.Requests);
+    }
+
     [Fact]
     public async Task TheSameConditionalAccessAnswerWithoutTheReplicationHintFailsAtOnce()
     {

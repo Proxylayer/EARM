@@ -62,8 +62,11 @@ public sealed partial class GraphException : Exception
     /// <summary>429 or 500/502/503/504.</summary>
     public bool IsTransient { get; }
 
-    /// <summary>A not-yet-replicated reference; only ever true under <see cref="RetryHint.ExpectReplicationLag"/>.</summary>
-    public bool IsReplication { get; }
+    /// <summary>
+    /// A not-yet-replicated reference; only ever true under <see cref="RetryHint.ExpectReplicationLag"/>. The client also sets it for a path-specific
+    /// replication answer the error alone cannot identify (<see cref="IsPimGroupReplicationForbidden"/>).
+    /// </summary>
+    public bool IsReplication { get; internal set; }
 
     /// <summary>Idempotent success: the object or edge already exists. Never retried; the caller re-reads by key.</summary>
     public bool IsAlreadyExists { get; }
@@ -154,6 +157,23 @@ public sealed partial class GraphException : Exception
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// The PIM for Groups replication answer: <c>403 UnauthorizedAccessException</c> from <c>/identityGovernance/privilegedAccess/group/*</c>. Graph
+    /// answers it to the first requests about a group (or principal) created seconds earlier, then accepts the same request about 15 s later; only
+    /// treated as replication under <see cref="RetryHint.ExpectReplicationLag"/> (a dependency created in this run), so a real missing role still fails
+    /// at once otherwise.
+    /// </summary>
+    /// <param name="status">The HTTP status.</param>
+    /// <param name="code">Graph's error code.</param>
+    /// <param name="requestPath">The request's URL path (with or without the version segment).</param>
+    public static bool IsPimGroupReplicationForbidden(HttpStatusCode status, string code, string? requestPath)
+    {
+        return status == HttpStatusCode.Forbidden
+            && string.Equals(code, "UnauthorizedAccessException", StringComparison.OrdinalIgnoreCase)
+            && requestPath is not null
+            && requestPath.Contains("/identityGovernance/privilegedAccess/group/", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>

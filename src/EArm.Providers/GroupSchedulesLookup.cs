@@ -169,7 +169,9 @@ public static class GroupSchedulesLookup
     /// <summary>
     /// The <see cref="EngineDiagnosticCodes.PimGroupAccessDenied"/> exception for a 403 (<c>UnauthorizedAccessException</c>) from a PIM for Groups
     /// endpoint: the active roles the caller needs (Learn: privilegedaccessgroup-post-eligibilityschedulerequests,
-    /// privilegedaccessgroup-list-eligibilityschedulerequests and their assignment counterparts), with Graph's answer.
+    /// privilegedaccessgroup-list-eligibilityschedulerequests and their assignment counterparts), with Graph's answer. Under
+    /// <see cref="RetryHint.ExpectReplicationLag"/> the client has already repeated the 403 on the replication schedule
+    /// (<see cref="GraphException.IsPimGroupReplicationForbidden"/>): Graph answers it for a group created seconds earlier.
     /// </summary>
     public static ProviderException AccessDenied(GraphException ex, string subject, ResourceIdentifier? id)
     {
@@ -182,7 +184,9 @@ public static class GroupSchedulesLookup
             + "Privileged Role Administrator for a role-assignable group; or ownership of the group. Privileged Role Administrator alone does not cover groups "
             + "that are not role-assignable. Activate the role in PIM (or assign it), then sign in again (earm auth login) so the token carries it. An application "
             + "needs PrivilegedEligibilitySchedule.ReadWrite.AzureADGroup / PrivilegedAssignmentSchedule.ReadWrite.AzureADGroup (Learn: "
-            + "privilegedaccessgroup-post-eligibilityschedulerequests, privilegedaccessgroup-list-eligibilityschedulerequests).",
+            + "privilegedaccessgroup-post-eligibilityschedulerequests, privilegedaccessgroup-list-eligibilityschedulerequests). If the group (or the principal) was "
+            + "just created, PIM may need more time: Graph answers this 403 for a while after the group is created (EARM already retried it for 90 s when the "
+            + "group was created in the same run); run the deployment again in a minute.",
             id);
     }
 
