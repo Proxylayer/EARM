@@ -13,10 +13,11 @@ using Xunit;
 namespace EArm.Providers.Tests;
 
 /// <summary>
-/// Review 1D / I-01 (hostile input): the <c>--allow-ca-enforce</c> guard and the lockout lint judge the REVEALED values. A
+/// Review 1D / I-01 (hostile input): the <c>--allow-ca-enforce</c> rule and the lockout lint judge the REVEALED values. A
 /// <c>securestring</c> parameter used to hide <c>state: enabled</c>, <c>includeUsers: All</c> or <c>block</c> from them (secret leaves never
 /// matched a literal), so <c>create -y</c> wrote an enforced policy without the flag. Also blank entries are not exclusions, state matching is
-/// case-insensitive, and the guard runs again on the final request body.
+/// case-insensitive, and the rule runs again on the final request body. Without the flag an enforce request is held back (report-only on
+/// create, live state kept on update), never written.
 /// </summary>
 public sealed class Review1D_ConditionalAccessGuardTests
 {
@@ -43,35 +44,35 @@ public sealed class Review1D_ConditionalAccessGuardTests
     // ---- the bypasses ----
 
     [Fact]
-    public async Task SecretState_Enabled_IsRefusedWithoutTheFlag_OnTheWhatIfPath_AndTheExecutorPath()
+    public async Task SecretState_Enabled_IsHeldBackWithoutTheFlag_OnTheWhatIfPath_AndTheExecutorPath()
     {
         var host = NewHost();
         var document = host.Resources(Policy("\"[parameters('s')]\"", "[\"" + Group + "\"]", string.Empty, "[\"mfa\"]"), parameters: Parameters("s"), values: [("s", "enabled")]);
 
         var whatIf = await host.WhatIfAsync(document);
         var row = Assert.Single(whatIf.Plan.Changes);
-        Assert.True(row.HasError);
-        Assert.Contains("--allow-ca-enforce", row.UnsupportedReason, StringComparison.Ordinal);
+        Assert.False(row.HasError);
+        string reason = Assert.Single(row.Reasons, r => r.StartsWith(ProviderWarnings.ConditionalAccessEnforcementNotAllowed + ":", StringComparison.Ordinal));
+        Assert.Contains("secure value", reason, StringComparison.Ordinal);
+        Assert.DoesNotContain("declared enabled", reason, StringComparison.Ordinal);
 
         var run = await host.CreateAsync(document);
-        Assert.False(run.Succeeded);
-        Check.NoWrites(run);
-        Assert.Contains("--allow-ca-enforce", run.Errors, StringComparison.Ordinal);
-        Assert.Empty(host.Directory.Objects("/identity/conditionalAccess/policies"));
+        Check.Succeeded(run);
+        Assert.Equal(ConditionalAccessPoliciesRules.DefaultState, Check.Body(Assert.Single(run.Writes))["state"]!.GetValue<string>());
+        Assert.Equal(ConditionalAccessPoliciesRules.DefaultState, host.Directory.Objects("/identity/conditionalAccess/policies").Single()["state"]!.GetValue<string>());
     }
 
     [Theory]
     [InlineData("Enabled")]
     [InlineData("ENABLED")]
     [InlineData(" enabled ")]
-    public async Task SecretState_InAnyCase_IsRefused(string value)
+    public async Task SecretState_InAnyCase_IsHeldBack(string value)
     {
         var host = NewHost();
         var run = await host.CreateAsync(host.Resources(Policy("\"[parameters('s')]\"", "[\"" + Group + "\"]", string.Empty, "[\"mfa\"]"), parameters: Parameters("s"), values: [("s", value)]));
 
-        Assert.False(run.Succeeded);
-        Check.NoWrites(run);
-        Assert.Contains("--allow-ca-enforce", run.Errors, StringComparison.Ordinal);
+        Check.Succeeded(run);
+        Assert.Equal(ConditionalAccessPoliciesRules.DefaultState, Check.Body(Assert.Single(run.Writes))["state"]!.GetValue<string>());
     }
 
     [Fact]
@@ -145,7 +146,7 @@ public sealed class Review1D_ConditionalAccessGuardTests
     // ---- defence in depth ----
 
     [Fact]
-    public async Task TheFinalRequestBody_IsGuardedAgainAtTheProvider()
+    public async Task TheFinalRequestBody_IsHeldBackAgainAtTheProvider()
     {
         var host = NewHost();
         var plan = await host.WhatIfAsync(host.Resources(Policy("\"disabled\"", "[\"" + Group + "\"]", string.Empty, "[\"mfa\"]")));
@@ -154,26 +155,25 @@ public sealed class Review1D_ConditionalAccessGuardTests
         var provider = host.Provider<ConditionalAccessPoliciesProvider>(PolType);
         provider.PlanOptions = PlanOptions.Default;
 
-        var ex = await Assert.ThrowsAsync<ProviderException>(() => provider.CreateAsync(instance, host.Fake, ProviderHost.Ct));
+        var applied = await provider.CreateAsync(instance, host.Fake, ProviderHost.Ct);
 
-        Assert.Equal(ConditionalAccessPoliciesProvider.PolicyRejected, ex.Code);
-        Assert.Empty(host.Fake.Writes);
-        Assert.DoesNotContain("enabled\"", ex.Message.Replace("--allow-ca-enforce", string.Empty, StringComparison.Ordinal), StringComparison.Ordinal);
+        Assert.Equal(ConditionalAccessPoliciesRules.DefaultState, Check.Body(Assert.Single(host.Fake.Writes))["state"]!.GetValue<string>());
+        var warning = Assert.Single(applied.Warnings);
+        Assert.Equal(ProviderWarnings.ConditionalAccessEnforcementNotAllowed, warning.Code);
+        Assert.DoesNotContain("declared enabled", warning.Message, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void FinalBodyProblems_JudgeTheRevealedBody()
+    public void FinalBodyProblems_JudgeTheRevealedCreateBody_AndNeverTheState()
     {
         var body = (JsonObject)JsonNode.Parse("""{ "state": "Enabled", "conditions": { "users": { "includeUsers": ["All"] }, "applications": { "includeApplications": ["All"] }, "clientAppTypes": ["all"] }, "grantControls": { "operator": "OR", "builtInControls": ["block"] } }""")!;
 
-        var create = ConditionalAccessPoliciesRules.FinalBodyProblems(body, GraphApi.V1, allowCaEnforce: false, isCreate: true);
-        var patch = ConditionalAccessPoliciesRules.FinalBodyProblems(body, GraphApi.V1, allowCaEnforce: false, isCreate: false);
-        var allowed = ConditionalAccessPoliciesRules.FinalBodyProblems(body, GraphApi.V1, allowCaEnforce: true, isCreate: false);
+        var create = ConditionalAccessPoliciesRules.FinalBodyProblems(body, GraphApi.V1, isCreate: true);
+        var patch = ConditionalAccessPoliciesRules.FinalBodyProblems(body, GraphApi.V1, isCreate: false);
 
-        Assert.Contains(create, p => p.Contains("--allow-ca-enforce", StringComparison.Ordinal));
+        Assert.DoesNotContain(create, p => p.Contains("--allow-ca-enforce", StringComparison.Ordinal));
         Assert.Contains(create, p => p.Contains("lockout risk", StringComparison.Ordinal));
-        Assert.Single(patch);
-        Assert.Empty(allowed);
+        Assert.Empty(patch);
     }
 
     [Fact]
@@ -183,16 +183,16 @@ public sealed class Review1D_ConditionalAccessGuardTests
         properties["state"] = SecretJson.CreateString("enabled");
         properties["grantControls"]!["builtInControls"]![0] = SecretJson.CreateString("block");
 
-        var problems = ConditionalAccessPoliciesRules.Problems(properties, GraphApi.V1, allowCaEnforce: false);
+        var problems = ConditionalAccessPoliciesRules.Problems(properties, GraphApi.V1);
 
-        Assert.Contains(problems, p => p.Contains("--allow-ca-enforce", StringComparison.Ordinal));
+        Assert.DoesNotContain(problems, p => p.Contains("--allow-ca-enforce", StringComparison.Ordinal));
         Assert.Contains(problems, p => p.Contains("lockout risk", StringComparison.Ordinal));
         Assert.True(SecretJson.IsSecret(properties["state"]), "the evaluated object is not modified");
         Assert.All(problems, p => Assert.DoesNotContain("\"enabled\"", p, StringComparison.Ordinal));
     }
 
     [Fact]
-    public async Task AnUpdateToAnEnforcedState_ThroughASecret_IsRefusedToo()
+    public async Task AnUpdateToAnEnforcedState_ThroughASecret_KeepsTheLiveState()
     {
         var host = NewHost();
         string create = Policy("\"disabled\"", "[\"" + Group + "\"]", string.Empty, "[\"mfa\"]");
@@ -201,7 +201,7 @@ public sealed class Review1D_ConditionalAccessGuardTests
 
         var run = await host.CreateAsync(document);
 
-        Assert.False(run.Succeeded);
+        Check.Succeeded(run);
         Check.NoWrites(run);
         Assert.Equal("disabled", host.Directory.Objects("/identity/conditionalAccess/policies").Single()["state"]!.GetValue<string>());
     }

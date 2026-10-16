@@ -12,8 +12,8 @@ namespace EArm.Providers;
 /// <summary>
 /// The pure rules of <see cref="ConditionalAccessPoliciesProvider"/>: defaults, the
 /// read-back normalisation (<c>authenticationStrength</c> reduced to <c>{ id }</c>, <c>null</c> / <c>[]</c> members
-/// dropped), the required-shape checks Graph would otherwise reject with a 400, the <c>--allow-ca-enforce</c> guard,
-/// the lockout lint, the grant-control exclusivity rules, the preview-only properties, and the PATCH body fix-ups.
+/// dropped), the required-shape checks Graph would otherwise reject with a 400, the <c>--allow-ca-enforce</c> hold-back
+/// (<see cref="HoldBackEnforcement"/>), the lockout lint, the grant-control exclusivity rules, the preview-only properties, and the PATCH body fix-ups.
 /// Testable without Graph.
 /// </summary>
 public static class ConditionalAccessPoliciesRules
@@ -44,30 +44,54 @@ public static class ConditionalAccessPoliciesRules
     private static readonly string[] UserIncludes = ["includeUsers", "includeGroups", "includeRoles", "includeGuestsOrExternalUsers"];
 
     /// <summary>
-    /// The problems of a FINAL request body (the revealed values that will actually be sent), judged again right before the write:
-    /// <c>state: enabled</c> without the enforce flag, and for a create body every check of <see cref="Problems"/>.
+    /// The problems of a FINAL create body (the revealed values that will actually be sent), judged again right before the write:
+    /// every check of <see cref="Problems"/>. A PATCH body carries only the changed properties and is not judged as a whole.
+    /// (The enforce rule is not a problem: <see cref="HoldBackEnforcement"/> rewrites the body instead.)
     /// </summary>
-    public static IReadOnlyList<string> FinalBodyProblems(JsonObject body, GraphApi api, bool allowCaEnforce, bool isCreate)
+    public static IReadOnlyList<string> FinalBodyProblems(JsonObject body, GraphApi api, bool isCreate)
     {
         ArgumentNullException.ThrowIfNull(body);
-        var problems = new List<string>();
-        if (JsonObjects.GetString(body, "state") is { } state && state.Trim().Equals(EnabledState, StringComparison.OrdinalIgnoreCase) && !allowCaEnforce)
+        return isCreate ? Problems(body, api) : [];
+    }
+
+    /// <summary>
+    /// The <c>--allow-ca-enforce</c> rule, applied in place to the normalised desired properties (or to a final request body). A declared
+    /// <c>state: enabled</c> (case-insensitive; a secure value is judged revealed) is an enforce request; without
+    /// <paramref name="allowCaEnforce"/> it is held back: on create the <c>state</c> becomes <see cref="DefaultState"/> (report-only),
+    /// on update the <c>state</c> is removed so the PATCH leaves the live value as it is. An existing policy that is already
+    /// <c>enabled</c> live holds nothing back (the declared value is in effect). Returns what was held back, or <c>null</c> when the
+    /// properties were left as they are (the flag was passed, no enforce request, or the value is only known at deployment time:
+    /// the executor plans again with the resolved value).
+    /// </summary>
+    public static EnforcementHold? HoldBackEnforcement(JsonObject properties, JsonObject? live, bool allowCaEnforce, bool isCreate)
+    {
+        ArgumentNullException.ThrowIfNull(properties);
+        if (allowCaEnforce || JsonObjects.FindKey(properties, "state") is not { } key)
         {
-            problems.Add($"state '{EnabledState}' enforces the policy for every targeted sign-in; rerun with {AllowCaEnforceFlag} to confirm, or deploy it as '{DefaultState}' first");
+            return null;
         }
 
+        var declared = properties[key];
+        if (!IsEnabledValue(SecretJson.Reveal(declared)))
+        {
+            return null;
+        }
+
+        bool secret = SecretJson.ContainsSecret(declared);
         if (isCreate)
         {
-            foreach (string problem in Problems(body, api, allowCaEnforce))
-            {
-                if (!problems.Contains(problem))
-                {
-                    problems.Add(problem);
-                }
-            }
+            properties[key] = JsonValue.Create(DefaultState);
+            return new EnforcementHold(key, IsCreate: true, LiveState: null, DeclaredIsSecret: secret);
         }
 
-        return problems;
+        string? liveState = live is null ? null : JsonObjects.GetString(live, "state");
+        if (liveState is not null && liveState.Trim().Equals(EnabledState, StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        properties.Remove(key);
+        return new EnforcementHold(key, IsCreate: false, LiveState: liveState, DeclaredIsSecret: secret);
     }
 
     /// <summary>
@@ -119,27 +143,21 @@ public static class ConditionalAccessPoliciesRules
     }
 
     /// <summary>
-    /// Everything that makes the policy unsupported, after <see cref="NormalizeDesired"/>: <c>state: enabled</c> without
-    /// <paramref name="allowCaEnforce"/>; a missing or empty <c>conditions.applications</c> / <c>conditions.users</c>
+    /// Everything that makes the policy unsupported, after <see cref="NormalizeDesired"/>: a missing or empty <c>conditions.applications</c> / <c>conditions.users</c>
     /// include; a missing <c>conditions.clientAppTypes</c>; neither <c>grantControls</c> nor <c>sessionControls</c>;
     /// <c>block</c> combined with another control; <c>mfa</c> together with <c>authenticationStrength</c>; the lockout
     /// pattern (all users, all applications, <c>block</c>, no <c>excludeUsers</c> / <c>excludeGroups</c>); a preview-only
     /// property on the v1.0 endpoint. Deploy-time-unknown values pass (they are checked again right before the write).
     /// </summary>
-    public static IReadOnlyList<string> Problems(JsonObject properties, GraphApi api, bool allowCaEnforce)
+    public static IReadOnlyList<string> Problems(JsonObject properties, GraphApi api)
     {
         ArgumentNullException.ThrowIfNull(properties);
         var problems = new List<string>();
 
-        // Review 1D / I-01: every guard and lint judges the REVEALED values. A securestring parameter (or a Key Vault value) can carry
-        // "enabled", "All" or "block"; secret leaves never match a literal, so judging the tainted object let such a policy through.
+        // Review 1D / I-01: every lint judges the REVEALED values. A securestring parameter (or a Key Vault value) can carry
+        // "All" or "block"; secret leaves never match a literal, so judging the tainted object let such a policy through.
         // The values are only compared here; no message below echoes them.
         properties = (JsonObject)SecretJson.Reveal(properties)!;
-
-        if (IsLiteral(properties, "state", EnabledState) && !allowCaEnforce)
-        {
-            problems.Add($"state '{EnabledState}' enforces the policy for every targeted sign-in; rerun with {AllowCaEnforceFlag} to confirm, or deploy it as '{DefaultState}' first");
-        }
 
         JsonObjects.TryGetIgnoreCase(properties, "conditions", out var conditions);
         if (JsonObjects.IsAbsent(conditions))
@@ -412,9 +430,11 @@ public static class ConditionalAccessPoliciesRules
         return JsonObjects.TryGetIgnoreCase(obj, key, out var value) ? value : null;
     }
 
-    private static bool IsLiteral(JsonObject properties, string key, string literal)
+    /// <summary>True for a known string <c>enabled</c> (case-insensitive, trimmed); unknown leaves never match.</summary>
+    private static bool IsEnabledValue(JsonNode? node)
     {
-        return JsonObjects.GetString(properties, key) is { } text && text.Trim().Equals(literal, StringComparison.OrdinalIgnoreCase);
+        return node is JsonValue value && !UnknownJson.IsUnknown(value) && JsonValues.TryGetString(value, out var text)
+            && text.Trim().Equals(EnabledState, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary><c>authenticationStrength</c> is declared and read back as the whole policy; only its id takes part in the diff and the body.</summary>
@@ -490,4 +510,24 @@ public static class ConditionalAccessPoliciesRules
             yield return property.Key;
         }
     }
+}
+
+/// <summary>
+/// A declared <c>state: enabled</c> held back by <see cref="ConditionalAccessPoliciesRules.HoldBackEnforcement"/> because
+/// <c>--allow-ca-enforce</c> was not passed: <see cref="IsCreate"/> says the policy is created report-only, otherwise the live
+/// <see cref="LiveState"/> is kept. <see cref="Key"/> is the declared property name (its casing). A secure declared value is never echoed.
+/// </summary>
+public sealed record EnforcementHold(string Key, bool IsCreate, string? LiveState, bool DeclaredIsSecret)
+{
+    private string Declared => DeclaredIsSecret ? "a secure value requesting enforcement" : ConditionalAccessPoliciesRules.EnabledState;
+
+    /// <summary>The short note shown next to the <c>state</c> delta.</summary>
+    public string Note => IsCreate
+        ? $"declared {Declared}, kept {ConditionalAccessPoliciesRules.DefaultState}; pass {ConditionalAccessPoliciesRules.AllowCaEnforceFlag} to enforce"
+        : $"declared {Declared}, live value kept; pass {ConditionalAccessPoliciesRules.AllowCaEnforceFlag} to enforce";
+
+    /// <summary>The warning text (without the code prefix).</summary>
+    public string Message => IsCreate
+        ? $"state: declared {Declared}, kept {ConditionalAccessPoliciesRules.DefaultState}; the new policy is created report-only (pass {ConditionalAccessPoliciesRules.AllowCaEnforceFlag} to enforce)"
+        : $"state: declared {Declared}, live value kept ({LiveState ?? "unknown"}); the update does not change the policy state (pass {ConditionalAccessPoliciesRules.AllowCaEnforceFlag} to enforce)";
 }

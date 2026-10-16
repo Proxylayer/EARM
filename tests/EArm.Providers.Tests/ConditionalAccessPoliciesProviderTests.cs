@@ -208,29 +208,30 @@ public sealed class ConditionalAccessPoliciesProviderTests
     }
 
     [Fact]
-    public async Task EnforceGuard_AppliesInWhatIf_Create_AndDirectCreate_ButNotWithTheFlag()
+    public async Task EnforceRule_AppliesInWhatIf_Create_AndDirectCreate_ButNotWithTheFlag()
     {
         var host = new ProviderHost();
         var whatIf = await host.WhatIfAsync(host.Resources(Policy(state: "enabled")));
         var row = Assert.Single(whatIf.Plan.Changes);
-        Assert.True(row.HasError);
-        Assert.Contains("--allow-ca-enforce", row.UnsupportedReason, StringComparison.Ordinal);
+        Assert.False(row.HasError);
+        Assert.Equal(ChangeType.Create, row.Type);
+        Assert.Contains(row.Reasons, r => r.StartsWith(ProviderWarnings.ConditionalAccessEnforcementNotAllowed + ":", StringComparison.Ordinal));
 
         var create = await host.CreateAsync(host.Resources(Policy(state: "enabled")));
-        Assert.NotEqual(DeploymentStatus.Succeeded, create.Executed.Status);
-        Check.NoWrites(create);
-        Assert.Contains("--allow-ca-enforce", create.Errors, StringComparison.Ordinal);
+        Check.Succeeded(create);
+        Assert.Equal(ConditionalAccessPoliciesRules.DefaultState, Check.Body(Assert.Single(create.Writes))["state"]!.GetValue<string>());
 
         var allowedHost = new ProviderHost { AllowCaEnforce = true };
         var allowed = await allowedHost.CreateAsync(allowedHost.Resources(Policy(state: "enabled")));
         Check.Succeeded(allowed);
         Assert.Contains("\"state\":\"enabled\"", Assert.Single(allowed.Writes).Body!.ToJsonString(), StringComparison.Ordinal);
 
+        // A direct create (no Plan) of the instance planned WITH the flag: the rule runs again in the provider and holds the state back.
         var provider = new ConditionalAccessPoliciesProvider(EArm.Core.Types.ResourceTypeCatalog.Default) { PlanOptions = PlanOptions.Default };
         var direct = new FakeClientOnly();
-        var ex = await Assert.ThrowsAsync<ProviderException>(() => provider.CreateAsync(allowed.Plan.Instances.Single(), direct.Client, ProviderHost.Ct));
-        Assert.Equal(ConditionalAccessPoliciesProvider.PolicyRejected, ex.Code);
-        Assert.Empty(direct.Client.Writes);
+        var applied = await provider.CreateAsync(allowed.Plan.Instances.Single(), direct.Client, ProviderHost.Ct);
+        Assert.Equal(ConditionalAccessPoliciesRules.DefaultState, Check.Body(Assert.Single(direct.Client.Writes))["state"]!.GetValue<string>());
+        Assert.Equal(ProviderWarnings.ConditionalAccessEnforcementNotAllowed, Assert.Single(applied.Warnings).Code);
 
         var disabledHost = new ProviderHost();
         Check.Succeeded(await disabledHost.CreateAsync(disabledHost.Resources(Policy(state: "disabled"))));

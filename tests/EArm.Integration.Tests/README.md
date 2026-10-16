@@ -168,8 +168,8 @@ and run sequentially: they share the sign-in and the cleanup guard, and the in-p
 * No Azure subscription resources are created and no licenses are assigned: Entra objects only, no cost. Users have no license and
   never sign in; their passwords are generated or random and are never printed (secure outputs go to an owner-only file in the run's
   scratch directory, which is deleted at the end).
-* Conditional Access policies are always `enabledForReportingButNotEnforced`. **No test passes `--allow-ca-enforce`.** The enforce-guard
-  test proves that `state: enabled` is refused. The guard never deletes an *enforced* policy it finds with the prefix; it reports it.
+* Conditional Access policies are always `enabledForReportingButNotEnforced`. **No test passes `--allow-ca-enforce`.** The enforce-rule
+  test proves that `state: enabled` is held back (the existing report-only policy keeps its live state, with a warning). The guard never deletes an *enforced* policy it finds with the prefix; it reports it.
 * Authentication contexts use ids `c99` downwards (never below `c50`); an id that already exists is skipped, so a foreign context is
   never overwritten.
 * Privileged writes (role assignments, app role assignments such as `User.Read.All` on a throw-away service principal, tenant-wide

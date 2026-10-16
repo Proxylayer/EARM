@@ -156,6 +156,17 @@ public static class WhatIfText
                 {
                     WritePayload(payload, writer, BodyIndent, options, symbol);
                 }
+                else if (full)
+                {
+                    // A declared value the provider held back (NoEffect with a note) is the reason the row is NoChange: show it.
+                    foreach (var delta in row.Deltas)
+                    {
+                        if (delta.Note is not null)
+                        {
+                            WriteDelta(delta, JsonPath.Root, writer, BodyIndent, options);
+                        }
+                    }
+                }
 
                 break;
         }
@@ -218,10 +229,12 @@ public static class WhatIfText
 
     private static void WriteDelta(PropertyDelta delta, JsonPath parent, TextWriter writer, string indent, WhatIfTextOptions options)
     {
-        if (delta.Kind == PropertyChangeType.NoEffect && !options.Verbose)
+        if (delta.Kind == PropertyChangeType.NoEffect && !options.Verbose && delta.Note is null)
         {
             return;
         }
+
+        string note = delta.Note is { } text ? $" ({text})" : string.Empty;
 
         char marker = delta.Kind switch
         {
@@ -253,21 +266,21 @@ public static class WhatIfText
         switch (delta.Kind)
         {
             case PropertyChangeType.Create:
-                WriteDeltaValue(marker, path, delta.After, writer, indent, options);
+                WriteDeltaValue(marker, path, delta.After, writer, indent, options, note);
                 break;
 
             case PropertyChangeType.Delete:
-                WriteDeltaValue(marker, path, delta.Before, writer, indent, options);
+                WriteDeltaValue(marker, path, delta.Before, writer, indent, options, note);
                 break;
 
             default:
-                writer.WriteLine(Colour(options, marker, $"{indent}{marker} {path}: {Scalar(delta.Before)} => {Scalar(delta.After)}"));
+                writer.WriteLine(Colour(options, marker, $"{indent}{marker} {path}: {Scalar(delta.Before)} => {Scalar(delta.After)}{note}"));
                 break;
         }
     }
 
     /// <summary>A one-sided delta (create / delete): scalars inline, objects and arrays as an indented block.</summary>
-    private static void WriteDeltaValue(char marker, string path, JsonNode? value, TextWriter writer, string indent, WhatIfTextOptions options)
+    private static void WriteDeltaValue(char marker, string path, JsonNode? value, TextWriter writer, string indent, WhatIfTextOptions options, string note)
     {
         switch (value)
         {
@@ -287,7 +300,7 @@ public static class WhatIfText
                 break;
 
             default:
-                writer.WriteLine(Colour(options, marker, $"{indent}{marker} {path}: {Scalar(value)}"));
+                writer.WriteLine(Colour(options, marker, $"{indent}{marker} {path}: {Scalar(value)}{note}"));
                 break;
         }
     }

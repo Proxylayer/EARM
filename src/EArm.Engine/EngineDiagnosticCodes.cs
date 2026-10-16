@@ -220,8 +220,14 @@ public static class EngineDiagnosticCodes
     /// <summary>A built-in authentication strength cannot be created, changed or deleted.</summary>
     public const string AuthenticationStrengthBuiltIn = "AuthenticationStrengthBuiltIn";
 
-    /// <summary>A conditional access policy declaration was refused before the write (invalid state or shape).</summary>
+    /// <summary>A conditional access policy declaration was refused before the write (invalid shape, lockout pattern, preview-only property).</summary>
     public const string ConditionalAccessPolicyRejected = "ConditionalAccessPolicyRejected";
+
+    /// <summary>
+    /// A conditional access policy declares <c>state: enabled</c> and <c>--allow-ca-enforce</c> was not passed: a new policy is created
+    /// report-only (<c>enabledForReportingButNotEnforced</c>), an existing policy keeps its live <c>state</c>.
+    /// </summary>
+    public const string ConditionalAccessEnforcementNotAllowed = "ConditionalAccessEnforcementNotAllowed";
 
     /// <summary>A named location cannot be deleted while a conditional access policy references it.</summary>
     public const string NamedLocationReferenced = "NamedLocationReferenced";

@@ -160,9 +160,9 @@ public sealed class ConditionalAccessRulesTests
 
     private const string DefaultConditions = "{ \"users\": { \"includeGroups\": [\"" + GroupId + "\"] }, \"applications\": { \"includeApplications\": [\"All\"] } }";
 
-    private static JsonObject Normalized(JsonObject properties)
+    private static JsonObject Normalized(JsonObject properties, bool isCreate = true)
     {
-        ConditionalAccessPoliciesRules.NormalizeDesired(properties, isCreate: true);
+        ConditionalAccessPoliciesRules.NormalizeDesired(properties, isCreate);
         return properties;
     }
 
@@ -222,39 +222,115 @@ public sealed class ConditionalAccessRulesTests
     [Fact]
     public void Problems_IsEmptyForAWellFormedPolicy()
     {
-        Assert.Empty(ConditionalAccessPoliciesRules.Problems(Normalized(Policy(DefaultConditions)), GraphApi.V1, allowCaEnforce: false));
-        Assert.Empty(ConditionalAccessPoliciesRules.Problems(Normalized(Policy(DefaultConditions, grant: null, session: "{ \"signInFrequency\": { \"value\": 1, \"type\": \"hours\", \"isEnabled\": true } }")), GraphApi.V1, false));
-        Assert.Empty(ConditionalAccessPoliciesRules.Problems(Normalized(Policy(DefaultConditions, "{ \"authenticationStrength\": { \"id\": \"" + StrengthId + "\" } }", "{ \"signInFrequency\": { \"value\": 1 } }")), GraphApi.V1, false));
-        Assert.Empty(ConditionalAccessPoliciesRules.Problems(Normalized(Policy(DefaultConditions, state: "enabled")), GraphApi.V1, allowCaEnforce: true));
+        Assert.Empty(ConditionalAccessPoliciesRules.Problems(Normalized(Policy(DefaultConditions)), GraphApi.V1));
+        Assert.Empty(ConditionalAccessPoliciesRules.Problems(Normalized(Policy(DefaultConditions, grant: null, session: "{ \"signInFrequency\": { \"value\": 1, \"type\": \"hours\", \"isEnabled\": true } }")), GraphApi.V1));
+        Assert.Empty(ConditionalAccessPoliciesRules.Problems(Normalized(Policy(DefaultConditions, "{ \"authenticationStrength\": { \"id\": \"" + StrengthId + "\" } }", "{ \"signInFrequency\": { \"value\": 1 } }")), GraphApi.V1));
+        Assert.Empty(ConditionalAccessPoliciesRules.Problems(Normalized(Policy(DefaultConditions, state: "enabled")), GraphApi.V1));
     }
 
     [Theory]
-    [InlineData("enabled", "--allow-ca-enforce")]
-    [InlineData("disabled", null)]
-    [InlineData("enabledForReportingButNotEnforced", null)]
-    public void Problems_EnforceGuard(string state, string? expectedText)
+    [InlineData("enabled")]
+    [InlineData("disabled")]
+    [InlineData("enabledForReportingButNotEnforced")]
+    public void Problems_NeverRefuseAState(string state)
     {
-        var problems = ConditionalAccessPoliciesRules.Problems(Normalized(Policy(DefaultConditions, state: state)), GraphApi.V1, allowCaEnforce: false);
+        Assert.Empty(ConditionalAccessPoliciesRules.Problems(Normalized(Policy(DefaultConditions, state: state)), GraphApi.V1));
+    }
 
-        if (expectedText is null)
-        {
-            Assert.Empty(problems);
-        }
-        else
-        {
-            Assert.Contains(expectedText, Assert.Single(problems), StringComparison.Ordinal);
-        }
+    // ---- the --allow-ca-enforce hold-back ----
+
+    [Theory]
+    [InlineData("enabled")]
+    [InlineData(" Enabled ")]
+    [InlineData("ENABLED")]
+    public void HoldBackEnforcement_OnCreate_WithoutTheFlag_CreatesReportOnly(string state)
+    {
+        var properties = Normalized(Policy(DefaultConditions, state: state));
+
+        var hold = ConditionalAccessPoliciesRules.HoldBackEnforcement(properties, live: null, allowCaEnforce: false, isCreate: true);
+
+        Assert.NotNull(hold);
+        Assert.True(hold.IsCreate);
+        Assert.Equal(ConditionalAccessPoliciesRules.DefaultState, properties["state"]!.GetValue<string>());
+        Assert.Equal("declared enabled, kept enabledForReportingButNotEnforced; pass --allow-ca-enforce to enforce", hold.Note);
+        Assert.Contains("--allow-ca-enforce", hold.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("disabled")]
+    [InlineData("enabledForReportingButNotEnforced")]
+    public void HoldBackEnforcement_OnUpdate_WithoutTheFlag_RemovesTheStateSoTheLiveValueIsKept(string liveState)
+    {
+        var properties = Normalized(Policy(DefaultConditions, state: "enabled"), isCreate: false);
+        var live = (JsonObject)JsonNode.Parse("{ \"state\": \"" + liveState + "\" }")!;
+
+        var hold = ConditionalAccessPoliciesRules.HoldBackEnforcement(properties, live, allowCaEnforce: false, isCreate: false);
+
+        Assert.NotNull(hold);
+        Assert.False(hold.IsCreate);
+        Assert.Equal(liveState, hold.LiveState);
+        Assert.False(properties.ContainsKey("state"));
+        Assert.Contains(liveState, hold.Message, StringComparison.Ordinal);
+        Assert.Equal("declared enabled, live value kept; pass --allow-ca-enforce to enforce", hold.Note);
+    }
+
+    [Fact]
+    public void HoldBackEnforcement_OnUpdate_OfAPolicyAlreadyEnabledLive_HoldsNothingBack()
+    {
+        var properties = Normalized(Policy(DefaultConditions, state: "enabled"), isCreate: false);
+        var live = (JsonObject)JsonNode.Parse("""{ "state": "enabled" }""")!;
+
+        Assert.Null(ConditionalAccessPoliciesRules.HoldBackEnforcement(properties, live, allowCaEnforce: false, isCreate: false));
+        Assert.Equal("enabled", properties["state"]!.GetValue<string>());
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void HoldBackEnforcement_WithTheFlag_LeavesTheDeclaredStateAsWritten(bool isCreate)
+    {
+        var properties = Normalized(Policy(DefaultConditions, state: "enabled"), isCreate);
+        var live = isCreate ? null : (JsonObject)JsonNode.Parse("""{ "state": "disabled" }""")!;
+
+        Assert.Null(ConditionalAccessPoliciesRules.HoldBackEnforcement(properties, live, allowCaEnforce: true, isCreate));
+        Assert.Equal("enabled", properties["state"]!.GetValue<string>());
+    }
+
+    [Theory]
+    [InlineData("disabled", true)]
+    [InlineData("disabled", false)]
+    [InlineData("enabledForReportingButNotEnforced", true)]
+    [InlineData("enabledForReportingButNotEnforced", false)]
+    public void HoldBackEnforcement_IgnoresStatesThatDoNotEnforce(string state, bool isCreate)
+    {
+        var properties = Normalized(Policy(DefaultConditions, state: state), isCreate);
+        var live = isCreate ? null : (JsonObject)JsonNode.Parse("""{ "state": "enabled" }""")!;
+
+        Assert.Null(ConditionalAccessPoliciesRules.HoldBackEnforcement(properties, live, allowCaEnforce: false, isCreate));
+        Assert.Equal(state, properties["state"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public void HoldBackEnforcement_UndeclaredState_KeepsTheCreateOnlyDefault()
+    {
+        var created = Normalized(Policy(DefaultConditions));
+        Assert.Null(ConditionalAccessPoliciesRules.HoldBackEnforcement(created, live: null, allowCaEnforce: false, isCreate: true));
+        Assert.Equal(ConditionalAccessPoliciesRules.DefaultState, created["state"]!.GetValue<string>());
+
+        var updated = Normalized(Policy(DefaultConditions), isCreate: false);
+        Assert.Null(ConditionalAccessPoliciesRules.HoldBackEnforcement(updated, (JsonObject)JsonNode.Parse("""{ "state": "disabled" }""")!, allowCaEnforce: false, isCreate: false));
+        Assert.False(updated.ContainsKey("state"));
     }
 
     [Fact]
     public void Problems_ReportEveryShapeLint()
     {
-        Assert.Contains(ConditionalAccessPoliciesRules.Problems((JsonObject)JsonNode.Parse("""{ "grantControls": { "builtInControls": ["mfa"] } }""")!, GraphApi.V1, false), p => p.Contains("conditions is required", StringComparison.Ordinal));
-        Assert.Contains(ConditionalAccessPoliciesRules.Problems((JsonObject)JsonNode.Parse("""{ "conditions": "x", "grantControls": { "builtInControls": ["mfa"] } }""")!, GraphApi.V1, false), p => p.Contains("conditions must be an object", StringComparison.Ordinal));
-        Assert.Contains(ConditionalAccessPoliciesRules.Problems(Normalized(Policy("{ \"users\": { \"includeGroups\": [\"" + GroupId + "\"] }, \"applications\": { \"excludeApplications\": [\"All\"] } }")), GraphApi.V1, false), p => p.Contains("conditions.applications must include", StringComparison.Ordinal));
-        Assert.Contains(ConditionalAccessPoliciesRules.Problems(Normalized(Policy("{ \"users\": { \"excludeUsers\": [\"" + GroupId + "\"] }, \"applications\": { \"includeApplications\": [\"All\"] } }")), GraphApi.V1, false), p => p.Contains("conditions.users must include", StringComparison.Ordinal));
-        Assert.Contains(ConditionalAccessPoliciesRules.Problems(Policy(DefaultConditions), GraphApi.V1, false), p => p.Contains("conditions.clientAppTypes is required", StringComparison.Ordinal));
-        Assert.Contains(ConditionalAccessPoliciesRules.Problems(Normalized(Policy(DefaultConditions, grant: null)), GraphApi.V1, false), p => p.Contains("at least one of grantControls or sessionControls", StringComparison.Ordinal));
+        Assert.Contains(ConditionalAccessPoliciesRules.Problems((JsonObject)JsonNode.Parse("""{ "grantControls": { "builtInControls": ["mfa"] } }""")!, GraphApi.V1), p => p.Contains("conditions is required", StringComparison.Ordinal));
+        Assert.Contains(ConditionalAccessPoliciesRules.Problems((JsonObject)JsonNode.Parse("""{ "conditions": "x", "grantControls": { "builtInControls": ["mfa"] } }""")!, GraphApi.V1), p => p.Contains("conditions must be an object", StringComparison.Ordinal));
+        Assert.Contains(ConditionalAccessPoliciesRules.Problems(Normalized(Policy("{ \"users\": { \"includeGroups\": [\"" + GroupId + "\"] }, \"applications\": { \"excludeApplications\": [\"All\"] } }")), GraphApi.V1), p => p.Contains("conditions.applications must include", StringComparison.Ordinal));
+        Assert.Contains(ConditionalAccessPoliciesRules.Problems(Normalized(Policy("{ \"users\": { \"excludeUsers\": [\"" + GroupId + "\"] }, \"applications\": { \"includeApplications\": [\"All\"] } }")), GraphApi.V1), p => p.Contains("conditions.users must include", StringComparison.Ordinal));
+        Assert.Contains(ConditionalAccessPoliciesRules.Problems(Policy(DefaultConditions), GraphApi.V1), p => p.Contains("conditions.clientAppTypes is required", StringComparison.Ordinal));
+        Assert.Contains(ConditionalAccessPoliciesRules.Problems(Normalized(Policy(DefaultConditions, grant: null)), GraphApi.V1), p => p.Contains("at least one of grantControls or sessionControls", StringComparison.Ordinal));
     }
 
     [Theory]
@@ -267,7 +343,7 @@ public sealed class ConditionalAccessRulesTests
     public void Problems_RefuseIncludeApplications_WithUserActionsOrAuthenticationContexts(string applications, bool refused)
     {
         // Graph 400 1012: 'applications' condition cannot include both 'includeApplications' and 'includeUserActions'/'includeAuthenticationContextClassReferences'.
-        var problems = ConditionalAccessPoliciesRules.Problems(Normalized(Policy("{ \"users\": { \"includeGroups\": [\"" + GroupId + "\"] }, \"applications\": { " + applications + " } }")), GraphApi.V1, false);
+        var problems = ConditionalAccessPoliciesRules.Problems(Normalized(Policy("{ \"users\": { \"includeGroups\": [\"" + GroupId + "\"] }, \"applications\": { " + applications + " } }")), GraphApi.V1);
 
         if (refused)
         {
@@ -282,29 +358,29 @@ public sealed class ConditionalAccessRulesTests
     [Fact]
     public void Problems_ReportGrantControlConflicts_AndTheLockoutPattern()
     {
-        Assert.Contains(ConditionalAccessPoliciesRules.Problems(Normalized(Policy(DefaultConditions, "{ \"builtInControls\": [\"block\", \"mfa\"] }")), GraphApi.V1, false), p => p.Contains("'block' cannot be combined", StringComparison.Ordinal));
-        Assert.Contains(ConditionalAccessPoliciesRules.Problems(Normalized(Policy(DefaultConditions, "{ \"builtInControls\": [\"block\"], \"authenticationStrength\": { \"id\": \"" + StrengthId + "\" } }")), GraphApi.V1, false), p => p.Contains("'block' cannot be combined", StringComparison.Ordinal));
-        Assert.Contains(ConditionalAccessPoliciesRules.Problems(Normalized(Policy(DefaultConditions, "{ \"builtInControls\": [\"block\"], \"termsOfUse\": [\"t\"] }")), GraphApi.V1, false), p => p.Contains("'block' cannot be combined", StringComparison.Ordinal));
-        Assert.Contains(ConditionalAccessPoliciesRules.Problems(Normalized(Policy(DefaultConditions, "{ \"builtInControls\": [\"mfa\"], \"authenticationStrength\": { \"id\": \"" + StrengthId + "\" } }")), GraphApi.V1, false), p => p.Contains("mutually exclusive", StringComparison.Ordinal));
-        Assert.Empty(ConditionalAccessPoliciesRules.Problems(Normalized(Policy(DefaultConditions, "{ \"builtInControls\": [\"block\"] }")), GraphApi.V1, false));
+        Assert.Contains(ConditionalAccessPoliciesRules.Problems(Normalized(Policy(DefaultConditions, "{ \"builtInControls\": [\"block\", \"mfa\"] }")), GraphApi.V1), p => p.Contains("'block' cannot be combined", StringComparison.Ordinal));
+        Assert.Contains(ConditionalAccessPoliciesRules.Problems(Normalized(Policy(DefaultConditions, "{ \"builtInControls\": [\"block\"], \"authenticationStrength\": { \"id\": \"" + StrengthId + "\" } }")), GraphApi.V1), p => p.Contains("'block' cannot be combined", StringComparison.Ordinal));
+        Assert.Contains(ConditionalAccessPoliciesRules.Problems(Normalized(Policy(DefaultConditions, "{ \"builtInControls\": [\"block\"], \"termsOfUse\": [\"t\"] }")), GraphApi.V1), p => p.Contains("'block' cannot be combined", StringComparison.Ordinal));
+        Assert.Contains(ConditionalAccessPoliciesRules.Problems(Normalized(Policy(DefaultConditions, "{ \"builtInControls\": [\"mfa\"], \"authenticationStrength\": { \"id\": \"" + StrengthId + "\" } }")), GraphApi.V1), p => p.Contains("mutually exclusive", StringComparison.Ordinal));
+        Assert.Empty(ConditionalAccessPoliciesRules.Problems(Normalized(Policy(DefaultConditions, "{ \"builtInControls\": [\"block\"] }")), GraphApi.V1));
 
         const string allUsersAllApps = "{ \"users\": { \"includeUsers\": [\"All\"] }, \"applications\": { \"includeApplications\": [\"All\"] } }";
-        Assert.Contains(ConditionalAccessPoliciesRules.Problems(Normalized(Policy(allUsersAllApps, "{ \"builtInControls\": [\"block\"] }")), GraphApi.V1, false), p => p.Contains("lockout risk", StringComparison.Ordinal));
-        Assert.Empty(ConditionalAccessPoliciesRules.Problems(Normalized(Policy("{ \"users\": { \"includeUsers\": [\"All\"], \"excludeGroups\": [\"" + GroupId + "\"] }, \"applications\": { \"includeApplications\": [\"All\"] } }", "{ \"builtInControls\": [\"block\"] }")), GraphApi.V1, false));
-        Assert.Empty(ConditionalAccessPoliciesRules.Problems(Normalized(Policy("{ \"users\": { \"includeUsers\": [\"All\"], \"excludeUsers\": [\"" + GroupId + "\"] }, \"applications\": { \"includeApplications\": [\"All\"] } }", "{ \"builtInControls\": [\"block\"] }")), GraphApi.V1, false));
-        Assert.Empty(ConditionalAccessPoliciesRules.Problems(Normalized(Policy(allUsersAllApps, "{ \"builtInControls\": [\"mfa\"] }")), GraphApi.V1, false));
+        Assert.Contains(ConditionalAccessPoliciesRules.Problems(Normalized(Policy(allUsersAllApps, "{ \"builtInControls\": [\"block\"] }")), GraphApi.V1), p => p.Contains("lockout risk", StringComparison.Ordinal));
+        Assert.Empty(ConditionalAccessPoliciesRules.Problems(Normalized(Policy("{ \"users\": { \"includeUsers\": [\"All\"], \"excludeGroups\": [\"" + GroupId + "\"] }, \"applications\": { \"includeApplications\": [\"All\"] } }", "{ \"builtInControls\": [\"block\"] }")), GraphApi.V1));
+        Assert.Empty(ConditionalAccessPoliciesRules.Problems(Normalized(Policy("{ \"users\": { \"includeUsers\": [\"All\"], \"excludeUsers\": [\"" + GroupId + "\"] }, \"applications\": { \"includeApplications\": [\"All\"] } }", "{ \"builtInControls\": [\"block\"] }")), GraphApi.V1));
+        Assert.Empty(ConditionalAccessPoliciesRules.Problems(Normalized(Policy(allUsersAllApps, "{ \"builtInControls\": [\"mfa\"] }")), GraphApi.V1));
     }
 
     [Fact]
     public void Problems_PreviewOnlyProperties_NeedTheBetaEndpoint()
     {
         var cae = Normalized(Policy(DefaultConditions, session: "{ \"continuousAccessEvaluation\": { \"mode\": \"disabled\" } }"));
-        Assert.Contains(ConditionalAccessPoliciesRules.Problems(cae, GraphApi.V1, false), p => p.Contains("beta endpoint", StringComparison.Ordinal) && p.Contains("sessionControls.continuousAccessEvaluation", StringComparison.Ordinal));
-        Assert.Empty(ConditionalAccessPoliciesRules.Problems(cae, GraphApi.Beta, false));
+        Assert.Contains(ConditionalAccessPoliciesRules.Problems(cae, GraphApi.V1), p => p.Contains("beta endpoint", StringComparison.Ordinal) && p.Contains("sessionControls.continuousAccessEvaluation", StringComparison.Ordinal));
+        Assert.Empty(ConditionalAccessPoliciesRules.Problems(cae, GraphApi.Beta));
 
         var templated = Normalized(Policy(DefaultConditions));
         templated["templateId"] = "t";
-        Assert.Contains(ConditionalAccessPoliciesRules.Problems(templated, GraphApi.V1, false), p => p.Contains("properties.templateId", StringComparison.Ordinal));
+        Assert.Contains(ConditionalAccessPoliciesRules.Problems(templated, GraphApi.V1), p => p.Contains("properties.templateId", StringComparison.Ordinal));
         Assert.Equal(["templateId", "partialEnablementStrategy", "sessionControls.continuousAccessEvaluation"], ConditionalAccessPoliciesRules.PreviewOnlyProperties);
     }
 

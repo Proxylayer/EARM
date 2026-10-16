@@ -58,7 +58,9 @@ public enum PropertyChangeType
 /// One property-level difference. <see cref="Path"/> is ARM-style and rooted at the resource
 /// (<c>properties.web.redirectUris</c>); array members are addressed by stable member key or index.
 /// Secret values are never carried: <see cref="IsSecret"/> deltas hold <c>***</c> on both sides. Deploy-time-unknown
-/// desired values are flagged <see cref="IsUnknown"/> and rendered as <c>(deploy-time)</c>.
+/// desired values are flagged <see cref="IsUnknown"/> and rendered as <c>(deploy-time)</c>. <see cref="Note"/> is a short
+/// provider explanation shown next to the delta (for example why a declared value is held back); a <see cref="PropertyChangeType.NoEffect"/>
+/// delta that carries one is rendered even without <c>--verbose</c>.
 /// </summary>
 public sealed record PropertyDelta(
     JsonPath Path,
@@ -67,7 +69,8 @@ public sealed record PropertyDelta(
     JsonNode? After,
     bool IsUnknown = false,
     bool IsSecret = false,
-    IReadOnlyList<PropertyDelta>? Children = null)
+    IReadOnlyList<PropertyDelta>? Children = null,
+    string? Note = null)
 {
     /// <summary>True when the delta (or any child) requires a write.</summary>
     public bool HasEffect => Kind != PropertyChangeType.NoEffect && (Children is null || Children.Count == 0 || Children.Any(c => c.HasEffect));

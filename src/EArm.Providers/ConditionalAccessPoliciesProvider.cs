@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using EArm.Graph;
 using EArm.Core;
+using EArm.Core.Json;
 using EArm.Core.Types;
 using EArm.Engine;
 using EArm.Engine.Providers;
@@ -29,13 +30,17 @@ namespace EArm.Providers;
 /// <para>
 /// <see cref="Plan"/> normalises the evaluated properties in place (defaults, <c>authenticationStrength</c> reduced to
 /// <c>{ id }</c>; see <see cref="ConditionalAccessPoliciesRules.NormalizeDesired"/>: the top-level <c>state</c> default
-/// applies only to a policy EARM creates, so an existing policy's undeclared <c>state</c> is never written) and refuses (unsupported row)
-/// what Graph would reject or what the plan guards against: <c>state: enabled</c> without <c>--allow-ca-enforce</c>,
-/// an empty applications or users include, no control at all, <c>block</c> combined with another control, <c>mfa</c>
+/// applies only to a policy EARM creates, so an existing policy's undeclared <c>state</c> is never written), holds back a declared
+/// <c>state: enabled</c> without <c>--allow-ca-enforce</c> (<see cref="ConditionalAccessPoliciesRules.HoldBackEnforcement"/>: a new policy
+/// is created report-only, an existing policy keeps its live state; the row carries a <c>ConditionalAccessEnforcementNotAllowed</c> reason,
+/// reported as a warning, and a noted <c>state</c> delta), and refuses (unsupported row) what Graph would reject or what the plan guards
+/// against: an empty applications or users include, no control at all, <c>block</c> combined with another control, <c>mfa</c>
 /// with <c>authenticationStrength</c>, the lockout pattern, and preview-only properties on v1.0. The live object is
 /// normalised on read (<see cref="ConditionalAccessPoliciesRules.NormalizeLive"/>) so read-back noise such as
 /// <c>customAuthenticationFactors: []</c> or <c>platforms: null</c> is not drift. The last <see cref="PlanOptions"/>
-/// seen is kept so a direct <see cref="CreateAsync"/> / <see cref="UpdateAsync"/> applies the same guard.
+/// seen is kept so a direct <see cref="CreateAsync"/> / <see cref="UpdateAsync"/> applies the same rules; both apply the enforce rule once
+/// more to the final request body (the executor plans each resource again against a fresh read, so the rule is judged on the live state
+/// at apply time).
 /// </para>
 /// </summary>
 [EntraProvider(ResourceType)]
@@ -122,17 +127,61 @@ public sealed class ConditionalAccessPoliciesProvider : ProviderBase, IOrphanCan
         }
 
         ConditionalAccessPoliciesRules.NormalizeDesired(properties, isCreate: existing is null);
+        var hold = ConditionalAccessPoliciesRules.HoldBackEnforcement(properties, existing?.Properties, options.AllowCaEnforce, isCreate: existing is null);
         ConditionalAccessPoliciesRules.MarkRemovedControls(properties, existing?.Properties);
-        var problems = ConditionalAccessPoliciesRules.Problems(properties, desired.Api, options.AllowCaEnforce);
+        var problems = ConditionalAccessPoliciesRules.Problems(properties, desired.Api);
         if (problems.Count > 0)
         {
             return Unsupported(desired, existing, $"{desired.Describe()}: {string.Join("; ", problems)}.");
         }
 
         var change = base.Plan(desired, existing is null ? null : ProviderSupport.PruneLiveOnly(Definition, properties, existing), options);
-        return change.Before is not null && existing is not null
-            ? change with { Before = RenderBefore(existing.Properties, properties) }
-            : change;
+        if (change.Before is not null && existing is not null)
+        {
+            change = change with { Before = RenderBefore(existing.Properties, properties) };
+        }
+
+        return hold is null ? change : WithHold(change, hold, existing);
+    }
+
+    /// <summary>
+    /// The row of a policy whose <c>state: enabled</c> was held back: a <see cref="ProviderWarnings.ConditionalAccessEnforcementNotAllowed"/>
+    /// reason (what-if and create report it as a warning) and the note on the <c>state</c> delta. For a create the delta is the report-only
+    /// value that will be sent; for an update it is a <see cref="PropertyChangeType.NoEffect"/> delta (live → declared) that never makes the
+    /// row a write, so a policy whose only difference is the held-back state stays <c>NoChange</c>.
+    /// </summary>
+    private static ResourceChange WithHold(ResourceChange change, EnforcementHold hold, ExistingResource? existing)
+    {
+        var path = JsonPath.Of("properties", hold.Key);
+        var deltas = new List<PropertyDelta>(change.Deltas.Count + 1);
+        bool noted = false;
+        foreach (var delta in change.Deltas)
+        {
+            if (hold.IsCreate && !noted && string.Equals(delta.Path.ToString(), path.ToString(), StringComparison.OrdinalIgnoreCase))
+            {
+                deltas.Add(delta with { Note = hold.Note });
+                noted = true;
+            }
+            else
+            {
+                deltas.Add(delta);
+            }
+        }
+
+        if (!noted)
+        {
+            JsonNode? before = hold.IsCreate ? null : JsonObjects.TryGetIgnoreCase(existing?.Properties, "state", out var live) ? JsonValues.Clone(live) : null;
+            JsonNode after = hold.DeclaredIsSecret ? JsonValue.Create("***") : JsonValue.Create(ConditionalAccessPoliciesRules.EnabledState);
+            deltas.Add(hold.IsCreate
+                ? new PropertyDelta(path, PropertyChangeType.Create, null, JsonValue.Create(ConditionalAccessPoliciesRules.DefaultState), Note: hold.Note)
+                : new PropertyDelta(path, PropertyChangeType.NoEffect, before, after, IsSecret: hold.DeclaredIsSecret, Note: hold.Note));
+        }
+
+        return change with
+        {
+            Deltas = deltas,
+            Reasons = [.. change.Reasons, ProviderWarnings.Format(ProviderWarnings.ConditionalAccessEnforcementNotAllowed, hold.Message)],
+        };
     }
 
     // ---- create ----
@@ -144,17 +193,18 @@ public sealed class ConditionalAccessPoliciesProvider : ProviderBase, IOrphanCan
         var properties = desired.Properties
             ?? throw new InvalidOperationException($"{desired.Describe()}: properties must be evaluated before creating.");
 
-        RequireValid(desired, properties, isCreate: true);
+        var warnings = new List<ProviderWarning>();
+        RequireValid(desired, properties, null, isCreate: true, warnings);
         var body = BuildCreateBody(desired);
         ConditionalAccessPoliciesRules.FinishCreateBody(body, properties);
-        RequireValidBody(desired, body, isCreate: true);
+        RequireValidBody(desired, body, null, isCreate: true, warnings);
 
         var request = new GraphRequest(CollectionPath, desired.Api, hint: desired.RetryHint).WithPrefer(IncludeUnknownEnumMembers);
         var response = await graph.PostAsync(request, body, cancellationToken).ConfigureAwait(false);
         var live = response.Body as JsonObject
             ?? throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{desired.Describe()}: Graph returned no object for the created policy.", desired.Id);
 
-        return new AppliedResource(desired.Id, RequireId(live, desired), live, ResolveKey(desired));
+        return new AppliedResource(desired.Id, RequireId(live, desired), live, ResolveKey(desired)) { Warnings = warnings };
     }
 
     // ---- update ----
@@ -168,12 +218,13 @@ public sealed class ConditionalAccessPoliciesProvider : ProviderBase, IOrphanCan
         var properties = desired.Properties
             ?? throw new InvalidOperationException($"{desired.Describe()}: properties must be evaluated before updating.");
 
+        var warnings = new List<ProviderWarning>();
         ConditionalAccessPoliciesRules.MarkRemovedControls(properties, existing.Properties);
-        RequireValid(desired, properties, isCreate: false);
+        RequireValid(desired, properties, existing.Properties, isCreate: false, warnings);
         existing = ProviderSupport.PruneLiveOnly(Definition, properties, existing);
         var body = BuildPatchBody(desired, existing, change);
         ConditionalAccessPoliciesRules.FinishPatchBody(body, existing.Properties);
-        RequireValidBody(desired, body, isCreate: false);
+        RequireValidBody(desired, body, existing.Properties, isCreate: false, warnings);
 
         string path = EntityPath(existing.GraphId);
         JsonObject live;
@@ -188,7 +239,7 @@ public sealed class ConditionalAccessPoliciesProvider : ProviderBase, IOrphanCan
                 ?? throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{desired.Describe()}: the policy ({existing.GraphId}) vanished after the update.", desired.Id);
         }
 
-        return new AppliedResource(desired.Id, existing.GraphId, live, ResolveKey(desired));
+        return new AppliedResource(desired.Id, existing.GraphId, live, ResolveKey(desired)) { Warnings = warnings };
     }
 
     // ---- delete ----
@@ -249,24 +300,40 @@ public sealed class ConditionalAccessPoliciesProvider : ProviderBase, IOrphanCan
             ?? throw new InvalidOperationException($"The catalog does not define '{ResourceType}'.");
     }
 
-    /// <summary>The same normalisation and checks as <see cref="Plan"/>, for callers that skip planning; a problem is a hard error before any write.</summary>
-    private void RequireValid(ResourceInstance desired, JsonObject properties, bool isCreate)
+    /// <summary>
+    /// The same normalisation, enforce rule and checks as <see cref="Plan"/>, for callers that skip planning; a problem is a hard error before any
+    /// write. A <c>state: enabled</c> held back here (Plan did not already) is reported in <paramref name="warnings"/>.
+    /// </summary>
+    private void RequireValid(ResourceInstance desired, JsonObject properties, JsonObject? live, bool isCreate, List<ProviderWarning> warnings)
     {
         ConditionalAccessPoliciesRules.NormalizeDesired(properties, isCreate);
-        var problems = ConditionalAccessPoliciesRules.Problems(properties, desired.Api, _planOptions.AllowCaEnforce);
+        AddHoldWarning(ConditionalAccessPoliciesRules.HoldBackEnforcement(properties, live, _planOptions.AllowCaEnforce, isCreate), warnings);
+        var problems = ConditionalAccessPoliciesRules.Problems(properties, desired.Api);
         if (problems.Count > 0)
         {
             throw new ProviderException(PolicyRejected, $"{desired.Describe()}: {string.Join("; ", problems)}.", desired.Id);
         }
     }
 
-    /// <summary>Defence in depth (I-01): the guard runs once more on the FINAL request body, which carries the revealed secret values.</summary>
-    private void RequireValidBody(ResourceInstance desired, JsonObject body, bool isCreate)
+    /// <summary>
+    /// Defence in depth (I-01): the enforce rule and the create checks run once more on the FINAL request body, which carries the revealed
+    /// secret values; an enforcing <c>state</c> still in it without the flag becomes report-only (create) or is dropped (PATCH).
+    /// </summary>
+    private void RequireValidBody(ResourceInstance desired, JsonObject body, JsonObject? live, bool isCreate, List<ProviderWarning> warnings)
     {
-        var problems = ConditionalAccessPoliciesRules.FinalBodyProblems(body, desired.Api, _planOptions.AllowCaEnforce, isCreate);
+        AddHoldWarning(ConditionalAccessPoliciesRules.HoldBackEnforcement(body, live, _planOptions.AllowCaEnforce, isCreate), warnings);
+        var problems = ConditionalAccessPoliciesRules.FinalBodyProblems(body, desired.Api, isCreate);
         if (problems.Count > 0)
         {
             throw new ProviderException(PolicyRejected, $"{desired.Describe()}: {string.Join("; ", problems)}.", desired.Id);
+        }
+    }
+
+    private static void AddHoldWarning(EnforcementHold? hold, List<ProviderWarning> warnings)
+    {
+        if (hold is not null && warnings.Count == 0)
+        {
+            warnings.Add(new ProviderWarning(ProviderWarnings.ConditionalAccessEnforcementNotAllowed, hold.Message));
         }
     }
 

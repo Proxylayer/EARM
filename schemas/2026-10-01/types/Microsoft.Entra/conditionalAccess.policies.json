@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/conditionalAccess.policies.json",
   "title": "Microsoft.Entra/conditionalAccess/policies",
-  "description": "A conditional access policy. The resource name is the displayName; it is looked up by displayName on every run (more than one match is an error). state: enabled requires --allow-ca-enforce at deployment time. Reference users and groups by object id, applications by application (client) id, locations by named location id, roles by role template id.",
+  "description": "A conditional access policy. The resource name is the displayName; it is looked up by displayName on every run (more than one match is an error). state: enabled is applied only with --allow-ca-enforce; without it a new policy is created report-only and an existing policy keeps its live state. Reference users and groups by object id, applications by application (client) id, locations by named location id, roles by role template id.",
   "type": "object",
   "properties": {
     "displayName": {
@@ -10,7 +10,7 @@
       "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
     },
     "state": {
-      "description": "Defaults to enabledForReportingButNotEnforced. enabled needs --allow-ca-enforce.",
+      "description": "Defaults to enabledForReportingButNotEnforced on create. enabled is applied only with --allow-ca-enforce (otherwise report-only on create, live state kept on update).",
       "anyOf": [ { "type": "string", "enum": [ "enabled", "disabled", "enabledForReportingButNotEnforced" ] }, { "$ref": "#/$defs/expression" } ]
     },
     "conditions": {
