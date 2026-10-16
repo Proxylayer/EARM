@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
@@ -17,6 +18,8 @@ namespace EArm.Integration.Tests;
 internal sealed class TenantCleanup
 {
     private static readonly string[] NameProperties = ["displayName", "userPrincipalName", "uniqueName"];
+    private static readonly TimeSpan TransientBadRequestWindow = TimeSpan.FromSeconds(60);
+    private static readonly TimeSpan TransientBadRequestInterval = TimeSpan.FromSeconds(5);
 
     private readonly IGraphClient _graph;
     private readonly string _prefix;
@@ -72,7 +75,7 @@ internal sealed class TenantCleanup
                 continue;
             }
 
-            await DeleteOwnedAsync("authentication strength", "/policies/authenticationStrengthPolicies", strength, cancellationToken);
+            await DeleteOwnedAsync("authentication strength", "/policies/authenticationStrengthPolicies", strength, cancellationToken, retryTransientBadRequest: true);
         }
 
         foreach (var context in await ListOwnedAsync("authentication context", "/identity/conditionalAccess/authenticationContextClassReferences", null, cancellationToken))
@@ -88,12 +91,14 @@ internal sealed class TenantCleanup
                 Log($"could not mark context {context.Text("id")} unavailable: {ex.Code}");
             }
 
-            await DeleteOwnedAsync("authentication context", path, context, cancellationToken);
+            await DeleteOwnedAsync("authentication context", path, context, cancellationToken, retryTransientBadRequest: true);
         }
 
         foreach (var location in await ListOwnedAsync("named location", "/identity/conditionalAccess/namedLocations", null, cancellationToken))
         {
-            await DeleteOwnedAsync("named location", "/identity/conditionalAccess/namedLocations", location, cancellationToken);
+            string path = "/identity/conditionalAccess/namedLocations";
+            await UnmarkTrustedAsync(path, location, cancellationToken);
+            await DeleteOwnedAsync("named location", path, location, cancellationToken, retryTransientBadRequest: true);
         }
 
         // Directory roles: assignments of owned principals and of owned custom roles go before the roles and principals.
@@ -319,7 +324,37 @@ internal sealed class TenantCleanup
         }
     }
 
-    private async Task DeleteOwnedAsync(string label, string collectionPath, JsonObject obj, CancellationToken cancellationToken)
+    /// <summary>
+    /// Graph refuses to delete a named location that is marked trusted (400, code 1177), so a trusted IP location is
+    /// unmarked first. The PATCH carries the live <c>@odata.type</c>; country locations have no <c>isTrusted</c>.
+    /// </summary>
+    private async Task UnmarkTrustedAsync(string collectionPath, JsonObject location, CancellationToken cancellationToken)
+    {
+        if (!IsOwned(location) || location["isTrusted"] is not JsonValue trusted || !trusted.TryGetValue<bool>(out bool isTrusted) || !isTrusted)
+        {
+            return;
+        }
+
+        string? odataType = location.Text("@odata.type");
+        if (odataType is null)
+        {
+            Log($"named location {Describe(location)} is trusted but has no @odata.type; the delete is attempted anyway");
+            return;
+        }
+
+        try
+        {
+            var body = new JsonObject { ["@odata.type"] = odataType, ["isTrusted"] = false };
+            await _graph.PatchAsync(new GraphRequest(collectionPath + "/" + location.RequireId()), body, cancellationToken);
+            Log($"unmarked trusted named location {Describe(location)} ({location.RequireId()})");
+        }
+        catch (GraphException ex)
+        {
+            Log($"could not unmark trusted named location {location.Text("id")}: {ex.Code}: {ex.GraphMessage}");
+        }
+    }
+
+    private async Task DeleteOwnedAsync(string label, string collectionPath, JsonObject obj, CancellationToken cancellationToken, bool retryTransientBadRequest = false)
     {
         string name = Describe(obj);
         if (!IsOwned(obj))
@@ -329,19 +364,40 @@ internal sealed class TenantCleanup
         }
 
         string id = obj.RequireId();
-        try
+
+        // Right after the referencing CA policy is deleted, Graph can still answer 400 ("in use") for a while.
+        var deadline = DateTime.UtcNow + TransientBadRequestWindow;
+        while (true)
         {
-            await _graph.DeleteAsync(new GraphRequest(collectionPath.TrimEnd('/') + "/" + id), cancellationToken);
-            Log($"deleted {label} {name} ({id})");
+            try
+            {
+                await _graph.DeleteAsync(new GraphRequest(collectionPath.TrimEnd('/') + "/" + id), cancellationToken);
+                Log($"deleted {label} {name} ({id})");
+                return;
+            }
+            catch (GraphException ex) when (ex.IsNotFound)
+            {
+                Log($"{label} {name} ({id}) was already gone");
+                return;
+            }
+            catch (GraphException ex) when (retryTransientBadRequest && ex.Status == HttpStatusCode.BadRequest && !IsTrustedLocationError(ex) && DateTime.UtcNow < deadline)
+            {
+                Log($"{label} {name} ({id}): delete answered 400 ({ex.Code}); retrying");
+                await Task.Delay(TransientBadRequestInterval, cancellationToken);
+            }
+            catch (GraphException ex)
+            {
+                Leftover($"{label} {name} ({id}) could not be deleted: {ex.Code}: {ex.GraphMessage}");
+                return;
+            }
         }
-        catch (GraphException ex) when (ex.IsNotFound)
-        {
-            Log($"{label} {name} ({id}) was already gone");
-        }
-        catch (GraphException ex)
-        {
-            Leftover($"{label} {name} ({id}) could not be deleted: {ex.Code}: {ex.GraphMessage}");
-        }
+    }
+
+    /// <summary>Code 1177: the location is still trusted. Waiting does not help; unmarking does (<see cref="UnmarkTrustedAsync"/>).</summary>
+    private static bool IsTrustedLocationError(GraphException ex)
+    {
+        return string.Equals(ex.Code, "1177", StringComparison.Ordinal)
+            || ex.GraphMessage.Contains("Trusted location", StringComparison.OrdinalIgnoreCase);
     }
 
     private async Task PurgeSoftDeletedAsync(CancellationToken cancellationToken)

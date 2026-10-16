@@ -3,6 +3,7 @@ using System.IO;
 using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
+using EArm.Core.Types;
 using EArm.Graph;
 using EArm.Engine;
 using Xunit;
@@ -45,12 +46,16 @@ public sealed class ApplicationScenarioTests : IntegrationTestBase
         Assert.Contains("api://" + appId, application.Strings("identifierUris"));
         Assert.Equal(appId, (string?)created.Json["outputs"]?["appId"]?["value"]);
 
-        var servicePrincipal = await FindOneAsync("/servicePrincipals", "appId", appId, "id", "appId", "displayName", "appRoleAssignmentRequired");
+        var servicePrincipal = await FindOneEventuallyAsync("/servicePrincipals", "appId", appId, found => found is not null, "id", "appId", "displayName", "appRoleAssignmentRequired");
         Assert.NotNull(servicePrincipal);
         Assert.Equal(servicePrincipal.RequireId(), (string?)created.Json["outputs"]?["servicePrincipalId"]?["value"]);
 
         var credentials = await Graph.GetObjectAsync(new GraphRequest("/applications/" + appObjectId).WithSelect("id", "passwordCredentials"), Ct);
-        Assert.Single(credentials!["passwordCredentials"]!.AsArray().OfType<JsonObject>(), c => c.Text("displayName") == "ci-secret");
+        // The provider writes the rotation tag into the displayName ("ci-secret#v1").
+        Assert.Single(
+            credentials!["passwordCredentials"]!.AsArray().OfType<JsonObject>(),
+            c => c.Text("displayName") is { } displayName
+                && PasswordCredentialName.Parse(displayName) is { Base: "ci-secret", Tag: "v1" });
         var federated = await Graph.ListAsync(new GraphRequest($"/applications/{appObjectId}/federatedIdentityCredentials"), Ct);
         Assert.Contains(federated, f => f.Text("name") == "github-main");
 
@@ -86,6 +91,6 @@ public sealed class ApplicationScenarioTests : IntegrationTestBase
         var deleted = await Fixture.Cli.DeleteAllAsync(run, Ct);
         AssertExit(0, deleted, "deployment delete");
         Assert.Null(await ApplicationByNameAsync(appName, "id"));
-        Assert.Null(await FindOneAsync("/servicePrincipals", "appId", appId, "id"));
+        Assert.Null(await FindOneEventuallyAsync("/servicePrincipals", "appId", appId, found => found is null, "id"));
     }
 }

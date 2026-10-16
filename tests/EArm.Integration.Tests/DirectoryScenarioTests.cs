@@ -36,9 +36,9 @@ public sealed class DirectoryScenarioTests : IntegrationTestBase
 
         string u1 = (await UserAsync(Fixture.Upn("u1"), "id"))!.RequireId();
         string u2 = (await UserAsync(Fixture.Upn("u2"), "id"))!.RequireId();
-        string ga = (await GroupByNameAsync(Fixture.Name("ga"), "id"))!.RequireId();
-        string gb = (await GroupByNameAsync(Fixture.Name("gb"), "id"))!.RequireId();
-        string gc = (await GroupByNameAsync(Fixture.Name("gc"), "id"))!.RequireId();
+        string ga = (await FindOneEventuallyAsync("/groups", "displayName", Fixture.Name("ga"), found => found is not null, "id"))!.RequireId();
+        string gb = (await FindOneEventuallyAsync("/groups", "displayName", Fixture.Name("gb"), found => found is not null, "id"))!.RequireId();
+        string gc = (await FindOneEventuallyAsync("/groups", "displayName", Fixture.Name("gc"), found => found is not null, "id"))!.RequireId();
 
         // Target side: ga declares its members and owners.
         Assert.Equal([u1], (await IdsOfAsync($"/groups/{ga}/members")).ToList());
@@ -69,7 +69,7 @@ public sealed class DirectoryScenarioTests : IntegrationTestBase
 
         // deployment delete removes the declared users and groups (edges go with the objects).
         AssertExit(0, await Fixture.Cli.DeleteAllAsync(run, Ct), "deployment delete");
-        Assert.Null(await GroupByNameAsync(Fixture.Name("ga"), "id"));
+        Assert.Null(await FindOneEventuallyAsync("/groups", "displayName", Fixture.Name("ga"), found => found is null, "id"));
         Assert.Null(await UserAsync(Fixture.Upn("u1"), "id"));
     }
 
@@ -134,7 +134,7 @@ public sealed class DirectoryScenarioTests : IntegrationTestBase
         Assert.False(preview.HasDiagnostic("UnresolvedReference"), "The guest reference was not resolved: " + Tail(preview.StandardOutput));
 
         AssertCreated(await Fixture.Cli.CreateAsync(run, Ct), "create");
-        var group = await GroupByNameAsync(Fixture.Name("guests"), "id");
+        var group = await FindOneEventuallyAsync("/groups", "displayName", Fixture.Name("guests"), found => found is not null, "id");
         Assert.Contains(guest.RequireId(), await IdsOfAsync($"/groups/{group!.RequireId()}/members"));
         AssertNoChanges(await Fixture.Cli.WhatIfAsync(run, Ct, "--exit-code-on-changes"), "what-if after create");
     }

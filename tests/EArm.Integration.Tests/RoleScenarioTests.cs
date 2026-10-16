@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json.Nodes;
@@ -66,9 +67,9 @@ public sealed class RoleScenarioTests : IntegrationTestBase
 
         // deployment delete: assignments go before the role, the unit and the group.
         AssertExit(0, await Fixture.Cli.DeleteAllAsync(run, Ct), "deployment delete");
-        Assert.Null(await FindOneAsync(RoleDefinitions, "displayName", Fixture.Name("role")));
-        Assert.Null(await FindOneAsync(AdministrativeUnits, "displayName", Fixture.Name("au")));
-        Assert.Null(await GroupByNameAsync(Fixture.Name("rgrp"), "id"));
+        Assert.Null(await FindOneEventuallyAsync(RoleDefinitions, "displayName", Fixture.Name("role"), found => found is null));
+        Assert.Null(await FindOneEventuallyAsync(AdministrativeUnits, "displayName", Fixture.Name("au"), found => found is null));
+        Assert.Null(await FindOneEventuallyAsync("/groups", "displayName", Fixture.Name("rgrp"), found => found is null, "id"));
     }
 
     [Fact]
@@ -105,8 +106,24 @@ public sealed class RoleScenarioTests : IntegrationTestBase
         Assert.Equal(["User.Read"], (repaired.Text("scope") ?? string.Empty).Split(' ', StringSplitOptions.RemoveEmptyEntries));
 
         AssertExit(0, await Fixture.Cli.DeleteAllAsync(run, Ct), "deployment delete");
-        Assert.Empty(await Graph.ListAsync(new GraphRequest("/oauth2PermissionGrants").WithFilter($"clientId eq '{servicePrincipalId}'"), Ct));
-        Assert.Null(await Graph.GetObjectAsync(new GraphRequest("/servicePrincipals/" + servicePrincipalId), Ct));
+        Assert.Null(await EventuallyAsync(() => Graph.GetObjectAsync(new GraphRequest("/servicePrincipals/" + servicePrincipalId), Ct), sp => sp is null));
+        Assert.Empty(await GrantsOfClientAsync(servicePrincipalId));
+    }
+
+    /// <summary>
+    /// The delegated grants of a client service principal. Once the client is deleted Graph answers the
+    /// <c>clientId eq</c> filter with 404 <c>Request_ResourceNotFound</c> instead of an empty list; that means no grants.
+    /// </summary>
+    private async Task<IReadOnlyList<JsonObject>> GrantsOfClientAsync(string clientId)
+    {
+        try
+        {
+            return await Graph.ListAsync(new GraphRequest("/oauth2PermissionGrants").WithFilter($"clientId eq '{clientId}'"), Ct);
+        }
+        catch (GraphException ex) when (ex.IsNotFound)
+        {
+            return [];
+        }
     }
 
     [Fact]
@@ -147,10 +164,10 @@ public sealed class RoleScenarioTests : IntegrationTestBase
 
         Assert.Null(await ApplicationByNameAsync(Fixture.Name("api"), "id"));
         Assert.Null(await UserAsync(Fixture.Upn("bg"), "id"));
-        Assert.Null(await GroupByNameAsync(Fixture.Name("admins"), "id"));
-        Assert.Null(await FindOneAsync(AdministrativeUnits, "displayName", Fixture.Name("orders-au")));
-        Assert.Null(await FindOneAsync(RoleDefinitions, "displayName", Fixture.Name("support")));
-        Assert.Null(await FindOneAsync("/identity/conditionalAccess/policies", "displayName", Fixture.Name("ca-admins-mfa")));
+        Assert.Null(await FindOneEventuallyAsync("/groups", "displayName", Fixture.Name("admins"), found => found is null, "id"));
+        Assert.Null(await FindOneEventuallyAsync(AdministrativeUnits, "displayName", Fixture.Name("orders-au"), found => found is null));
+        Assert.Null(await FindOneEventuallyAsync(RoleDefinitions, "displayName", Fixture.Name("support"), found => found is null));
+        Assert.Null(await FindOneEventuallyAsync("/identity/conditionalAccess/policies", "displayName", Fixture.Name("ca-admins-mfa"), found => found is null));
     }
 
     private async Task<System.Collections.Generic.List<(string Id, string Role, string Scope)>> ListAssignmentsAsync(string principalId)

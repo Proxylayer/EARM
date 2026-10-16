@@ -55,7 +55,15 @@ public abstract class IntegrationTestBase
 
     internal static void AssertExit(int expected, CliResult result, string step)
     {
-        Assert.True(result.ExitCode == expected, $"{step}: expected exit code {expected} but got {result.ExitCode}.{Environment.NewLine}{Tail(result.Combined)}");
+        if (result.ExitCode == expected)
+        {
+            return;
+        }
+
+        // The failing operations first: the output tail alone cuts off the head of the document, where they are.
+        string? failures = result.DescribeFailures();
+        string detail = failures is null ? string.Empty : $"Failed operations:{Environment.NewLine}{failures}{Environment.NewLine}";
+        Assert.Fail($"{step}: expected exit code {expected} but got {result.ExitCode}.{Environment.NewLine}{detail}{Tail(result.Combined)}");
     }
 
     /// <summary>Exit 0, status Succeeded and no failed or skipped operation.</summary>
@@ -64,7 +72,7 @@ public abstract class IntegrationTestBase
         AssertExit(0, result, step);
         Assert.True(
             string.Equals((string?)result.Json["status"], "Succeeded", StringComparison.Ordinal) && result.Operations.All(o => (string?)o["status"] is "Succeeded" or "Ignored" or "Detached"),
-            $"{step}: the deployment did not succeed: {result.DescribeOperations()}{Environment.NewLine}{Tail(result.Combined)}");
+            $"{step}: the deployment did not succeed.{Environment.NewLine}Failed operations:{Environment.NewLine}{result.DescribeFailures() ?? "(none reported)"}{Environment.NewLine}All operations: {result.DescribeOperations()}{Environment.NewLine}{Tail(result.Combined)}");
     }
 
     /// <summary>Exit 0 (no changes) and every row NoChange or Ignore, with no edge to add or remove.</summary>
@@ -131,6 +139,15 @@ public abstract class IntegrationTestBase
         var matches = await Graph.ListAsync(request, Ct);
         Assert.True(matches.Count <= 1, $"{collectionPath}: {matches.Count} objects have {property} '{value}'; expected at most one.");
         return matches.FirstOrDefault();
+    }
+
+    /// <summary>
+    /// <see cref="FindOneAsync"/> re-read until <paramref name="done"/> accepts the result: the name-keyed list endpoints
+    /// can omit a just-created object (or still return a just-deleted or stale one) for a few seconds.
+    /// </summary>
+    internal Task<JsonObject?> FindOneEventuallyAsync(string collectionPath, string property, string value, Func<JsonObject?, bool> done, params string[] select)
+    {
+        return EventuallyAsync(() => FindOneAsync(collectionPath, property, value, select), done);
     }
 
     /// <summary>Ids of the directory objects in a navigation collection (<c>/groups/{id}/members</c>).</summary>
