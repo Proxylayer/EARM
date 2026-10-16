@@ -17,8 +17,10 @@ namespace EArm.Engine.Planning;
 /// When the first read finds nothing, the key is read <see cref="ExtraReads"/> more times, <see cref="Interval"/> apart; the object counts as
 /// absent only when EVERY read is empty, and the first read that finds it wins. Objects that exist cost nothing extra (the first read finds
 /// them), and so do types keyed by an id or an alternate key (they never flap). The price is latency for a genuinely new object of these types:
-/// <see cref="ExtraReads"/> x <see cref="Interval"/> (12 s by default) per new object, paid by the <c>what-if</c> planner and again by the
-/// <c>create</c> executor right before its POST (so the last read before a create is never older than the wait). Reads in a batch run in
+/// <see cref="ExtraReads"/> x <see cref="Interval"/> (12 s by default) per new object, paid by the <c>create</c> executor right before its POST
+/// (so the last read before a create is never older than the wait), and by the planner only when <see cref="PlannerOptions.ConfirmKeyAbsence"/>
+/// asks for it (<c>deployment delete</c>, which deletes what the plan finds). <c>what-if</c> and the planning pass of <c>create</c> plan on the
+/// first read: a false "absent" there only shows a create the executor's own check then turns into an adoption. Reads in a batch run in
 /// parallel, so the cost is per batch, not per object.
 /// </para>
 /// </summary>

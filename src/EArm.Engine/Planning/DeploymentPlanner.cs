@@ -32,6 +32,7 @@ public sealed class DeploymentPlanner
     private readonly IGraphClient _graph;
     private readonly PlannerOptions _options;
     private readonly ILogger _logger;
+    private readonly KeyAbsenceCheck _keyAbsenceCheck;
 
     public DeploymentPlanner(ProviderRegistry registry, IGraphClient graph, PlannerOptions options, ILogger<DeploymentPlanner> logger)
     {
@@ -43,6 +44,8 @@ public sealed class DeploymentPlanner
         _graph = graph;
         _options = options;
         _logger = logger;
+        var check = options.KeyAbsenceCheck ?? KeyAbsenceCheck.Default;
+        _keyAbsenceCheck = options.ConfirmKeyAbsence ? check : check with { ExtraReads = 0 };
     }
 
     /// <summary>
@@ -374,8 +377,9 @@ public sealed class DeploymentPlanner
         }
 
         // Identity is resolved live, by key, on every run (a renamed object is a new one). A key read that can miss an existing object
-        // (KeyReadLagsCreate) is repeated before "nothing found" is planned as a create (KeyAbsenceCheck), so what-if and create agree.
-        var existing = await (_options.KeyAbsenceCheck ?? KeyAbsenceCheck.Default)
+        // (KeyReadLagsCreate) is repeated before "nothing found" is planned as a create (KeyAbsenceCheck), unless ConfirmKeyAbsence is off (what-if and the
+        // planning pass of create: the executor repeats the full check right before every POST, so a false "absent" here never becomes a duplicate).
+        var existing = await _keyAbsenceCheck
             .ReadAsync(provider, key, ct => WithRetryAsync(c => provider.ReadAsync(key, _graph, c), RetryHint.Default, ct), _logger, cancellationToken)
             .ConfigureAwait(false);
         var warnings = new List<Diagnostic>();

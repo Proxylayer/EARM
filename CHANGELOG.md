@@ -162,6 +162,11 @@ transport to the built-in Microsoft Graph HTTP client.
   `justification` of PIM schedule requests. Effect on existing templates: what-if no longer shows changes for these
   undeclared properties; templates that relied on EARM resetting an undeclared property to its default must now declare
   it.
+- `what-if` and the planning pass of `create` no longer re-read a display-name-keyed object (or a PIM schedule request)
+  that the first key read did not find: a new object of these types no longer costs 3 extra reads and 12 s of waiting
+  per batch in `what-if`. The executor of `create` still confirms the absence with every extra read right before each
+  `POST`, so an object a flapping list omitted is adopted, never created twice; `deployment delete` keeps the
+  confirmation in its planner, because it deletes what that plan finds.
 
 ### Removed
 

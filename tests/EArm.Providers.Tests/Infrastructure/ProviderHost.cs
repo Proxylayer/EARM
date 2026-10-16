@@ -76,6 +76,9 @@ internal sealed class ProviderHost
     /// <summary>The planner's and the executor's <see cref="KeyAbsenceCheck"/>, on <see cref="AbsenceDelays"/> (no real waiting).</summary>
     public KeyAbsenceCheck AbsenceCheck { get; set; }
 
+    /// <summary><c>PlannerOptions.ConfirmKeyAbsence</c>: true (default, as <c>deployment delete</c>) confirms an empty key read in the planner; false plans on the first read, as <c>what-if</c> and <c>create</c> do.</summary>
+    public bool ConfirmKeyAbsence { get; set; } = true;
+
     public RetryPolicy Retry { get; }
 
     public EdgeKindRegistry EdgeKinds { get; }
@@ -167,6 +170,7 @@ internal sealed class ProviderHost
             SignedInPrincipalId = SignedInPrincipalId,
             AppOnlyToken = AppOnlyToken,
             KeyAbsenceCheck = AbsenceCheck,
+            ConfirmKeyAbsence = ConfirmKeyAbsence,
         };
     }
 

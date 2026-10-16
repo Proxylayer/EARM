@@ -120,6 +120,83 @@ public sealed class KeyAbsenceCheckTests
         Assert.Equal(ChangeType.Create, run.Change("Contoso offices").Type);
     }
 
+    // ---- planning without the confirmation (what-if and the planning pass of create) ----
+
+    [Fact]
+    public async Task WhatIf_WithoutConfirmation_PlansANewObjectOnTheFirstRead_WithNoExtraRead()
+    {
+        var host = new ProviderHost { ConfirmKeyAbsence = false };
+
+        var run = await host.WhatIfAsync(host.Resources(IpLocation()));
+
+        Assert.Equal(ChangeType.Create, run.Change("Contoso offices").Type);
+        Assert.Equal(1, ListReads(run));
+        Assert.Equal(0, host.AbsenceDelays.Count);
+        Assert.False(host.Logs.Contains("absent after"), string.Join("\n", host.Logs.Lines));
+    }
+
+    [Fact]
+    public async Task WhatIfThenCreate_ANewObject_IsPostedOnlyAfterTheExecutorsFullCheck()
+    {
+        var host = new ProviderHost { ConfirmKeyAbsence = false };
+
+        var run = await WhatIfThenCreateAsync(host, IpLocation());
+
+        Check.Succeeded(run);
+        var post = Assert.Single(run.Writes);
+        Assert.Equal("POST", post.Method);
+
+        // The planner's one read, then the executor's read and its extra reads, all before the POST.
+        int postIndex = run.Requests.ToList().IndexOf(post);
+        Assert.Equal(1 + 1 + Extra, run.Requests.Take(postIndex).Count(r => r.Method == "GET" && r.Path == LocPath));
+        Assert.Equal(Extra, host.AbsenceDelays.Count);
+    }
+
+    [Fact]
+    public async Task WhatIfThenCreate_AnExistingObjectBothFirstReadsOmit_IsAdoptedByTheExecutor_NotCreatedAgain()
+    {
+        var host = await HostWithExistingLocationAsync();
+        host.ConfirmKeyAbsence = false;
+        int delaysBefore = host.AbsenceDelays.Count;
+
+        // The planner's only read and the executor's first read miss the object; the executor's first extra read finds it.
+        host.Fake.FlapLists(LocPath, false, false);
+
+        var run = await WhatIfThenCreateAsync(host, IpLocation());
+
+        Assert.Equal(ChangeType.Create, run.Plan.Changes.Single(c => c.Id.Id.Contains("Contoso offices", StringComparison.Ordinal)).Type);
+        Check.Succeeded(run);
+        Assert.Equal(ChangeType.NoChange, run.Executed.Operations.Single().ChangeType);
+        Check.NoWrites(run);
+        Assert.Single(host.Directory.Objects(LocPath));
+        Assert.Equal(1, host.AbsenceDelays.Count - delaysBefore);
+    }
+
+    /// <summary>The CLI's <c>create</c> without <c>-y</c>: a what-if plan (the confirmation pass), then the executor on that plan.</summary>
+    private static async Task<Run> WhatIfThenCreateAsync(ProviderHost host, string resources)
+    {
+        int before = host.Fake.Requests.Count;
+        var plan = await host.Planner().PlanAsync(host.Resources(resources), DeploymentMode.Incremental, PlanMode.WhatIf, ProviderHost.Ct);
+        var result = await host.Executor().ExecuteAsync(plan, new ExecuteOptions { Parallelism = 1 }, ProviderHost.Ct);
+        return new Run(plan, result, host.RequestsSince(before));
+    }
+
+    // ---- delete (planner, confirmation kept) ----
+
+    [Fact]
+    public async Task Delete_AnExistingObjectTheListOmitsOnce_IsStillFoundAndDeleted()
+    {
+        var host = await HostWithExistingLocationAsync();
+        Assert.True(host.ConfirmKeyAbsence);
+        int delaysBefore = host.AbsenceDelays.Count;
+        host.Fake.FlapLists(LocPath, false);
+
+        await host.DeleteDeclaredAsync(host.Resources(IpLocation()));
+
+        Assert.Empty(host.Directory.Objects(LocPath));
+        Assert.Equal(1, host.AbsenceDelays.Count - delaysBefore);
+    }
+
     // ---- create (executor) ----
 
     [Fact]

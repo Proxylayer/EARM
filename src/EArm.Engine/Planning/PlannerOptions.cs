@@ -48,6 +48,14 @@ public sealed record PlannerOptions
     /// </summary>
     public KeyAbsenceCheck? KeyAbsenceCheck { get; init; }
 
+    /// <summary>
+    /// True (the default) confirms an empty key read with the extra reads of <see cref="KeyAbsenceCheck"/> before a create is planned; false plans on
+    /// the first read (no extra reads, no waiting). <c>deployment delete</c> keeps the confirmation: it deletes what the plan finds. <c>what-if</c> and the
+    /// planning pass of <c>create</c> turn it off: the executor repeats the full check right before every POST (<see cref="Execution.DeploymentExecutor"/>), so a
+    /// false "absent" here only shows a create in the preview, never makes a duplicate.
+    /// </summary>
+    public bool ConfirmKeyAbsence { get; init; } = true;
+
     /// <summary>The edge-kind handlers of the edge pass; part A by default, part B kinds plug in here.</summary>
     public EdgeKindRegistry? EdgeKinds { get; init; }
 

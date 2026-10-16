@@ -140,15 +140,20 @@ load ──► validate ──► expand ──► graph ──► [per batch: r
   "not yet"; the reads are not cancellable, and a Ctrl+C ends the wait with the warning. This is one executor step rather than code in each provider:
   the providers already expose the key read, the wait reuses the executor's replication schedule, and the warning is reported the same way for every type.
 - **Absence is confirmed before a create is planned.** Because the same lists flap, an empty key read of a `KeyReadLagsCreate` type is not proof that the
-  object does not exist: `what-if` would show a create for an object that exists, and `create` would `POST` a duplicate. When the key read finds nothing,
-  the planner (what-if) and the executor (create, right before the `POST`) read the key `KeyAbsenceCheck.ExtraReads` more times (3, `Interval` 4 s apart,
-  on the run's delay provider: tests do not sleep); a create is planned only when **every** read is empty, and the first read that finds the object wins
-  (it is adopted as existing: `NoChange` or `Modify`, never created again). The executor's last extra read is the final look before the `POST`, so no
-  separate pre-`POST` read is needed. Cost: objects that exist and types keyed by an id or an alternate key pay nothing; a genuinely new object of these
-  types costs 3 more reads and 12 s of waiting in `what-if`, and the same again in `create` (reads of one batch run in parallel, so the wait is per batch,
-  not per object). This is a probability reduction, not a guarantee: a list that stays empty through all four reads while the object exists still plans
-  a create (Graph has no unique key for these types to refuse the duplicate). `deployment delete` benefits too: it finds the declared objects with the
-  same what-if reads.
+  object does not exist: `create` would `POST` a duplicate. When the key read finds nothing, the executor (create, right before the `POST`) reads the key
+  `KeyAbsenceCheck.ExtraReads` more times (3, `Interval` 4 s apart, on the run's delay provider: tests do not sleep); a create happens only when **every**
+  read is empty, and the first read that finds the object wins (it is adopted as existing: `NoChange` or `Modify`, never created again). The executor's
+  last extra read is the final look before the `POST`, so no separate pre-`POST` read is needed. The planner confirms an absence the same way only when
+  `PlannerOptions.ConfirmKeyAbsence` is on (the engine default), which the CLI does for **`deployment delete`** alone: delete finds the declared objects
+  with the what-if reads and deletes what that plan finds, so it keeps the full check. **`what-if` and the planning pass of `create`** (the confirmation
+  pass without `-y`, or `-c`) plan on the first read: every create the plan shows is applied by the executor, which reads the key again and repeats the
+  full check before its `POST`, so a false "absent" in the plan only shows a `+ Create` that the run then turns into an adoption (with one visible
+  consequence: an object that turns out to need a replacement was not shown as one, so the run refuses it with `RecreateNotConfirmed` unless `-y`; and a
+  Complete-mode what-if can list such an object as an orphan). `create -y` plans no reads at all. Cost: objects that exist and types keyed by an id or an
+  alternate key pay nothing; a genuinely new object of these types costs nothing extra in `what-if`, and 3 more reads and 12 s of waiting in `create`
+  and in the planner of `deployment delete` (reads of one batch run in parallel, so the wait is per batch, not per object). This is a probability
+  reduction, not a guarantee: a list that stays empty through all four reads while the object exists still creates the object again (Graph has no
+  unique key for these types to refuse the duplicate).
 - **Stale property values after an out-of-band change.** Graph is eventually consistent on property values too, and EARM cannot tell a stale
   replica from the current state: a `what-if` or `create` run moments after somebody changed an object outside EARM (in the portal, or by a
   direct Graph call) can still read the previous values for a short time, even after another reader already sees the new ones. Such a run reports

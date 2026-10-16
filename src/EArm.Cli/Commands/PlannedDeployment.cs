@@ -99,7 +99,7 @@ internal sealed class PlannedDeployment : IDisposable
                 return (null, createExit);
             }
 
-            var (exit, preflight, plan) = await PlanCoreAsync(invocation, services!, document, name, catalog, mode, planMode, stdout, stderr, cancellationToken).ConfigureAwait(false);
+            var (exit, preflight, plan) = await PlanCoreAsync(invocation, services!, document, name, catalog, verb, mode, planMode, stdout, stderr, cancellationToken).ConfigureAwait(false);
             if (exit is { } failed)
             {
                 return (null, failed);
@@ -129,6 +129,7 @@ internal sealed class PlannedDeployment : IDisposable
         TemplateDocument document,
         string name,
         ResourceTypeCatalog catalog,
+        RunVerb verb,
         DeploymentMode mode,
         PlanMode planMode,
         TextWriter stdout,
@@ -182,8 +183,11 @@ internal sealed class PlannedDeployment : IDisposable
         }
 
         // 5. Plan (identity by live key). tenant() and environment() come from the preflight; an unreadable organization keeps tenant() unknown.
+        //    Only delete confirms an empty key read with extra reads: it deletes what this plan finds. what-if and create plan on the first read; the
+        //    executor of create repeats the full check right before every POST, so a create planned on a false "absent" is adopted, never duplicated.
         var planner = services.CreatePlanner(new PlannerOptions
         {
+            ConfirmKeyAbsence = verb == RunVerb.Delete,
             DeploymentName = name,
             TenantId = preflight.TenantId,
             Tenant = DeploymentEnvironment.TenantFromOrganization(preflight.Organization, preflight.TenantId),
