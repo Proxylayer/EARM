@@ -14,7 +14,8 @@ namespace EArm.TestSupport;
 /// <item><c>GET /policies/roleManagementPolicyAssignments?$filter=scopeId eq '…' and scopeType eq '…' [and roleDefinitionId eq '…']</c> (the scope filter is
 /// required, as Graph says), with <c>$expand=policy($expand=rules)</c>. A directory role (scopeType DirectoryRole or Directory, scopeId '/') has a policy
 /// for every role id except <see cref="RolesWithoutPolicy"/>; a group (scopeType Group) has a member and an owner policy once it exists, and before PIM for
-/// Groups onboards it only when <see cref="PoliciesBeforeOnboarding"/> (the default, as Learn implies: ids change on onboarding).</item>
+/// Groups onboards it only when <see cref="PoliciesBeforeOnboarding"/> (the default, as Learn implies: ids change on onboarding); otherwise the list answers
+/// <c>404 ResourceNotFound</c>, as a real tenant does.</item>
 /// <item><c>GET /policies/roleManagementPolicies/{id}</c> (with <c>$expand=rules</c>).</item>
 /// <item><c>PATCH /policies/roleManagementPolicies/{id}/rules/{ruleId}</c>: the body must carry the rule's <c>@odata.type</c> (400 otherwise); an unknown
 /// policy or rule id is a 404; the top-level members of the body replace the rule's. A group policy PATCH onboards the group.</item>
@@ -37,7 +38,10 @@ public sealed class FakeRoleManagementPolicies
     /// <summary>The tenant id the directory role policy ids carry.</summary>
     public string TenantId { get; init; } = "11111111-1111-1111-1111-111111111111";
 
-    /// <summary>Whether a group's policies are listed before PIM for Groups onboards it (Learn implies they are; a tenant probe may say otherwise).</summary>
+    /// <summary>
+    /// Whether a group's policies are listed before PIM for Groups onboards it (Learn implies they are). When false, the assignment list of a group that is
+    /// not onboarded answers <c>404 ResourceNotFound</c>, which is what a real tenant does.
+    /// </summary>
     public bool PoliciesBeforeOnboarding { get; set; } = true;
 
     /// <summary>Role ids Graph lists no policy for.</summary>
@@ -134,14 +138,17 @@ public sealed class FakeRoleManagementPolicies
         else if (kind == "Group" && groupExists(scopeId))
         {
             Reconcile(scopeId, onboardedElsewhere);
-            if (PoliciesBeforeOnboarding || IsOnboarded(scopeId, onboardedElsewhere))
+            if (!PoliciesBeforeOnboarding && !IsOnboarded(scopeId, onboardedElsewhere))
             {
-                foreach (var access in roleDefinitionId is null ? new[] { "member", "owner" } : [roleDefinitionId])
+                // Graph answers the assignment list of a group PIM for Groups has not onboarded with a 404, not an empty collection.
+                throw new GraphException(HttpStatusCode.NotFound, "ResourceNotFound", $"The resource '{scopeId}' could not be found.", hint);
+            }
+
+            foreach (var access in roleDefinitionId is null ? new[] { "member", "owner" } : [roleDefinitionId])
+            {
+                if (access is "member" or "owner")
                 {
-                    if (access is "member" or "owner")
-                    {
-                        found.Add(GetOrCreate(kind, scopeId, access));
-                    }
+                    found.Add(GetOrCreate(kind, scopeId, access));
                 }
             }
         }

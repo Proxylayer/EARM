@@ -40,7 +40,7 @@ public static class PimScheduleRequests
 
     /// <summary>
     /// <c>GET {schedulesPath}?$filter={filter}</c> (every page), keeping the schedules <paramref name="keep"/> accepts that are Direct and active
-    /// (<see cref="IsDirectAndActive"/>).
+    /// (<see cref="IsDirectAndActive"/>). A 404 is an empty list: PIM answers so for a principal or group it has not seen yet.
     /// </summary>
     public static async Task<IReadOnlyList<JsonObject>> ListSchedulesAsync(IGraphClient graph, string schedulesPath, string filter, Func<JsonObject, bool> keep, GraphApi api, RetryHint hint, CancellationToken cancellationToken)
     {
@@ -50,12 +50,21 @@ public static class PimScheduleRequests
         ArgumentNullException.ThrowIfNull(keep);
         var request = new GraphRequest(schedulesPath, api, hint: hint).WithFilter(filter);
         var items = new List<JsonObject>();
-        await foreach (var item in graph.GetAllPagesAsync(request, cancellationToken).ConfigureAwait(false))
+        try
         {
-            if (item is JsonObject schedule && IsDirectAndActive(schedule) && keep(schedule))
+            await foreach (var item in graph.GetAllPagesAsync(request, cancellationToken).ConfigureAwait(false))
             {
-                items.Add(schedule);
+                if (item is JsonObject schedule && IsDirectAndActive(schedule) && keep(schedule))
+                {
+                    items.Add(schedule);
+                }
             }
+        }
+        catch (GraphException ex) when (ex.IsNotFound)
+        {
+            // PIM answers the filtered list of a principal or group it has not seen yet (created moments earlier, not replicated to PIM) with a 404
+            // (ResourceNotFound) instead of an empty collection: no schedule exists for it.
+            return [];
         }
 
         return items;

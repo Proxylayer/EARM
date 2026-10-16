@@ -104,6 +104,20 @@ PIM needs **Microsoft Entra ID P2** or **Microsoft Entra ID Governance** in the 
 `PrivilegedAssignmentSchedule.ReadWrite.AzureADGroup`, `RoleManagementPolicy.ReadWrite.Directory` / `.AzureADGroup`) and Entra roles are in
 [permissions.md](permissions.md#manifest-by-type). They are escalation-capable: read [SECURITY.md](../SECURITY.md#privileged-access-and-authentication-methods).
 
+A signed-in user needs the Entra role **active**, not just eligible: PIM checks the roles the token carries. For PIM for Groups
+(`privilegedAccess/groupEligibilityScheduleRequests`, `groupAssignmentScheduleRequests`) that is a directory-scope **Groups Administrator**, **Identity
+Governance Administrator**, **User Administrator** or **Directory Writers** for a group that is not role-assignable, **Privileged Role Administrator** for a
+role-assignable group, or ownership of the group (Learn: privilegedaccessgroup-post-eligibilityschedulerequests,
+privilegedaccessgroup-list-eligibilityschedulerequests). **Privileged Role Administrator alone does not cover groups that are not role-assignable.** Without
+one of them every read and request under `/identityGovernance/privilegedAccess/group/` answers 403 `UnauthorizedAccessException`, which EARM reports as
+`PimGroupAccessDenied` ([diagnostics.md](diagnostics.md)): activate the role (or assign it), then run `earm auth login` again so the token carries it.
+
+Graph behaviours EARM absorbs: the schedule list of a principal or group PIM has not seen yet (created moments earlier) answers 404 instead of an empty list
+(read as "no schedule"); the policy assignment list of a group PIM for Groups has not onboarded answers 404 `ResourceNotFound` (read as "not listed", see
+`PimPolicyNotAvailable`); an adminUpdate right after a schedule was replaced can answer `RoleAssignmentExists` while it settles (repeated with a bounded
+backoff, about 75 s, then an apply error); a declared `startDateTime` that is already past is left out of an adminUpdate (Graph starts the updated schedule
+now; a past start is never drift).
+
 ## Not covered
 
 PIM for Azure resources (use ARM's own `Microsoft.Authorization` types), PIM alerts and their settings, access reviews, and activating an eligibility

@@ -5,6 +5,7 @@ using System.Reflection;
 using EArm.Core;
 using EArm.Core.Types;
 using EArm.Engine.Edges;
+using EArm.Engine.Execution;
 using EArm.Engine.Providers;
 
 namespace EArm.Providers;
@@ -30,11 +31,27 @@ public static class ProviderDiscovery
         return CreateRegistry(catalog, typeof(ProviderDiscovery).Assembly);
     }
 
+    /// <summary>
+    /// The registry of every provider in this assembly, bound to <paramref name="catalog"/>; the providers that wait for Graph to settle after a write
+    /// (a constructor taking a <see cref="ReplicationWait"/>) wait on <paramref name="settle"/>.
+    /// </summary>
+    public static ProviderRegistry CreateRegistry(ResourceTypeCatalog catalog, ReplicationWait settle)
+    {
+        return CreateRegistry(catalog, typeof(ProviderDiscovery).Assembly, settle);
+    }
+
     /// <summary>The registry of every attributed provider in <paramref name="assembly"/>, bound to <paramref name="catalog"/>.</summary>
     public static ProviderRegistry CreateRegistry(ResourceTypeCatalog catalog, Assembly assembly)
     {
+        return CreateRegistry(catalog, assembly, ReplicationWait.Default);
+    }
+
+    /// <summary>The registry of every attributed provider in <paramref name="assembly"/>, bound to <paramref name="catalog"/>, settling on <paramref name="settle"/>.</summary>
+    public static ProviderRegistry CreateRegistry(ResourceTypeCatalog catalog, Assembly assembly, ReplicationWait settle)
+    {
         ArgumentNullException.ThrowIfNull(catalog);
         ArgumentNullException.ThrowIfNull(assembly);
+        ArgumentNullException.ThrowIfNull(settle);
 
         var registry = new ProviderRegistry();
         var owners = new Dictionary<string, Type>(StringComparer.OrdinalIgnoreCase);
@@ -49,7 +66,7 @@ public static class ProviderDiscovery
             var definition = catalog.Find(binding.TypeName)
                 ?? throw new InvalidOperationException($"{binding.ProviderType.FullName} is attributed [EntraProvider(\"{binding.TypeName}\")] but the catalog defines no such type; add the type schema under schemas/{ResourceTypeCatalog.SchemaVersion}/types/ or fix the attribute.");
 
-            var provider = Instantiate(binding.ProviderType, definition, catalog);
+            var provider = Instantiate(binding.ProviderType, definition, catalog, settle);
             if (!ResourceIdentifier.TypeEquals(provider.TypeName, definition.Type))
             {
                 throw new InvalidOperationException($"{binding.ProviderType.FullName} is attributed for '{binding.TypeName}' but reports TypeName '{provider.TypeName}'.");
@@ -201,14 +218,15 @@ public static class ProviderDiscovery
 
     /// <summary>
     /// Constructs a provider through the first constructor found among
-    /// <c>(ResourceTypeDefinition, ResourceTypeCatalog)</c>, <c>(ResourceTypeDefinition)</c>,
-    /// <c>(ResourceTypeCatalog)</c> and <c>()</c>.
+    /// <c>(ResourceTypeDefinition, ResourceTypeCatalog, ReplicationWait)</c>, <c>(ResourceTypeDefinition, ResourceTypeCatalog)</c>,
+    /// <c>(ResourceTypeDefinition)</c>, <c>(ResourceTypeCatalog)</c> and <c>()</c>.
     /// </summary>
-    private static IResourceProvider Instantiate(Type providerType, ResourceTypeDefinition definition, ResourceTypeCatalog catalog)
+    private static IResourceProvider Instantiate(Type providerType, ResourceTypeDefinition definition, ResourceTypeCatalog catalog, ReplicationWait settle)
     {
         const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
         (Type[] Signature, object[] Arguments)[] candidates =
         [
+            ([typeof(ResourceTypeDefinition), typeof(ResourceTypeCatalog), typeof(ReplicationWait)], [definition, catalog, settle]),
             ([typeof(ResourceTypeDefinition), typeof(ResourceTypeCatalog)], [definition, catalog]),
             ([typeof(ResourceTypeDefinition)], [definition]),
             ([typeof(ResourceTypeCatalog)], [catalog]),
@@ -233,6 +251,6 @@ public static class ProviderDiscovery
             }
         }
 
-        throw new InvalidOperationException($"{providerType.FullName} has no usable constructor; a provider needs (ResourceTypeDefinition, ResourceTypeCatalog), (ResourceTypeDefinition), (ResourceTypeCatalog) or a parameterless constructor.");
+        throw new InvalidOperationException($"{providerType.FullName} has no usable constructor; a provider needs (ResourceTypeDefinition, ResourceTypeCatalog, ReplicationWait), (ResourceTypeDefinition, ResourceTypeCatalog), (ResourceTypeDefinition), (ResourceTypeCatalog) or a parameterless constructor.");
     }
 }

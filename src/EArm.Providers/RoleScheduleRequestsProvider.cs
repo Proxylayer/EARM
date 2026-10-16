@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using EArm.Core;
 using EArm.Core.Types;
 using EArm.Engine;
+using EArm.Engine.Execution;
 using EArm.Engine.Providers;
 using EArm.Graph;
 using GraphApi = EArm.Graph.GraphApi;
@@ -30,8 +31,8 @@ public abstract class RoleScheduleRequestsProvider : PimScheduleRequestsProvider
 {
     private static readonly IReadOnlyList<(string Sugar, string Canonical)> Sugar = [("role", "roleDefinitionId"), ("administrativeUnit", "directoryScopeId")];
 
-    protected RoleScheduleRequestsProvider(ResourceTypeDefinition definition, ResourceTypeCatalog? catalog, string resourceType)
-        : base(definition, catalog, resourceType)
+    protected RoleScheduleRequestsProvider(ResourceTypeDefinition definition, ResourceTypeCatalog? catalog, string resourceType, ReplicationWait? settle = null)
+        : base(definition, catalog, resourceType, settle)
     {
     }
 

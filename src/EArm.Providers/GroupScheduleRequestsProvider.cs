@@ -8,6 +8,7 @@ using EArm.Core;
 using EArm.Core.Types;
 using EArm.Core.Validation;
 using EArm.Engine;
+using EArm.Engine.Execution;
 using EArm.Engine.Providers;
 using EArm.Graph;
 using GraphApi = EArm.Graph.GraphApi;
@@ -34,8 +35,8 @@ public abstract class GroupScheduleRequestsProvider : PimScheduleRequestsProvide
 {
     private static readonly IReadOnlyList<(string Sugar, string Canonical)> Sugar = [("group", "groupId")];
 
-    protected GroupScheduleRequestsProvider(ResourceTypeDefinition definition, ResourceTypeCatalog? catalog, string resourceType)
-        : base(definition, catalog, resourceType)
+    protected GroupScheduleRequestsProvider(ResourceTypeDefinition definition, ResourceTypeCatalog? catalog, string resourceType, ReplicationWait? settle = null)
+        : base(definition, catalog, resourceType, settle)
     {
     }
 
@@ -143,6 +144,13 @@ public abstract class GroupScheduleRequestsProvider : PimScheduleRequestsProvide
         return GroupSchedulesLookup.FindAsync(graph, SchedulesPath, Keep, tuple, api, hint, cancellationToken);
     }
 
+    /// <summary>A 403 from <c>/identityGovernance/privilegedAccess/group/*</c> is <see cref="EngineDiagnosticCodes.PimGroupAccessDenied"/> with the roles PIM for Groups needs.</summary>
+    protected override ProviderException? AccessDenied(GraphException ex, string subject, ResourceIdentifier? id)
+    {
+        ArgumentNullException.ThrowIfNull(ex);
+        return ex.IsForbidden ? GroupSchedulesLookup.AccessDenied(ex, subject, id) : null;
+    }
+
     protected override JsonObject RequestBody(string action, GroupScheduleTuple tuple, JsonNode? scheduleInfo, JsonNode? justification, JsonNode? ticketInfo)
     {
         return GroupSchedulesLookup.RequestBody(action, tuple, scheduleInfo, justification, ticketInfo);
@@ -188,7 +196,17 @@ public abstract class GroupScheduleRequestsProvider : PimScheduleRequestsProvide
         var candidates = new List<OrphanCandidate>();
         foreach (var groupId in OrphanListing.DistinctKeyValues(query.DeclaredKeys, "groupId"))
         {
-            foreach (var schedule in await GroupSchedulesLookup.ReadGroupSchedulesAsync(graph, SchedulesPath, Keep, groupId, query.Api, RetryHint.Default, cancellationToken).ConfigureAwait(false))
+            IReadOnlyList<JsonObject> schedules;
+            try
+            {
+                schedules = await GroupSchedulesLookup.ReadGroupSchedulesAsync(graph, SchedulesPath, Keep, groupId, query.Api, RetryHint.Default, cancellationToken).ConfigureAwait(false);
+            }
+            catch (GraphException ex) when (ex.IsForbidden)
+            {
+                throw GroupSchedulesLookup.AccessDenied(ex, $"{TypeName} (group {groupId})", null);
+            }
+
+            foreach (var schedule in schedules)
             {
                 if (ListsAsOrphan(schedule) && JsonObjects.GetId(schedule) is { } id)
                 {

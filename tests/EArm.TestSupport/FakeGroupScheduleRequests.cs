@@ -60,6 +60,21 @@ public sealed class FakeGroupScheduleRequests
     /// <summary>Every request body received, in order.</summary>
     public List<JsonObject> Requests { get; } = [];
 
+    /// <summary>
+    /// Group or principal ids PIM has not seen yet (created moments earlier): a schedule list filtered on one answers <c>404 ResourceNotFound</c>, as
+    /// Graph does, instead of an empty collection. An accepted adminAssign for the group and principal makes them seen.
+    /// </summary>
+    public HashSet<string> UnseenIds { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>How many adminUpdate requests answer <c>400 RoleAssignmentExists</c> first (a schedule that was just replaced and is still settling).</summary>
+    public int ExistsOnUpdate { get; set; }
+
+    /// <summary>
+    /// The caller lacks the active role PIM for Groups requires (only eligible for it, or Privileged Role Administrator on a group that is not
+    /// role-assignable): every schedule list and request answers <c>403 UnauthorizedAccessException</c>, as Graph does.
+    /// </summary>
+    public bool AccessDenied { get; set; }
+
     /// <summary>The groups PIM for Groups has onboarded (on their first accepted request; never offboarded).</summary>
     public IReadOnlyCollection<string> OnboardedGroups => _onboarded;
 
@@ -73,14 +88,31 @@ public sealed class FakeGroupScheduleRequests
         return collectionPath.TrimEnd('/').Equals(SchedulesPath, StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>A schedule list read: Graph requires a <c>groupId</c> or <c>principalId</c> filter.</summary>
-    internal static void RequireFilter(IReadOnlyDictionary<string, string>? query, RetryHint hint)
+    /// <summary>
+    /// A schedule list read: Graph requires a <c>groupId</c> or <c>principalId</c> filter; a filter naming an unseen id is a 404; a caller without the
+    /// required active role gets a 403.
+    /// </summary>
+    internal void BeforeList(IReadOnlyDictionary<string, string>? query, RetryHint hint)
     {
+        RequireAccess(hint);
         string? filter = query is not null && query.TryGetValue("$filter", out var value) ? value : null;
         if (string.IsNullOrWhiteSpace(filter)
             || (filter.IndexOf("groupId eq", StringComparison.OrdinalIgnoreCase) < 0 && filter.IndexOf("principalId eq", StringComparison.OrdinalIgnoreCase) < 0))
         {
             throw FakeDirectory.BadRequest("A $filter on groupId or principalId is required to list PIM for Groups schedules.", hint);
+        }
+
+        if (UnseenIds.FirstOrDefault(id => filter.Contains(id, StringComparison.OrdinalIgnoreCase)) is { } unseen)
+        {
+            throw new GraphException(HttpStatusCode.NotFound, "ResourceNotFound", $"The resource '{unseen}' could not be found.", hint);
+        }
+    }
+
+    private void RequireAccess(RetryHint hint)
+    {
+        if (AccessDenied)
+        {
+            throw new GraphException(HttpStatusCode.Forbidden, "UnauthorizedAccessException", "Attempted to perform an unauthorized operation.", hint);
         }
     }
 
@@ -96,6 +128,7 @@ public sealed class FakeGroupScheduleRequests
             throw FakeDirectory.BadRequest("A JSON object body is required.", hint);
         }
 
+        RequireAccess(hint);
         Requests.Add((JsonObject)request.DeepClone());
         string action = Text(request, "action") ?? throw FakeDirectory.BadRequest("The request needs an action.", hint);
         string groupId = Text(request, "groupId") ?? throw FakeDirectory.BadRequest("The request needs a groupId.", hint);
@@ -148,6 +181,8 @@ public sealed class FakeGroupScheduleRequests
 
                 schedules.Add(schedule);
                 _onboarded.Add(groupId);
+                UnseenIds.Remove(groupId);
+                UnseenIds.Remove(principalId);
                 return Response(requestId, "Provisioned", action, request, scheduleId, scheduleInfo.DeepClone());
             }
 
@@ -156,6 +191,12 @@ public sealed class FakeGroupScheduleRequests
                 if (current is null)
                 {
                     throw new GraphException(HttpStatusCode.BadRequest, "RoleAssignmentDoesNotExist", "The Role assignment does not exist.", hint);
+                }
+
+                if (ExistsOnUpdate > 0)
+                {
+                    ExistsOnUpdate--;
+                    throw new GraphException(HttpStatusCode.BadRequest, "RoleAssignmentExists", "The Role assignment already exists.", hint);
                 }
 
                 var scheduleInfo = Schedule(request, now, hint);

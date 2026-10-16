@@ -179,6 +179,13 @@ public static class EngineDiagnosticCodes
     /// </summary>
     public const string PimPolicyNotAvailable = "PimPolicyNotAvailable";
 
+    /// <summary>
+    /// Graph refused a PIM for Groups read or request (<c>/identityGovernance/privilegedAccess/group/*</c>) with 403 UnauthorizedAccessException: the caller
+    /// lacks an ACTIVE (not just eligible) directory-scope role that governs the group (Groups Administrator, Identity Governance Administrator, User
+    /// Administrator or Directory Writers for a group that is not role-assignable; Privileged Role Administrator for a role-assignable one) and does not own it.
+    /// </summary>
+    public const string PimGroupAccessDenied = "PimGroupAccessDenied";
+
     /// <summary>A <c>roleManagementPolicies</c> declaration is invalid at plan time (unknown role or group, a computed value that breaks a rule, a rule id the live policy does not have).</summary>
     public const string RoleManagementPolicyInvalid = "RoleManagementPolicyInvalid";
 

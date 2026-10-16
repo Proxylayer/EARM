@@ -38,18 +38,30 @@ public static class RoleManagementPolicyLookup
 
     public const string PoliciesPath = "/policies/roleManagementPolicies";
 
-    /// <summary>The policy assignment of <paramref name="scope"/> with its policy and rules expanded, or <c>null</c> when Graph lists none.</summary>
+    /// <summary>
+    /// The policy assignment of <paramref name="scope"/> with its policy and rules expanded, or <c>null</c> when Graph lists none (for a group that PIM for
+    /// Groups has not onboarded, Graph answers 404 ResourceNotFound: also <c>null</c>).
+    /// </summary>
     public static async Task<JsonObject?> FindAsync(IGraphClient graph, PolicyScope scope, GraphApi api, RetryHint hint, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(graph);
         ArgumentNullException.ThrowIfNull(scope);
         var request = new GraphRequest(AssignmentsPath, api, hint: hint).WithFilter(Filter(scope)).WithExpand("policy($expand=rules)");
-        await foreach (var item in graph.GetAllPagesAsync(request, cancellationToken).ConfigureAwait(false))
+        try
         {
-            if (item is JsonObject assignment && Matches(assignment, scope) && assignment["policy"] is JsonObject)
+            await foreach (var item in graph.GetAllPagesAsync(request, cancellationToken).ConfigureAwait(false))
             {
-                return assignment;
+                if (item is JsonObject assignment && Matches(assignment, scope) && assignment["policy"] is JsonObject)
+                {
+                    return assignment;
+                }
             }
+        }
+        catch (GraphException ex) when (ex.IsNotFound && scope.IsGroup)
+        {
+            // Graph answers the assignment list of a group PIM for Groups has not onboarded with 404 ResourceNotFound, not an empty collection:
+            // the group's policy is not listed (yet).
+            return null;
         }
 
         return null;

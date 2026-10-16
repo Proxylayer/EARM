@@ -62,6 +62,15 @@ public sealed class FakeRoleScheduleRequests
     /// <summary>Every request body received, in order.</summary>
     public List<JsonObject> Requests { get; } = [];
 
+    /// <summary>
+    /// Principal ids PIM has not seen yet (created moments earlier): a schedule list filtered on one answers <c>404 ResourceNotFound</c>, as Graph does,
+    /// instead of an empty collection. An accepted adminAssign for the principal makes it seen.
+    /// </summary>
+    public HashSet<string> UnseenIds { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>How many adminUpdate requests answer <c>400 RoleAssignmentExists</c> first (a schedule that was just replaced and is still settling).</summary>
+    public int ExistsOnUpdate { get; set; }
+
     internal bool IsRequests(string collectionPath)
     {
         return collectionPath.TrimEnd('/').Equals(RequestsPath, StringComparison.OrdinalIgnoreCase);
@@ -72,9 +81,15 @@ public sealed class FakeRoleScheduleRequests
         return collectionPath.TrimEnd('/').Equals(SchedulesPath, StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>A schedule list read: the changes whose lag ran out are applied first.</summary>
-    internal void BeforeList(List<JsonObject> schedules)
+    /// <summary>A schedule list read: a filter naming an unseen principal is a 404; the changes whose lag ran out are applied first.</summary>
+    internal void BeforeList(List<JsonObject> schedules, IReadOnlyDictionary<string, string>? query, RetryHint hint)
     {
+        string? filter = query is not null && query.TryGetValue("$filter", out var value) ? value : null;
+        if (filter is not null && UnseenIds.FirstOrDefault(id => filter.Contains(id, StringComparison.OrdinalIgnoreCase)) is { } unseen)
+        {
+            throw new GraphException(HttpStatusCode.NotFound, "ResourceNotFound", $"The resource '{unseen}' could not be found.", hint);
+        }
+
         foreach (var change in _pending.ToList())
         {
             if (--change.ListsLeft <= 0)
@@ -146,6 +161,7 @@ public sealed class FakeRoleScheduleRequests
                 }
 
                 Queue(new PendingChange(schedule, Assigns: true, list => list.Add((JsonObject)schedule.DeepClone())), schedules);
+                UnseenIds.Remove(principalId);
                 return Response(requestId, "Provisioned", action, request, requestId, scheduleInfo.DeepClone());
             }
 
@@ -154,6 +170,12 @@ public sealed class FakeRoleScheduleRequests
                 if (!exists || current is null)
                 {
                     throw new GraphException(HttpStatusCode.BadRequest, "RoleAssignmentDoesNotExist", "The Role assignment does not exist.", hint);
+                }
+
+                if (ExistsOnUpdate > 0)
+                {
+                    ExistsOnUpdate--;
+                    throw new GraphException(HttpStatusCode.BadRequest, "RoleAssignmentExists", "The Role assignment already exists.", hint);
                 }
 
                 var scheduleInfo = Schedule(request, now, hint);

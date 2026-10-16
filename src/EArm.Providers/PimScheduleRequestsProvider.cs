@@ -9,6 +9,7 @@ using EArm.Core.Secrets;
 using EArm.Core.Types;
 using EArm.Core.Validation;
 using EArm.Engine;
+using EArm.Engine.Execution;
 using EArm.Engine.Providers;
 using EArm.Expressions.Values;
 using EArm.Graph;
@@ -26,7 +27,8 @@ namespace EArm.Providers;
 /// <item><b>Create</b>: <c>POST {requests}</c> with action <c>adminAssign</c>, then a read-back by tuple (until the schedule is listed, the request's
 /// <c>targetScheduleId</c> stands in; the engine waits for the key read, <see cref="KeyReadLagsCreate"/>). <c>RoleAssignmentExists</c> is adopted
 /// after a re-read under replication lag.</item>
-/// <item><b>Update</b>: <c>POST</c> with action <c>adminUpdate</c>. <b>Delete</b>: <c>POST</c> with action <c>adminRemove</c>; a schedule that is
+/// <item><b>Update</b>: <c>POST</c> with action <c>adminUpdate</c> (a declared start that is already past is left out; <c>RoleAssignmentExists</c>, which
+/// Graph answers while a just-replaced schedule settles, is repeated on the <see cref="Settle"/> schedule). <b>Delete</b>: <c>POST</c> with action <c>adminRemove</c>; a schedule that is
 /// already gone is not an error.</item>
 /// </list>
 /// A request refused by a rule of the PIM policy fails with <see cref="PimPolicyViolation"/> and Graph's text plus the type's advice. Defaults applied
@@ -44,17 +46,25 @@ public abstract class PimScheduleRequestsProvider<TTuple> : ProviderBase, IOrpha
     /// <summary>The tolerance of the endDateTime / startDateTime comparison (Graph stores the times with its own precision).</summary>
     public static readonly TimeSpan TimeTolerance = TimeSpan.FromSeconds(1);
 
-    protected PimScheduleRequestsProvider(ResourceTypeDefinition definition, ResourceTypeCatalog? catalog, string resourceType)
+    protected PimScheduleRequestsProvider(ResourceTypeDefinition definition, ResourceTypeCatalog? catalog, string resourceType, ReplicationWait? settle = null)
         : base(definition, catalog)
     {
         if (!ResourceIdentifier.TypeEquals(definition.Type, resourceType))
         {
             throw new ArgumentException($"{GetType().Name} implements '{resourceType}', not '{definition.Type}'.", nameof(definition));
         }
+
+        Settle = settle ?? ReplicationWait.Default;
     }
 
     /// <summary>The clock "a start in the past" is judged with; tests pin it.</summary>
     public TimeProvider Clock { get; init; } = TimeProvider.System;
+
+    /// <summary>
+    /// How long an adminUpdate answered <c>RoleAssignmentExists</c> is repeated (a schedule that was just replaced is still settling): first after
+    /// <see cref="ReplicationWait.Interval"/>, then doubling, until <see cref="ReplicationWait.Window"/> of waiting was scheduled.
+    /// </summary>
+    public ReplicationWait Settle { get; init; }
 
     /// <summary>A change is an adminUpdate request, never a recreate.</summary>
     protected override bool RecreateOnImmutableChange => false;
@@ -188,7 +198,7 @@ public abstract class PimScheduleRequestsProvider<TTuple> : ProviderBase, IOrpha
     {
         ArgumentNullException.ThrowIfNull(key);
         ArgumentNullException.ThrowIfNull(graph);
-        var found = await FindAsync(graph, RequireTuple(key, null), key.Api, RetryHint.Default, cancellationToken).ConfigureAwait(false);
+        var found = await FindCheckedAsync(graph, RequireTuple(key, null), key.Api, RetryHint.Default, $"{TypeName} {key.Describe()}", null, cancellationToken).ConfigureAwait(false);
         return found is null ? null : Existing(found);
     }
 
@@ -206,15 +216,15 @@ public abstract class PimScheduleRequestsProvider<TTuple> : ProviderBase, IOrpha
         JsonObject live;
         try
         {
-            var response = await SendAsync(desired, graph, PimScheduleRequests.AdminAssign, tuple, properties, cancellationToken).ConfigureAwait(false);
-            live = await FindAsync(graph, tuple, desired.Api, RetryHint.ExpectReplicationLag, cancellationToken).ConfigureAwait(false)
+            var response = await SendAsync(desired, graph, PimScheduleRequests.AdminAssign, tuple, Get(properties, "scheduleInfo"), properties, cancellationToken).ConfigureAwait(false);
+            live = await FindCheckedAsync(graph, tuple, desired.Api, RetryHint.ExpectReplicationLag, desired.Describe(), desired.Id, cancellationToken).ConfigureAwait(false)
                 ?? StandInFor(response, desired);
         }
         catch (GraphException ex) when (PimScheduleRequests.IsAlreadyExists(ex))
         {
             // RoleAssignmentExists: made by another run, or not yet listed when this create was planned. Adopt it; when it cannot be read back yet,
             // the engine waits out replication on the same answer.
-            var found = await FindAsync(graph, tuple, desired.Api, RetryHint.ExpectReplicationLag, cancellationToken).ConfigureAwait(false);
+            var found = await FindCheckedAsync(graph, tuple, desired.Api, RetryHint.ExpectReplicationLag, desired.Describe(), desired.Id, cancellationToken).ConfigureAwait(false);
             if (found is null)
             {
                 // Not listed yet: the executor adopts on "already exists" after waiting out replication (ReplicationWait).
@@ -245,8 +255,8 @@ public abstract class PimScheduleRequestsProvider<TTuple> : ProviderBase, IOrpha
 
         var key = ResolveKey(desired);
         var tuple = RequireTuple(key, desired.Id);
-        var response = await SendAsync(desired, graph, PimScheduleRequests.AdminUpdate, tuple, properties, cancellationToken).ConfigureAwait(false);
-        var live = await FindAsync(graph, tuple, desired.Api, RetryHint.ExpectReplicationLag, cancellationToken).ConfigureAwait(false);
+        var response = await SendUpdateAsync(desired, graph, tuple, UpdateSchedule(properties), properties, cancellationToken).ConfigureAwait(false);
+        var live = await FindCheckedAsync(graph, tuple, desired.Api, RetryHint.ExpectReplicationLag, desired.Describe(), desired.Id, cancellationToken).ConfigureAwait(false);
         string graphId = (live is null ? null : JsonObjects.GetId(live)) ?? existing.GraphId;
         return new AppliedResource(desired.Id, graphId, live ?? response ?? (JsonObject)JsonValues.Clone(existing.Raw)!, key, Extra(tuple));
     }
@@ -272,6 +282,10 @@ public abstract class PimScheduleRequestsProvider<TTuple> : ProviderBase, IOrpha
         {
             throw new ProviderException(PimPolicyViolation, $"{TypeName} {key.Describe()}: the adminRemove request was refused by {PolicyOwner}: {ex.GraphMessage}");
         }
+        catch (GraphException ex) when (AccessDenied(ex, $"{TypeName} {key.Describe()}", null) is { } denied)
+        {
+            throw denied;
+        }
     }
 
     // ---- delete refusal ----
@@ -288,10 +302,89 @@ public abstract class PimScheduleRequestsProvider<TTuple> : ProviderBase, IOrpha
 
     // ---- helpers ----
 
-    /// <summary>Sends one schedule request; a PIM policy refusal becomes <see cref="PimPolicyViolation"/>, a failed request status an apply failure.</summary>
-    private async Task<JsonObject?> SendAsync(ResourceInstance desired, IGraphClient graph, string action, TTuple tuple, JsonObject properties, CancellationToken cancellationToken)
+    /// <summary>
+    /// Why Graph refused the caller (a 403) in the terms of the roles the type needs, as a <see cref="ProviderException"/>; <c>null</c> (the default) lets
+    /// the <see cref="GraphException"/> through.
+    /// </summary>
+    /// <param name="ex">Graph's answer.</param>
+    /// <param name="subject">The resource or key the message names.</param>
+    /// <param name="id">The resource, when known.</param>
+    protected virtual ProviderException? AccessDenied(GraphException ex, string subject, ResourceIdentifier? id)
     {
-        var body = RequestBody(action, tuple, Get(properties, "scheduleInfo"), Get(properties, "justification") ?? JsonValue.Create(PimScheduleRules.DefaultJustification), Get(properties, "ticketInfo"));
+        return null;
+    }
+
+    /// <summary><see cref="FindAsync"/> with a 403 turned into the type's <see cref="AccessDenied"/> answer.</summary>
+    private async Task<JsonObject?> FindCheckedAsync(IGraphClient graph, TTuple tuple, GraphApi api, RetryHint hint, string subject, ResourceIdentifier? id, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await FindAsync(graph, tuple, api, hint, cancellationToken).ConfigureAwait(false);
+        }
+        catch (GraphException ex) when (AccessDenied(ex, subject, id) is { } denied)
+        {
+            throw denied;
+        }
+    }
+
+    /// <summary>
+    /// The schedule an adminUpdate carries: the declared one, except that a declared <c>startDateTime</c> that is already past is left out (Graph starts the
+    /// updated schedule now; a past start is never drift, see <see cref="PimScheduleComparison"/>), so the request never asks for a start in the past.
+    /// </summary>
+    private JsonNode? UpdateSchedule(JsonObject properties)
+    {
+        if (Get(properties, "scheduleInfo") is not JsonObject declared || JsonObjects.FindKey(declared, "startDateTime") is not { } startKey)
+        {
+            return Get(properties, "scheduleInfo");
+        }
+
+        bool past = declared[startKey] is { } start && !IsOpaque(start) && JsonValues.TryGetString(start, out var text)
+            && PimScheduleRules.TryParseDateTime(text, out var value) && value <= Clock.GetUtcNow();
+        if (!past)
+        {
+            return declared;
+        }
+
+        var schedule = (JsonObject)JsonValues.Clone(declared)!;
+        schedule.Remove(startKey);
+        return schedule;
+    }
+
+    /// <summary>
+    /// Sends the adminUpdate. Graph answers <c>RoleAssignmentExists</c> while a schedule that was just replaced is settling: the request is repeated on the
+    /// <see cref="Settle"/> schedule (doubling waits) and fails with an apply error when the window runs out.
+    /// </summary>
+    private async Task<JsonObject?> SendUpdateAsync(ResourceInstance desired, IGraphClient graph, TTuple tuple, JsonNode? scheduleInfo, JsonObject properties, CancellationToken cancellationToken)
+    {
+        var waited = TimeSpan.Zero;
+        var delay = Settle.Interval;
+        while (true)
+        {
+            try
+            {
+                return await SendAsync(desired, graph, PimScheduleRequests.AdminUpdate, tuple, scheduleInfo, properties, cancellationToken).ConfigureAwait(false);
+            }
+            catch (GraphException ex) when (PimScheduleRequests.IsAlreadyExists(ex))
+            {
+                if (waited + delay > Settle.Window)
+                {
+                    throw new ProviderException(
+                        EngineDiagnosticCodes.ResourceApplyFailed,
+                        $"{desired.Describe()}: the adminUpdate request kept answering {ex.Code} (the {ScheduleNoun} was probably just replaced and is still settling in PIM) after {waited.TotalSeconds.ToString("0", System.Globalization.CultureInfo.InvariantCulture)} s of retries; run the deployment again later. {ex.Message}",
+                        desired.Id);
+                }
+
+                await Settle.Delay.DelayAsync(delay, cancellationToken).ConfigureAwait(false);
+                waited += delay;
+                delay += delay;
+            }
+        }
+    }
+
+    /// <summary>Sends one schedule request; a PIM policy refusal becomes <see cref="PimPolicyViolation"/>, a failed request status an apply failure.</summary>
+    private async Task<JsonObject?> SendAsync(ResourceInstance desired, IGraphClient graph, string action, TTuple tuple, JsonNode? scheduleInfo, JsonObject properties, CancellationToken cancellationToken)
+    {
+        var body = RequestBody(action, tuple, scheduleInfo, Get(properties, "justification") ?? JsonValue.Create(PimScheduleRules.DefaultJustification), Get(properties, "ticketInfo"));
         GraphResponse response;
         try
         {
@@ -300,6 +393,10 @@ public abstract class PimScheduleRequestsProvider<TTuple> : ProviderBase, IOrpha
         catch (GraphException ex) when (PimScheduleRequests.IsPolicyViolation(ex))
         {
             throw new ProviderException(PimPolicyViolation, $"{desired.Describe()}: the {action} request was refused by {PolicyOwner}: {ex.GraphMessage}. {PolicyAdvice}", desired.Id);
+        }
+        catch (GraphException ex) when (AccessDenied(ex, desired.Describe(), desired.Id) is { } denied)
+        {
+            throw denied;
         }
 
         var request = response.Body as JsonObject;

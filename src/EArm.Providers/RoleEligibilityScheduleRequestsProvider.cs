@@ -3,6 +3,7 @@ using System.Text.Json.Nodes;
 using EArm.Core.Types;
 using EArm.Core.Validation;
 using EArm.Engine;
+using EArm.Engine.Execution;
 using EArm.Engine.Providers;
 
 namespace EArm.Providers;
@@ -28,7 +29,15 @@ public sealed class RoleEligibilityScheduleRequestsProvider : RoleScheduleReques
     public const string InvalidEligibility = EngineDiagnosticCodes.RoleEligibilityInvalid;
 
     public RoleEligibilityScheduleRequestsProvider(ResourceTypeDefinition definition, ResourceTypeCatalog? catalog = null)
-        : base(definition, catalog, ResourceType)
+        : this(definition, catalog, null)
+    {
+    }
+
+    /// <param name="definition">The catalog definition of the type.</param>
+    /// <param name="catalog">The catalog.</param>
+    /// <param name="settle">How long an adminUpdate answered RoleAssignmentExists is repeated; <see cref="ReplicationWait.Default"/> when null.</param>
+    public RoleEligibilityScheduleRequestsProvider(ResourceTypeDefinition definition, ResourceTypeCatalog? catalog, ReplicationWait? settle)
+        : base(definition, catalog, ResourceType, settle)
     {
     }
 

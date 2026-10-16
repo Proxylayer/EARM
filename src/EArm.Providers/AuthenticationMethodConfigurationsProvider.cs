@@ -9,6 +9,7 @@ using EArm.Core.Secrets;
 using EArm.Core.Types;
 using EArm.Core.Validation;
 using EArm.Engine;
+using EArm.Engine.Execution;
 using EArm.Engine.Providers;
 using EArm.Expressions.Values;
 using EArm.Graph;
@@ -25,7 +26,8 @@ namespace EArm.Providers;
 /// <list type="bullet">
 /// <item><b>Read</b>: <c>GET /policies/authenticationMethodsPolicy/authenticationMethodConfigurations/{GraphId}</c>; a 404 is a missing configuration.</item>
 /// <item><b>Create</b>: never. A configuration that does not exist is an unsupported plan row (and a <see cref="ProviderException"/> when applied).</item>
-/// <item><b>Update</b>: <c>PATCH …/{GraphId}</c> with <c>@odata.type</c> and the changed top-level properties (a merge PATCH) → <c>GET …/{GraphId}</c>.</item>
+/// <item><b>Update</b>: <c>PATCH …/{GraphId}</c> with <c>@odata.type</c> and the changed top-level properties (a merge PATCH) → <c>GET …/{GraphId}</c>, repeated on the <see cref="Settle"/> schedule until the declared values show
+/// (Graph serves the previous values for a while after the 204).</item>
 /// <item><b>Delete</b>: <c>DELETE …/{GraphId}</c>, which Graph documents as "revert to the default configuration", for fido2, temporaryAccessPass and
 /// x509Certificate (<see cref="IDeleteWarningSource"/> says so); every other method is kept (<see cref="IDeleteRefusalSource"/>, <see cref="NotDeletable"/>).</item>
 /// </list>
@@ -51,18 +53,31 @@ public sealed class AuthenticationMethodConfigurationsProvider : ProviderBase, I
     private const string KeyProperty = "id";
 
     public AuthenticationMethodConfigurationsProvider(ResourceTypeDefinition definition, ResourceTypeCatalog? catalog = null)
+        : this(definition, catalog, null)
+    {
+    }
+
+    /// <param name="definition">The catalog definition of the type.</param>
+    /// <param name="catalog">The catalog.</param>
+    /// <param name="settle">How long the read after a PATCH waits for the declared values to show; <see cref="ReplicationWait.Default"/> when null.</param>
+    public AuthenticationMethodConfigurationsProvider(ResourceTypeDefinition definition, ResourceTypeCatalog? catalog, ReplicationWait? settle)
         : base(definition, catalog)
     {
         if (!ResourceIdentifier.TypeEquals(definition.Type, ResourceType))
         {
             throw new ArgumentException($"{nameof(AuthenticationMethodConfigurationsProvider)} implements '{ResourceType}', not '{definition.Type}'.", nameof(definition));
         }
+
+        Settle = settle ?? ReplicationWait.Default;
     }
 
     public AuthenticationMethodConfigurationsProvider(ResourceTypeCatalog catalog)
         : this(RequireDefinition(catalog), catalog)
     {
     }
+
+    /// <summary>How long the read after a PATCH waits for Graph to serve the declared values (Graph applies a PATCH with a delay).</summary>
+    public ReplicationWait Settle { get; init; }
 
     /// <summary>The name is the method: it never changes in place, and nothing is ever recreated.</summary>
     protected override bool RecreateOnImmutableChange => false;
@@ -169,9 +184,33 @@ public sealed class AuthenticationMethodConfigurationsProvider : ProviderBase, I
 
         string path = EntityPath(method);
         await graph.PatchAsync(new GraphRequest(path, desired.Api, hint: desired.RetryHint), body, cancellationToken).ConfigureAwait(false);
-        var live = await graph.GetAsync(new GraphRequest(path, desired.Api, hint: desired.RetryHint), cancellationToken).ConfigureAwait(false) as JsonObject
-            ?? throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{desired.Describe()}: the {method.Name} authentication method configuration vanished after the update.", desired.Id);
+        var live = await ReadSettledAsync(desired, properties, method, graph, cancellationToken).ConfigureAwait(false);
         return new AppliedResource(desired.Id, existing.GraphId, live, ResolveKey(desired));
+    }
+
+    /// <summary>
+    /// The configuration after a PATCH. Graph accepts the PATCH (204) but serves the previous values for a while, so the configuration is read again every
+    /// <see cref="ReplicationWait.Interval"/> of <see cref="Settle"/> until the declared values show (no effective difference left) or
+    /// <see cref="ReplicationWait.Window"/> of waiting was scheduled; then the last read is taken as it is.
+    /// </summary>
+    private async Task<JsonObject> ReadSettledAsync(ResourceInstance desired, JsonObject properties, AuthenticationMethod method, IGraphClient graph, CancellationToken cancellationToken)
+    {
+        var request = new GraphRequest(EntityPath(method), desired.Api, hint: desired.RetryHint);
+        var options = DiffOptionsFor(existing: true);
+        var waited = TimeSpan.Zero;
+        while (true)
+        {
+            var live = await graph.GetAsync(request, cancellationToken).ConfigureAwait(false) as JsonObject
+                ?? throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{desired.Describe()}: the {method.Name} authentication method configuration vanished after the update.", desired.Id);
+            bool settled = !JsonDiff.Diff(properties, ToExisting(live).Properties, options).Any(d => d.HasEffect);
+            if (settled || waited + Settle.Interval > Settle.Window)
+            {
+                return live;
+            }
+
+            await Settle.Delay.DelayAsync(Settle.Interval, cancellationToken).ConfigureAwait(false);
+            waited += Settle.Interval;
+        }
     }
 
     // ---- delete ----

@@ -39,7 +39,8 @@ internal sealed class ProviderHost
     public ProviderHost(FakeGraphClient? fake = null)
     {
         Fake = fake ?? new FakeGraphClient();
-        Registry = CreateRegistry(Catalog);
+        SettleDelays = new NoDelayProvider();
+        Registry = CreateRegistry(Catalog, new ReplicationWait { Delay = SettleDelays });
         Logs = new LogSink();
         Delays = new NoDelayProvider();
         ReplicationDelays = new NoDelayProvider();
@@ -66,6 +67,9 @@ internal sealed class ProviderHost
     /// <summary>The executor's own replication wait after an uncertain create (<see cref="ReplicationWait"/>), kept apart from the retry policy's delays.</summary>
     public NoDelayProvider ReplicationDelays { get; }
 
+    /// <summary>The providers' own waits for Graph to settle after a write (PIM adminUpdate retries, authentication method read-back), no real waiting.</summary>
+    public NoDelayProvider SettleDelays { get; }
+
     /// <summary>The waits between the extra reads that confirm an empty key read of a lagging type (<see cref="KeyAbsenceCheck"/>), planner and executor.</summary>
     public NoDelayProvider AbsenceDelays { get; }
 
@@ -91,7 +95,13 @@ internal sealed class ProviderHost
     /// <summary>The discovered registry with every catalog type that has no provider yet served by <see cref="EchoProvider"/>.</summary>
     public static ProviderRegistry CreateRegistry(ResourceTypeCatalog catalog)
     {
-        var registry = ProviderDiscovery.CreateRegistry(catalog);
+        return CreateRegistry(catalog, ReplicationWait.Default);
+    }
+
+    /// <summary>As <see cref="CreateRegistry(ResourceTypeCatalog)"/>, the providers settling on <paramref name="settle"/>.</summary>
+    public static ProviderRegistry CreateRegistry(ResourceTypeCatalog catalog, ReplicationWait settle)
+    {
+        var registry = ProviderDiscovery.CreateRegistry(catalog, settle);
         foreach (var definition in catalog.Types)
         {
             if (!registry.Contains(definition.Type))

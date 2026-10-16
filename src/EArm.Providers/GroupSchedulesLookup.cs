@@ -4,7 +4,9 @@ using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
+using EArm.Core;
 using EArm.Core.Validation;
+using EArm.Engine;
 using EArm.Engine.Providers;
 using EArm.Expressions.Values;
 using EArm.Graph;
@@ -162,6 +164,26 @@ public static class GroupSchedulesLookup
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// The <see cref="EngineDiagnosticCodes.PimGroupAccessDenied"/> exception for a 403 (<c>UnauthorizedAccessException</c>) from a PIM for Groups
+    /// endpoint: the active roles the caller needs (Learn: privilegedaccessgroup-post-eligibilityschedulerequests,
+    /// privilegedaccessgroup-list-eligibilityschedulerequests and their assignment counterparts), with Graph's answer.
+    /// </summary>
+    public static ProviderException AccessDenied(GraphException ex, string subject, ResourceIdentifier? id)
+    {
+        ArgumentNullException.ThrowIfNull(ex);
+        ArgumentException.ThrowIfNullOrWhiteSpace(subject);
+        return new ProviderException(
+            EngineDiagnosticCodes.PimGroupAccessDenied,
+            $"{subject}: Graph refused the PIM for Groups call ({ex.Message}). The signed-in user needs an ACTIVE (not just eligible) directory-scope role: "
+            + "Groups Administrator, Identity Governance Administrator, User Administrator or Directory Writers for a group that is not role-assignable; "
+            + "Privileged Role Administrator for a role-assignable group; or ownership of the group. Privileged Role Administrator alone does not cover groups "
+            + "that are not role-assignable. Activate the role in PIM (or assign it), then sign in again (earm auth login) so the token carries it. An application "
+            + "needs PrivilegedEligibilitySchedule.ReadWrite.AzureADGroup / PrivilegedAssignmentSchedule.ReadWrite.AzureADGroup (Learn: "
+            + "privilegedaccessgroup-post-eligibilityschedulerequests, privilegedaccessgroup-list-eligibilityschedulerequests).",
+            id);
     }
 
     private static string GroupFilter(string groupId)

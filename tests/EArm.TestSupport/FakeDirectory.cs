@@ -87,6 +87,7 @@ public sealed class FakeDirectory
     private static readonly TimeSpan DeletedRetention = TimeSpan.FromDays(30);
 
     private readonly object _gate = new();
+    private readonly Dictionary<string, StaleRead> _staleAuthenticationMethodReads = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, List<JsonObject>> _collections = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, List<string>> _references = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> _singleReferences = new(StringComparer.OrdinalIgnoreCase);
@@ -124,6 +125,12 @@ public sealed class FakeDirectory
     /// authentication strength, authentication contexts and named locations it referenced are still refused as "referenced" this many times.
     /// </summary>
     public int ConditionalAccessLagAttempts { get; set; }
+
+    /// <summary>
+    /// How many GETs of an authentication method configuration still answer its state from before a PATCH (default 0: the PATCH is visible at once). Graph
+    /// accepts the PATCH (204) and serves the old values for a while.
+    /// </summary>
+    public int AuthenticationMethodStaleReads { get; set; }
 
     /// <summary>PIM eligibility for directory roles (the request endpoint, the schedules, the seeded policy and the processing lag).</summary>
     public FakeRoleScheduleRequests RoleEligibility { get; } = FakeRoleScheduleRequests.Eligibility();
@@ -427,7 +434,7 @@ public sealed class FakeDirectory
                         throw MethodNotAllowed($"{method} is not supported on '{collectionPath}': schedules change only through schedule requests.", hint);
                     }
 
-                    roles.BeforeList(Collection(collectionPath));
+                    roles.BeforeList(Collection(collectionPath), query, hint);
                 }
             }
 
@@ -447,7 +454,7 @@ public sealed class FakeDirectory
                         throw MethodNotAllowed($"{method} is not supported on '{collectionPath}': schedules change only through schedule requests.", hint);
                     }
 
-                    FakeGroupScheduleRequests.RequireFilter(query, hint);
+                    groups.BeforeList(query, hint);
                 }
             }
 
@@ -468,6 +475,16 @@ public sealed class FakeDirectory
         switch (method)
         {
             case "GET":
+                if (entity is not null && _staleAuthenticationMethodReads.TryGetValue(GetString(entity, "id") ?? string.Empty, out var stale) && FakeAuthenticationMethodsPolicy.IsCollection(collectionPath))
+                {
+                    if (--stale.ReadsLeft <= 0)
+                    {
+                        _staleAuthenticationMethodReads.Remove(GetString(entity, "id")!);
+                    }
+
+                    return (HttpStatusCode.OK, ProjectOne(stale.Before, FakeDirectorySchema.ForCollection(collectionPath), query, hint));
+                }
+
                 return entity is null ? throw NotFound(route.Path, hint) : (HttpStatusCode.OK, ProjectOne(entity, collectionPath.Equals(DeletedItemsPath, StringComparison.OrdinalIgnoreCase) ? FakeDirectorySchema.ForODataType(GetString(entity, "@odata.type")) : FakeDirectorySchema.ForCollection(collectionPath), query, hint));
 
             case "PATCH":
@@ -488,6 +505,10 @@ public sealed class FakeDirectory
                 if (FakeAuthenticationMethodsPolicy.IsCollection(collectionPath))
                 {
                     FakeAuthenticationMethodsPolicy.RequireODataType(entity, body, hint);
+                    if (AuthenticationMethodStaleReads > 0)
+                    {
+                        _staleAuthenticationMethodReads[GetString(entity, "id")!] = new StaleRead((JsonObject)entity.DeepClone()) { ReadsLeft = AuthenticationMethodStaleReads };
+                    }
                 }
 
                 Patch(entity, body, collectionPath, hint);
@@ -2148,6 +2169,12 @@ public sealed class FakeDirectory
     // ---- routing ----
 
     /// <summary>An entity selector: an id/UPN segment or an alternate key <c>(property='value')</c>.</summary>
+    /// <summary>An authentication method configuration's state before a PATCH, still served by the next <see cref="ReadsLeft"/> GETs.</summary>
+    private sealed record StaleRead(JsonObject Before)
+    {
+        public int ReadsLeft { get; set; }
+    }
+
     private sealed record Selector(string? Property, string Value)
     {
         public bool IsAlternateKey => Property is not null;

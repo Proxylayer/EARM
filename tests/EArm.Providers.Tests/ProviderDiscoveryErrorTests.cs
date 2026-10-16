@@ -153,7 +153,8 @@ public sealed class ProviderDiscoveryErrorTests
         Assert.Empty(ProviderDiscovery.CreateRegistry(ResourceTypeCatalog.Default, empty).Providers);
         Assert.Throws<ArgumentNullException>(() => ProviderDiscovery.Discover(null!));
         Assert.Throws<ArgumentNullException>(() => ProviderDiscovery.CreateRegistry(null!, empty));
-        Assert.Throws<ArgumentNullException>(() => ProviderDiscovery.CreateRegistry(ResourceTypeCatalog.Default, null!));
+        Assert.Throws<ArgumentNullException>(() => ProviderDiscovery.CreateRegistry(ResourceTypeCatalog.Default, (Assembly)null!));
+        Assert.Throws<ArgumentNullException>(() => ProviderDiscovery.CreateRegistry(ResourceTypeCatalog.Default, empty, null!));
         Assert.Throws<ArgumentNullException>(() => ProviderDiscovery.DiscoverEdgeKinds(null!));
         Assert.Throws<ArgumentNullException>(() => ProviderDiscovery.CreateEdgeKinds(null!, empty));
         Assert.Throws<ArgumentNullException>(() => ProviderDiscovery.CreateEdgeKinds(ResourceTypeCatalog.Default, null!));

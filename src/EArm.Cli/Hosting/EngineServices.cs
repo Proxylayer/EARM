@@ -68,7 +68,7 @@ internal sealed class EngineServices : IDisposable
         Graph = new HttpGraphClient(_http, _tokens, RetryPolicy, options, loggerFactory.CreateLogger<HttpGraphClient>(), time);
         Preflight = new GraphPreflight(_tokens, Graph, cloud, auth.Mode, loggerFactory.CreateLogger<GraphPreflight>(), graphScopes, preflightPrompter);
         KeyVault = new KeyVaultClient(_http, _tokens, RetryPolicy, cloud, options.Timeout, loggerFactory.CreateLogger<KeyVaultClient>(), time);
-        Providers = ProviderDiscovery.CreateRegistry(ResourceTypeCatalog.Default);
+        Providers = ProviderDiscovery.CreateRegistry(ResourceTypeCatalog.Default, _replicationWait);
         EdgeKinds = ProviderDiscovery.CreateEdgeKinds(ResourceTypeCatalog.Default);
     }
 
