@@ -17,7 +17,7 @@
     "userName":   "[format('{0}-bg@{1}', parameters('prefix'), parameters('domain'))]",
     "supportRole": "[format('{0}-support', parameters('prefix'))]",
     "unitName":   "[format('{0}-orders-au', parameters('prefix'))]",
-    "strength":   "[format('{0}-phishing-resistant', parameters('prefix'))]",
+    "strength":   "[format('{0}-phish', parameters('prefix'))]",
     "offices":    "[format('{0}-offices', parameters('prefix'))]",
     "policy":     "[format('{0}-ca-admins-mfa', parameters('prefix'))]",
     "graphAppId": "[wellKnownApp('MicrosoftGraph')]",

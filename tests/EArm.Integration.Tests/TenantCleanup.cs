@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Net;
 using System.Text.Json.Nodes;
@@ -21,10 +22,28 @@ internal sealed class TenantCleanup
     private static readonly TimeSpan TransientBadRequestWindow = TimeSpan.FromSeconds(60);
     private static readonly TimeSpan TransientBadRequestInterval = TimeSpan.FromSeconds(5);
 
+    // Graph applies an 'isTrusted: false' PATCH with a delay; until then DELETE keeps answering 1177.
+    private static readonly TimeSpan TrustedLocationWindow = TimeSpan.FromSeconds(90);
+
+    // A deleted object can stay in a collection listing for a while after Graph accepted its DELETE.
+    private static readonly TimeSpan DeletionVisibleWindow = TimeSpan.FromSeconds(90);
+    private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(5);
+
+    // The authentication context ids the fixture allocates (IntegrationFixture.AllocateContextIdAsync); the sweep never deletes others.
+    private const int LowestContextNumber = 50;
+    private const int HighestContextNumber = 99;
+
+    private const string PoliciesPath = "/identity/conditionalAccess/policies";
+    private const string StrengthsPath = "/policies/authenticationStrengthPolicies";
+    private const string ContextsPath = "/identity/conditionalAccess/authenticationContextClassReferences";
+    private const string NamedLocationsPath = "/identity/conditionalAccess/namedLocations";
+
     private readonly IGraphClient _graph;
     private readonly string _prefix;
     private readonly List<string> _log = [];
     private readonly List<string> _leftovers = [];
+    private readonly HashSet<string> _deletedIds = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _leftoverIds = new(StringComparer.OrdinalIgnoreCase);
 
     public TenantCleanup(IGraphClient graph, string prefix)
     {
@@ -51,54 +70,40 @@ internal sealed class TenantCleanup
     public async Task SweepAsync(IReadOnlyCollection<string> trackedPaths, CancellationToken cancellationToken)
     {
         _leftovers.Clear();
+        _deletedIds.Clear();
+        _leftoverIds.Clear();
         foreach (string path in trackedPaths)
         {
             await DeleteTrackedAsync(path, cancellationToken);
         }
 
         // Conditional Access first: policies reference groups, locations, strengths and contexts.
-        foreach (var policy in await ListOwnedAsync("CA policy", "/identity/conditionalAccess/policies", null, cancellationToken))
+        foreach (var policy in await ListOwnedAsync("CA policy", PoliciesPath, null, cancellationToken))
         {
             if (string.Equals(policy.Text("state"), "enabled", StringComparison.OrdinalIgnoreCase))
             {
-                Leftover($"CA policy '{policy.Text("displayName")}' ({policy.Text("id")}) is enabled (enforced); the guard never deletes enforced policies - disable or delete it in the portal");
+                Leftover($"CA policy '{policy.Text("displayName")}' ({policy.Text("id")}) is enabled (enforced); the guard never deletes enforced policies - disable or delete it in the portal", policy.Text("id"));
                 continue;
             }
 
-            await DeleteOwnedAsync("CA policy", "/identity/conditionalAccess/policies", policy, cancellationToken);
+            await DeleteOwnedAsync("CA policy", PoliciesPath, policy, cancellationToken);
         }
 
-        foreach (var strength in await ListOwnedAsync("authentication strength", "/policies/authenticationStrengthPolicies", null, cancellationToken))
+        foreach (var strength in await ListOwnedStrengthsAsync(cancellationToken))
         {
-            if (string.Equals(strength.Text("policyType"), "builtIn", StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            await DeleteOwnedAsync("authentication strength", "/policies/authenticationStrengthPolicies", strength, cancellationToken, retryTransientBadRequest: true);
+            await DeleteOwnedAsync("authentication strength", StrengthsPath, strength, cancellationToken, retryTransientBadRequest: true);
         }
 
-        foreach (var context in await ListOwnedAsync("authentication context", "/identity/conditionalAccess/authenticationContextClassReferences", null, cancellationToken))
+        foreach (var context in await ListOwnedContextsAsync(cancellationToken))
         {
-            string path = "/identity/conditionalAccess/authenticationContextClassReferences";
-            try
-            {
-                // Graph refuses to delete a context that is still available.
-                await _graph.PatchAsync(new GraphRequest(path + "/" + context.RequireId()), new JsonObject { ["isAvailable"] = false }, cancellationToken);
-            }
-            catch (GraphException ex)
-            {
-                Log($"could not mark context {context.Text("id")} unavailable: {ex.Code}");
-            }
-
-            await DeleteOwnedAsync("authentication context", path, context, cancellationToken, retryTransientBadRequest: true);
+            await MarkContextUnavailableAsync(context, cancellationToken);
+            await DeleteOwnedAsync("authentication context", ContextsPath, context, cancellationToken, retryTransientBadRequest: true);
         }
 
-        foreach (var location in await ListOwnedAsync("named location", "/identity/conditionalAccess/namedLocations", null, cancellationToken))
+        foreach (var location in await ListOwnedAsync("named location", NamedLocationsPath, null, cancellationToken))
         {
-            string path = "/identity/conditionalAccess/namedLocations";
-            await UnmarkTrustedAsync(path, location, cancellationToken);
-            await DeleteOwnedAsync("named location", path, location, cancellationToken, retryTransientBadRequest: true);
+            bool unmarked = IsTrusted(location) && await UnmarkTrustedAsync(location, cancellationToken);
+            await DeleteOwnedAsync("named location", NamedLocationsPath, location, cancellationToken, retryTransientBadRequest: true, trustedLocation: true, alreadyUnmarked: unmarked);
         }
 
         // Directory roles: assignments of owned principals and of owned custom roles go before the roles and principals.
@@ -180,7 +185,14 @@ internal sealed class TenantCleanup
         }
 
         string collection = path[..path.LastIndexOf('/')];
-        await DeleteOwnedAsync("tracked object", collection, live, cancellationToken);
+        if (string.Equals(collection, ContextsPath, StringComparison.OrdinalIgnoreCase))
+        {
+            await MarkContextUnavailableAsync(live, cancellationToken);
+        }
+
+        bool isLocation = string.Equals(collection, NamedLocationsPath, StringComparison.OrdinalIgnoreCase);
+        bool unmarked = isLocation && IsTrusted(live) && await UnmarkTrustedAsync(live, cancellationToken);
+        await DeleteOwnedAsync("tracked object", collection, live, cancellationToken, trustedLocation: isLocation, alreadyUnmarked: unmarked);
         await TryPurgeAsync(live.RequireId(), cancellationToken);
     }
 
@@ -228,6 +240,43 @@ internal sealed class TenantCleanup
         }
 
         return owned;
+    }
+
+    /// <summary>Custom authentication strengths whose displayName starts with the prefix; built-in strengths are never touched.</summary>
+    private async Task<List<JsonObject>> ListOwnedStrengthsAsync(CancellationToken cancellationToken)
+    {
+        return (await ListOwnedAsync("authentication strength", StrengthsPath, null, cancellationToken))
+            .Where(s => !string.Equals(s.Text("policyType"), "builtIn", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+    }
+
+    /// <summary>
+    /// Authentication contexts whose displayName starts with the prefix and whose id is in the range the fixture allocates
+    /// (<c>c50</c>..<c>c99</c>). A prefixed context outside that range was not created by these tests: it is only reported.
+    /// </summary>
+    private async Task<List<JsonObject>> ListOwnedContextsAsync(CancellationToken cancellationToken)
+    {
+        var owned = new List<JsonObject>();
+        foreach (var context in await ListOwnedAsync("authentication context", ContextsPath, null, cancellationToken))
+        {
+            if (IsAllocatableContextId(context.Text("id")))
+            {
+                owned.Add(context);
+            }
+            else
+            {
+                Leftover($"authentication context {Describe(context)} ({context.Text("id")}) carries the prefix but its id is outside c{LowestContextNumber}..c{HighestContextNumber}; the guard does not delete it", context.Text("id"));
+            }
+        }
+
+        return owned;
+    }
+
+    private static bool IsAllocatableContextId(string? id)
+    {
+        return id is { Length: > 1 } && (id[0] is 'c' or 'C')
+            && int.TryParse(id.AsSpan(1), NumberStyles.None, CultureInfo.InvariantCulture, out int number)
+            && number is >= LowestContextNumber and <= HighestContextNumber;
     }
 
     private async Task<List<JsonObject>> ListOwnedByNameOrUpnAsync(CancellationToken cancellationToken)
@@ -314,7 +363,7 @@ internal sealed class TenantCleanup
                 }
                 catch (GraphException ex)
                 {
-                    Leftover($"role assignment {id} ({filter}) could not be deleted: {ex.Code}: {ex.GraphMessage}");
+                    Leftover($"role assignment {id} ({filter}) could not be deleted: {ex.Code}: {ex.GraphMessage}", id);
                 }
             }
         }
@@ -324,37 +373,78 @@ internal sealed class TenantCleanup
         }
     }
 
-    /// <summary>
-    /// Graph refuses to delete a named location that is marked trusted (400, code 1177), so a trusted IP location is
-    /// unmarked first. The PATCH carries the live <c>@odata.type</c>; country locations have no <c>isTrusted</c>.
-    /// </summary>
-    private async Task UnmarkTrustedAsync(string collectionPath, JsonObject location, CancellationToken cancellationToken)
+    /// <summary>Graph refuses to delete a context that is still available, so it is marked unavailable first.</summary>
+    private async Task MarkContextUnavailableAsync(JsonObject context, CancellationToken cancellationToken)
     {
-        if (!IsOwned(location) || location["isTrusted"] is not JsonValue trusted || !trusted.TryGetValue<bool>(out bool isTrusted) || !isTrusted)
+        if (context["isAvailable"] is JsonValue available && available.TryGetValue<bool>(out bool isAvailable) && !isAvailable)
         {
             return;
         }
 
+        string id = context.RequireId();
+        try
+        {
+            await _graph.PatchAsync(new GraphRequest(ContextsPath + "/" + id), new JsonObject { ["isAvailable"] = false }, cancellationToken);
+            Log($"marked authentication context {Describe(context)} ({id}) unavailable");
+        }
+        catch (GraphException ex)
+        {
+            Log($"could not mark authentication context {Describe(context)} ({id}) unavailable: {ex.Code}: {ex.GraphMessage}; the delete is attempted anyway");
+        }
+    }
+
+    private static bool IsTrusted(JsonObject location)
+    {
+        return location["isTrusted"] is JsonValue trusted && trusted.TryGetValue<bool>(out bool isTrusted) && isTrusted;
+    }
+
+    /// <summary>
+    /// Graph refuses to delete a named location that is marked trusted (400, code 1177), so a trusted IP location is
+    /// unmarked first. The PATCH carries the live <c>@odata.type</c>; country locations have no <c>isTrusted</c>.
+    /// Returns true when Graph accepted the unmark PATCH (it applies it with a delay, see <see cref="DeleteOwnedAsync"/>).
+    /// </summary>
+    private async Task<bool> UnmarkTrustedAsync(JsonObject location, CancellationToken cancellationToken)
+    {
+        if (!IsOwned(location))
+        {
+            return false;
+        }
+
+        string id = location.RequireId();
         string? odataType = location.Text("@odata.type");
         if (odataType is null)
         {
-            Log($"named location {Describe(location)} is trusted but has no @odata.type; the delete is attempted anyway");
-            return;
+            Log($"named location {Describe(location)} ({id}) is trusted but has no @odata.type, so it cannot be unmarked; the delete is attempted anyway");
+            return false;
         }
 
         try
         {
             var body = new JsonObject { ["@odata.type"] = odataType, ["isTrusted"] = false };
-            await _graph.PatchAsync(new GraphRequest(collectionPath + "/" + location.RequireId()), body, cancellationToken);
-            Log($"unmarked trusted named location {Describe(location)} ({location.RequireId()})");
+            await _graph.PatchAsync(new GraphRequest(NamedLocationsPath + "/" + id), body, cancellationToken);
+            Log($"unmarked trusted named location {Describe(location)} ({id})");
+            return true;
         }
         catch (GraphException ex)
         {
-            Log($"could not unmark trusted named location {location.Text("id")}: {ex.Code}: {ex.GraphMessage}");
+            Log($"could not unmark trusted named location {Describe(location)} ({id}): {ex.Code}: {ex.GraphMessage}");
+            return false;
         }
     }
 
-    private async Task DeleteOwnedAsync(string label, string collectionPath, JsonObject obj, CancellationToken cancellationToken, bool retryTransientBadRequest = false)
+    /// <summary>
+    /// Deletes one owned object. "deleted" is logged only once Graph accepted the DELETE; whether the object is really gone is
+    /// confirmed by <see cref="VerifyAsync"/>. <paramref name="trustedLocation"/> turns on the 1177 handling of named
+    /// locations: an unmark (unless <paramref name="alreadyUnmarked"/>) and retries until Graph has applied it.
+    /// </summary>
+    private async Task DeleteOwnedAsync(
+        string label,
+        string collectionPath,
+        JsonObject obj,
+        CancellationToken cancellationToken,
+        bool retryTransientBadRequest = false,
+        bool trustedLocation = false,
+        bool alreadyUnmarked = false)
     {
         string name = Describe(obj);
         if (!IsOwned(obj))
@@ -367,18 +457,46 @@ internal sealed class TenantCleanup
 
         // Right after the referencing CA policy is deleted, Graph can still answer 400 ("in use") for a while.
         var deadline = DateTime.UtcNow + TransientBadRequestWindow;
+        var started = DateTime.UtcNow;
+        DateTime? trustedDeadline = null;
+        bool unmarked = alreadyUnmarked;
         while (true)
         {
             try
             {
                 await _graph.DeleteAsync(new GraphRequest(collectionPath.TrimEnd('/') + "/" + id), cancellationToken);
-                Log($"deleted {label} {name} ({id})");
+                _deletedIds.Add(id);
+                Log(trustedDeadline is null
+                    ? $"deleted {label} {name} ({id})"
+                    : $"deleted {label} {name} ({id}) after waiting {(DateTime.UtcNow - started).TotalSeconds:F0} s for the unmark to apply");
                 return;
             }
             catch (GraphException ex) when (ex.IsNotFound)
             {
                 Log($"{label} {name} ({id}) was already gone");
                 return;
+            }
+            catch (GraphException ex) when (trustedLocation && IsTrustedLocationError(ex))
+            {
+                if (trustedDeadline is null)
+                {
+                    trustedDeadline = DateTime.UtcNow + TrustedLocationWindow;
+                    if (!unmarked)
+                    {
+                        // The listing did not show the location as trusted (a stale read): Graph says it is, so unmark it now.
+                        unmarked = await UnmarkTrustedAsync(obj, cancellationToken);
+                    }
+
+                    Log($"{label} {name} ({id}): delete answered 1177 (still trusted); retrying every {PollInterval.TotalSeconds:F0} s for up to {TrustedLocationWindow.TotalSeconds:F0} s while the unmark applies");
+                }
+                else if (DateTime.UtcNow >= trustedDeadline)
+                {
+                    string unmarkState = unmarked ? "the unmark PATCH was accepted" : "the unmark PATCH was not accepted";
+                    Leftover($"{label} {name} ({id}) could not be deleted: still trusted {TrustedLocationWindow.TotalSeconds:F0} s later ({unmarkState}): {ex.Code}: {ex.GraphMessage}", id);
+                    return;
+                }
+
+                await Task.Delay(PollInterval, cancellationToken);
             }
             catch (GraphException ex) when (retryTransientBadRequest && ex.Status == HttpStatusCode.BadRequest && !IsTrustedLocationError(ex) && DateTime.UtcNow < deadline)
             {
@@ -387,13 +505,13 @@ internal sealed class TenantCleanup
             }
             catch (GraphException ex)
             {
-                Leftover($"{label} {name} ({id}) could not be deleted: {ex.Code}: {ex.GraphMessage}");
+                Leftover($"{label} {name} ({id}) could not be deleted: {ex.Code}: {ex.GraphMessage}", id);
                 return;
             }
         }
     }
 
-    /// <summary>Code 1177: the location is still trusted. Waiting does not help; unmarking does (<see cref="UnmarkTrustedAsync"/>).</summary>
+    /// <summary>Code 1177: the location is still trusted. It needs an unmark (<see cref="UnmarkTrustedAsync"/>) and then time for Graph to apply it.</summary>
     private static bool IsTrustedLocationError(GraphException ex)
     {
         return string.Equals(ex.Code, "1177", StringComparison.Ordinal)
@@ -471,42 +589,87 @@ internal sealed class TenantCleanup
 
     // ---- verification ----
 
+    /// <summary>
+    /// Lists every owned object again. An object whose DELETE Graph accepted in this sweep but that is still listed is
+    /// confirmed by reading it (<see cref="ConfirmDeletedAsync"/>): listings lag behind deletes. Anything else that remains
+    /// is a leftover (reported once: an object whose delete already failed is not reported again).
+    /// </summary>
     private async Task VerifyAsync(CancellationToken cancellationToken)
     {
-        var remaining = new List<(string Label, JsonObject Item)>();
-        foreach (var item in await ListOwnedAsync("application", "/applications", "displayName", cancellationToken))
+        var remaining = new List<(string Label, string CollectionPath, JsonObject Item)>();
+        void Add(string label, string collectionPath, IEnumerable<JsonObject> items)
         {
-            remaining.Add(("application", item));
+            remaining.AddRange(items.Select(item => (label, collectionPath, item)));
         }
 
-        foreach (var item in await ListOwnedAsync("service principal", "/servicePrincipals", "displayName", cancellationToken))
+        Add("CA policy", PoliciesPath, await ListOwnedAsync("CA policy", PoliciesPath, null, cancellationToken));
+        Add("authentication strength", StrengthsPath, await ListOwnedStrengthsAsync(cancellationToken));
+        Add("authentication context", ContextsPath, (await ListOwnedAsync("authentication context", ContextsPath, null, cancellationToken)).Where(c => IsAllocatableContextId(c.Text("id"))));
+        Add("named location", NamedLocationsPath, await ListOwnedAsync("named location", NamedLocationsPath, null, cancellationToken));
+        Add("application", "/applications", await ListOwnedAsync("application", "/applications", "displayName", cancellationToken));
+        Add("service principal", "/servicePrincipals", await ListOwnedAsync("service principal", "/servicePrincipals", "displayName", cancellationToken));
+        Add("group", "/groups", await ListOwnedAsync("group", "/groups", "displayName", cancellationToken));
+        Add("user", "/users", await ListOwnedByNameOrUpnAsync(cancellationToken));
+        Add("administrative unit", "/directory/administrativeUnits", await ListOwnedAsync("administrative unit", "/directory/administrativeUnits", null, cancellationToken));
+
+        var pending = new List<(string Label, string CollectionPath, JsonObject Item)>();
+        foreach (var entry in remaining)
         {
-            remaining.Add(("service principal", item));
+            string? id = entry.Item.Text("id");
+            if (id is not null && _deletedIds.Contains(id))
+            {
+                pending.Add(entry);
+            }
+            else if (id is null || !_leftoverIds.Contains(id))
+            {
+                Leftover($"{entry.Label} {Describe(entry.Item)} ({id}) is still present after the sweep", id);
+            }
         }
 
-        foreach (var item in await ListOwnedAsync("group", "/groups", "displayName", cancellationToken))
+        await ConfirmDeletedAsync(pending, cancellationToken);
+    }
+
+    /// <summary>Polls objects whose DELETE was accepted but that were still listed, until a GET answers 404 or the window ends.</summary>
+    private async Task ConfirmDeletedAsync(List<(string Label, string CollectionPath, JsonObject Item)> pending, CancellationToken cancellationToken)
+    {
+        if (pending.Count == 0)
         {
-            remaining.Add(("group", item));
+            return;
         }
 
-        foreach (var item in await ListOwnedByNameOrUpnAsync(cancellationToken))
+        var started = DateTime.UtcNow;
+        var deadline = started + DeletionVisibleWindow;
+        while (true)
         {
-            remaining.Add(("user", item));
+            for (int i = pending.Count - 1; i >= 0; i--)
+            {
+                var (label, collectionPath, item) = pending[i];
+                string id = item.RequireId();
+                try
+                {
+                    if (await _graph.GetObjectAsync(new GraphRequest(collectionPath + "/" + id), cancellationToken) is null)
+                    {
+                        Log($"confirmed {label} {Describe(item)} ({id}) is gone ({(DateTime.UtcNow - started).TotalSeconds:F0} s after the verification listing still showed it)");
+                        pending.RemoveAt(i);
+                    }
+                }
+                catch (GraphException)
+                {
+                    // Not confirmable right now; retried until the window ends.
+                }
+            }
+
+            if (pending.Count == 0 || DateTime.UtcNow >= deadline)
+            {
+                break;
+            }
+
+            await Task.Delay(PollInterval, cancellationToken);
         }
 
-        foreach (var item in await ListOwnedAsync("administrative unit", "/directory/administrativeUnits", null, cancellationToken))
+        foreach (var (label, _, item) in pending)
         {
-            remaining.Add(("administrative unit", item));
-        }
-
-        foreach (var item in await ListOwnedAsync("named location", "/identity/conditionalAccess/namedLocations", null, cancellationToken))
-        {
-            remaining.Add(("named location", item));
-        }
-
-        foreach (var (label, item) in remaining)
-        {
-            Leftover($"{label} {Describe(item)} ({item.Text("id")}) is still present after the sweep");
+            Leftover($"{label} {Describe(item)} ({item.Text("id")}): Graph accepted its DELETE, but it is still present {DeletionVisibleWindow.TotalSeconds:F0} s later", item.Text("id"));
         }
     }
 
@@ -535,9 +698,13 @@ internal sealed class TenantCleanup
         _log.Add(line);
     }
 
-    private void Leftover(string line)
+    private void Leftover(string line, string? id = null)
     {
         _log.Add("LEFTOVER " + line);
         _leftovers.Add(line);
+        if (id is not null)
+        {
+            _leftoverIds.Add(id);
+        }
     }
 }

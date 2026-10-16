@@ -153,13 +153,19 @@ when tests failed, the fixture removes whatever is left:
 
 1. **Prefix sweep** (`TenantCleanup`): objects created directly through Graph and tracked with `Fixture.Track(...)`, then everything whose
    `displayName`, `userPrincipalName` or `uniqueName` starts with the prefix, in dependency order: Conditional Access policies (not
-   enforced ones), authentication strengths, contexts (disabled first), named locations, role assignments of owned principals and roles,
-   custom role definitions, administrative units, groups, users, service principals (also by the `appId` of owned applications), applications.
-   Every delete re-checks the prefix right before it is sent and refuses otherwise. A prefix must be at least 10 characters.
+   enforced ones), custom authentication strengths, authentication contexts (only ids `c50`..`c99`, the range the fixture allocates;
+   marked unavailable first), named locations (trusted ones are unmarked first; Graph applies the unmark with a delay, so a delete answered
+   with 1177 is retried every 5 s for up to 90 s), role assignments of owned principals and roles, custom role definitions, administrative
+   units, groups, users, service principals (also by the `appId` of owned applications), applications. Every delete re-checks the prefix right
+   before it is sent and refuses otherwise. A prefix must be at least 10 characters; the Conditional Access scenarios also need it to be at
+   most 20 characters, because Graph limits an authentication strength's name to 30 characters.
 2. **Purge**: the soft-deleted copies (`/directory/deletedItems/microsoft.graph.{application,servicePrincipal,group,user,administrativeUnit}`)
    with the prefix are removed with `DELETE /directory/deletedItems/{id}`, so no name stays reserved for 30 days.
-3. **Report**: `%TEMP%\earm-it\<prefix>\cleanup.log` and a diagnostic message list every action. Anything that could not be removed is
-   a `LEFTOVER` line and makes the fixture teardown fail.
+3. **Verify**: every collection above is listed again. An object Graph accepted a DELETE for but that is still listed is read by id until it
+   answers 404 (up to 90 s; listings lag behind deletes) and logged as `confirmed ... is gone`.
+4. **Report**: `%TEMP%\earm-it\<prefix>\cleanup.log` and a diagnostic message list every action. Each sweep (a manual sweep, the teardown)
+   appends its own section, headed `==== EARM integration cleanup (<trigger>) ...`; the file is never overwritten. A `deleted ...` line means
+   Graph accepted the DELETE. Anything that could not be removed is a `LEFTOVER` line and makes the fixture teardown fail.
 
 The sweep is what catches the objects `deployment delete` cannot: an object a test renamed (a new key is a new object, the old one stays), the old
 assignment of a changed tuple (retained, never removed by EARM), and anything a failed run or a test left behind.
