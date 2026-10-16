@@ -38,13 +38,13 @@ public abstract class IntegrationTestBase
     }
 
     /// <summary>Re-reads until <paramref name="done"/> accepts the value or the time is up (Graph is eventually consistent); returns the last value read.</summary>
-    protected static async Task<T> EventuallyAsync<T>(Func<Task<T>> read, Func<T, bool> done, int seconds = 45)
+    protected static async Task<T> EventuallyAsync<T>(Func<Task<T>> read, Func<T, bool> done, int seconds = 45, int stepSeconds = 3)
     {
         var deadline = DateTime.UtcNow.AddSeconds(seconds);
         T value = await read();
         while (!done(value) && DateTime.UtcNow < deadline)
         {
-            await Task.Delay(TimeSpan.FromSeconds(3), Ct);
+            await Task.Delay(TimeSpan.FromSeconds(stepSeconds), Ct);
             value = await read();
         }
 
@@ -63,6 +63,12 @@ public abstract class IntegrationTestBase
         // The failing operations first: the output tail alone cuts off the head of the document, where they are.
         string? failures = result.DescribeFailures();
         string detail = failures is null ? string.Empty : $"Failed operations:{Environment.NewLine}{failures}{Environment.NewLine}";
+        string? changed = result.DescribeChangedRows();
+        if (changed is not null)
+        {
+            detail += $"Changed rows:{Environment.NewLine}{changed}{Environment.NewLine}";
+        }
+
         Assert.Fail($"{step}: expected exit code {expected} but got {result.ExitCode}.{Environment.NewLine}{detail}{Tail(result.Combined)}");
     }
 
@@ -81,9 +87,55 @@ public abstract class IntegrationTestBase
         AssertExit(0, whatIf, step);
         Assert.True(
             whatIf.Changes.All(c => (string?)c["changeType"] is "NoChange" or "Ignore"),
-            $"{step}: expected only NoChange rows but got: {whatIf.DescribeChanges()}{Environment.NewLine}{Tail(DescribeDeltas(whatIf))}");
-        Assert.Equal(0, EdgeCount(whatIf, "add"));
-        Assert.Equal(0, EdgeCount(whatIf, "remove"));
+            $"{step}: expected only NoChange rows but got: {whatIf.DescribeChanges()}{Environment.NewLine}Changed rows:{Environment.NewLine}{whatIf.DescribeChangedRows()}{Environment.NewLine}{Tail(DescribeDeltas(whatIf))}");
+        Assert.True(
+            EdgeCount(whatIf, "add") == 0 && EdgeCount(whatIf, "remove") == 0,
+            $"{step}: expected no edge changes but got add {EdgeCount(whatIf, "add")}, remove {EdgeCount(whatIf, "remove")}.{Environment.NewLine}Changed rows:{Environment.NewLine}{whatIf.DescribeChangedRows() ?? "(none)"}");
+    }
+
+    /// <summary>
+    /// <see cref="AssertNoChanges"/> for a what-if that follows a write: Graph is eventually consistent on property values and
+    /// edges (docs/engine.md, "Stale property values after an out-of-band change"), so a read right after a successful write can
+    /// still land on a replica that serves the previous state. The what-if is re-run (every 5 s, up to <paramref name="seconds"/>)
+    /// until it reports no changes; the assertion and its message use the last attempt.
+    /// </summary>
+    internal static async Task AssertNoChangesEventuallyAsync(Func<Task<CliResult>> whatIf, string step, int seconds = 90)
+    {
+        int attempts = 0;
+        var last = await EventuallyAsync(
+            async () =>
+            {
+                attempts++;
+                return await whatIf();
+            },
+            IsNoChanges,
+            seconds,
+            stepSeconds: 5);
+        if (attempts > 1)
+        {
+            Observe($"{step}: {attempts} what-if attempts ({(IsNoChanges(last) ? "settled" : "never settled")}).");
+        }
+
+        AssertNoChanges(last, step);
+    }
+
+    private static bool IsNoChanges(CliResult whatIf)
+    {
+        if (whatIf.ExitCode != 0)
+        {
+            return false;
+        }
+
+        try
+        {
+            return whatIf.Changes.All(c => (string?)c["changeType"] is "NoChange" or "Ignore")
+                && EdgeCount(whatIf, "add") == 0
+                && EdgeCount(whatIf, "remove") == 0;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or System.Text.Json.JsonException)
+        {
+            return false;
+        }
     }
 
     /// <summary>Exit 5 (changes found) and the named row has the expected change type.</summary>

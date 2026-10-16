@@ -48,7 +48,7 @@ public sealed class ConditionalAccessScenarioTests : IntegrationTestBase
         Assert.Equal("#microsoft.graph.countryNamedLocation", country.Text("@odata.type"));
         Assert.Equal(["GB", "IE"], country.Strings("countriesAndRegions").Order(StringComparer.Ordinal).ToArray());
 
-        AssertNoChanges(await Fixture.Cli.WhatIfAsync(run, Ct, "--exit-code-on-changes"), "what-if after create");
+        await AssertNoChangesEventuallyAsync(() => Fixture.Cli.WhatIfAsync(run, Ct, "--exit-code-on-changes"), "what-if after create");
 
         // Drift: the trust flag is flipped behind EARM's back.
         await Graph.PatchAsync(new GraphRequest($"{NamedLocations}/{ip.RequireId()}"), new JsonObject { ["@odata.type"] = "#microsoft.graph.ipNamedLocation", ["isTrusted"] = false }, Ct);
@@ -64,7 +64,7 @@ public sealed class ConditionalAccessScenarioTests : IntegrationTestBase
         var driftPreview = await EventuallyAsync(() => Fixture.Cli.WhatIfAsync(run, Ct, "--exit-code-on-changes"), preview => preview.ExitCode == 5 && preview.ChangeTypeOf("/namedLocations/" + ipName) == "Modify", seconds: 60);
         AssertChange(driftPreview, "/namedLocations/" + ipName, "Modify", "what-if after drift");
         AssertCreated(await Fixture.Cli.CreateAsync(run, Ct), "create after drift");
-        AssertNoChanges(await Fixture.Cli.WhatIfAsync(run, Ct, "--exit-code-on-changes"), "what-if after repair");
+        await AssertNoChangesEventuallyAsync(() => Fixture.Cli.WhatIfAsync(run, Ct, "--exit-code-on-changes"), "what-if after repair");
 
         // A template change: another range replaces the first one.
         var changed = run.WithParameter("cidr", "192.0.2.0/24");
@@ -100,7 +100,7 @@ public sealed class ConditionalAccessScenarioTests : IntegrationTestBase
         Assert.Contains(location.RequireId(), policy.Nested("conditions.locations")!.Strings("excludeLocations"));
         Assert.Contains("mfa", policy.Nested("grantControls")!.Strings("builtInControls"));
 
-        AssertNoChanges(await Fixture.Cli.WhatIfAsync(run, Ct, "--exit-code-on-changes"), "what-if after create");
+        await AssertNoChangesEventuallyAsync(() => Fixture.Cli.WhatIfAsync(run, Ct, "--exit-code-on-changes"), "what-if after create");
 
         // Drift: somebody disables the policy.
         await Graph.PatchAsync(new GraphRequest($"{Policies}/{policy.RequireId()}"), new JsonObject { ["state"] = "disabled" }, Ct);
@@ -152,7 +152,7 @@ public sealed class ConditionalAccessScenarioTests : IntegrationTestBase
         Assert.Equal(strength.RequireId(), policy.Nested("grantControls.authenticationStrength")!.Text("id"));
         Assert.Contains(contextId, policy.Nested("conditions.applications")!.Strings("includeAuthenticationContextClassReferences"));
 
-        AssertNoChanges(await Fixture.Cli.WhatIfAsync(run, Ct, "--exit-code-on-changes"), "what-if after create");
+        await AssertNoChangesEventuallyAsync(() => Fixture.Cli.WhatIfAsync(run, Ct, "--exit-code-on-changes"), "what-if after create");
 
         // Lifecycle: a changed context description and a changed set of combinations.
         var changed = run.WithParameter("contextDescription", "changed by the integration test");
@@ -166,7 +166,7 @@ public sealed class ConditionalAccessScenarioTests : IntegrationTestBase
         AssertCreated(await Fixture.Cli.CreateAsync(narrowed, Ct), "create with fewer combinations");
         var narrowedStrength = await FindOneEventuallyAsync(Strengths, "displayName", strengthName, found => found is not null && found.Strings("allowedCombinations").SequenceEqual(["fido2"]));
         Assert.Equal(["fido2"], narrowedStrength!.Strings("allowedCombinations").ToArray());
-        AssertNoChanges(await Fixture.Cli.WhatIfAsync(narrowed, Ct, "--exit-code-on-changes"), "what-if after the lifecycle");
+        await AssertNoChangesEventuallyAsync(() => Fixture.Cli.WhatIfAsync(narrowed, Ct, "--exit-code-on-changes"), "what-if after the lifecycle");
 
         // deployment delete: the policy must go before the strength and the context it references.
         var deleted = await Fixture.Cli.DeleteAllAsync(narrowed, Ct);

@@ -60,7 +60,7 @@ public sealed class ApplicationScenarioTests : IntegrationTestBase
         Assert.Contains(federated, f => f.Text("name") == "github-main");
 
         // 2. What-if right after the create: nothing to do.
-        AssertNoChanges(await Fixture.Cli.WhatIfAsync(run, Ct, "--exit-code-on-changes"), "what-if after create");
+        await AssertNoChangesEventuallyAsync(() => Fixture.Cli.WhatIfAsync(run, Ct, "--exit-code-on-changes"), "what-if after create");
 
         // 3. A rerun succeeds, rotates nothing and reports the one-time secret as unavailable.
         var rerun = await Fixture.Cli.CreateAsync(run, Ct);
@@ -72,7 +72,7 @@ public sealed class ApplicationScenarioTests : IntegrationTestBase
         await Graph.PatchAsync(new GraphRequest("/applications/" + appObjectId), new JsonObject { ["displayName"] = appName + "-drifted" }, Ct);
         AssertChange(await Fixture.Cli.WhatIfAsync(run, Ct, "--exit-code-on-changes"), appResource, "Modify", "what-if after drift");
         AssertCreated(await Fixture.Cli.CreateAsync(run, Ct), "create after drift");
-        AssertNoChanges(await Fixture.Cli.WhatIfAsync(run, Ct, "--exit-code-on-changes"), "what-if after repair");
+        await AssertNoChangesEventuallyAsync(() => Fixture.Cli.WhatIfAsync(run, Ct, "--exit-code-on-changes"), "what-if after repair");
         Assert.Equal(appName, (await ApplicationByNameAsync(appName, "displayName"))!.Text("displayName"));
 
         // 5. Complete mode with the application alone never deletes: the service principal, the credential and the FIC stay (their types are not declared).

@@ -54,7 +54,7 @@ public sealed class RoleScenarioTests : IntegrationTestBase
         Assert.Contains((unitScope, role.RequireId()), assignments.Select(a => (a.Scope, a.Role)));
         Assert.Equal(3, assignments.Count);
 
-        AssertNoChanges(await Fixture.Cli.WhatIfAsync(run, Ct, "--exit-code-on-changes"), "what-if after create");
+        await AssertNoChangesEventuallyAsync(() => Fixture.Cli.WhatIfAsync(run, Ct, "--exit-code-on-changes"), "what-if after create");
 
         // Drift: the tenant-scope assignment is removed behind EARM's back and comes back.
         var tenantScoped = assignments.Single(a => a.Scope == "/" && a.Role == directoryReaders);
@@ -94,7 +94,7 @@ public sealed class RoleScenarioTests : IntegrationTestBase
         Assert.Equal(graphSp.RequireId(), grant.Text("resourceId"));
         Assert.Contains("User.Read", (grant.Text("scope") ?? string.Empty).Split(' ', StringSplitOptions.RemoveEmptyEntries));
 
-        AssertNoChanges(await Fixture.Cli.WhatIfAsync(run, Ct, "--exit-code-on-changes"), "what-if after create");
+        await AssertNoChangesEventuallyAsync(() => Fixture.Cli.WhatIfAsync(run, Ct, "--exit-code-on-changes"), "what-if after create");
 
         // Drift: the grant's scope changes; the template wins.
         await Graph.PatchAsync(new GraphRequest("/oauth2PermissionGrants/" + grant.RequireId()), new JsonObject { ["scope"] = "User.Read profile" }, Ct);
@@ -147,7 +147,7 @@ public sealed class RoleScenarioTests : IntegrationTestBase
         AssertCreated(created, "create");
         Assert.False(string.IsNullOrWhiteSpace((string?)SecureOutputs(secretFile)["ciSecret"]?["value"]), "The ci-secret output is empty.");
 
-        AssertNoChanges(await Fixture.Cli.WhatIfAsync(run, Ct, "--exit-code-on-changes"), "what-if after create");
+        await AssertNoChangesEventuallyAsync(() => Fixture.Cli.WhatIfAsync(run, Ct, "--exit-code-on-changes"), "what-if after create");
 
         int managed = created.Json["operations"]!.AsArray().Count(o => (string?)o?["status"] == "Succeeded");
         Assert.True(managed >= 15, $"Expected at least 15 applied resources, found {managed}.");

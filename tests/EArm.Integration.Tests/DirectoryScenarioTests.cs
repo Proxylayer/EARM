@@ -51,7 +51,7 @@ public sealed class DirectoryScenarioTests : IntegrationTestBase
         Assert.Contains(u2, await IdsOfAsync($"/groups/{gb}/owners"));
         Assert.Contains(gc, await IdsOfAsync($"/users/{u2}/memberOf"));
 
-        AssertNoChanges(await Fixture.Cli.WhatIfAsync(run, Ct, "--exit-code-on-changes"), "what-if after create");
+        await AssertNoChangesEventuallyAsync(() => Fixture.Cli.WhatIfAsync(run, Ct, "--exit-code-on-changes"), "what-if after create");
 
         // Drift on both sides: an extra member of ga (target side authoritative: removed) and u2 taken out of gc (principal side: added back).
         await Graph.PostAsync(new GraphRequest($"/groups/{ga}/members/$ref"), new JsonObject { ["@odata.id"] = $"{GraphApiExtensions.Host}/v1.0/directoryObjects/{u2}" }, Ct);
@@ -65,7 +65,7 @@ public sealed class DirectoryScenarioTests : IntegrationTestBase
         AssertCreated(await Fixture.Cli.CreateAsync(run, Ct), "create after edge drift");
         Assert.Equal([u1], (await IdsOfAsync($"/groups/{ga}/members")).ToList());
         Assert.Contains(u2, await IdsOfAsync($"/groups/{gc}/members"));
-        AssertNoChanges(await Fixture.Cli.WhatIfAsync(run, Ct, "--exit-code-on-changes"), "what-if after edge repair");
+        await AssertNoChangesEventuallyAsync(() => Fixture.Cli.WhatIfAsync(run, Ct, "--exit-code-on-changes"), "what-if after edge repair");
 
         // deployment delete removes the declared users and groups (edges go with the objects).
         AssertExit(0, await Fixture.Cli.DeleteAllAsync(run, Ct), "deployment delete");
@@ -106,7 +106,7 @@ public sealed class DirectoryScenarioTests : IntegrationTestBase
         Assert.Equal(generated, (string?)oneTimeSecrets?["/providers/Microsoft.Entra/users/" + Fixture.Upn("u1")]?["generatedPassword"]);
         Assert.Null(oneTimeSecrets?["/providers/Microsoft.Entra/users/" + Fixture.Upn("u2")]);
 
-        AssertNoChanges(await Fixture.Cli.WhatIfAsync(run, Ct, "--exit-code-on-changes"), "what-if after create");
+        await AssertNoChangesEventuallyAsync(() => Fixture.Cli.WhatIfAsync(run, Ct, "--exit-code-on-changes"), "what-if after create");
 
         // Drift of a managed property.
         await Graph.PatchAsync(new GraphRequest("/users/" + u1.RequireId()), new JsonObject { ["jobTitle"] = "Drifted" }, Ct);
@@ -136,6 +136,6 @@ public sealed class DirectoryScenarioTests : IntegrationTestBase
         AssertCreated(await Fixture.Cli.CreateAsync(run, Ct), "create");
         var group = await FindOneEventuallyAsync("/groups", "displayName", Fixture.Name("guests"), found => found is not null, "id");
         Assert.Contains(guest.RequireId(), await IdsOfAsync($"/groups/{group!.RequireId()}/members"));
-        AssertNoChanges(await Fixture.Cli.WhatIfAsync(run, Ct, "--exit-code-on-changes"), "what-if after create");
+        await AssertNoChangesEventuallyAsync(() => Fixture.Cli.WhatIfAsync(run, Ct, "--exit-code-on-changes"), "what-if after create");
     }
 }

@@ -99,6 +99,83 @@ internal sealed record CliResult(int ExitCode, string StandardOutput, string Sta
         return lines.Count == 0 ? null : string.Join(Environment.NewLine, lines.Distinct(StringComparer.Ordinal));
     }
 
+    /// <summary>
+    /// The what-if rows that are not NoChange / Ignore, one block per row (change type, resource id, reasons, then one line per
+    /// delta path with its property change type and before / after), followed by the edge counts when any edge would be added or
+    /// removed; null when standard output is not a JSON document or nothing changes. Assertion messages put this before the
+    /// truncated output tail, which can cut off the changed row.
+    /// </summary>
+    public string? DescribeChangedRows()
+    {
+        JsonObject json;
+        try
+        {
+            json = Json;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or System.Text.Json.JsonException)
+        {
+            return null;
+        }
+
+        var lines = new List<string>();
+        if (json["changes"] is JsonArray changes)
+        {
+            foreach (var change in changes.OfType<JsonObject>().Where(c => (string?)c["changeType"] is not ("NoChange" or "Ignore")))
+            {
+                lines.Add($"  {(string?)change["changeType"]} {(string?)change["resourceId"]}");
+                if ((string?)change["unsupportedReason"] is { } unsupported)
+                {
+                    lines.Add("    unsupported: " + unsupported);
+                }
+
+                if (change["reasons"] is JsonArray reasons && reasons.Count > 0)
+                {
+                    lines.Add("    reasons: " + string.Join(" | ", reasons.Select(r => r?.ToString())));
+                }
+
+                if (change["delta"] is JsonArray delta)
+                {
+                    AddDeltaLines(lines, delta, string.Empty);
+                }
+            }
+        }
+
+        int add = (int?)json["summary"]?["edges"]?["add"] ?? 0;
+        int remove = (int?)json["summary"]?["edges"]?["remove"] ?? 0;
+        if (add != 0 || remove != 0)
+        {
+            lines.Add($"  edges: add {add}, remove {remove}");
+        }
+
+        return lines.Count == 0 ? null : string.Join(Environment.NewLine, lines);
+    }
+
+    private static void AddDeltaLines(List<string> lines, JsonArray deltas, string parentPath)
+    {
+        foreach (var delta in deltas.OfType<JsonObject>())
+        {
+            string relative = (string?)delta["path"] ?? string.Empty;
+            string path = parentPath.Length == 0 ? relative : relative.StartsWith('[') ? parentPath + relative : parentPath + "." + relative;
+            string values = string.Empty;
+            if (delta.ContainsKey("before") || delta.ContainsKey("after"))
+            {
+                values = $": {Compact(delta, "before")} -> {Compact(delta, "after")}";
+            }
+
+            lines.Add($"    {(string?)delta["propertyChangeType"]} {path}{values}");
+            if (delta["children"] is JsonArray children)
+            {
+                AddDeltaLines(lines, children, path);
+            }
+        }
+    }
+
+    private static string Compact(JsonObject delta, string key)
+    {
+        string text = !delta.TryGetPropertyValue(key, out var node) ? "(absent)" : node?.ToJsonString() ?? "null";
+        return text.Length <= 200 ? text : text[..200] + "...";
+    }
+
     private static string DescribeOperation(JsonObject o)
     {
         string? code = (string?)o["errorCode"];
