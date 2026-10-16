@@ -1,0 +1,94 @@
+{
+  "template": "samples/pim-eligibility.entra.json",
+  "mode": "delegated",
+  "resourceCount": 5,
+  "permissions": [
+    {
+      "name": "AdministrativeUnit.ReadWrite.All",
+      "kind": "graphDelegated",
+      "resources": [
+        "/providers/Microsoft.Entra/administrativeUnits/EMEA Staff"
+      ],
+      "reasons": [
+        "provider"
+      ]
+    },
+    {
+      "name": "Directory.Read.All",
+      "kind": "graphDelegated",
+      "resources": [
+        "/providers/Microsoft.Entra/roleEligibilityScheduleRequests/2d6d319f-e90c-52c1-8774-69afcd88a442",
+        "/providers/Microsoft.Entra/roleEligibilityScheduleRequests/430f359a-c3de-55e6-9a65-5d151de28187",
+        "/providers/Microsoft.Entra/roleEligibilityScheduleRequests/e605f354-f46a-5598-a195-604d76129450"
+      ],
+      "reasons": [
+        "provider"
+      ]
+    },
+    {
+      "name": "Group.ReadWrite.All",
+      "kind": "graphDelegated",
+      "resources": [
+        "/providers/Microsoft.Entra/groups/pim-helpdesk-admins"
+      ],
+      "reasons": [
+        "provider"
+      ]
+    },
+    {
+      "name": "RoleEligibilitySchedule.ReadWrite.Directory",
+      "kind": "graphDelegated",
+      "resources": [
+        "/providers/Microsoft.Entra/roleEligibilityScheduleRequests/2d6d319f-e90c-52c1-8774-69afcd88a442",
+        "/providers/Microsoft.Entra/roleEligibilityScheduleRequests/430f359a-c3de-55e6-9a65-5d151de28187",
+        "/providers/Microsoft.Entra/roleEligibilityScheduleRequests/e605f354-f46a-5598-a195-604d76129450"
+      ],
+      "reasons": [
+        "provider"
+      ]
+    },
+    {
+      "name": "RoleManagement.ReadWrite.Directory",
+      "kind": "graphDelegated",
+      "resources": [
+        "/providers/Microsoft.Entra/groups/pim-helpdesk-admins"
+      ],
+      "reasons": [
+        "provider"
+      ]
+    }
+  ],
+  "entraRoles": [
+    {
+      "anyOf": [
+        "Groups Administrator"
+      ],
+      "resources": [
+        "/providers/Microsoft.Entra/groups/pim-helpdesk-admins"
+      ],
+      "reasons": [
+        "provider"
+      ]
+    },
+    {
+      "anyOf": [
+        "Privileged Role Administrator"
+      ],
+      "resources": [
+        "/providers/Microsoft.Entra/administrativeUnits/EMEA Staff",
+        "/providers/Microsoft.Entra/groups/pim-helpdesk-admins",
+        "/providers/Microsoft.Entra/roleEligibilityScheduleRequests/2d6d319f-e90c-52c1-8774-69afcd88a442",
+        "/providers/Microsoft.Entra/roleEligibilityScheduleRequests/430f359a-c3de-55e6-9a65-5d151de28187",
+        "/providers/Microsoft.Entra/roleEligibilityScheduleRequests/e605f354-f46a-5598-a195-604d76129450"
+      ],
+      "reasons": [
+        "condition: isAssignableToRole",
+        "provider"
+      ]
+    }
+  ],
+  "notes": [
+    "Delegated scopes must be present on the token that earm auth login obtains (the app registration of --client-id needs them as delegated permissions); the signed-in user must additionally hold at least one role of every 'Entra roles' group (the roles are alternatives).",
+    "Edge permissions are listed for every relationship property the template declares (including an empty array, which removes edges). Key Vault access is an Azure RBAC / access-policy requirement of the signed-in identity, not a Graph permission."
+  ]
+}

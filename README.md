@@ -36,13 +36,14 @@ needed in Azure operated by 21Vianet or in tenants that block the Microsoft app)
 
 Implemented (a working pre-release, see [Limitations](#limitations-v1) for what is deferred):
 
-- **16 resource types**: `applications`, `applications/federatedIdentityCredentials`, `applications/passwordCredentials`, `servicePrincipals`,
+- **17 resource types**: `applications`, `applications/federatedIdentityCredentials`, `applications/passwordCredentials`, `servicePrincipals`,
   `groups`, `users`, `appRoleAssignments`, `oauth2PermissionGrants`, `roleAssignments`, `roleDefinitions`, `administrativeUnits`,
   `conditionalAccess/policies`, `conditionalAccess/namedLocations`, `conditionalAccess/authenticationStrengths`,
-  `conditionalAccess/authenticationContextClassReferences` and `authenticationMethodConfigurations` (the authentication methods policy's tenant
-  singletons: updated, never created) (all under `Microsoft.Entra/`).
+  `conditionalAccess/authenticationContextClassReferences`, `authenticationMethodConfigurations` (the authentication methods policy's tenant
+  singletons: updated, never created) and `roleEligibilityScheduleRequests` (PIM eligibility for directory roles, shaped like ARM's
+  `Microsoft.Authorization/roleEligibilityScheduleRequests`) (all under `Microsoft.Entra/`).
 - The verbs `deployment validate | what-if | create | delete`, `permissions`, `schema print | install` and `auth login | logout | status`.
-- Tests: about 5,990 unit and in-process tests (EArm.Tests, EArm.Providers.Tests, EArm.Graph.Tests; a full `test.ps1` run, build included, takes about 2-3 minutes), against fakes of Graph (an HTTP handler over an in-memory directory)
+- Tests: about 6,200 unit and in-process tests (EArm.Tests, EArm.Providers.Tests, EArm.Graph.Tests; a full `test.ps1` run, build included, takes about 2-3 minutes), against fakes of Graph (an HTTP handler over an in-memory directory)
   and of the sign-in, with about 95 % line and 89 % branch coverage ([tests/COVERAGE.md](tests/COVERAGE.md); how they are organised and reviewed: [docs/testing.md](docs/testing.md)).
   The tenant-backed integration suite is gated behind `EARM_IT_TENANT` and has been run against a development tenant: it is not part of those numbers, and a plain `test.ps1` reports it as `GATED`, not as a pass.
 
@@ -188,7 +189,7 @@ declared resource **in the live tenant by a key derived from its type and `name`
 | `applications/passwordCredentials` | `displayName` `<name>#<rotationTag>` under the parent application (matched by `<name>`) |
 | `conditionalAccess/authenticationContextClassReferences` | its id (`c1`..`c99`) = the `name` |
 | `authenticationMethodConfigurations` | the method id (`fido2`, `temporaryAccessPass`, `sms`...) = the `name`; a tenant singleton that always exists (never created; delete resets or keeps it) |
-| `roleAssignments`, `appRoleAssignments`, `oauth2PermissionGrants` | their tuple (principal, role or resource, scope / consent type); the `guid(...)` `name` is only a label |
+| `roleAssignments`, `roleEligibilityScheduleRequests`, `appRoleAssignments`, `oauth2PermissionGrants` | their tuple (principal, role or resource, scope / consent type); the `guid(...)` `name` is only a label |
 | `conditionalAccess/policies`, `conditionalAccess/namedLocations`, `administrativeUnits`, custom `roleDefinitions`, custom `conditionalAccess/authenticationStrengths` | `displayName` = the `name` |
 
 What follows from it:

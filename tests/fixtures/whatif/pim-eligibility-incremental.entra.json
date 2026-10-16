@@ -1,0 +1,43 @@
+{
+  "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "variables": {
+    "alice": "22222222-0000-0000-0000-000000000001",
+    "admins": "22222222-0000-0000-0000-000000000010"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Entra/roleEligibilityScheduleRequests",
+      "apiVersion": "2026-10-01-preview",
+      "name": "[guid(variables('alice'), 'Global Reader')]",
+      "properties": {
+        "principalId": "[variables('alice')]",
+        "role": "Global Reader",
+        "requestType": "AdminAssign",
+        "justification": "Quarterly review",
+        "scheduleInfo": { "expiration": { "type": "AfterDateTime", "endDateTime": "2030-01-01T00:00:00Z" } }
+      }
+    },
+    {
+      "type": "Microsoft.Entra/roleEligibilityScheduleRequests",
+      "apiVersion": "2026-10-01-preview",
+      "name": "[guid(variables('admins'), 'Security Reader')]",
+      "properties": {
+        "principalId": "[variables('admins')]",
+        "roleDefinitionId": "5d6b6bb7-de71-4623-b4af-96380a352509",
+        "scheduleInfo": { "expiration": { "type": "AfterDateTime", "endDateTime": "2029-06-30T00:00:00Z" } },
+        "ticketInfo": { "ticketNumber": "CHG0001234", "ticketSystem": "ServiceNow" }
+      }
+    },
+    {
+      "type": "Microsoft.Entra/roleEligibilityScheduleRequests",
+      "apiVersion": "2026-10-01-preview",
+      "name": "[guid(variables('alice'), 'User Administrator')]",
+      "properties": {
+        "principalId": "[variables('alice')]",
+        "role": "User Administrator",
+        "scheduleInfo": { "expiration": { "type": "AfterDuration", "duration": "P90D" } }
+      }
+    }
+  ]
+}

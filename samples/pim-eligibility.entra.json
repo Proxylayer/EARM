@@ -1,0 +1,63 @@
+{
+  "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "PIM eligibility for directory roles, written like ARM's Microsoft.Authorization/roleEligibilityScheduleRequests: a role-assignable helpdesk group made permanently eligible for Helpdesk Administrator (an ARM snippet pasted as is), the same group eligible for User Administrator in one administrative unit until a fixed date, and an on-call engineer eligible for Security Reader for 180 days with a change ticket. Eligibilities are matched by (principalId, roleDefinitionId, scope); the guid() name is only a label. Needs Microsoft Entra ID P2 (or ID Governance) and a Privileged Role Administrator (or RoleEligibilitySchedule.ReadWrite.Directory); see docs/permissions.md."
+  },
+  "parameters": {
+    "onCallEngineerId":   { "type": "string", "metadata": { "description": "Object id of the on-call engineer (a user) made eligible for Security Reader." } },
+    "unitEligibilityEnd": { "type": "string", "metadata": { "description": "ISO 8601 end of the administrative-unit-scoped eligibility." } },
+    "changeTicket":       { "type": "string", "defaultValue": "CHG0001234", "metadata": { "description": "Change ticket recorded on the requests (metadata, never compared)." } }
+  },
+  "variables": {
+    "groupName": "pim-helpdesk-admins"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01-preview", "name": "[variables('groupName')]",
+      "properties": { "displayName": "PIM Helpdesk Admins", "mailEnabled": false, "mailNickname": "pim-helpdesk-admins", "securityEnabled": true, "isAssignableToRole": true }
+    },
+    {
+      "type": "Microsoft.Entra/administrativeUnits", "apiVersion": "2026-10-01-preview", "name": "EMEA Staff",
+      "properties": { "description": "Users of the EMEA offices" }
+    },
+    {
+      "type": "Microsoft.Entra/roleEligibilityScheduleRequests", "apiVersion": "2026-10-01-preview",
+      "name": "[guid(variables('groupName'), 'Helpdesk Administrator', '/')]",
+      "properties": {
+        "principalId": "[reference(variables('groupName')).id]",
+        "roleDefinitionId": "[roleTemplate('Helpdesk Administrator')]",
+        "requestType": "AdminAssign",
+        "justification": "Helpdesk staff activate Helpdesk Administrator through PIM",
+        "scheduleInfo": { "expiration": { "type": "NoExpiration" } }
+      },
+      "dependsOn": ["[resourceId('Microsoft.Entra/groups', variables('groupName'))]"]
+    },
+    {
+      "type": "Microsoft.Entra/roleEligibilityScheduleRequests", "apiVersion": "2026-10-01-preview",
+      "name": "[guid(variables('groupName'), 'User Administrator', 'EMEA Staff')]",
+      "properties": {
+        "principalId": "[reference(variables('groupName')).id]",
+        "role": "User Administrator",
+        "administrativeUnit": "[reference('EMEA Staff').id]",
+        "scheduleInfo": { "expiration": { "type": "AfterDateTime", "endDateTime": "[parameters('unitEligibilityEnd')]" } },
+        "ticketInfo": { "ticketNumber": "[parameters('changeTicket')]", "ticketSystem": "ServiceNow" }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Entra/groups', variables('groupName'))]",
+        "[resourceId('Microsoft.Entra/administrativeUnits', 'EMEA Staff')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Entra/roleEligibilityScheduleRequests", "apiVersion": "2026-10-01-preview",
+      "name": "[guid(parameters('onCallEngineerId'), 'Security Reader', '/')]",
+      "properties": {
+        "principalId": "[parameters('onCallEngineerId')]",
+        "role": "Security Reader",
+        "scheduleInfo": { "expiration": { "type": "AfterDuration", "duration": "P180D" } },
+        "justification": "On-call rotation",
+        "ticketInfo": { "ticketNumber": "[parameters('changeTicket')]", "ticketSystem": "ServiceNow" }
+      }
+    }
+  ]
+}

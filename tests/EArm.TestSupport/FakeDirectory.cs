@@ -42,6 +42,8 @@ public sealed class FakeDirectory
         "identity/conditionalAccess/authenticationContextClassReferences",
         "roleManagement/directory/roleDefinitions",
         "roleManagement/directory/roleAssignments",
+        "roleManagement/directory/roleEligibilityScheduleRequests",
+        "roleManagement/directory/roleEligibilitySchedules",
         "policies/authenticationStrengthPolicies",
         "policies/authenticationMethodsPolicy/authenticationMethodConfigurations",
         "applications",
@@ -116,6 +118,9 @@ public sealed class FakeDirectory
     /// authentication strength, authentication contexts and named locations it referenced are still refused as "referenced" this many times.
     /// </summary>
     public int ConditionalAccessLagAttempts { get; set; }
+
+    /// <summary>PIM eligibility for directory roles (the request endpoint, the schedules, the seeded policy and the processing lag).</summary>
+    public FakeRoleEligibility RoleEligibility { get; } = new();
 
     /// <summary>The clock the 30-day soft-delete retention is measured with; tests move it to expire a deleted item.</summary>
     public TimeProvider Clock { get; set; } = TimeProvider.System;
@@ -374,6 +379,23 @@ public sealed class FakeDirectory
             {
                 // Learn (directory-deleteditems-list): listing /directory/deletedItems without a type is not supported.
                 throw BadRequest("Listing /directory/deletedItems requires a type cast (for example /directory/deletedItems/microsoft.graph.application).", hint);
+            }
+
+            if (FakeRoleEligibility.IsRequests(collectionPath))
+            {
+                return method == "POST"
+                    ? (HttpStatusCode.Created, RoleEligibility.Submit(body, Collection(FakeRoleEligibility.SchedulesPath), LocatePrincipal, hint))
+                    : throw MethodNotAllowed($"{method} is not supported on '{collectionPath}' by the fake.", hint);
+            }
+
+            if (FakeRoleEligibility.IsSchedules(collectionPath))
+            {
+                if (method != "GET")
+                {
+                    throw MethodNotAllowed($"{method} is not supported on '{collectionPath}': schedules change only through schedule requests.", hint);
+                }
+
+                RoleEligibility.BeforeList(Collection(collectionPath));
             }
 
             if (method == "POST" && FakeAuthenticationMethodsPolicy.IsCollection(collectionPath))
@@ -763,6 +785,11 @@ public sealed class FakeDirectory
         }
 
         return null;
+    }
+
+    private (JsonObject Object, string Collection)? LocatePrincipal(string id)
+    {
+        return LocateById(id, out var collectionPath) is { } found ? (found, collectionPath) : null;
     }
 
     private JsonObject? LocateById(string id, out string collectionPath)

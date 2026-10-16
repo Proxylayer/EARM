@@ -149,6 +149,12 @@ public static class EngineDiagnosticCodes
     /// <summary>A <c>roleAssignments</c> declaration is invalid (unknown role, principal or scope).</summary>
     public const string RoleAssignmentInvalid = "RoleAssignmentInvalid";
 
+    /// <summary>A <c>roleEligibilityScheduleRequests</c> declaration is invalid (unknown role, unit or principal, a group that is not role-assignable, a bad schedule).</summary>
+    public const string RoleEligibilityInvalid = "RoleEligibilityInvalid";
+
+    /// <summary>Graph refused a PIM schedule request because a rule of the role's management policy failed (ExpirationRule, JustificationRule, TicketingRule...); the message carries Graph's text.</summary>
+    public const string PimPolicyViolation = "PimPolicyViolation";
+
     /// <summary>A <c>roleDefinitions</c> declaration names a built-in role, which cannot be created, changed or deleted.</summary>
     public const string RoleDefinitionBuiltIn = "RoleDefinitionBuiltIn";
 

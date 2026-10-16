@@ -404,6 +404,7 @@ found = create.
 | `conditionalAccess/authenticationContextClassReferences` | `id` (`c1`..`c99`) | the id |
 | `authenticationMethodConfigurations` | the method id (case-insensitive; Graph id `Fido2`, `Sms`...) | the method id (`fido2`, `sms`...); a tenant singleton: not found is an error, never a create |
 | `roleAssignments` | (`roleDefinitionId`, `principalId`, `directoryScopeId`) | a label (`guid(...)`); not part of the identity |
+| `roleEligibilityScheduleRequests` | (`principalId`, `roleDefinitionId`, `directoryScopeId` or `appScopeId`), Direct eligibility schedules only | a label |
 | `appRoleAssignments` | (`principalId`, `resourceId`, `appRoleId`) | a label |
 | `oauth2PermissionGrants` | (`clientId`, `resourceId`, `consentType`, `principalId`) | a label |
 | `conditionalAccess/policies`, `conditionalAccess/namedLocations`, `administrativeUnits`, `roleDefinitions` (custom), `conditionalAccess/authenticationStrengths` (custom) | `displayName` (authentication strengths are matched client-side: Graph cannot `$filter` them by `displayName`) | the display name |

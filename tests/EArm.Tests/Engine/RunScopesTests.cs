@@ -45,8 +45,26 @@ public sealed class RunScopesTests
         { "app-with-sp-and-secret.entra.json", "app-with-sp-and-secret.parameters.json" },
         { "tenant-security.entra.json", "tenant-security.parameters.json" },
         { "authentication-methods.entra.json", "authentication-methods.parameters.json" },
+        { "pim-eligibility.entra.json", "pim-eligibility.parameters.json" },
         { "orders-api.entra.json", null },
     };
+
+    // ---- PIM eligibility ----
+
+    [Fact]
+    public async Task PimEligibility_WritesWithRoleEligibilityScheduleReadWrite_AndWhatIfReadsWithItsReadVariant()
+    {
+        var create = await ComputeAsync("pim-eligibility.entra.json", "pim-eligibility.parameters.json", RunVerb.Create);
+        var whatIf = await ComputeAsync("pim-eligibility.entra.json", "pim-eligibility.parameters.json", RunVerb.WhatIf);
+        var delete = await ComputeAsync("pim-eligibility.entra.json", "pim-eligibility.parameters.json", RunVerb.Delete);
+
+        Assert.Contains("RoleEligibilitySchedule.ReadWrite.Directory", create.GraphScopes);
+        Assert.DoesNotContain("RoleEligibilitySchedule.Read.Directory", create.GraphScopes);
+        Assert.Contains("RoleEligibilitySchedule.Read.Directory", whatIf.GraphScopes);
+        Assert.DoesNotContain("RoleEligibilitySchedule.ReadWrite.Directory", whatIf.GraphScopes);
+        Assert.Contains("RoleEligibilitySchedule.ReadWrite.Directory", delete.GraphScopes);
+        Assert.Contains(create.Scopes.Single(s => s.Name == "RoleEligibilitySchedule.ReadWrite.Directory").Resources, r => r.StartsWith("/providers/Microsoft.Entra/roleEligibilityScheduleRequests/", StringComparison.Ordinal));
+    }
 
     // ---- authentication methods policy ----
 

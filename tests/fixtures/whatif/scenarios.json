@@ -79,5 +79,17 @@
     "parameters": {},
     "expectedText": "auth-methods-incremental.expected.txt",
     "expectedJson": "auth-methods-incremental.expected.json"
+  },
+  {
+    "name": "pim-eligibility-incremental",
+    "deploymentName": "pim-eligibility-incremental",
+    "mode": "Incremental",
+    "resultFormat": "FullResourcePayloads",
+    "tenantId": "11111111-1111-1111-1111-111111111111",
+    "template": "pim-eligibility-incremental.entra.json",
+    "seed": "pim-eligibility-incremental.seed.json",
+    "parameters": {},
+    "expectedText": "pim-eligibility-incremental.expected.txt",
+    "expectedJson": "pim-eligibility-incremental.expected.json"
   }
 ]

@@ -56,6 +56,7 @@ public sealed class TemplateValidator : ITemplateValidator
         new FederatedCredentialChecker(document, diagnostics).Run();
         new ConditionalAccessPolicyChecker(document, diagnostics).Run();
         new AuthenticationMethodConfigurationChecker(document, diagnostics).Run();
+        new RoleEligibilityScheduleRequestChecker(document, diagnostics).Run();
 
         var semanticPaths = new HashSet<(string? Source, JsonPath Path)>();
         foreach (var diagnostic in diagnostics)

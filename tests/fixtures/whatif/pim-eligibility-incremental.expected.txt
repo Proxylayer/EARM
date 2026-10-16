@@ -1,0 +1,44 @@
+Deployment 'pim-eligibility-incremental' (Incremental) on tenant 11111111-1111-1111-1111-111111111111
+
+Resource and property changes are indicated with these symbols:
+  + Create
+  ~ Modify
+  - Delete
+  = NoChange
+  * Ignore
+  ? Value only known at deployment time
+  ! Change cannot be applied as planned
+
+The deployment would make the following changes:
+
+  + /providers/Microsoft.Entra/roleEligibilityScheduleRequests/2d7e4bc7-98c2-5547-aafa-449e7b532251 [Microsoft.Entra/roleEligibilityScheduleRequests]
+      name: "2d7e4bc7-98c2-5547-aafa-449e7b532251"
+      type: "Microsoft.Entra/roleEligibilityScheduleRequests"
+      apiVersion: "2026-10-01-preview"
+      properties:
+        principalId: "22222222-0000-0000-0000-000000000001"
+        scheduleInfo:
+          expiration:
+            type: "afterDuration"
+            duration: "P90D"
+        roleDefinitionId: "fe930be7-5e62-47db-91af-98c3a49a38b1"
+        directoryScopeId: "/"
+        justification: "Deployed by earm"
+
+  = /providers/Microsoft.Entra/roleEligibilityScheduleRequests/3a4cf7f1-dab9-5087-8f08-13ac03823e72 [Microsoft.Entra/roleEligibilityScheduleRequests]
+
+  ~ /providers/Microsoft.Entra/roleEligibilityScheduleRequests/3a68d02a-3ccf-526b-a71b-f5304078a044 [Microsoft.Entra/roleEligibilityScheduleRequests]
+      ~ properties.scheduleInfo:
+          ~ expiration:
+              ~ endDateTime: "2028-06-30T00:00:00Z" => "2029-06-30T00:00:00Z"
+      (the eligibility is changed in place with a PIM adminUpdate request)
+
+  * /providers/Microsoft.Entra/roleEligibilityScheduleRequests/33333333-0000-0000-0000-000000000003 [Microsoft.Entra/roleEligibilityScheduleRequests] (orphan: retained)
+      (retained: no longer declared; still grants access (eligible: principalId '22222222-0000-0000-0000-000000000001', roleDefinitionId '88d8e3e3-8f55-4a1e-953a-9b9898b8876b', directoryScopeId '/'). Assignments are never removed: delete it yourself if the access should end.)
+
+Resource changes: 1 to create, 1 to modify, 0 to delete, 1 unchanged, 0 ignored.
+Edges: 0 to add, 0 to remove.
+Orphans: 1 live object(s) not declared in the template (reported only; never deleted).
+Required permissions: Directory.Read.All, RoleEligibilitySchedule.ReadWrite.Directory.
+
+warning AssignmentRetained: '/providers/Microsoft.Entra/roleEligibilityScheduleRequests/33333333-0000-0000-0000-000000000003' (Graph id 33333333-0000-0000-0000-000000000003) is not declared by the template but still grants access (eligible: principalId '22222222-0000-0000-0000-000000000001', roleDefinitionId '88d8e3e3-8f55-4a1e-953a-9b9898b8876b', directoryScopeId '/'); EARM never removes it. Delete it yourself if the access should end.

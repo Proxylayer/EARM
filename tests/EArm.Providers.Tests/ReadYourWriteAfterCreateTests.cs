@@ -33,8 +33,9 @@ public sealed class ReadYourWriteAfterCreateTests
     }
 
     [Fact]
-    public void OnlyTheDisplayNameKeyedTypes_ReadTheirKeyBackAfterACreate()
+    public void OnlyTheDisplayNameKeyedTypesAndPimEligibilities_ReadTheirKeyBackAfterACreate()
     {
+        // PIM processes eligibility requests asynchronously, so its schedule list lags a create like the $filter=displayName lists do.
         var registry = ProviderDiscovery.CreateRegistry(ResourceTypeCatalog.Default);
         var lagging = ResourceTypeCatalog.Default.Types
             .Where(t => registry.Contains(t.Type) && registry.Get(t.Type).KeyReadLagsCreate)
@@ -49,6 +50,7 @@ public sealed class ReadYourWriteAfterCreateTests
                 "Microsoft.Entra/conditionalAccess/namedLocations",
                 "Microsoft.Entra/conditionalAccess/policies",
                 "Microsoft.Entra/roleDefinitions",
+                "Microsoft.Entra/roleEligibilityScheduleRequests",
             ],
             lagging);
     }

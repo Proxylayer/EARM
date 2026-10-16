@@ -103,7 +103,7 @@ public sealed class WhatIfGoldenTests
     {
         var all = WhatIfScenario.All();
 
-        Assert.Equal(["create-incremental", "modify-incremental", "modify-resource-id-only", "orphans-complete", "retained-incremental", "auth-methods-incremental"], all.Select(s => s.Name).ToList());
+        Assert.Equal(["create-incremental", "modify-incremental", "modify-resource-id-only", "orphans-complete", "retained-incremental", "auth-methods-incremental", "pim-eligibility-incremental"], all.Select(s => s.Name).ToList());
         foreach (var scenario in all)
         {
             Assert.True(System.IO.File.Exists(scenario.PathOf(scenario.Template)), scenario.Template);
@@ -178,6 +178,7 @@ public sealed class WhatIfGoldenTests
     [InlineData("orphans-complete", true, 2, 0, 0, 0, 0)]
     [InlineData("retained-incremental", true, 2, 0, 0, 0, 0)]
     [InlineData("auth-methods-incremental", true, 0, 3, 0, 1, 0)]
+    [InlineData("pim-eligibility-incremental", true, 1, 1, 0, 1, 0)]
     public async Task Summary_AndHasChanges_FollowTheScenario(string name, bool hasChanges, int create, int modify, int delete, int noChange, int ignore)
     {
         var report = (await WhatIfScenario.Find(name).PlanAsync()).Report;

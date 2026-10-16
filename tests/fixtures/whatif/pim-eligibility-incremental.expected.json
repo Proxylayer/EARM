@@ -1,0 +1,195 @@
+{
+  "status": "Succeeded",
+  "deploymentName": "pim-eligibility-incremental",
+  "tenantId": "11111111-1111-1111-1111-111111111111",
+  "mode": "Incremental",
+  "changes": [
+    {
+      "resourceId": "/providers/Microsoft.Entra/roleEligibilityScheduleRequests/2d7e4bc7-98c2-5547-aafa-449e7b532251",
+      "changeType": "Create",
+      "after": {
+        "name": "2d7e4bc7-98c2-5547-aafa-449e7b532251",
+        "type": "Microsoft.Entra/roleEligibilityScheduleRequests",
+        "apiVersion": "2026-10-01-preview",
+        "properties": {
+          "principalId": "22222222-0000-0000-0000-000000000001",
+          "scheduleInfo": {
+            "expiration": {
+              "type": "afterDuration",
+              "duration": "P90D"
+            }
+          },
+          "roleDefinitionId": "fe930be7-5e62-47db-91af-98c3a49a38b1",
+          "directoryScopeId": "/",
+          "justification": "Deployed by earm"
+        }
+      },
+      "unsupportedReason": null
+    },
+    {
+      "resourceId": "/providers/Microsoft.Entra/roleEligibilityScheduleRequests/3a4cf7f1-dab9-5087-8f08-13ac03823e72",
+      "changeType": "NoChange",
+      "before": {
+        "name": "3a4cf7f1-dab9-5087-8f08-13ac03823e72",
+        "type": "Microsoft.Entra/roleEligibilityScheduleRequests",
+        "apiVersion": "2026-10-01-preview",
+        "properties": {
+          "principalId": "22222222-0000-0000-0000-000000000001",
+          "roleDefinitionId": "f2ef992c-3afb-46b9-b7cf-a126ee74c451",
+          "directoryScopeId": "/",
+          "justification": "Quarterly review",
+          "scheduleInfo": {
+            "expiration": {
+              "type": "afterDateTime",
+              "endDateTime": "2030-01-01T00:00:00Z"
+            }
+          }
+        }
+      },
+      "after": {
+        "name": "3a4cf7f1-dab9-5087-8f08-13ac03823e72",
+        "type": "Microsoft.Entra/roleEligibilityScheduleRequests",
+        "apiVersion": "2026-10-01-preview",
+        "properties": {
+          "principalId": "22222222-0000-0000-0000-000000000001",
+          "justification": "Quarterly review",
+          "scheduleInfo": {
+            "expiration": {
+              "type": "afterDateTime",
+              "endDateTime": "2030-01-01T00:00:00Z"
+            }
+          },
+          "roleDefinitionId": "f2ef992c-3afb-46b9-b7cf-a126ee74c451",
+          "directoryScopeId": "/"
+        }
+      },
+      "unsupportedReason": null
+    },
+    {
+      "resourceId": "/providers/Microsoft.Entra/roleEligibilityScheduleRequests/3a68d02a-3ccf-526b-a71b-f5304078a044",
+      "changeType": "Modify",
+      "before": {
+        "name": "3a68d02a-3ccf-526b-a71b-f5304078a044",
+        "type": "Microsoft.Entra/roleEligibilityScheduleRequests",
+        "apiVersion": "2026-10-01-preview",
+        "properties": {
+          "principalId": "22222222-0000-0000-0000-000000000010",
+          "roleDefinitionId": "5d6b6bb7-de71-4623-b4af-96380a352509",
+          "directoryScopeId": "/",
+          "justification": "Deployed by earm",
+          "ticketInfo": {
+            "ticketNumber": "CHG0001234",
+            "ticketSystem": "ServiceNow"
+          },
+          "scheduleInfo": {
+            "expiration": {
+              "type": "afterDateTime",
+              "endDateTime": "2028-06-30T00:00:00Z"
+            }
+          }
+        }
+      },
+      "after": {
+        "name": "3a68d02a-3ccf-526b-a71b-f5304078a044",
+        "type": "Microsoft.Entra/roleEligibilityScheduleRequests",
+        "apiVersion": "2026-10-01-preview",
+        "properties": {
+          "principalId": "22222222-0000-0000-0000-000000000010",
+          "roleDefinitionId": "5d6b6bb7-de71-4623-b4af-96380a352509",
+          "scheduleInfo": {
+            "expiration": {
+              "type": "afterDateTime",
+              "endDateTime": "2029-06-30T00:00:00Z"
+            }
+          },
+          "ticketInfo": {
+            "ticketNumber": "CHG0001234",
+            "ticketSystem": "ServiceNow"
+          },
+          "directoryScopeId": "/",
+          "justification": "Deployed by earm"
+        }
+      },
+      "delta": [
+        {
+          "path": "properties.scheduleInfo",
+          "propertyChangeType": "Modify",
+          "before": {
+            "expiration": {
+              "type": "afterDateTime",
+              "endDateTime": "2028-06-30T00:00:00Z"
+            }
+          },
+          "after": {
+            "expiration": {
+              "type": "afterDateTime",
+              "endDateTime": "2029-06-30T00:00:00Z"
+            }
+          },
+          "children": [
+            {
+              "path": "expiration",
+              "propertyChangeType": "Modify",
+              "before": {
+                "type": "afterDateTime",
+                "endDateTime": "2028-06-30T00:00:00Z"
+              },
+              "after": {
+                "type": "afterDateTime",
+                "endDateTime": "2029-06-30T00:00:00Z"
+              },
+              "children": [
+                {
+                  "path": "endDateTime",
+                  "propertyChangeType": "Modify",
+                  "before": "2028-06-30T00:00:00Z",
+                  "after": "2029-06-30T00:00:00Z"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "unsupportedReason": null,
+      "reasons": [
+        "the eligibility is changed in place with a PIM adminUpdate request"
+      ]
+    },
+    {
+      "resourceId": "/providers/Microsoft.Entra/roleEligibilityScheduleRequests/33333333-0000-0000-0000-000000000003",
+      "changeType": "Ignore",
+      "orphan": "retained",
+      "graphId": "33333333-0000-0000-0000-000000000003",
+      "unsupportedReason": null,
+      "reasons": [
+        "retained: no longer declared; still grants access (eligible: principalId '22222222-0000-0000-0000-000000000001', roleDefinitionId '88d8e3e3-8f55-4a1e-953a-9b9898b8876b', directoryScopeId '/'). Assignments are never removed: delete it yourself if the access should end."
+      ]
+    }
+  ],
+  "diagnostics": [
+    {
+      "level": "Warning",
+      "code": "AssignmentRetained",
+      "target": null,
+      "message": "'/providers/Microsoft.Entra/roleEligibilityScheduleRequests/33333333-0000-0000-0000-000000000003' (Graph id 33333333-0000-0000-0000-000000000003) is not declared by the template but still grants access (eligible: principalId '22222222-0000-0000-0000-000000000001', roleDefinitionId '88d8e3e3-8f55-4a1e-953a-9b9898b8876b', directoryScopeId '/'); EARM never removes it. Delete it yourself if the access should end."
+    }
+  ],
+  "requiredPermissions": [
+    "Directory.Read.All",
+    "RoleEligibilitySchedule.ReadWrite.Directory"
+  ],
+  "unresolvedReferences": [],
+  "summary": {
+    "create": 1,
+    "modify": 1,
+    "delete": 0,
+    "noChange": 1,
+    "ignore": 0,
+    "unsupported": 0,
+    "orphans": 1,
+    "edges": {
+      "add": 0,
+      "remove": 0
+    }
+  }
+}

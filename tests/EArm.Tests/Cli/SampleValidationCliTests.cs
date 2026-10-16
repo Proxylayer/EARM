@@ -14,6 +14,7 @@ public sealed class SampleValidationCliTests
     [InlineData("app-with-sp-and-secret.entra.json", "app-with-sp-and-secret.parameters.json")]
     [InlineData("tenant-security.entra.json", "tenant-security.parameters.json")]
     [InlineData("authentication-methods.entra.json", "authentication-methods.parameters.json")]
+    [InlineData("pim-eligibility.entra.json", "pim-eligibility.parameters.json")]
     public async Task EverySample_WithItsParameterFile_PassesWithNoDiagnosticsAtAll(string template, string parameters)
     {
         var result = await CliRunner.ValidateJsonAsync(TestPaths.Sample(template), "-p", "@" + TestPaths.Sample(parameters));

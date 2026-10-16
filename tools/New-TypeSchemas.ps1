@@ -663,6 +663,34 @@ $specs['authenticationMethodConfigurations'] = [ordered]@{
     }
 }
 
+# --- roleEligibilityScheduleRequests (PIM eligibility, ARM-styled) ------------------------------------------------
+$specs['roleEligibilityScheduleRequests'] = [ordered]@{
+    NamePattern = $script:GuidPattern
+    Description = 'A PIM eligible directory role assignment, shaped like ARM''s Microsoft.Authorization/roleEligibilityScheduleRequests. The resource name is a deterministic GUID chosen with guid() (a label, not the identity); the eligibility is matched by (principalId, roleDefinitionId, directoryScopeId or appScopeId) and read live on every run. Created with action adminAssign, changed in place with adminUpdate, removed with adminRemove; justification and ticketInfo are request metadata, sent on every request and never compared. condition, conditionVersion and the target*ScheduleId properties of ARM are refused.'
+    Props       = [ordered]@{
+        principalId        = Guid 'Required: object id of the user, role-assignable group or service principal made eligible.'
+        roleDefinitionId   = Guid 'The role template id (use roleTemplate(''Display Name'')), or use role. Not both.'
+        role               = Str 'EARM sugar: role template id, built-in role name, custom role display name or id; resolved to roleDefinitionId. Not with roleDefinitionId.' -Min 1
+        directoryScopeId   = Str 'Scope: ''/'' (tenant, default), ''/administrativeUnits/{id}'' or ''/{objectId}''. At most one of directoryScopeId, administrativeUnit and appScopeId.' -Pattern '^/'
+        administrativeUnit = Str 'EARM sugar for an administrative-unit scope: the unit''s object id or its displayName; resolved to directoryScopeId.' -Min 1
+        appScopeId         = Str 'An app-specific scope instead of a directory scope (''/'' for tenant-wide app scopes).' -Min 1
+        requestType        = Str 'Optional and only AdminAssign (any casing), so ARM snippets paste unchanged; EARM chooses adminAssign / adminUpdate / adminRemove itself.'
+        scheduleInfo       = Obj -d 'The eligibility period. Absent: permanent (expiration type NoExpiration).' -Props (Props ([ordered]@{
+            startDateTime = Str 'ISO 8601 start; absent or in the past means now (a past start is never drift).'
+            expiration    = Obj -d 'When the eligibility ends.' -Props (Props ([ordered]@{
+                type        = Str 'NoExpiration, AfterDateTime (needs endDateTime) or AfterDuration (needs duration); any casing, sent in Graph''s camelCase.'
+                endDateTime = Str 'AfterDateTime: the ISO 8601 end, after startDateTime. Compared with a 1 s tolerance.'
+                duration    = Str 'AfterDuration: an ISO 8601 duration such as P365D or PT8H. Applied when the eligibility is created and never compared afterwards.'
+            }))
+        }))
+        justification      = Str 'Request metadata, sent on every request and never compared (default "Deployed by earm"); PIM policy may require it.'
+        ticketInfo         = Obj -d 'Request metadata, sent on every request and never compared.' -Props (Props ([ordered]@{
+            ticketNumber = Str 'Ticket number.'
+            ticketSystem = Str 'Ticket system.'
+        }))
+    }
+}
+
 # ---------------------------------------------------------------------------------------------------------------
 # Rewrite the files
 # ---------------------------------------------------------------------------------------------------------------

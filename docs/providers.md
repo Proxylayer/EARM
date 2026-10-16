@@ -468,6 +468,46 @@ Comparison and bodies:
 `errorCode: NotDeletable`, and it does **not** fail the command. A template that also manages `sms` (say) must stay deletable: a refusal that failed the
 run could never succeed, and the method can be switched off with `state: disabled` instead.
 
+### Worked example: PIM eligibility for directory roles
+
+`Microsoft.Entra/roleEligibilityScheduleRequests` (`RoleEligibilityScheduleRequestsProvider`): eligible directory role assignments through Privileged
+Identity Management, written exactly like ARM's `Microsoft.Authorization/roleEligibilityScheduleRequests`, so an ARM snippet pastes unchanged. The
+`name` is a `guid(...)` label; the eligibility is found by its tuple (`principalId`, `roleDefinitionId`, `directoryScopeId` or `appScopeId`) and read
+live on every run. The pure rules (property set, exclusive pairs, schedule rules) are `RoleEligibilityScheduleRules`, shared with the offline checker.
+
+| Property | Meaning |
+|---|---|
+| `principalId` | Required: a user, a **role-assignable** group (checked before any request: `RoleEligibilityInvalid` otherwise) or a service principal |
+| `roleDefinitionId` / `role` | One of them: the role template id, or the EARM sugar `role` (template id, built-in name, custom role name or id, resolved like `roleAssignments`) |
+| `directoryScopeId` / `administrativeUnit` / `appScopeId` | At most one; `administrativeUnit` (id or displayName) is sugar for `/administrativeUnits/{id}`; default `/` |
+| `requestType` | Optional, only `AdminAssign` (any casing): EARM chooses the action itself |
+| `scheduleInfo` | `startDateTime`, `expiration { type, endDateTime, duration }`; absent = NoExpiration (permanent). Types any casing, sent in Graph's camelCase |
+| `justification`, `ticketInfo` | Request metadata: sent with every request, never compared. `justification` defaults to `Deployed by earm` (policies may require one) |
+| `condition`, `conditionVersion`, `target*ScheduleId` | ARM-only: refused (`InvalidRoleEligibilityScheduleRequest` offline, an unsupported row at plan time) |
+
+| Operation | Requests |
+|---|---|
+| Prepare | the `role` / `administrativeUnit` lookups (as for `roleAssignments`), `GET /directoryObjects/{principalId}` and, for a group, `GET /groups/{id}?$select=id,isAssignableToRole` |
+| Read | `GET /roleManagement/directory/roleEligibilitySchedules?$filter=principalId eq '…' and roleDefinitionId eq '…' and directoryScopeId eq '…'` (or `appScopeId`), every page, re-matched client-side and kept to `memberType` Direct (an eligibility inherited through a group is not the declared one) and to schedules that are not revoked. Schedules include future-dated eligibilities (schedule *instances* list only the current ones). |
+| Create | `POST /roleManagement/directory/roleEligibilityScheduleRequests { action: adminAssign, principalId, roleDefinitionId, directoryScopeId, scheduleInfo, justification, ticketInfo }`, then a read-back by tuple. PIM processes requests asynchronously: until the schedule is listed, the request's `targetScheduleId` (the schedule id) stands in, and the engine confirms the key read like other lagging types (`KeyReadLagsCreate`, `KeyAbsenceCheck`). Graph's `RoleAssignmentExists` is adopted: re-read by tuple, or (not listed yet) left to the engine's replication wait on "already exists". |
+| Update | `POST` with `action: adminUpdate` and the full request (in place; never a recreate), then a read-back |
+| Delete | `POST` with `action: adminRemove` (tuple + the default justification); an eligibility that is already gone (`RoleAssignmentDoesNotExist`, 404) is not an error |
+
+Comparison: the live schedule is reduced to the tuple and `scheduleInfo` (`RoleEligibilityScheduleComparison`), and equivalent values are aligned before
+the shared diff, so only real drift is a `Modify`:
+
+- the expiration `type` must match; AfterDateTime compares `endDateTime` within **1 s**;
+- AfterDuration is applied when the eligibility is created and **never compared afterwards** (Graph may report the schedule as AfterDateTime with the
+  computed end): a declared AfterDuration matches a live AfterDuration or AfterDateTime;
+- a declared `startDateTime` in the past is never drift (Graph starts such a schedule now); a future one compares within 1 s; an undeclared start is not
+  compared;
+- `justification` and `ticketInfo` are never compared.
+
+A changed tuple is a **new** eligibility: the template's declaration is created and the old schedule stays, reported as `orphan: retained` with an
+`AssignmentRetained` warning (orphan scope: the Direct eligibilities of the declared principals, `OrphanScope.DeclaredPrincipals`), never removed by a
+deploy. A request refused by the role's PIM policy (`RoleAssignmentRequestPolicyValidationFailed`: an `ExpirationRule` that forbids permanent
+eligibility, a `JustificationRule`, ...) fails the resource with `PimPolicyViolation` and Graph's text. Needs Microsoft Entra ID P2 (or ID Governance).
+
 ## Adding an edge kind
 
 Part B edge kinds (app role assignments, directory roles) live next to their standalone provider and

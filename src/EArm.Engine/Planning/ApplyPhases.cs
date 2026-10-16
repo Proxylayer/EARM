@@ -15,7 +15,7 @@ public static class ApplyPhases
     /// <summary>
     /// 1: namedLocations, authenticationContextClassReferences, authenticationStrengths, authenticationMethodConfigurations, roleDefinitions, users,
     /// applications · 2: servicePrincipals, federatedIdentityCredentials, passwordCredentials · 3: groups ·
-    /// 4: administrativeUnits · 5: roleAssignments, appRoleAssignments, oauth2PermissionGrants ·
+    /// 4: administrativeUnits · 5: roleAssignments, roleEligibilityScheduleRequests, appRoleAssignments, oauth2PermissionGrants ·
     /// 6: conditionalAccess/policies.
     /// </summary>
     public static int Of(string type)
@@ -36,6 +36,7 @@ public static class ApplyPhases
             "groups" => 3,
             "administrativeUnits" => 4,
             "roleAssignments" => 5,
+            "roleEligibilityScheduleRequests" => 5,
             "appRoleAssignments" => 5,
             "oauth2PermissionGrants" => 5,
             "conditionalAccess/policies" => 6,
@@ -44,7 +45,7 @@ public static class ApplyPhases
     }
 
     /// <summary>
-    /// Complete-mode delete order: CA policies → assignments/grants → administrativeUnits → groups →
+    /// Complete-mode delete order: CA policies → assignments/eligibilities/grants → administrativeUnits → groups →
     /// passwordCredentials/federatedIdentityCredentials → servicePrincipals → applications → users → roleDefinitions
     /// → authenticationStrengths → authenticationContextClassReferences → namedLocations → authenticationMethodConfigurations (reset, never removed).
     /// </summary>
@@ -55,6 +56,7 @@ public static class ApplyPhases
         {
             "conditionalAccess/policies" => 1,
             "roleAssignments" => 2,
+            "roleEligibilityScheduleRequests" => 2,
             "appRoleAssignments" => 2,
             "oauth2PermissionGrants" => 2,
             "administrativeUnits" => 3,
@@ -105,6 +107,7 @@ public static class ApplyPhases
         "groups",
         "administrativeUnits",
         "roleAssignments",
+        "roleEligibilityScheduleRequests",
         "appRoleAssignments",
         "oauth2PermissionGrants",
         "conditionalAccess/policies",

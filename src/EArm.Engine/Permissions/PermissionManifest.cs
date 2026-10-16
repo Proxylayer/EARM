@@ -221,9 +221,9 @@ public static class PermissionManifest
                 AddRoles(instance, resource, roles);
             }
 
-            if (instance.Type.EndsWith("/roleAssignments", StringComparison.OrdinalIgnoreCase))
+            if (instance.Type.EndsWith("/roleAssignments", StringComparison.OrdinalIgnoreCase) || instance.Type.EndsWith("/roleEligibilityScheduleRequests", StringComparison.OrdinalIgnoreCase))
             {
-                // A role assignment's principal may be a role-assignable group: GET /groups/{id}?$select=isAssignableToRole (Learn: group-get).
+                // A role assignment's (or eligibility's) principal may be a role-assignable group: GET /groups/{id}?$select=isAssignableToRole (Learn: group-get).
                 graph.Add(ForMode("Group.Read.All", mode), resource, "lookup: role-assignable group check");
             }
 

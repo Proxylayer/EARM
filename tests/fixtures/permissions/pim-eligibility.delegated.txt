@@ -1,0 +1,37 @@
+Permissions required by samples/pim-eligibility.entra.json (mode: delegated, 5 resource(s))
+
+Microsoft Graph delegated permissions
+  AdministrativeUnit.ReadWrite.All
+      /providers/Microsoft.Entra/administrativeUnits/EMEA Staff
+      (provider)
+  Directory.Read.All
+      /providers/Microsoft.Entra/roleEligibilityScheduleRequests/2d6d319f-e90c-52c1-8774-69afcd88a442
+      /providers/Microsoft.Entra/roleEligibilityScheduleRequests/430f359a-c3de-55e6-9a65-5d151de28187
+      /providers/Microsoft.Entra/roleEligibilityScheduleRequests/e605f354-f46a-5598-a195-604d76129450
+      (provider)
+  Group.ReadWrite.All
+      /providers/Microsoft.Entra/groups/pim-helpdesk-admins
+      (provider)
+  RoleEligibilitySchedule.ReadWrite.Directory
+      /providers/Microsoft.Entra/roleEligibilityScheduleRequests/2d6d319f-e90c-52c1-8774-69afcd88a442
+      /providers/Microsoft.Entra/roleEligibilityScheduleRequests/430f359a-c3de-55e6-9a65-5d151de28187
+      /providers/Microsoft.Entra/roleEligibilityScheduleRequests/e605f354-f46a-5598-a195-604d76129450
+      (provider)
+  RoleManagement.ReadWrite.Directory
+      /providers/Microsoft.Entra/groups/pim-helpdesk-admins
+      (provider)
+
+Entra roles (the signed-in user needs at least one role of each group)
+  Groups Administrator
+      /providers/Microsoft.Entra/groups/pim-helpdesk-admins
+      (provider)
+  Privileged Role Administrator
+      /providers/Microsoft.Entra/administrativeUnits/EMEA Staff
+      /providers/Microsoft.Entra/groups/pim-helpdesk-admins
+      /providers/Microsoft.Entra/roleEligibilityScheduleRequests/2d6d319f-e90c-52c1-8774-69afcd88a442
+      /providers/Microsoft.Entra/roleEligibilityScheduleRequests/430f359a-c3de-55e6-9a65-5d151de28187
+      /providers/Microsoft.Entra/roleEligibilityScheduleRequests/e605f354-f46a-5598-a195-604d76129450
+      (condition: isAssignableToRole; provider)
+
+note: Delegated scopes must be present on the token that earm auth login obtains (the app registration of --client-id needs them as delegated permissions); the signed-in user must additionally hold at least one role of every 'Entra roles' group (the roles are alternatives).
+note: Edge permissions are listed for every relationship property the template declares (including an empty array, which removes edges). Key Vault access is an Azure RBAC / access-policy requirement of the signed-in identity, not a Graph permission.

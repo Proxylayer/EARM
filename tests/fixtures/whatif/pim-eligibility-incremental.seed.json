@@ -1,0 +1,16 @@
+[
+  { "collection": "/users", "entity": { "id": "22222222-0000-0000-0000-000000000001", "userPrincipalName": "alice@contoso.com", "displayName": "Alice", "mailNickname": "alice", "accountEnabled": true } },
+  { "collection": "/groups", "entity": { "id": "22222222-0000-0000-0000-000000000010", "displayName": "PIM Admins", "mailNickname": "pim-admins", "mailEnabled": false, "securityEnabled": true, "isAssignableToRole": true } },
+  { "collection": "/roleManagement/directory/roleEligibilitySchedules", "entity": {
+      "id": "33333333-0000-0000-0000-000000000001", "principalId": "22222222-0000-0000-0000-000000000001", "roleDefinitionId": "f2ef992c-3afb-46b9-b7cf-a126ee74c451",
+      "directoryScopeId": "/", "appScopeId": null, "status": "Provisioned", "memberType": "Direct",
+      "scheduleInfo": { "startDateTime": "2026-01-15T09:30:00.217Z", "recurrence": null, "expiration": { "type": "afterDateTime", "endDateTime": "2030-01-01T00:00:00.4Z", "duration": null } } } },
+  { "collection": "/roleManagement/directory/roleEligibilitySchedules", "entity": {
+      "id": "33333333-0000-0000-0000-000000000002", "principalId": "22222222-0000-0000-0000-000000000010", "roleDefinitionId": "5d6b6bb7-de71-4623-b4af-96380a352509",
+      "directoryScopeId": "/", "appScopeId": null, "status": "Provisioned", "memberType": "Direct",
+      "scheduleInfo": { "startDateTime": "2026-01-15T09:30:00Z", "recurrence": null, "expiration": { "type": "afterDateTime", "endDateTime": "2028-06-30T00:00:00Z", "duration": null } } } },
+  { "collection": "/roleManagement/directory/roleEligibilitySchedules", "entity": {
+      "id": "33333333-0000-0000-0000-000000000003", "principalId": "22222222-0000-0000-0000-000000000001", "roleDefinitionId": "88d8e3e3-8f55-4a1e-953a-9b9898b8876b",
+      "directoryScopeId": "/", "appScopeId": null, "status": "Provisioned", "memberType": "Direct",
+      "scheduleInfo": { "startDateTime": "2025-03-01T00:00:00Z", "recurrence": null, "expiration": { "type": "noExpiration", "endDateTime": null, "duration": null } } } }
+]

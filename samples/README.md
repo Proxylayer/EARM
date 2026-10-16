@@ -11,6 +11,7 @@ to a Key Vault secret unless you replace its parameter file's `reference` entry.
 | [`app-with-sp-and-secret.entra.json`](app-with-sp-and-secret.entra.json) | An application with `web`, `api` scopes, `appRoles` and `requiredResourceAccess`, its service principal (named after the application's `appId`), a GitHub Actions federated credential and a rotating client secret; outputs `appId`, the service principal's object id, the tenant id and the secret as a `securestring` | [`app-with-sp-and-secret.parameters.json`](app-with-sp-and-secret.parameters.json) |
 | [`tenant-security.entra.json`](tenant-security.entra.json) | A tenant security baseline: IP and country named locations, a phishing-resistant authentication strength, an authentication context, two report-only Conditional Access policies (with a break-glass exclusion), a role-assignable admin group holding built-in, custom and administrative-unit-scoped directory roles, a custom role definition and an administrative unit | [`tenant-security.parameters.json`](tenant-security.parameters.json) |
 | [`authentication-methods.entra.json`](authentication-methods.entra.json) | The authentication methods policy (tenant singletons, updated and never created): passkeys limited to an AAGUID allow-list through the default passkey profile, one-time Temporary Access Passes for a helpdesk group, certificate-based authentication bound as multi-factor while the live binding rules are kept, and SMS, voice and email one-time passcodes switched off | [`authentication-methods.parameters.json`](authentication-methods.parameters.json) (the allowed AAGUIDs and the helpdesk group id) |
+| [`pim-eligibility.entra.json`](pim-eligibility.entra.json) | PIM eligibility for directory roles in ARM's `roleEligibilityScheduleRequests` shape: a role-assignable group permanently eligible for Helpdesk Administrator (an ARM snippet as is), the same group eligible for User Administrator in an administrative unit until a fixed date (`role` / `administrativeUnit` sugar), and a user eligible for Security Reader for 180 days with a change ticket | [`pim-eligibility.parameters.json`](pim-eligibility.parameters.json) (the engineer's object id and the end date) |
 
 ## Try them
 
@@ -40,5 +41,9 @@ Notes:
   sign-in and password-reset methods for everyone; the FIDO2 allow-list blocks every other passkey model. `earm deployment delete` resets fido2,
   temporaryAccessPass and x509Certificate to the Microsoft default and keeps the other methods (they cannot be reset). Needs an Authentication Policy
   Administrator (or an application with `Policy.ReadWrite.AuthenticationMethod`).
+- `pim-eligibility.entra.json` needs Microsoft Entra ID P2 (or ID Governance) and a Privileged Role Administrator (or an application with
+  `RoleEligibilitySchedule.ReadWrite.Directory`). A role management policy that forbids permanent eligibility refuses the Helpdesk Administrator
+  request (`PimPolicyViolation`): give it an `AfterDateTime` or `AfterDuration` expiration. Changing a principal, role or scope creates a new eligibility
+  and leaves the old one (reported as retained); `earm deployment delete` removes the declared eligibilities with `adminRemove`.
 - `app-with-sp-and-secret.entra.json` returns the client secret exactly once, in the run that creates or rotates it; rerunning without changing `secretTag`
   prints that output as `null` with a warning. Change `secretTag` to rotate.

@@ -26,6 +26,7 @@ public sealed class PermissionsGoldenTests
             ("app-with-sp-and-secret", "app-with-sp-and-secret"),
             ("tenant-security", "tenant-security"),
             ("authentication-methods", "authentication-methods"),
+            ("pim-eligibility", "pim-eligibility"),
         ];
         foreach (var (sample, parameters) in samples)
         {
