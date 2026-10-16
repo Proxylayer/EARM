@@ -142,6 +142,31 @@ public sealed class HttpGraphClientResponseTests
 
         Assert.Equal("header-id", error.RequestId);
         Assert.Equal("echo-id", error.ClientRequestId);
+        Assert.Equal("Graph 400 Request_BadRequest: bad (request-id header-id, client-request-id echo-id)", error.Message);
+    }
+
+    [Fact]
+    public async Task TheMessage_CarriesTheRequestIdsAndTheInnerErrorDate_ForSupport()
+    {
+        var response = ScriptedResponse.Json(
+                """{"error":{"code":"UnauthorizedAccessException","message":"Attempted to perform an unauthorized operation.","innerError":{"date":"2026-10-15T08:00:00","request-id":"inner-id","client-request-id":"inner-client"}}}""",
+                HttpStatusCode.Forbidden)
+            .WithHeader("client-request-id", "echo-id");
+        using var harness = new ClientHarness(new ScriptedHttpHandler(response));
+
+        var error = await Assert.ThrowsAsync<GraphException>(() => harness.Client.GetAsync(new GraphRequest("/x").WithHint(RetryHint.None), Ct));
+
+        Assert.Equal("Graph 403 UnauthorizedAccessException: Attempted to perform an unauthorized operation. (request-id inner-id, client-request-id echo-id, date 2026-10-15T08:00:00)", error.Message);
+    }
+
+    [Fact]
+    public void TheMessage_WithoutIds_IsUnchanged_AndRegisteredSecretsStayMaskedWithIds()
+    {
+        Assert.Equal("Graph 404 Request_ResourceNotFound: gone", new GraphException(HttpStatusCode.NotFound, "Request_ResourceNotFound", "gone").Message);
+
+        var withIds = new GraphException(HttpStatusCode.BadRequest, "Request_BadRequest", "password=Hunter2Secret! rejected", requestId: "r-1", clientRequestId: "c-1");
+        Assert.DoesNotContain("Hunter2Secret!", withIds.Message, StringComparison.Ordinal);
+        Assert.EndsWith("(request-id r-1, client-request-id c-1)", withIds.Message, StringComparison.Ordinal);
     }
 
     [Fact]

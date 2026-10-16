@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Net;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
@@ -20,7 +21,7 @@ public sealed partial class GraphException : Exception
         TimeSpan? retryAfter = null,
         string? requestId = null,
         string? clientRequestId = null)
-        : base(FormatMessage(status, code, graphMessage))
+        : base(FormatMessage(status, code, graphMessage, requestId, clientRequestId, ErrorDate(error)))
     {
         Status = status;
         Code = SecretScrubber.Scrub(code);
@@ -155,10 +156,42 @@ public sealed partial class GraphException : Exception
         return false;
     }
 
-    private static string FormatMessage(HttpStatusCode status, string code, string graphMessage)
+    /// <summary>
+    /// <c>Graph {status} {code}: {message}</c>, followed by the support identifiers Graph returned (<c>request-id</c>, <c>client-request-id</c> and the
+    /// <c>innerError.date</c>) when there are any: a support ticket needs them. Registered secret values and secret-looking fragments are masked.
+    /// </summary>
+    private static string FormatMessage(HttpStatusCode status, string code, string graphMessage, string? requestId, string? clientRequestId, string? date)
     {
         var redacted = SecretRedactor.RedactText(graphMessage ?? string.Empty);
-        return SecretScrubber.Scrub($"Graph {(int)status} {code}: {redacted}".TrimEnd(':', ' '));
+        var text = $"Graph {(int)status} {code}: {redacted}".TrimEnd(':', ' ');
+        var ids = new List<string>(3);
+        if (!string.IsNullOrWhiteSpace(requestId))
+        {
+            ids.Add("request-id " + requestId.Trim());
+        }
+
+        if (!string.IsNullOrWhiteSpace(clientRequestId))
+        {
+            ids.Add("client-request-id " + clientRequestId.Trim());
+        }
+
+        if (!string.IsNullOrWhiteSpace(date))
+        {
+            ids.Add("date " + date.Trim());
+        }
+
+        if (ids.Count > 0)
+        {
+            text += " (" + string.Join(", ", ids) + ")";
+        }
+
+        return SecretScrubber.Scrub(text);
+    }
+
+    /// <summary>The <c>innerError.date</c> of a Graph error object (when Graph answered it), else <c>null</c>.</summary>
+    private static string? ErrorDate(JsonObject? error)
+    {
+        return error?["innerError"] is JsonObject inner && inner["date"] is JsonValue value && value.TryGetValue<string>(out var date) ? date : null;
     }
 
     [GeneratedRegex(@"already exists?\b|Permission entry already exists|Permission being assigned already exists|conflicting object .*? (?:is|are) present|One or more added object references already exist", RegexOptions.IgnoreCase)]
