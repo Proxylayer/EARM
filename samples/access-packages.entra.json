@@ -1,0 +1,131 @@
+{
+  "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "Access packages (entitlement management) for one subscription: a privileged, an operational and a read-only access group (role-assignable) plus the subscription's approver group, one catalog holding the four groups, one access package per access group granting eligible membership (PIM for Groups) of the privileged and operational groups and standing membership of the read-only group, each with an assignment policy that lets every member user request access, requires approval by the approver group and expires the assignment no later than the group's eligibility. The approver group gets its own package with no policy: who approves membership of the approvers is a human decision made outside the template. Eligible roles need the groups onboarded in PIM for Groups first (set grantEligibleMembership to false to grant standing membership until then). Adding the role-assignable groups to the catalog needs a Global Administrator or Privileged Role Administrator; see docs/access-packages.md."
+  },
+  "parameters": {
+    "subscriptionName": { "type": "string", "defaultValue": "Development", "metadata": { "description": "The subscription's display name, used in the group, catalog and package names." } },
+    "subscriptionKey": { "type": "string", "defaultValue": "dev", "metadata": { "description": "The short key used in the groups' uniqueName (pg-<key>-...)." } },
+    "grantEligibleMembership": { "type": "bool", "defaultValue": true, "metadata": { "description": "true: the privileged and operational packages grant Eligible Member (the groups must be onboarded in PIM for Groups); false: Member." } },
+    "privilegedEligibility": { "type": "string", "defaultValue": "P365D", "metadata": { "description": "Assignment duration of the privileged package: no longer than the privileged group's eligibility maximum." } },
+    "operationalEligibility": { "type": "string", "defaultValue": "P365D", "metadata": { "description": "Assignment duration of the operational package: no longer than the operational group's eligibility maximum." } },
+    "readOnlyDuration": { "type": "string", "defaultValue": "P365D", "metadata": { "description": "Assignment duration of the read-only package." } },
+    "approvalTimeout": { "type": "string", "defaultValue": "P14D", "metadata": { "description": "How long a request waits for the approvers before it is denied." } }
+  },
+  "variables": {
+    "eligibleRole": "[if(parameters('grantEligibleMembership'), 'Eligible Member', 'Member')]",
+    "approversName": "[format('pg-{0}-approvers', parameters('subscriptionKey'))]",
+    "catalogName": "[format('PG {0} Access', parameters('subscriptionName'))]",
+    "approvalPolicyName": "[format('Approval by PG {0} Approvers', parameters('subscriptionName'))]",
+    "tiers": [
+      { "key": "privileged", "label": "Privileged Access", "role": "[variables('eligibleRole')]", "duration": "[parameters('privilegedEligibility')]" },
+      { "key": "operational", "label": "Operational Access", "role": "[variables('eligibleRole')]", "duration": "[parameters('operationalEligibility')]" },
+      { "key": "read-only", "label": "Read-Only Access", "role": "Member", "duration": "[parameters('readOnlyDuration')]" }
+    ]
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01-preview", "name": "[variables('approversName')]",
+      "properties": { "displayName": "[format('PG {0} Approvers', parameters('subscriptionName'))]", "mailEnabled": false, "mailNickname": "[variables('approversName')]", "securityEnabled": true, "isAssignableToRole": true }
+    },
+    {
+      "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01-preview",
+      "name": "[format('pg-{0}-{1}-access', parameters('subscriptionKey'), variables('tiers')[copyIndex()].key)]",
+      "copy": { "name": "accessGroups", "count": 3 },
+      "properties": {
+        "displayName": "[format('PG {0} {1}', parameters('subscriptionName'), variables('tiers')[copyIndex()].label)]",
+        "mailEnabled": false,
+        "mailNickname": "[format('pg-{0}-{1}-access', parameters('subscriptionKey'), variables('tiers')[copyIndex()].key)]",
+        "securityEnabled": true,
+        "isAssignableToRole": true
+      }
+    },
+    {
+      "type": "Microsoft.Entra/entitlementManagement/catalogs", "apiVersion": "2026-10-01-preview", "name": "[variables('catalogName')]",
+      "properties": { "description": "[format('Access to the {0} subscription', parameters('subscriptionName'))]" }
+    },
+    {
+      "type": "Microsoft.Entra/entitlementManagement/catalogResources", "apiVersion": "2026-10-01-preview",
+      "name": "[guid(variables('catalogName'), variables('approversName'))]",
+      "properties": {
+        "catalogId": "[reference(variables('catalogName')).id]",
+        "originId": "[reference(variables('approversName')).id]"
+      }
+    },
+    {
+      "type": "Microsoft.Entra/entitlementManagement/catalogResources", "apiVersion": "2026-10-01-preview",
+      "name": "[guid(variables('catalogName'), variables('tiers')[copyIndex()].key)]",
+      "copy": { "name": "catalogGroups", "count": 3 },
+      "properties": {
+        "catalogId": "[reference(variables('catalogName')).id]",
+        "originId": "[reference(resourceId('Microsoft.Entra/groups', format('pg-{0}-{1}-access', parameters('subscriptionKey'), variables('tiers')[copyIndex()].key))).id]"
+      }
+    },
+    {
+      "type": "Microsoft.Entra/entitlementManagement/accessPackages", "apiVersion": "2026-10-01-preview",
+      "name": "[format('PG {0} Approvers', parameters('subscriptionName'))]",
+      "properties": {
+        "catalogId": "[reference(variables('catalogName')).id]",
+        "description": "Membership of the approver group. Its approval settings are decided outside the template."
+      }
+    },
+    {
+      "type": "Microsoft.Entra/entitlementManagement/resourceRoleScopes", "apiVersion": "2026-10-01-preview",
+      "name": "[guid(variables('approversName'), 'Member')]",
+      "properties": {
+        "accessPackageId": "[reference(resourceId('Microsoft.Entra/entitlementManagement/accessPackages', format('PG {0} Approvers', parameters('subscriptionName')))).id]",
+        "resourceOriginId": "[reference(variables('approversName')).id]",
+        "role": "Member"
+      }
+    },
+    {
+      "type": "Microsoft.Entra/entitlementManagement/accessPackages", "apiVersion": "2026-10-01-preview",
+      "name": "[format('PG {0} {1}', parameters('subscriptionName'), variables('tiers')[copyIndex()].label)]",
+      "copy": { "name": "accessPackages", "count": 3 },
+      "properties": {
+        "catalogId": "[reference(variables('catalogName')).id]",
+        "description": "[format('{0} of the {1} access group', variables('tiers')[copyIndex()].role, variables('tiers')[copyIndex()].label)]"
+      }
+    },
+    {
+      "type": "Microsoft.Entra/entitlementManagement/resourceRoleScopes", "apiVersion": "2026-10-01-preview",
+      "name": "[guid(variables('catalogName'), variables('tiers')[copyIndex()].key, 'role')]",
+      "copy": { "name": "packageRoles", "count": 3 },
+      "properties": {
+        "accessPackageId": "[reference(resourceId('Microsoft.Entra/entitlementManagement/accessPackages', format('PG {0} {1}', parameters('subscriptionName'), variables('tiers')[copyIndex()].label))).id]",
+        "resourceOriginId": "[reference(resourceId('Microsoft.Entra/groups', format('pg-{0}-{1}-access', parameters('subscriptionKey'), variables('tiers')[copyIndex()].key))).id]",
+        "role": "[variables('tiers')[copyIndex()].role]"
+      }
+    },
+    {
+      "type": "Microsoft.Entra/entitlementManagement/accessPackages/assignmentPolicies", "apiVersion": "2026-10-01-preview",
+      "name": "[format('PG {0} {1}/{2}', parameters('subscriptionName'), variables('tiers')[copyIndex()].label, variables('approvalPolicyName'))]",
+      "copy": { "name": "approvalPolicies", "count": 3 },
+      "properties": {
+        "description": "[format('Member users request it; PG {0} Approvers approve; it ends after {1}.', parameters('subscriptionName'), variables('tiers')[copyIndex()].duration)]",
+        "allowedTargetScope": "allMemberUsers",
+        "expiration": { "type": "afterDuration", "duration": "[variables('tiers')[copyIndex()].duration]" },
+        "requestorSettings": { "enableTargetsToSelfAddAccess": true, "enableTargetsToSelfRemoveAccess": true, "enableTargetsToSelfUpdateAccess": false, "allowCustomAssignmentSchedule": false },
+        "requestApprovalSettings": {
+          "isApprovalRequiredForAdd": true,
+          "isApprovalRequiredForUpdate": true,
+          "isRequestorJustificationRequired": true,
+          "stages": [
+            {
+              "durationBeforeAutomaticDenial": "[parameters('approvalTimeout')]",
+              "isApproverJustificationRequired": true,
+              "isEscalationEnabled": false,
+              "primaryApprovers": [
+                { "@odata.type": "#microsoft.graph.groupMembers", "groupId": "[reference(variables('approversName')).id]" }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "outputs": {
+    "catalogId": { "type": "string", "value": "[reference(variables('catalogName')).id]" }
+  }
+}

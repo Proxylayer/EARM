@@ -1,0 +1,133 @@
+{
+  "template": "samples/access-packages.entra.json",
+  "mode": "delegated",
+  "resourceCount": 20,
+  "permissions": [
+    {
+      "name": "EntitlementManagement.ReadWrite.All",
+      "kind": "graphDelegated",
+      "resources": [
+        "/providers/Microsoft.Entra/entitlementManagement/accessPackages/PG Development Approvers",
+        "/providers/Microsoft.Entra/entitlementManagement/accessPackages/PG Development Operational Access",
+        "/providers/Microsoft.Entra/entitlementManagement/accessPackages/PG Development Operational Access/assignmentPolicies/Approval by PG Development Approvers",
+        "/providers/Microsoft.Entra/entitlementManagement/accessPackages/PG Development Privileged Access",
+        "/providers/Microsoft.Entra/entitlementManagement/accessPackages/PG Development Privileged Access/assignmentPolicies/Approval by PG Development Approvers",
+        "/providers/Microsoft.Entra/entitlementManagement/accessPackages/PG Development Read-Only Access",
+        "/providers/Microsoft.Entra/entitlementManagement/accessPackages/PG Development Read-Only Access/assignmentPolicies/Approval by PG Development Approvers",
+        "/providers/Microsoft.Entra/entitlementManagement/catalogResources/1d6ddb01-9e70-5a0f-86bd-b55f799fcbf8",
+        "/providers/Microsoft.Entra/entitlementManagement/catalogResources/93e72866-692b-586e-808e-629107a2b8f1",
+        "/providers/Microsoft.Entra/entitlementManagement/catalogResources/9d04dccc-c4fc-5b42-87f4-da05d1c0cf48",
+        "/providers/Microsoft.Entra/entitlementManagement/catalogResources/fbe7f44c-e9ee-5f3d-99b6-c2b92e90efe2",
+        "/providers/Microsoft.Entra/entitlementManagement/catalogs/PG Development Access",
+        "/providers/Microsoft.Entra/entitlementManagement/resourceRoleScopes/840242e0-70e9-57cd-b64e-61179240e472",
+        "/providers/Microsoft.Entra/entitlementManagement/resourceRoleScopes/8b79f1d9-6430-50cd-9310-e78c8db738d8",
+        "/providers/Microsoft.Entra/entitlementManagement/resourceRoleScopes/906909f3-4706-5453-8be4-1429cd3abd53",
+        "/providers/Microsoft.Entra/entitlementManagement/resourceRoleScopes/b8829513-b67f-5a92-a62b-1f9be36f829b"
+      ],
+      "reasons": [
+        "provider"
+      ]
+    },
+    {
+      "name": "Group.ReadWrite.All",
+      "kind": "graphDelegated",
+      "resources": [
+        "/providers/Microsoft.Entra/entitlementManagement/catalogResources/1d6ddb01-9e70-5a0f-86bd-b55f799fcbf8",
+        "/providers/Microsoft.Entra/entitlementManagement/catalogResources/93e72866-692b-586e-808e-629107a2b8f1",
+        "/providers/Microsoft.Entra/entitlementManagement/catalogResources/9d04dccc-c4fc-5b42-87f4-da05d1c0cf48",
+        "/providers/Microsoft.Entra/entitlementManagement/catalogResources/fbe7f44c-e9ee-5f3d-99b6-c2b92e90efe2",
+        "/providers/Microsoft.Entra/groups/pg-dev-approvers",
+        "/providers/Microsoft.Entra/groups/pg-dev-operational-access",
+        "/providers/Microsoft.Entra/groups/pg-dev-privileged-access",
+        "/providers/Microsoft.Entra/groups/pg-dev-read-only-access"
+      ],
+      "reasons": [
+        "provider"
+      ]
+    },
+    {
+      "name": "RoleManagement.ReadWrite.Directory",
+      "kind": "graphDelegated",
+      "resources": [
+        "/providers/Microsoft.Entra/groups/pg-dev-approvers",
+        "/providers/Microsoft.Entra/groups/pg-dev-operational-access",
+        "/providers/Microsoft.Entra/groups/pg-dev-privileged-access",
+        "/providers/Microsoft.Entra/groups/pg-dev-read-only-access"
+      ],
+      "reasons": [
+        "provider"
+      ]
+    }
+  ],
+  "entraRoles": [
+    {
+      "anyOf": [
+        "Groups Administrator"
+      ],
+      "resources": [
+        "/providers/Microsoft.Entra/groups/pg-dev-approvers",
+        "/providers/Microsoft.Entra/groups/pg-dev-operational-access",
+        "/providers/Microsoft.Entra/groups/pg-dev-privileged-access",
+        "/providers/Microsoft.Entra/groups/pg-dev-read-only-access"
+      ],
+      "reasons": [
+        "provider"
+      ]
+    },
+    {
+      "anyOf": [
+        "Identity Governance Administrator"
+      ],
+      "resources": [
+        "/providers/Microsoft.Entra/entitlementManagement/accessPackages/PG Development Approvers",
+        "/providers/Microsoft.Entra/entitlementManagement/accessPackages/PG Development Operational Access",
+        "/providers/Microsoft.Entra/entitlementManagement/accessPackages/PG Development Operational Access/assignmentPolicies/Approval by PG Development Approvers",
+        "/providers/Microsoft.Entra/entitlementManagement/accessPackages/PG Development Privileged Access",
+        "/providers/Microsoft.Entra/entitlementManagement/accessPackages/PG Development Privileged Access/assignmentPolicies/Approval by PG Development Approvers",
+        "/providers/Microsoft.Entra/entitlementManagement/accessPackages/PG Development Read-Only Access",
+        "/providers/Microsoft.Entra/entitlementManagement/accessPackages/PG Development Read-Only Access/assignmentPolicies/Approval by PG Development Approvers",
+        "/providers/Microsoft.Entra/entitlementManagement/catalogs/PG Development Access",
+        "/providers/Microsoft.Entra/entitlementManagement/resourceRoleScopes/840242e0-70e9-57cd-b64e-61179240e472",
+        "/providers/Microsoft.Entra/entitlementManagement/resourceRoleScopes/8b79f1d9-6430-50cd-9310-e78c8db738d8",
+        "/providers/Microsoft.Entra/entitlementManagement/resourceRoleScopes/906909f3-4706-5453-8be4-1429cd3abd53",
+        "/providers/Microsoft.Entra/entitlementManagement/resourceRoleScopes/b8829513-b67f-5a92-a62b-1f9be36f829b"
+      ],
+      "reasons": [
+        "provider"
+      ]
+    },
+    {
+      "anyOf": [
+        "Identity Governance Administrator",
+        "Privileged Role Administrator"
+      ],
+      "resources": [
+        "/providers/Microsoft.Entra/entitlementManagement/catalogResources/1d6ddb01-9e70-5a0f-86bd-b55f799fcbf8",
+        "/providers/Microsoft.Entra/entitlementManagement/catalogResources/93e72866-692b-586e-808e-629107a2b8f1",
+        "/providers/Microsoft.Entra/entitlementManagement/catalogResources/9d04dccc-c4fc-5b42-87f4-da05d1c0cf48",
+        "/providers/Microsoft.Entra/entitlementManagement/catalogResources/fbe7f44c-e9ee-5f3d-99b6-c2b92e90efe2"
+      ],
+      "reasons": [
+        "provider"
+      ]
+    },
+    {
+      "anyOf": [
+        "Privileged Role Administrator"
+      ],
+      "resources": [
+        "/providers/Microsoft.Entra/groups/pg-dev-approvers",
+        "/providers/Microsoft.Entra/groups/pg-dev-operational-access",
+        "/providers/Microsoft.Entra/groups/pg-dev-privileged-access",
+        "/providers/Microsoft.Entra/groups/pg-dev-read-only-access"
+      ],
+      "reasons": [
+        "condition: isAssignableToRole"
+      ]
+    }
+  ],
+  "notes": [
+    "Delegated scopes must be present on the token that earm auth login obtains (the app registration of --client-id needs them as delegated permissions); the signed-in user must additionally hold at least one role of every 'Entra roles' group (the roles are alternatives).",
+    "Edge permissions are listed for every relationship property the template declares (including an empty array, which removes edges). Key Vault access is an Azure RBAC / access-policy requirement of the signed-in identity, not a Graph permission."
+  ]
+}
