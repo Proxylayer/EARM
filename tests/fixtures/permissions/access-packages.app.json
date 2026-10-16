@@ -1,13 +1,14 @@
 {
   "template": "samples/access-packages.entra.json",
   "mode": "app",
-  "resourceCount": 20,
+  "resourceCount": 22,
   "permissions": [
     {
       "name": "EntitlementManagement.ReadWrite.All",
       "kind": "graphApplication",
       "resources": [
         "/providers/Microsoft.Entra/entitlementManagement/accessPackages/PG Development Approvers",
+        "/providers/Microsoft.Entra/entitlementManagement/accessPackages/PG Development Approvers/assignmentPolicies/Approval by PG Tenant Approvers",
         "/providers/Microsoft.Entra/entitlementManagement/accessPackages/PG Development Operational Access",
         "/providers/Microsoft.Entra/entitlementManagement/accessPackages/PG Development Operational Access/assignmentPolicies/Approval by PG Development Approvers",
         "/providers/Microsoft.Entra/entitlementManagement/accessPackages/PG Development Privileged Access",
@@ -39,7 +40,8 @@
         "/providers/Microsoft.Entra/groups/pg-dev-approvers",
         "/providers/Microsoft.Entra/groups/pg-dev-operational-access",
         "/providers/Microsoft.Entra/groups/pg-dev-privileged-access",
-        "/providers/Microsoft.Entra/groups/pg-dev-read-only-access"
+        "/providers/Microsoft.Entra/groups/pg-dev-read-only-access",
+        "/providers/Microsoft.Entra/groups/pg-tenant-approvers"
       ],
       "reasons": [
         "provider"
@@ -62,7 +64,8 @@
         "/providers/Microsoft.Entra/groups/pg-dev-approvers",
         "/providers/Microsoft.Entra/groups/pg-dev-operational-access",
         "/providers/Microsoft.Entra/groups/pg-dev-privileged-access",
-        "/providers/Microsoft.Entra/groups/pg-dev-read-only-access"
+        "/providers/Microsoft.Entra/groups/pg-dev-read-only-access",
+        "/providers/Microsoft.Entra/groups/pg-tenant-approvers"
       ],
       "reasons": [
         "provider"

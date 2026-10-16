@@ -1,8 +1,9 @@
-Permissions required by samples/access-packages.entra.json (mode: delegated, 20 resource(s))
+Permissions required by samples/access-packages.entra.json (mode: delegated, 22 resource(s))
 
 Microsoft Graph delegated permissions
   EntitlementManagement.ReadWrite.All
       /providers/Microsoft.Entra/entitlementManagement/accessPackages/PG Development Approvers
+      /providers/Microsoft.Entra/entitlementManagement/accessPackages/PG Development Approvers/assignmentPolicies/Approval by PG Tenant Approvers
       /providers/Microsoft.Entra/entitlementManagement/accessPackages/PG Development Operational Access
       /providers/Microsoft.Entra/entitlementManagement/accessPackages/PG Development Operational Access/assignmentPolicies/Approval by PG Development Approvers
       /providers/Microsoft.Entra/entitlementManagement/accessPackages/PG Development Privileged Access
@@ -28,12 +29,14 @@ Microsoft Graph delegated permissions
       /providers/Microsoft.Entra/groups/pg-dev-operational-access
       /providers/Microsoft.Entra/groups/pg-dev-privileged-access
       /providers/Microsoft.Entra/groups/pg-dev-read-only-access
+      /providers/Microsoft.Entra/groups/pg-tenant-approvers
       (provider)
   RoleManagement.ReadWrite.Directory
       /providers/Microsoft.Entra/groups/pg-dev-approvers
       /providers/Microsoft.Entra/groups/pg-dev-operational-access
       /providers/Microsoft.Entra/groups/pg-dev-privileged-access
       /providers/Microsoft.Entra/groups/pg-dev-read-only-access
+      /providers/Microsoft.Entra/groups/pg-tenant-approvers
       (provider)
 
 Entra roles (the signed-in user needs at least one role of each group)
@@ -42,9 +45,11 @@ Entra roles (the signed-in user needs at least one role of each group)
       /providers/Microsoft.Entra/groups/pg-dev-operational-access
       /providers/Microsoft.Entra/groups/pg-dev-privileged-access
       /providers/Microsoft.Entra/groups/pg-dev-read-only-access
+      /providers/Microsoft.Entra/groups/pg-tenant-approvers
       (provider)
   Identity Governance Administrator
       /providers/Microsoft.Entra/entitlementManagement/accessPackages/PG Development Approvers
+      /providers/Microsoft.Entra/entitlementManagement/accessPackages/PG Development Approvers/assignmentPolicies/Approval by PG Tenant Approvers
       /providers/Microsoft.Entra/entitlementManagement/accessPackages/PG Development Operational Access
       /providers/Microsoft.Entra/entitlementManagement/accessPackages/PG Development Operational Access/assignmentPolicies/Approval by PG Development Approvers
       /providers/Microsoft.Entra/entitlementManagement/accessPackages/PG Development Privileged Access
@@ -68,6 +73,7 @@ Entra roles (the signed-in user needs at least one role of each group)
       /providers/Microsoft.Entra/groups/pg-dev-operational-access
       /providers/Microsoft.Entra/groups/pg-dev-privileged-access
       /providers/Microsoft.Entra/groups/pg-dev-read-only-access
+      /providers/Microsoft.Entra/groups/pg-tenant-approvers
       (condition: isAssignableToRole)
 
 note: Delegated scopes must be present on the token that earm auth login obtains (the app registration of --client-id needs them as delegated permissions); the signed-in user must additionally hold at least one role of every 'Entra roles' group (the roles are alternatives).

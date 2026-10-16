@@ -1,8 +1,9 @@
-Permissions required by samples/access-packages.entra.json (mode: app, 20 resource(s))
+Permissions required by samples/access-packages.entra.json (mode: app, 22 resource(s))
 
 Microsoft Graph application permissions
   EntitlementManagement.ReadWrite.All
       /providers/Microsoft.Entra/entitlementManagement/accessPackages/PG Development Approvers
+      /providers/Microsoft.Entra/entitlementManagement/accessPackages/PG Development Approvers/assignmentPolicies/Approval by PG Tenant Approvers
       /providers/Microsoft.Entra/entitlementManagement/accessPackages/PG Development Operational Access
       /providers/Microsoft.Entra/entitlementManagement/accessPackages/PG Development Operational Access/assignmentPolicies/Approval by PG Development Approvers
       /providers/Microsoft.Entra/entitlementManagement/accessPackages/PG Development Privileged Access
@@ -28,6 +29,7 @@ Microsoft Graph application permissions
       /providers/Microsoft.Entra/groups/pg-dev-operational-access
       /providers/Microsoft.Entra/groups/pg-dev-privileged-access
       /providers/Microsoft.Entra/groups/pg-dev-read-only-access
+      /providers/Microsoft.Entra/groups/pg-tenant-approvers
       (provider)
   Organization.Read.All
       (every deployment)
@@ -37,6 +39,7 @@ Microsoft Graph application permissions
       /providers/Microsoft.Entra/groups/pg-dev-operational-access
       /providers/Microsoft.Entra/groups/pg-dev-privileged-access
       /providers/Microsoft.Entra/groups/pg-dev-read-only-access
+      /providers/Microsoft.Entra/groups/pg-tenant-approvers
       (provider)
 
 note: Application permissions are Microsoft Graph app roles granted (with admin consent) to the service principal EARM signs in with (AZURE_CLIENT_ID, or the managed identity). Application.ReadWrite.OwnedBy replaces Application.ReadWrite.All for applications the service principal owns.
