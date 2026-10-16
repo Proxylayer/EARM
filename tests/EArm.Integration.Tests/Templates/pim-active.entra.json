@@ -1,0 +1,90 @@
+{
+  "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "Time-bound ACTIVE access through PIM: a disabled test user made an active Message Center Reader for 2 days (AfterDuration), an active member of a prefixed security group for 2 days and its active owner until a fixed date (AfterDateTime). The group declares no members / owners list (that authoritative list would remove the PIM active member; see pim-active-conflicts.entra.json). The names are GUID labels the test passes in. Needs Microsoft Entra ID P2 or ID Governance."
+  },
+  "parameters": {
+    "prefix":     { "type": "string" },
+    "domain":     { "type": "string" },
+    "roleName":   { "type": "string", "metadata": { "description": "GUID label of the active role assignment." } },
+    "memberName": { "type": "string", "metadata": { "description": "GUID label of the active membership." } },
+    "ownerName":  { "type": "string", "metadata": { "description": "GUID label of the active ownership." } },
+    "activeEnd":  { "type": "string", "metadata": { "description": "ISO 8601 end of the active ownership." } }
+  },
+  "variables": {
+    "user":  "[format('{0}-pau@{1}', parameters('prefix'), parameters('domain'))]",
+    "group": "[format('{0}-pagrp', parameters('prefix'))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Entra/users",
+      "apiVersion": "2026-10-01-preview",
+      "name": "[variables('user')]",
+      "properties": {
+        "displayName": "[format('{0}-pau', parameters('prefix'))]",
+        "accountEnabled": false,
+        "jobTitle": "EARM integration test user (PIM active)"
+      }
+    },
+    {
+      "type": "Microsoft.Entra/groups",
+      "apiVersion": "2026-10-01-preview",
+      "name": "[variables('group')]",
+      "properties": {
+        "displayName": "[variables('group')]",
+        "mailEnabled": false,
+        "mailNickname": "[variables('group')]",
+        "securityEnabled": true
+      }
+    },
+    {
+      "type": "Microsoft.Entra/roleAssignmentScheduleRequests",
+      "apiVersion": "2026-10-01-preview",
+      "name": "[parameters('roleName')]",
+      "properties": {
+        "principalId": "[reference(variables('user')).id]",
+        "role": "Message Center Reader",
+        "justification": "EARM integration test",
+        "scheduleInfo": { "expiration": { "type": "AfterDuration", "duration": "P2D" } }
+      },
+      "dependsOn": ["[resourceId('Microsoft.Entra/users', variables('user'))]"]
+    },
+    {
+      "type": "Microsoft.Entra/privilegedAccess/groupAssignmentScheduleRequests",
+      "apiVersion": "2026-10-01-preview",
+      "name": "[parameters('memberName')]",
+      "properties": {
+        "groupId": "[reference(variables('group')).id]",
+        "principalId": "[reference(variables('user')).id]",
+        "accessId": "member",
+        "justification": "EARM integration test",
+        "scheduleInfo": { "expiration": { "type": "AfterDuration", "duration": "P2D" } }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Entra/users', variables('user'))]",
+        "[resourceId('Microsoft.Entra/groups', variables('group'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Entra/privilegedAccess/groupAssignmentScheduleRequests",
+      "apiVersion": "2026-10-01-preview",
+      "name": "[parameters('ownerName')]",
+      "properties": {
+        "groupId": "[reference(variables('group')).id]",
+        "principalId": "[reference(variables('user')).id]",
+        "accessId": "owner",
+        "scheduleInfo": { "expiration": { "type": "AfterDateTime", "endDateTime": "[parameters('activeEnd')]" } },
+        "ticketInfo": { "ticketNumber": "EARM-IT-0003", "ticketSystem": "earm-integration" }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Entra/users', variables('user'))]",
+        "[resourceId('Microsoft.Entra/groups', variables('group'))]"
+      ]
+    }
+  ],
+  "outputs": {
+    "userId":  { "type": "string", "value": "[reference(variables('user')).id]" },
+    "groupId": { "type": "string", "value": "[reference(variables('group')).id]" }
+  }
+}

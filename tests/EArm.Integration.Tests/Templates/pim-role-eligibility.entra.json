@@ -1,0 +1,59 @@
+{
+  "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "PIM eligibility for directory roles: a disabled test user made eligible for Message Center Reader for 30 days (AfterDuration) and for a second low-privilege role (Directory Readers by default) until a fixed date (AfterDateTime) with a ticket. The scenario reruns it (NoChange), moves the end date (adminUpdate), changes the second role (a new tuple: the old eligibility is reported as retained) and deletes it. The names are GUID labels the test passes in; eligibilities are matched by (principalId, roleDefinitionId, directoryScopeId). Needs Microsoft Entra ID P2 or ID Governance."
+  },
+  "parameters": {
+    "prefix": { "type": "string" },
+    "domain": { "type": "string" },
+    "e1Name": { "type": "string", "metadata": { "description": "GUID label of the AfterDuration eligibility." } },
+    "e2Name": { "type": "string", "metadata": { "description": "GUID label of the AfterDateTime eligibility." } },
+    "e2Role": { "type": "string", "defaultValue": "Directory Readers", "metadata": { "description": "Display name of the second role (changing it changes the tuple)." } },
+    "e2End":  { "type": "string", "metadata": { "description": "ISO 8601 end of the AfterDateTime eligibility." } }
+  },
+  "variables": {
+    "user": "[format('{0}-pimu@{1}', parameters('prefix'), parameters('domain'))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Entra/users",
+      "apiVersion": "2026-10-01-preview",
+      "name": "[variables('user')]",
+      "properties": {
+        "displayName": "[format('{0}-pimu', parameters('prefix'))]",
+        "accountEnabled": false,
+        "jobTitle": "EARM integration test user (PIM eligibility)"
+      }
+    },
+    {
+      "type": "Microsoft.Entra/roleEligibilityScheduleRequests",
+      "apiVersion": "2026-10-01-preview",
+      "name": "[parameters('e1Name')]",
+      "properties": {
+        "principalId": "[reference(variables('user')).id]",
+        "role": "Message Center Reader",
+        "justification": "EARM integration test",
+        "scheduleInfo": { "expiration": { "type": "AfterDuration", "duration": "P30D" } }
+      },
+      "dependsOn": ["[resourceId('Microsoft.Entra/users', variables('user'))]"]
+    },
+    {
+      "type": "Microsoft.Entra/roleEligibilityScheduleRequests",
+      "apiVersion": "2026-10-01-preview",
+      "name": "[parameters('e2Name')]",
+      "properties": {
+        "principalId": "[reference(variables('user')).id]",
+        "role": "[parameters('e2Role')]",
+        "directoryScopeId": "/",
+        "requestType": "AdminAssign",
+        "scheduleInfo": { "expiration": { "type": "AfterDateTime", "endDateTime": "[parameters('e2End')]" } },
+        "ticketInfo": { "ticketNumber": "EARM-IT-0001", "ticketSystem": "earm-integration" }
+      },
+      "dependsOn": ["[resourceId('Microsoft.Entra/users', variables('user'))]"]
+    }
+  ],
+  "outputs": {
+    "userId": { "type": "string", "value": "[reference(variables('user')).id]" }
+  }
+}

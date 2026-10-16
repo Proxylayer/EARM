@@ -1,0 +1,77 @@
+{
+  "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "PIM for Groups eligibility: a disabled test user made eligible for membership of a prefixed security group for 30 days (AfterDuration) and for its ownership until a fixed date (AfterDateTime; accessId written 'Owner' to exercise the case normalisation). The first request onboards the group in PIM for Groups (permanently; the group is deleted at the end). The names are GUID labels the test passes in; eligibilities are matched by (groupId, principalId, accessId). Needs Microsoft Entra ID P2 or ID Governance."
+  },
+  "parameters": {
+    "prefix":     { "type": "string" },
+    "domain":     { "type": "string" },
+    "memberName": { "type": "string", "metadata": { "description": "GUID label of the member eligibility." } },
+    "ownerName":  { "type": "string", "metadata": { "description": "GUID label of the owner eligibility." } },
+    "ownerEnd":   { "type": "string", "metadata": { "description": "ISO 8601 end of the owner eligibility." } }
+  },
+  "variables": {
+    "user":  "[format('{0}-pgu@{1}', parameters('prefix'), parameters('domain'))]",
+    "group": "[format('{0}-pgrp', parameters('prefix'))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Entra/users",
+      "apiVersion": "2026-10-01-preview",
+      "name": "[variables('user')]",
+      "properties": {
+        "displayName": "[format('{0}-pgu', parameters('prefix'))]",
+        "accountEnabled": false,
+        "jobTitle": "EARM integration test user (PIM for Groups eligibility)"
+      }
+    },
+    {
+      "type": "Microsoft.Entra/groups",
+      "apiVersion": "2026-10-01-preview",
+      "name": "[variables('group')]",
+      "properties": {
+        "displayName": "[variables('group')]",
+        "mailEnabled": false,
+        "mailNickname": "[variables('group')]",
+        "securityEnabled": true
+      }
+    },
+    {
+      "type": "Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests",
+      "apiVersion": "2026-10-01-preview",
+      "name": "[parameters('memberName')]",
+      "properties": {
+        "groupId": "[reference(variables('group')).id]",
+        "principalId": "[reference(variables('user')).id]",
+        "accessId": "member",
+        "justification": "EARM integration test",
+        "scheduleInfo": { "expiration": { "type": "AfterDuration", "duration": "P30D" } }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Entra/users', variables('user'))]",
+        "[resourceId('Microsoft.Entra/groups', variables('group'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests",
+      "apiVersion": "2026-10-01-preview",
+      "name": "[parameters('ownerName')]",
+      "properties": {
+        "groupId": "[reference(variables('group')).id]",
+        "principalId": "[reference(variables('user')).id]",
+        "accessId": "Owner",
+        "scheduleInfo": { "expiration": { "type": "AfterDateTime", "endDateTime": "[parameters('ownerEnd')]" } },
+        "ticketInfo": { "ticketNumber": "EARM-IT-0002", "ticketSystem": "earm-integration" }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Entra/users', variables('user'))]",
+        "[resourceId('Microsoft.Entra/groups', variables('group'))]"
+      ]
+    }
+  ],
+  "outputs": {
+    "userId":  { "type": "string", "value": "[reference(variables('user')).id]" },
+    "groupId": { "type": "string", "value": "[reference(variables('group')).id]" }
+  }
+}

@@ -9,8 +9,8 @@ Four kinds of tests live here:
 
 | Kind | Classes | Purpose |
 |---|---|---|
-| Scenarios | `ApplicationScenarioTests`, `DirectoryScenarioTests`, `ConditionalAccessScenarioTests`, `RoleScenarioTests`, `CleanupScenarioTests` | Create, what-if (NoChange), drift, Complete mode (report only, never deletes), `deployment delete -f` (reverse dependency order), secure outputs and edges, run through the real CLI in-process (`Program.BuildRootCommand`). EARM keeps no state, so every scenario finds its objects by key, as a real run does. |
-| Verification probes (`[Trait("Category","Verify")]`) | `GraphBehaviourProbes`, `GroupMembershipProbes` | One test per open verification TODO. Each exercises one real Graph behaviour the code assumes and asserts the assumption. |
+| Scenarios | `ApplicationScenarioTests`, `DirectoryScenarioTests`, `ConditionalAccessScenarioTests`, `RoleScenarioTests`, `PimScenarioTests`, `AuthMethodScenarioTests`, `CleanupScenarioTests` | Create, what-if (NoChange), drift, Complete mode (report only, never deletes), `deployment delete -f` (reverse dependency order), secure outputs and edges, run through the real CLI in-process (`Program.BuildRootCommand`). EARM keeps no state, so every scenario finds its objects by key, as a real run does. |
+| Verification probes (`[Trait("Category","Verify")]`) | `GraphBehaviourProbes`, `GroupMembershipProbes`, `PimProbes`, `AuthMethodProbes` | One test per open verification TODO. Each exercises one real Graph behaviour the code assumes and asserts the assumption. |
 | Consent probes (`[Trait("Category","Consent")]`) | `ConsentProbes` | Interactive, separately gated (`EARM_IT_CONSENT_PROBE=1`); check the delegated-consent flow on real MSAL output. See [Consent probes](#consent-probes). |
 | Spike probes (`[Trait("Category","Spike")]`) | `DelegatedAuthSpikeProbes` | Interactive, separately gated (`EARM_IT_AUTH_SPIKE=1`); record how Microsoft Entra answers delegated-auth questions. See [Delegated-auth spike (DES-0002)](#delegated-auth-spike-des-0002). |
 
@@ -20,7 +20,9 @@ Four kinds of tests live here:
 
 2. **A dev tenant you can throw objects away in.** Never a production tenant. It needs a **verified domain** (the default
    `*.onmicrosoft.com` domain is fine) and Microsoft Entra ID P1 (or a trial) for the Conditional Access, authentication strength,
-   custom role and role-assignable group scenarios. No Azure subscription is needed.
+   custom role and role-assignable group scenarios. **The PIM scenarios and probes (`EARM_IT_ALLOW_PIM=1`) need Microsoft Entra ID P2 or
+   Microsoft Entra ID Governance** (a P2 trial works); without it every PIM request is refused and those tests fail, so leave the gate off. No
+   Azure subscription is needed.
 
 3. **A sign-in for that tenant: your own user (the main path).** The fixture builds the same stack as the CLI: `EARM_AUTH` / `EARM_TENANT_ID` / `EARM_CLIENT_ID` /
    `EARM_CLOUD` and the `AZURE_*` variables apply (see [docs/cli.md](../../docs/cli.md#signing-in)). Sign in once:
@@ -42,7 +44,10 @@ Four kinds of tests live here:
      ```
 
      (with no gate on, the list drops `AdministrativeUnit.Read.All`, `AppRoleAssignment.ReadWrite.All`, `AuthenticationContext.*`, `DelegatedPermissionGrant.*` and
-     `RoleManagement.ReadWrite.Directory`). The run's set is computed from the templates (`IntegrationScopes`), so trust the printed command over this copy.
+     `RoleManagement.ReadWrite.Directory`). `EARM_IT_ALLOW_PIM=1` adds `RoleEligibilitySchedule.ReadWrite.Directory`, `RoleAssignmentSchedule.ReadWrite.Directory`,
+     `PrivilegedEligibilitySchedule.ReadWrite.AzureADGroup` and `PrivilegedAssignmentSchedule.ReadWrite.AzureADGroup` (plus their read variants for what-if);
+     `EARM_IT_ALLOW_AUTH_METHODS=1` adds `Policy.ReadWrite.AuthenticationMethod`. The run's set is computed from the templates (`IntegrationScopes`), so trust the
+     printed command over this copy.
    * **Or be prompted at the start of the run:** `$env:EARM_IT_INTERACTIVE = '1'` lets the fixture open ONE browser consent prompt for the whole set before the first
      test (only when a person is at the machine; a test host cannot detect that itself). Without it a run never waits for a browser.
 
@@ -74,6 +79,9 @@ Four kinds of tests live here:
    | `DirectoryScenarioTests` (groups, users, guest) | `User.ReadWrite.All`, `Group.ReadWrite.All`, `GroupMember.ReadWrite.All`, `User.Read.All` |
    | `ConditionalAccessScenarioTests` | `Policy.ReadWrite.ConditionalAccess`, `Policy.Read.All`, `Application.Read.All`, `Group.ReadWrite.All`; contexts `AuthenticationContext.ReadWrite.All` |
    | `RoleScenarioTests` | `RoleManagement.ReadWrite.Directory`, `AdministrativeUnit.ReadWrite.All`, `Group.ReadWrite.All`, `AppRoleAssignment.ReadWrite.All`, `DelegatedPermissionGrant.ReadWrite.All`, `Application.Read.All`, `Application.ReadWrite.All` |
+   | `PimScenarioTests`, `PimProbes` | `RoleEligibilitySchedule.ReadWrite.Directory`, `RoleAssignmentSchedule.ReadWrite.Directory`, `PrivilegedEligibilitySchedule.ReadWrite.AzureADGroup`, `PrivilegedAssignmentSchedule.ReadWrite.AzureADGroup`, `RoleManagement.ReadWrite.Directory` (P5 writes a plain role assignment), `User.ReadWrite.All`, `Group.ReadWrite.All`, `Directory.Read.All`; a user also needs **Privileged Role Administrator** (or Global Administrator) |
+   | `AuthMethodScenarioTests`, `AuthMethodProbes` | `Policy.ReadWrite.AuthenticationMethod`; a user also needs **Authentication Policy Administrator** (or Global Administrator) |
+   | PIM cleanup (with `ALLOW_PIM`) | the four `*Schedule.ReadWrite.*` scopes above (`IntegrationScopes.PimCleanupScopes`) |
    | Probes | the union of the above; `B4` (user restore) additionally documents whether `User.DeleteRestore.All` is needed |
    | Purging soft-deleted objects (cleanup) | the type's `*.ReadWrite.All`; users `User.DeleteRestore.All` |
 
@@ -90,6 +98,8 @@ Four kinds of tests live here:
 | `EARM_IT_DOMAIN` | for user tests | A verified domain for user principal names, for example `contoso.onmicrosoft.com`. Tests that create users skip without it. |
 | `EARM_IT_ALLOW_CA` | `=1` | Required for every Conditional Access **policy**, authentication **strength** and **context** test, and for the orders variant. Named locations do not need it. |
 | `EARM_IT_ALLOW_ROLES` | `=1` | Required for the tests that write directory roles, administrative units, role assignments, app role assignments and consent grants (all of `RoleScenarioTests`, including the orders variant). |
+| `EARM_IT_ALLOW_PIM` | `=1` | Required for every PIM test (`PimScenarioTests`, `PimProbes`): directory role eligibilities, PIM for Groups eligibilities and time-bound active role and group assignments of disabled, prefixed test users. Needs Entra ID P2 / ID Governance and `EARM_IT_DOMAIN`. Also turns on the PIM part of the cleanup guard. |
+| `EARM_IT_ALLOW_AUTH_METHODS` | `=1` | Required for `AuthMethodScenarioTests` and `AuthMethodProbes`, which change the **tenant-wide** authentication methods policy. Only safe toggles, always under the snapshot / restore guard (see [Authentication methods: the restore guarantee](#authentication-methods-the-restore-guarantee)). Leave it off in a tenant people sign in to. |
 | `EARM_IT_SWEEP` | `=1` | Enables `It_Cleanup_ManualSweepOfTheConfiguredPrefix` (see Manual cleanup). |
 | `EARM_IT_INTERACTIVE` | `=1` | A person is at the machine: a user sign-in that lacks consent for the run's scopes may open ONE browser consent prompt at the start. Off: the run skips with the `earm auth login --scopes ...` command. Never set it in CI. |
 | `EARM_AUTH` | no | `default` forces the service principal / managed identity of the environment when an `earm auth login` record also exists. |
@@ -101,6 +111,8 @@ $env:EARM_IT_TENANT = '<tenant-id>'
 $env:EARM_IT_DOMAIN = 'contoso.onmicrosoft.com'
 $env:EARM_IT_ALLOW_CA = '1'        # optional, see the table
 $env:EARM_IT_ALLOW_ROLES = '1'     # optional, see the table
+$env:EARM_IT_ALLOW_PIM = '1'       # optional: needs Entra ID P2 / ID Governance
+$env:EARM_IT_ALLOW_AUTH_METHODS = '1'   # optional: tenant-wide policy, snapshot + restore
 
 pwsh -File build.ps1 -Target EArm.Integration.Tests                                   # compile only
 pwsh -File test.ps1 -Target EArm.Integration.Tests                                    # everything that is enabled
@@ -108,6 +120,8 @@ pwsh -File test.ps1 -Target EArm.Integration.Tests -Filter "Category=Verify"    
 pwsh -File test.ps1 -Target EArm.Integration.Tests -Detailed                         # shows skip reasons, such as the consent command
 pwsh -File test.ps1 -Target EArm.Integration.Tests -Filter "FullyQualifiedName~ApplicationScenarioTests"
 pwsh -File test.ps1 -Target EArm.Integration.Tests -Filter "FullyQualifiedName~It_Probe_F1" -Detailed   # diagnose one probe
+pwsh -File test.ps1 -Target EArm.Integration.Tests -Filter "FullyQualifiedName~PimScenarioTests|FullyQualifiedName~PimProbes" -Detailed   # PIM only
+pwsh -File test.ps1 -Target EArm.Integration.Tests -Filter "FullyQualifiedName~AuthMethod" -Detailed     # authentication methods only
 ```
 
 With `EARM_IT_TENANT` set, `pwsh -File test.ps1` (no `-Target`) also includes this project. All classes share one xUnit collection
@@ -125,9 +139,17 @@ and run sequentially: they share the sign-in and the cleanup guard, and the in-p
 | `It_Roles_CustomRoleAdministrativeUnitAssignmentAndDirectoryRolesEdge` | `ALLOW_ROLES` |
 | `It_Roles_AppRoleAssignmentsAndOAuth2GrantsAgainstMicrosoftGraph` | `ALLOW_ROLES` |
 | `It_Roles_OrdersSampleVariantCompleteModeAndDeleteRoundTrip` | `DOMAIN`, `ALLOW_CA`, `ALLOW_ROLES` |
+| `It_Pim_RoleEligibilityLifecycleWithAdminUpdateTupleChangeAndDelete` | `DOMAIN`, `ALLOW_PIM` |
+| `It_Pim_GroupEligibilityMemberAndOwnerWithDynamicGroupRefusal` | `DOMAIN`, `ALLOW_PIM` |
+| `It_Pim_TimeBoundActiveRoleAndGroupAssignments` | `DOMAIN`, `ALLOW_PIM` |
+| `It_Pim_ActiveAssignmentConflictsAreRefusedBeforeAnyWrite` | `DOMAIN`, `ALLOW_PIM` (what-if only, nothing is written) |
+| `It_Cleanup_SweepRemovesPimSchedulesOfPrefixedPrincipals` | `DOMAIN`, `ALLOW_PIM` |
+| `It_AuthMethods_SafeToggleRoundTripUnderTheRestoreGuard` | `ALLOW_AUTH_METHODS` |
 | `It_Cleanup_SweepRemovesTrackedGroupWithThePrefix` | - |
 | `It_Cleanup_ManualSweepOfTheConfiguredPrefix` | `SWEEP=1` |
 | `It_Probe_A` ... `It_Probe_H` (15 probes) | A, B1, B2, B3, D, F1-F4, G: -; B4: `DOMAIN`; C, E1, E2: `ALLOW_CA`; H: `DOMAIN`, `ALLOW_ROLES` |
+| `It_Probe_P1` ... `It_Probe_P5` (PIM) | `DOMAIN`, `ALLOW_PIM` |
+| `It_Probe_AM1` ... `It_Probe_AM3` (authentication methods) | `ALLOW_AUTH_METHODS`; AM3 also skips unless Temporary Access Pass is disabled in the tenant |
 
 ## Cost and safety
 
@@ -141,6 +163,12 @@ and run sequentially: they share the sign-in and the cleanup guard, and the in-p
 * Privileged writes (role assignments, app role assignments such as `User.Read.All` on a throw-away service principal, tenant-wide
   consent for `User.Read`) are behind `EARM_IT_ALLOW_ROLES=1`. Read [docs/permissions.md](../../docs/permissions.md) before giving a
   service principal `RoleManagement.ReadWrite.Directory` or `AppRoleAssignment.ReadWrite.All`.
+* PIM (`EARM_IT_ALLOW_PIM=1`): the principals are **disabled** prefixed test users that never sign in, the roles are low-privilege (Message Center
+  Reader, Directory Readers, Reports Reader), schedules are time-bound (2 to 50 days) and removed again by the scenarios, `deployment delete` and the
+  cleanup guard. The first PIM for Groups request onboards the prefixed test group in PIM permanently; the group is deleted at the end. P1 tries
+  requests a default policy may refuse (a permanent group eligibility, a 10-year and a permanent active assignment of Message Center Reader to the
+  disabled user) and removes any that is accepted at once. The conflict scenario only runs what-if: nothing is written.
+* Authentication methods (`EARM_IT_ALLOW_AUTH_METHODS=1`) are **tenant-wide**: see [the restore guarantee](#authentication-methods-the-restore-guarantee).
 * Tenant limits to keep in mind: 500 role-assignable groups, soft-deleted objects count against some quotas for 30 days.
 * Run it in a tenant that no one else is changing at the same time: what-if assertions expect NoChange right after a create.
 
@@ -151,11 +179,16 @@ remove their own deployments with `earm deployment delete -f <template> -p prefi
 declares, found by key, in reverse dependency order). There is no state directory to clean up. At teardown (`IntegrationFixture.DisposeAsync`), also
 when tests failed, the fixture removes whatever is left:
 
+0. **Authentication method restore** (`AuthMethodRestoreGuard`, only when a snapshot is still pending): every configuration a test snapshotted
+   but could not restore itself is PATCHed back to its snapshot and verified (see below); one that still differs is a `LEFTOVER`.
 1. **Prefix sweep** (`TenantCleanup`): objects created directly through Graph and tracked with `Fixture.Track(...)`, then everything whose
    `displayName`, `userPrincipalName` or `uniqueName` starts with the prefix, in dependency order: Conditional Access policies (not
    enforced ones), custom authentication strengths, authentication contexts (only ids `c50`..`c99`, the range the fixture allocates;
    marked unavailable first), named locations (trusted ones are unmarked first; Graph applies the unmark with a delay, so a delete answered
-   with 1177 is retried every 5 s for up to 90 s), role assignments of owned principals and roles, custom role definitions, administrative
+   with 1177 is retried every 5 s for up to 90 s), with `EARM_IT_ALLOW_PIM=1` the PIM schedules of owned principals (`PimCleanup`: directory role
+   eligibilities, time-bound active role assignments, PIM for Groups eligibilities and time-bound active assignments, each removed with an
+   `adminRemove` request and re-listed for up to 60 s; a schedule on a prefixed group whose principal is NOT prefixed is only logged, never removed;
+   permanent assignments go with the role assignment and membership cleanup), role assignments of owned principals and roles, custom role definitions, administrative
    units, groups, users, service principals (also by the `appId` of owned applications), applications. Every delete re-checks the prefix right
    before it is sent and refuses otherwise. A prefix must be at least 10 characters; the Conditional Access scenarios also need it to be at
    most 20 characters, because Graph limits an authentication strength's name to 30 characters.
@@ -168,7 +201,27 @@ when tests failed, the fixture removes whatever is left:
    Graph accepted the DELETE. Anything that could not be removed is a `LEFTOVER` line and makes the fixture teardown fail.
 
 The sweep is what catches the objects `deployment delete` cannot: an object a test renamed (a new key is a new object, the old one stays), the old
-assignment of a changed tuple (retained, never removed by EARM), and anything a failed run or a test left behind.
+assignment of a changed tuple (retained, never removed by EARM), and anything a failed run or a test left behind. Its PIM lines start with `pim:`
+(`pim: adminRemove accepted for ...`, `pim: ... was already gone`, `pim: NOT removing ...`), the restore lines with `auth methods:`.
+
+### Authentication methods: the restore guarantee
+
+The authentication methods policy is a tenant singleton, so these tests can never "create and delete their own copy". Instead:
+
+1. **Snapshot first.** Before anything is changed, `Fixture.AuthMethods.SnapshotAsync(method)` reads the live configuration and keeps it (the first
+   snapshot of a method wins until it is restored). It is also written to `%TEMP%\earm-it\<prefix>\auth-methods\<Method>.json`.
+2. **Safe toggles only.** The scenario changes the Temporary Access Pass length and lifetimes (never its state or targets); the AAGUID list of a FIDO2
+   key restriction only when that restriction is **not enforced** and the tenant has **no passkey profiles** (otherwise FIDO2 is left out); and the
+   Software OATH state only when it is **disabled** (it is enabled for the test and disabled again). No method the tenant relies on is ever disabled,
+   and no `includeTargets` / `excludeTargets` are declared. AM2 only writes live values back; AM3 resets (DELETE) Temporary Access Pass only while it
+   is disabled, and skips otherwise.
+3. **Restore exactly.** The scenario first deploys the snapshot values back with EARM; then, in a `finally`, the guard PATCHes (with the method's
+   `@odata.type`) every top-level property whose live value differs from the snapshot and re-reads until every property equals the snapshot
+   (OData annotations ignored, arrays compared as sets; up to 60 s). The fixture teardown repeats this for every snapshot still pending, also after a
+   failed or aborted test. A configuration that still differs is a `LEFTOVER` (the teardown fails) and its snapshot file is kept.
+
+After a crash, restore by hand from the snapshot file: `PATCH https://graph.microsoft.com/v1.0/policies/authenticationMethodsPolicy/authenticationMethodConfigurations/<Method>`
+with the file's properties (drop `id` and the `@odata.context` annotations, keep `@odata.type`), for example in Graph Explorer.
 
 ### Manual cleanup
 
@@ -191,7 +244,9 @@ DELETE https://graph.microsoft.com/v1.0/directory/deletedItems/<id>      # purge
 ```
 or with the tool itself, for the objects a scenario template declares: `earm deployment delete -f tests/EArm.Integration.Tests/Templates/<template> -p prefix=<prefix> -y`
 (add the scenario's other `-p` values, such as the domain). That removes only what the template declares under that prefix; follow it with the sweep above for the rest.
-Conditional Access policies, strengths and named locations are under *Entra ID > Security > Conditional Access* in the portal.
+Conditional Access policies, strengths and named locations are under *Entra ID > Security > Conditional Access* in the portal. Set `EARM_IT_ALLOW_PIM=1` for
+the manual sweep too when the leaked run used PIM, so the PIM schedules of its principals are removed with `adminRemove` (deleting and purging the
+principal ends them as well); PIM assignments are also visible under *Entra ID > Roles & admins* and *Identity Governance > Privileged Identity Management*.
 
 ## How to read probe failures
 
@@ -215,6 +270,15 @@ A probe asserts an assumption the code makes and names the file to change; the o
 | `F4` app role value change | disable PATCH then re-enable-and-change-value PATCH works (a single-PATCH attempt is **recorded**) | `ApplicationsRules.cs` / `ApplicationsProvider.UpdateAsync` |
 | `G` nested nulls | per sub-property of `web`, `api`, `info`, `spa`, `publicClient`: an explicit `null` clears scalars and collections, but not `web.implicitGrantSettings` / `api.requestedAccessTokenVersion`; prints the whole table | the `nullable` map of the applications overlay |
 | `H` group members (`GroupMembershipProbes`) | a service principal and a user added to a group in one `$batch` (as the edge pass sends them) are both read back, for a plain and a role-assignable security group: the user through v1.0 `/members`, the service principal through the type cast `/members/microsoft.graph.servicePrincipal`; whether v1.0 `/members` lists the service principal is **recorded** | `src/EArm.Engine/Edges/GroupMembershipEdgeKind.cs` (the reads of group members) |
+
+| `P1` PIM errors (`PimProbes`) | a second adminAssign of an existing eligibility fails with an error `PimScheduleRequests.IsAlreadyExists` recognises (or is accepted); an adminRemove of a missing eligibility fails with an error `IsAlreadyGone` recognises (or is accepted); any 400 the default policy answers to a permanent group eligibility, a 10-year or a permanent active role assignment is classified by `IsPolicyViolation`. The exact codes are **recorded**; when no attempt is refused the policy mapping is reported as unverified | `src/EArm.Providers/PimScheduleRequests.cs` |
+| `P2` AfterDuration and ids | an AfterDuration eligibility reads back as `afterDuration` or `afterDateTime` (the read-back shape is **recorded**); the adminAssign response's `targetScheduleId` is the schedule id; after an adminUpdate the tuple lists exactly one Direct schedule (id stability **recorded**) and a fractional-second end reads back within `TimeTolerance` | `PimScheduleComparison.cs`, `PimScheduleRequestsProvider.cs` (`StandInFor`, `TimeTolerance`), `RoleSchedulesLookup.cs` |
+| `P3` group eligibility | a fresh group eligibility passes `IsDirectAndActive` and `GroupSchedulesLookup.Matches` (`memberType` / `accessId` casing **recorded**); the combined `groupId eq … and principalId eq …` filter returns it; whether adminRemove needs `scheduleInfo` is **recorded** (the provider always sends it; asserted to work) | `PimScheduleRequests.cs`, `GroupSchedulesLookup.cs`, `GroupScheduleRequestsProvider.cs` (`RemoveSchedule`) |
+| `P4` PIM-active member | a PIM active group member is listed by `GET /groups/{id}/members` (the delay is **recorded**), which the members-list conflict rests on | `src/EArm.Providers/DeclarationConflicts.cs` |
+| `P5` plain assignment | a plain `roleAssignments` entry reads back as one Direct, Assigned, permanent `roleAssignmentSchedule` (`createdUsing` **recorded**), so the active type refuses to adopt it | `RoleAssignmentScheduleRequestsProvider.cs` (`LiveConflict`), `PimScheduleComparison.IsPermanent` |
+| `AM1` URL segments (`AuthMethodProbes`, read-only) | `GET …/authenticationMethodConfigurations/{PascalCase id}` answers each method with the id and `@odata.type` of the method table; the camelCase segment, the property names, the nested `@odata.type` paths and the FIDO2 legacy / passkey profile properties are **recorded** | `src/EArm.Core/Validation/AuthenticationMethodConfigurationRules.cs` |
+| `AM2` PATCH shape | a PATCH with the derived `@odata.type` works and resending the live `includeTargets` (nested `@odata.type` included) is accepted; the answer to a PATCH **without** `@odata.type` is **recorded** | `AuthenticationMethodConfigurationsProvider.cs` (`UpdateAsync`), `AuthenticationMethodConfigurationsShape.cs` |
+| `AM3` reset | `DELETE` of a disabled Temporary Access Pass is accepted and the configuration still exists afterwards; what the reset changed is **recorded** | `AuthenticationMethodConfigurationRules.cs` (`CanReset`), `AuthenticationMethodConfigurationsProvider.DeleteAsync` |
 
 When all probes of a letter are green the matching verification item can be closed; paste the diagnostic output of
 the **recorded** items into the TODO or into [docs/providers.md](../../docs/providers.md).

@@ -20,6 +20,15 @@ internal enum Needs
 
     /// <summary>Directory roles, administrative units, app role assignments and consent grants may be written (<c>EARM_IT_ALLOW_ROLES=1</c>).</summary>
     Roles = 4,
+
+    /// <summary>PIM eligibilities and time-bound active assignments may be written (<c>EARM_IT_ALLOW_PIM=1</c>; the tenant needs Microsoft Entra ID P2 or ID Governance).</summary>
+    Pim = 8,
+
+    /// <summary>
+    /// The tenant-wide authentication methods policy may be changed (<c>EARM_IT_ALLOW_AUTH_METHODS=1</c>): only safe toggles, under the snapshot / restore
+    /// guard (<see cref="AuthMethodRestoreGuard"/>).
+    /// </summary>
+    AuthMethods = 16,
 }
 
 /// <summary>
@@ -33,6 +42,8 @@ internal sealed record IntegrationSettings
     public const string DomainVariable = "EARM_IT_DOMAIN";
     public const string AllowCaVariable = "EARM_IT_ALLOW_CA";
     public const string AllowRolesVariable = "EARM_IT_ALLOW_ROLES";
+    public const string AllowPimVariable = "EARM_IT_ALLOW_PIM";
+    public const string AllowAuthMethodsVariable = "EARM_IT_ALLOW_AUTH_METHODS";
     public const string SweepVariable = "EARM_IT_SWEEP";
     public const string InteractiveVariable = "EARM_IT_INTERACTIVE";
 
@@ -60,6 +71,12 @@ internal sealed record IntegrationSettings
 
     public bool AllowRoles { get; init; }
 
+    /// <summary><c>EARM_IT_ALLOW_PIM=1</c>: PIM eligibility and time-bound active assignment writes (Entra ID P2 / ID Governance).</summary>
+    public bool AllowPim { get; init; }
+
+    /// <summary><c>EARM_IT_ALLOW_AUTH_METHODS=1</c>: safe, snapshot-guarded changes of the tenant authentication methods policy.</summary>
+    public bool AllowAuthMethods { get; init; }
+
     /// <summary><c>EARM_IT_SWEEP=1</c>: the manual cleanup test may run.</summary>
     public bool SweepRequested { get; init; }
 
@@ -77,7 +94,9 @@ internal sealed record IntegrationSettings
     {
         return (!needs.HasFlag(Needs.Domain) || Domain is not null)
             && (!needs.HasFlag(Needs.ConditionalAccess) || AllowConditionalAccess)
-            && (!needs.HasFlag(Needs.Roles) || AllowRoles);
+            && (!needs.HasFlag(Needs.Roles) || AllowRoles)
+            && (!needs.HasFlag(Needs.Pim) || AllowPim)
+            && (!needs.HasFlag(Needs.AuthMethods) || AllowAuthMethods);
     }
 
     public static IntegrationSettings FromEnvironment()
@@ -104,6 +123,8 @@ internal sealed record IntegrationSettings
             Domain = Read(DomainVariable),
             AllowConditionalAccess = IsOn(AllowCaVariable),
             AllowRoles = IsOn(AllowRolesVariable),
+            AllowPim = IsOn(AllowPimVariable),
+            AllowAuthMethods = IsOn(AllowAuthMethodsVariable),
             SweepRequested = IsOn(SweepVariable),
             InteractiveConsent = IsOn(InteractiveVariable),
         };

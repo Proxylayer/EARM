@@ -1,0 +1,39 @@
+{
+  "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "Authentication method configuration round trip, SAFE TOGGLES ONLY. The values here are placeholders: the scenario snapshots the live configurations first and writes a variant with values derived from the snapshot (never deploy this file as it is). Temporary Access Pass: only the length and lifetimes (state and targets are never declared). FIDO2: only the AAGUID list of a NOT-enforced key restriction (the variant drops the resource unless the live restriction is not enforced and the tenant has no passkey profiles). Software OATH: state, and only when it is disabled in the tenant (the variant drops it otherwise). The scenario restores the snapshot with EARM and verifies it, and the fixture's restore guard restores it again at teardown when needed."
+  },
+  "parameters": {
+    "prefix": { "type": "string" }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Entra/authenticationMethodConfigurations",
+      "apiVersion": "2026-10-01-preview",
+      "name": "temporaryAccessPass",
+      "properties": {
+        "defaultLength": 8,
+        "minimumLifetimeInMinutes": 60,
+        "defaultLifetimeInMinutes": 60,
+        "maximumLifetimeInMinutes": 480
+      }
+    },
+    {
+      "type": "Microsoft.Entra/authenticationMethodConfigurations",
+      "apiVersion": "2026-10-01-preview",
+      "name": "fido2",
+      "properties": {
+        "keyRestrictions": { "isEnforced": false, "aaGuids": [] }
+      }
+    },
+    {
+      "type": "Microsoft.Entra/authenticationMethodConfigurations",
+      "apiVersion": "2026-10-01-preview",
+      "name": "softwareOath",
+      "properties": {
+        "state": "disabled"
+      }
+    }
+  ]
+}
