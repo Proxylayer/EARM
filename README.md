@@ -29,7 +29,7 @@ needed in Azure operated by 21Vianet or in tenants that block the Microsoft app)
 - **No local state**: identity is the resource's type and `name`, resolved by a live read on every run, as in ARM. Nothing to commit, share or lock;
   the only output file a deployment run writes is the secure-outputs file you ask for (plus its `.lock` / `.previous` companions).
 - **Safe by construction**: nothing the template does not declare is ever deleted (Complete mode only reports), replacements need confirmation,
-  secrets tainted and never written to logs or what-if, soft-delete awareness, a Conditional Access enforcement guard.
+  secrets tainted and never written to logs or what-if, soft-delete awareness, a Conditional Access enforcement guard (a declared `state: enabled` stays report-only, or keeps the live state, unless `--allow-ca-enforce`).
 - **Editor support**: JSON Schemas for the envelope and every resource type, installable into VS Code with one command.
 
 ## Status

@@ -380,8 +380,16 @@ location marked trusted outside EARM stays trusted unless the template declares 
 `state` keeps its live state (an enabled or disabled policy is not switched to report-only). `conditions.clientAppTypes:
 ["all"]` and `grantControls.operator: OR` are filled on every run, but only inside a declared `conditions` /
 `grantControls`: Graph replaces those objects whole, so leaving the default out of the PATCH would clear the value.
-`NormalizeLive` removes read-back noise (`customAuthenticationFactors: []`, `termsOfUse: []`, `platforms: null`). `Plan` refuses
-what Graph would reject or the plan guards against: `state: enabled` without `--allow-ca-enforce`, an empty users or
+`NormalizeLive` removes read-back noise (`customAuthenticationFactors: []`, `termsOfUse: []`, `platforms: null`).
+A declared `state: enabled` is an enforce request, applied only with `--allow-ca-enforce`; without the flag `HoldBackEnforcement`
+holds it back at plan time (never an error): a new policy is created report-only (`enabledForReportingButNotEnforced`), an
+existing policy keeps its live `state` (the key is dropped from the desired object, so the PATCH never carries it; the other
+declared properties still update). The row gets a `ConditionalAccessEnforcementNotAllowed` reason (a warning in what-if and
+create) and a noted `properties.state` delta: on an update a `NoEffect` delta (live → `enabled`), so a policy whose only
+difference is the held-back state stays `NoChange`. An existing policy that is already `enabled` live holds nothing back.
+Declared `disabled` / report-only and an undeclared `state` are not affected. The executor plans each resource again against a
+fresh read, and `CreateAsync` / `UpdateAsync` apply the rule once more to the evaluated properties and to the final request body,
+so the rule holds on the live state at apply time. `Plan` refuses what Graph would reject or the plan guards against: an empty users or
 applications include, no control at all, `block` combined with another control, `mfa` together with
 `authenticationStrength`, a `conditions.applications` that combines a non-empty `includeApplications` with a non-empty
 `includeUserActions` or `includeAuthenticationContextClassReferences` (Graph refuses it with error `1012`; written literally it is
@@ -390,7 +398,8 @@ computed by expressions are caught here at plan time), the lockout pattern (all 
 preview-only properties (`templateId`, `partialEnablementStrategy`, `sessionControls.continuousAccessEvaluation`) on
 `2026-10-01-preview` (Graph v1.0; use `2026-10-01-preview.beta` for them). References are by id: users and groups by object id, `includeApplications` by application (client) id,
 locations by named location id (`reference('Contoso offices').id` makes the dependency), roles by role template id. The
-last `PlanOptions` seen is kept so a direct `CreateAsync`/`UpdateAsync` applies the same guard.
+last `PlanOptions` seen is kept so a direct `CreateAsync`/`UpdateAsync` applies the same rules (a state held back there is
+reported in `AppliedResource.Warnings`).
 
 ### Worked example: authentication context and authentication strength
 

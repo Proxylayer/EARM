@@ -36,7 +36,8 @@ Notes:
   `earm deployment delete -f <template> -p '@<parameters>'`.
 - `orders-api.parameters.json` references a Key Vault secret (`contoso-kv` / `bg-initial`). Offline validation never reads it; for a real run replace
   it with `{ "value": "…" }` through `-p initialPassword=…` or point it at a vault you can read.
-- Conditional Access policies in the samples are `enabledForReportingButNotEnforced`: report-only. Switching one to `enabled` needs `--allow-ca-enforce`.
+- Conditional Access policies in the samples are `enabledForReportingButNotEnforced`: report-only. Switching one to `enabled` takes effect only with `--allow-ca-enforce`;
+  without it a new policy is created report-only and an existing one keeps its live state (warning `ConditionalAccessEnforcementNotAllowed`).
   Keep an emergency-access exclusion (the `tenant-security` sample has one) before enforcing anything.
 - `tenant-security.entra.json` needs Entra ID P1 and, for the role-assignable group and the directory roles, a Privileged Role Administrator
   (or an application with `RoleManagement.ReadWrite.Directory`).
@@ -66,6 +67,6 @@ Notes:
   accounts and keep them excluded from every Conditional Access policy. PIM refuses MFA and an authentication context together on activation, which is
   why tier 0 uses the context and tier 1 MFA. The first run defers the tier 1 group's PIM policy (`PimPolicyNotAvailable` warning) while the engineer's
   eligibility onboards the group; run it again to apply the policy. Leave `caPolicyState` report-only until the sign-in logs show the policy's effect;
-  `enabled` needs `--allow-ca-enforce`.
+  `enabled` is applied only with `--allow-ca-enforce` (without it the policy stays as it is, with a warning).
 - `app-with-sp-and-secret.entra.json` returns the client secret exactly once, in the run that creates or rotates it; rerunning without changing `secretTag`
   prints that output as `null` with a warning. Change `secretTag` to rotate.

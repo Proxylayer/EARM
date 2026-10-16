@@ -162,6 +162,16 @@ transport to the built-in Microsoft Graph HTTP client.
   `justification` of PIM schedule requests. Effect on existing templates: what-if no longer shows changes for these
   undeclared properties; templates that relied on EARM resetting an undeclared property to its default must now declare
   it.
+- `--allow-ca-enforce` decides whether a Conditional Access policy's declared `state: enabled` is applied, instead of
+  gating the template. Before, a policy declaring `state: enabled` without the flag was refused: an unsupported what-if
+  row and a failed `create` (`ConditionalAccessPolicyRejected`, nothing written). Now the enforcement is held back at plan
+  time with a `ConditionalAccessEnforcementNotAllowed` warning: a policy that does not exist yet is created report-only
+  (`enabledForReportingButNotEnforced`), and an existing policy keeps its live `state` (`state` is left out of the PATCH;
+  the other declared properties still update). What-if shows the held-back `state` delta with a note (a `NoEffect` delta
+  with a `note` in the JSON, also on a `NoChange` row), and a policy whose only difference is the held-back state is
+  `NoChange`, so `--exit-code-on-changes` does not fire for it. The executor plans again against a fresh read, so the
+  rule holds on the live state at apply time. With the flag the declared state is applied as written; declared
+  `disabled` / report-only and an undeclared `state` (report-only on create, untouched afterwards) are unchanged.
 
 ### Removed
 
