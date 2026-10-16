@@ -31,7 +31,7 @@ namespace EArm.Providers;
 /// The first request for a group onboards it in PIM for Groups, permanently. A changed tuple is a new schedule: the old one is reported as retained
 /// (orphan scope: the declared target groups, <see cref="OrphanScope.DeclaredTargetGroups"/>).
 /// </summary>
-public abstract class GroupScheduleRequestsProvider : PimScheduleRequestsProvider<GroupScheduleTuple>
+public abstract class GroupScheduleRequestsProvider : PimScheduleRequestsProvider<GroupScheduleTuple>, IApplyOrderSource
 {
     private static readonly IReadOnlyList<(string Sugar, string Canonical)> Sugar = [("group", "groupId")];
 
@@ -42,6 +42,17 @@ public abstract class GroupScheduleRequestsProvider : PimScheduleRequestsProvide
 
     /// <summary>The Graph collection of the type's schedules.</summary>
     protected abstract string SchedulesPath { get; }
+
+    /// <summary>
+    /// The entitlement management role scopes that grant an eligible role of the request's group are applied after it: the request onboards the group in PIM
+    /// for Groups, and only then does a catalog offer the group's Eligible Member / Eligible Owner roles (docs/access-packages.md).
+    /// </summary>
+    public IEnumerable<ResourceInstance> AppliesBefore(ResourceInstance instance, IReadOnlyList<ResourceInstance> declared)
+    {
+        ArgumentNullException.ThrowIfNull(instance);
+        ArgumentNullException.ThrowIfNull(declared);
+        return AccessPackageApplyOrder.EligibleRoleScopesOnboardedBy(instance, declared);
+    }
 
     /// <summary>The word the orphan report prefixes a retained schedule with ("eligible", "active").</summary>
     protected abstract string OrphanLabel { get; }

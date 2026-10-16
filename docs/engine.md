@@ -48,7 +48,9 @@ load ──► validate ──► expand ──► graph ──► [per batch: r
    - a provider-declared apply order (`IApplyOrderSource`, `DependencyKind.Ordering`), asked once the edges above are known: a
      `roleManagementPolicies` instance is applied before the PIM schedule requests of the same role (directory role eligibility and active
      assignment) or group and access (PIM for Groups eligibility and active assignment) the template declares, so they are judged by the
-     declared rules. Values are matched as `IDeclarationConflictSource` matches them (same referenced resource, literal or role name); an order the
+     declared rules; an `entitlementManagement/catalogResources` instance before the role scopes that grant a role of its group, and an
+     `entitlementManagement/resourceRoleScopes` instance before the assignment policies of its package ([access-packages.md](access-packages.md#order)).
+     Values are matched as `IDeclarationConflictSource` matches them (same referenced resource, literal or role name); an order the
      template already contradicts (an explicit `dependsOn` the other way) is left out rather than reported as a cycle.
 
    A cycle is reported as `DependencyCycle` with the full path. The acyclic graph is layered Kahn-style:
@@ -423,8 +425,11 @@ found = create.
 | `privilegedAccess/groupAssignmentScheduleRequests` | (`groupId`, `principalId`, `accessId`), Direct assignment schedules with `assignmentType` assigned only (a permanent one is refused) | a label |
 | `roleManagementPolicies` | the policy assignment of (`scopeType`, `scopeId`, `roleDefinitionId`) (the policy id is the Graph id; a group's policy is re-identified when PIM onboards the group) | a label; never created |
 | `appRoleAssignments` | (`principalId`, `resourceId`, `appRoleId`) | a label |
+| `entitlementManagement/catalogResources` | (`catalogId`, `originId`) | a label |
+| `entitlementManagement/resourceRoleScopes` | (`accessPackageId`, `resourceOriginId`, `role`) | a label |
+| `entitlementManagement/accessPackages/assignmentPolicies` | the parent package + `displayName` (matched client-side in `$filter=accessPackage/id eq` list) | the display name |
 | `oauth2PermissionGrants` | (`clientId`, `resourceId`, `consentType`, `principalId`) | a label |
-| `conditionalAccess/policies`, `conditionalAccess/namedLocations`, `administrativeUnits`, `roleDefinitions` (custom), `conditionalAccess/authenticationStrengths` (custom) | `displayName` (authentication strengths are matched client-side: Graph cannot `$filter` them by `displayName`) | the display name |
+| `conditionalAccess/policies`, `conditionalAccess/namedLocations`, `administrativeUnits`, `roleDefinitions` (custom), `conditionalAccess/authenticationStrengths` (custom), `entitlementManagement/catalogs`, `entitlementManagement/accessPackages` | `displayName` (authentication strengths are matched client-side: Graph cannot `$filter` them by `displayName`) | the display name |
 
 Consequences, all deliberate:
 

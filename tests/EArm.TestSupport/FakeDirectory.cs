@@ -132,6 +132,9 @@ public sealed class FakeDirectory
     /// </summary>
     public int AuthenticationMethodStaleReads { get; set; }
 
+    /// <summary>Entitlement management: catalogs, catalog resources, access packages, resource role scopes and assignment policies.</summary>
+    public FakeEntitlementManagement EntitlementManagement { get; } = new();
+
     /// <summary>PIM eligibility for directory roles (the request endpoint, the schedules, the seeded policy and the processing lag).</summary>
     public FakeRoleScheduleRequests RoleEligibility { get; } = FakeRoleScheduleRequests.Eligibility();
 
@@ -369,6 +372,18 @@ public sealed class FakeDirectory
                     body,
                     hint,
                     groupId => Collection("/groups").Any(g => ValueEquals(GetString(g, "id"), groupId)),
+                    groupId => GroupEligibility.OnboardedGroups.Contains(groupId, StringComparer.OrdinalIgnoreCase) || GroupAssignmentSchedules.OnboardedGroups.Contains(groupId, StringComparer.OrdinalIgnoreCase));
+            }
+
+            if (FakeEntitlementManagement.Handles(path))
+            {
+                return EntitlementManagement.Handle(
+                    method,
+                    path,
+                    query,
+                    body,
+                    hint,
+                    groupId => Collection("/groups").FirstOrDefault(g => ValueEquals(GetString(g, "id"), groupId)),
                     groupId => GroupEligibility.OnboardedGroups.Contains(groupId, StringComparer.OrdinalIgnoreCase) || GroupAssignmentSchedules.OnboardedGroups.Contains(groupId, StringComparer.OrdinalIgnoreCase));
             }
 

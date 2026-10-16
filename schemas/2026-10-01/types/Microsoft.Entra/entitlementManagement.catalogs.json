@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/entitlementManagement.catalogs.json",
+  "title": "Microsoft.Entra/entitlementManagement/catalogs",
+  "description": "An entitlement management catalog (accessPackageCatalog). The resource name is the displayName, unique in the tenant.",
+  "type": "object",
+  "properties": {
+    "displayName": {
+      "description": "Set from the resource name; declaring it is only allowed when it equals the name.",
+      "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+    },
+    "description": { "description": "Description.", "anyOf": [ { "type": [ "string", "null" ] }, { "$ref": "#/$defs/expression" } ] },
+    "state": {
+      "description": "published (default on create) or unpublished.",
+      "anyOf": [ { "type": "string", "enum": [ "published", "unpublished" ] }, { "$ref": "#/$defs/expression" } ]
+    },
+    "isExternallyVisible": {
+      "description": "Whether users of connected organizations can request packages of the catalog. Defaults to false on create.",
+      "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/expression" } ]
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "expression": { "type": "string", "pattern": "^\\[.*\\]$", "description": "A template expression, for example [parameters('env')]." }
+  },
+  "x-earm": {
+    "type": "Microsoft.Entra/entitlementManagement/catalogs",
+    "parentType": null,
+    "graphPath": "/identityGovernance/entitlementManagement/catalogs",
+    "apiVersions": { "2026-10-01-preview": "v1.0", "2026-10-01-preview.beta": "beta" },
+    "nameMapsTo": "displayName",
+    "nameKind": "displayName",
+    "namePattern": "^\\S(.{0,254}\\S)?$",
+    "keyProperties": ["displayName"],
+    "requiredOnCreate": [],
+    "defaults": { "state": "published", "isExternallyVisible": false },
+    "immutable": [],
+    "createOnly": [],
+    "secure": [],
+    "relationships": [],
+    "memberKey": {},
+    "stripOnRead": ["id", "createdDateTime", "modifiedDateTime", "catalogType", "@odata.context"],
+    "nullable": {},
+    "permissions": {
+      "application": ["EntitlementManagement.ReadWrite.All"],
+      "delegated": ["EntitlementManagement.ReadWrite.All"],
+      "roles": ["Identity Governance Administrator"],
+      "notes": "Learn (entitlementmanagement-post-catalogs, accesspackagecatalog-update, accesspackagecatalog-delete): EntitlementManagement.ReadWrite.All is the least privileged permission for writes, EntitlementManagement.Read.All for reads. Least privileged roles: catalog creator (create), catalog owner (update, delete), or Identity Governance Administrator. The tenant needs Microsoft Entra ID P2 or ID Governance."
+    }
+  }
+}

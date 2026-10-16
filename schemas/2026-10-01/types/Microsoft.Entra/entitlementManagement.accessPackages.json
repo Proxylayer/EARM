@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/entitlementManagement.accessPackages.json",
+  "title": "Microsoft.Entra/entitlementManagement/accessPackages",
+  "description": "An access package. The resource name is the displayName, unique in the tenant (EARM refuses two packages with one name in any catalogs).",
+  "type": "object",
+  "properties": {
+    "displayName": {
+      "description": "Set from the resource name; declaring it is only allowed when it equals the name.",
+      "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+    },
+    "catalogId": {
+      "description": "Required on create, immutable: the catalog's object id, for example [reference('catalog').id].",
+      "anyOf": [ { "type": "string", "minLength": 1 }, { "$ref": "#/$defs/expression" } ]
+    },
+    "description": { "description": "Description.", "anyOf": [ { "type": [ "string", "null" ] }, { "$ref": "#/$defs/expression" } ] },
+    "isHidden": {
+      "description": "Whether the package is hidden from the My Access portal (requestable only by a direct link). Defaults to false on create.",
+      "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/expression" } ]
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "expression": { "type": "string", "pattern": "^\\[.*\\]$", "description": "A template expression, for example [parameters('env')]." }
+  },
+  "x-earm": {
+    "type": "Microsoft.Entra/entitlementManagement/accessPackages",
+    "parentType": null,
+    "graphPath": "/identityGovernance/entitlementManagement/accessPackages",
+    "apiVersions": { "2026-10-01-preview": "v1.0", "2026-10-01-preview.beta": "beta" },
+    "nameMapsTo": "displayName",
+    "nameKind": "displayName",
+    "namePattern": "^\\S(.{0,254}\\S)?$",
+    "keyProperties": ["displayName"],
+    "requiredOnCreate": ["catalogId"],
+    "defaults": { "isHidden": false },
+    "immutable": ["catalogId"],
+    "createOnly": [],
+    "secure": [],
+    "relationships": [],
+    "memberKey": {},
+    "stripOnRead": ["id", "createdDateTime", "modifiedDateTime", "catalog", "@odata.context"],
+    "nullable": {},
+    "permissions": {
+      "application": ["EntitlementManagement.ReadWrite.All"],
+      "delegated": ["EntitlementManagement.ReadWrite.All"],
+      "roles": ["Identity Governance Administrator"],
+      "notes": "Learn (entitlementmanagement-post-accesspackages, accesspackage-update, accesspackage-delete): EntitlementManagement.ReadWrite.All is the least privileged permission for writes, EntitlementManagement.Read.All for reads. Least privileged role: access package manager of the catalog (or catalog owner), or Identity Governance Administrator. A package with assignments cannot be deleted."
+    }
+  }
+}

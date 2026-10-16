@@ -235,6 +235,33 @@ public static class EngineDiagnosticCodes
     /// <summary>Graph kept refusing to delete a named location because it is marked trusted (error 1177), even after EARM unmarked it.</summary>
     public const string NamedLocationTrusted = "NamedLocationTrusted";
 
+    // ---- Entitlement management (access packages) ----
+
+    /// <summary>Graph refused to add a group to a catalog (403): the caller needs catalog ownership plus a role that changes the group's members; Global Administrator or Privileged Role Administrator for a role-assignable group.</summary>
+    public const string CatalogResourceAccessDenied = "CatalogResourceAccessDenied";
+
+    /// <summary>A catalog resource request ended in <c>deliveryFailed</c>, or the group was still not listed in the catalog after the wait.</summary>
+    public const string CatalogResourceRequestFailed = "CatalogResourceRequestFailed";
+
+    /// <summary>Graph refused to remove a group from a catalog because an access package of the catalog still grants one of its roles.</summary>
+    public const string CatalogResourceInUse = "CatalogResourceInUse";
+
+    /// <summary>Graph refused to delete a catalog that still holds access packages.</summary>
+    public const string CatalogNotEmpty = "CatalogNotEmpty";
+
+    /// <summary>A resource role scope names a group that is not a resource of the package's catalog, or a role the catalog does not offer for it (an eligible role of a group not onboarded in PIM for Groups).</summary>
+    public const string AccessPackageRoleNotAvailable = "AccessPackageRoleNotAvailable";
+
+    /// <summary>
+    /// A resource role scope grants an eligible group role (Eligible Member / Eligible Owner) of a group PIM for Groups has not onboarded: the catalog
+    /// offers eligible roles only for onboarded groups. Deferred to the next run (a warning on an Ignore row) when a schedule request of the same
+    /// deployment onboards the group; an error otherwise.
+    /// </summary>
+    public const string PimGroupNotOnboarded = "PimGroupNotOnboarded";
+
+    /// <summary>Graph refused to delete an access package or an assignment policy that still has assignments.</summary>
+    public const string AccessPackageAssignmentsExist = "AccessPackageAssignmentsExist";
+
     // ---- Edge pass: app-only tokens and forbidden reads ----
 
     /// <summary>A declared relationship cannot be read or changed with an application (app-only) token: <c>ownerOf</c> on a user (Learn: user-list-ownedobjects). The row is reported and skipped.</summary>

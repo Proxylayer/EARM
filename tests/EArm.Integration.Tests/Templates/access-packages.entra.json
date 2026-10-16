@@ -1,0 +1,68 @@
+{
+  "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "Entitlement management round trip: a prefixed access group and approver group (security groups that are not role-assignable, so Identity Governance Administrator plus Groups Administrator suffices), a catalog holding both, an access package granting Member of the access group, and an assignment policy requiring approval by the approver group with an afterDuration expiration. Catalog resources and the role scope are GUID labels derived from the prefix."
+  },
+  "parameters": {
+    "prefix": { "type": "string" },
+    "duration": { "type": "string", "defaultValue": "P30D" },
+    "packageDescription": { "type": "string", "defaultValue": "EARM integration test package" }
+  },
+  "variables": {
+    "group": "[format('{0}-apgrp', parameters('prefix'))]",
+    "approvers": "[format('{0}-apappr', parameters('prefix'))]",
+    "catalog": "[format('{0}-catalog', parameters('prefix'))]",
+    "package": "[format('{0}-package', parameters('prefix'))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01-preview", "name": "[variables('group')]",
+      "properties": { "displayName": "[variables('group')]", "mailEnabled": false, "mailNickname": "[variables('group')]", "securityEnabled": true }
+    },
+    {
+      "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01-preview", "name": "[variables('approvers')]",
+      "properties": { "displayName": "[variables('approvers')]", "mailEnabled": false, "mailNickname": "[variables('approvers')]", "securityEnabled": true }
+    },
+    {
+      "type": "Microsoft.Entra/entitlementManagement/catalogs", "apiVersion": "2026-10-01-preview", "name": "[variables('catalog')]",
+      "properties": { "description": "EARM integration test catalog" }
+    },
+    {
+      "type": "Microsoft.Entra/entitlementManagement/catalogResources", "apiVersion": "2026-10-01-preview",
+      "name": "[guid(parameters('prefix'), 'catalog-group')]",
+      "properties": { "catalogId": "[reference(variables('catalog')).id]", "originId": "[reference(variables('group')).id]" }
+    },
+    {
+      "type": "Microsoft.Entra/entitlementManagement/accessPackages", "apiVersion": "2026-10-01-preview", "name": "[variables('package')]",
+      "properties": { "catalogId": "[reference(variables('catalog')).id]", "description": "[parameters('packageDescription')]" }
+    },
+    {
+      "type": "Microsoft.Entra/entitlementManagement/resourceRoleScopes", "apiVersion": "2026-10-01-preview",
+      "name": "[guid(parameters('prefix'), 'package-member')]",
+      "properties": { "accessPackageId": "[reference(variables('package')).id]", "resourceOriginId": "[reference(variables('group')).id]", "role": "Member" }
+    },
+    {
+      "type": "Microsoft.Entra/entitlementManagement/accessPackages/assignmentPolicies", "apiVersion": "2026-10-01-preview",
+      "name": "[format('{0}/Approval', variables('package'))]",
+      "properties": {
+        "description": "Approval by the approver group",
+        "allowedTargetScope": "allMemberUsers",
+        "expiration": { "type": "afterDuration", "duration": "[parameters('duration')]" },
+        "requestorSettings": { "enableTargetsToSelfAddAccess": true, "enableTargetsToSelfRemoveAccess": true },
+        "requestApprovalSettings": {
+          "isApprovalRequiredForAdd": true,
+          "isRequestorJustificationRequired": true,
+          "stages": [
+            { "durationBeforeAutomaticDenial": "P7D", "isApproverJustificationRequired": true,
+              "primaryApprovers": [ { "@odata.type": "#microsoft.graph.groupMembers", "groupId": "[reference(variables('approvers')).id]" } ] }
+          ]
+        }
+      }
+    }
+  ],
+  "outputs": {
+    "catalogId": { "type": "string", "value": "[reference(variables('catalog')).id]" },
+    "packageId": { "type": "string", "value": "[reference(variables('package')).id]" }
+  }
+}

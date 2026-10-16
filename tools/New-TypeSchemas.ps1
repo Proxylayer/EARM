@@ -827,6 +827,92 @@ $specs['roleManagementPolicies'] = [ordered]@{
     }
 }
 
+# --- entitlementManagement (access packages, docs/access-packages.md) ----------------------------------------------
+$subjectSet = Obj '' -Props (Props ([ordered]@{
+    '@odata.type' = Str 'The subject set type: #microsoft.graph.groupMembers, #microsoft.graph.singleUser, #microsoft.graph.requestorManager, #microsoft.graph.internalSponsors, #microsoft.graph.externalSponsors, #microsoft.graph.targetUserSponsors, #microsoft.graph.connectedOrganizationMembers ...'
+    groupId       = Str 'groupMembers: the group''s object id.'
+    userId        = Str 'singleUser: the user''s object id.'
+}))
+
+$specs['entitlementManagement.catalogs'] = [ordered]@{
+    NamePattern = $uniqueNamePattern
+    Description = 'An entitlement management catalog (accessPackageCatalog). The resource name is the displayName, unique in the tenant.'
+    Props       = [ordered]@{
+        displayName         = Str 'Set from the resource name; declaring it is only allowed when it equals the name.'
+        description         = Str 'Description.' -Nullable
+        state               = Str 'published (default on create) or unpublished.' -Enum 'published', 'unpublished'
+        isExternallyVisible = Bool 'Whether users of connected organizations can request packages of the catalog. Defaults to false on create.'
+    }
+}
+
+$specs['entitlementManagement.catalogResources'] = [ordered]@{
+    NamePattern = $script:GuidPattern
+    Description = 'A group added to an entitlement management catalog (accessPackageResource, written through accessPackageResourceRequest adminAdd / adminRemove). Found by the tuple (catalogId, originId); the GUID name is a label.'
+    Props       = [ordered]@{
+        catalogId    = Str 'Required: the catalog''s object id, for example [reference(''catalog'').id].' -Min 1
+        originId     = Str 'Required: the group''s object id, for example [reference(''group'').id].' -Min 1
+        originSystem = Str 'AadGroup (the default, and the only origin EARM manages).' -Enum 'AadGroup'
+    }
+}
+
+$specs['entitlementManagement.accessPackages'] = [ordered]@{
+    NamePattern = $uniqueNamePattern
+    Description = 'An access package. The resource name is the displayName, unique in the tenant (EARM refuses two packages with one name in any catalogs).'
+    Props       = [ordered]@{
+        displayName = Str 'Set from the resource name; declaring it is only allowed when it equals the name.'
+        catalogId   = Str 'Required on create, immutable: the catalog''s object id, for example [reference(''catalog'').id].' -Min 1
+        description = Str 'Description.' -Nullable
+        isHidden    = Bool 'Whether the package is hidden from the My Access portal (requestable only by a direct link). Defaults to false on create.'
+    }
+}
+
+$specs['entitlementManagement.resourceRoleScopes'] = [ordered]@{
+    NamePattern = $script:GuidPattern
+    Description = 'A group role an access package grants (accessPackageResourceRoleScope). Found by the tuple (accessPackageId, resourceOriginId, role); the GUID name is a label. The group must be a resource of the package''s catalog.'
+    Props       = [ordered]@{
+        accessPackageId  = Str 'Required: the access package''s object id, for example [reference(''package'').id].' -Min 1
+        resourceOriginId = Str 'Required: the group''s object id, for example [reference(''group'').id].' -Min 1
+        role             = Str 'Required: the group role''s display name. Eligible Member and Eligible Owner (PIM for Groups eligibility) are offered only for a group onboarded in PIM for Groups.' -Enum 'Member', 'Owner', 'Eligible Member', 'Eligible Owner'
+        originSystem     = Str 'AadGroup (the default, and the only origin EARM manages).' -Enum 'AadGroup'
+    }
+}
+
+$specs['entitlementManagement.accessPackages.assignmentPolicies'] = [ordered]@{
+    NamePattern = $uniqueNamePattern
+    Description = 'An assignment policy of an access package (accessPackageAssignmentPolicy). A child of the package; the child name is the policy''s displayName, unique within the package. Only declared properties are compared; an update is a PUT of the live policy with the declared values merged in.'
+    Props       = [ordered]@{
+        displayName             = Str 'Set from the child name; declaring it is only allowed when it equals the name.'
+        description             = Str 'Description.' -Nullable
+        allowedTargetScope      = Str 'Who may request or be assigned: notSpecified, specificDirectoryUsers, specificConnectedOrganizationUsers, specificDirectoryServicePrincipals, allMemberUsers, allDirectoryUsers, allDirectoryServicePrincipals, allConfiguredConnectedOrganizationUsers, allExternalUsers.'
+        specificAllowedTargets  = Arr -d 'Subject sets for the specific* scopes; compared order-insensitively.' -Items $subjectSet -Nullable
+        expiration              = Obj -d 'expirationPattern. Keep a duration within the eligibility maximum of a PIM for Groups role the package grants.' -Nullable -Props (Props ([ordered]@{
+            type        = Str 'notSpecified, noExpiration, afterDateTime or afterDuration.' -Enum 'notSpecified', 'noExpiration', 'afterDateTime', 'afterDuration'
+            endDateTime = Str 'afterDateTime: when the assignment ends (ISO 8601).' -Nullable
+            duration    = Str 'afterDuration: the ISO 8601 duration, for example P180D.' -Nullable
+        }))
+        requestorSettings       = FreeObj 'accessPackageAssignmentRequestorSettings (enableTargetsToSelfAddAccess, enableTargetsToSelfRemoveAccess, onBehalfRequestors ...).' -Nullable
+        requestApprovalSettings = Obj -d 'accessPackageAssignmentApprovalSettings.' -Nullable -Props (Props ([ordered]@{
+            isApprovalRequiredForAdd         = Bool 'Whether a request to add access needs approval.'
+            isApprovalRequiredForUpdate      = Bool 'Whether a request to update access needs approval.'
+            isRequestorJustificationRequired = Bool 'Whether the requestor must justify the request.'
+            stages                           = Arr -d 'One to three approval stages ([] when no approval is required).' -Items (Obj '' -Props (Props ([ordered]@{
+                durationBeforeAutomaticDenial   = Str 'ISO 8601 duration before the request is denied, for example P14D.'
+                isApproverJustificationRequired = Bool 'Whether the approver must justify the decision.'
+                isEscalationEnabled             = Bool 'Whether the request escalates.'
+                durationBeforeEscalation        = Str 'ISO 8601 duration before escalation.'
+                primaryApprovers                = Arr -d 'The approvers, compared as a set.' -Items $subjectSet
+                fallbackPrimaryApprovers        = Arr -d 'The fallback approvers.' -Items $subjectSet -Nullable
+                escalationApprovers             = Arr -d 'The escalation approvers.' -Items $subjectSet -Nullable
+                fallbackEscalationApprovers     = Arr -d 'The fallback escalation approvers.' -Items $subjectSet -Nullable
+            })))
+        }))
+        reviewSettings          = FreeObj 'accessPackageAssignmentReviewSettings (optional access reviews).' -Nullable
+        automaticRequestSettings = FreeObj 'accessPackageAutomaticRequestSettings (auto-assignment policies only).' -Nullable
+        questions               = Arr -d 'accessPackageQuestion array.' -Items (FreeObj '') -Nullable
+        notificationSettings    = FreeObj 'accessPackageNotificationSettings.' -Nullable
+    }
+}
+
 # ---------------------------------------------------------------------------------------------------------------
 # Rewrite the files
 # ---------------------------------------------------------------------------------------------------------------

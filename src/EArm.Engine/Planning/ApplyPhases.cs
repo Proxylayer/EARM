@@ -17,7 +17,8 @@ public static class ApplyPhases
     /// applications · 2: servicePrincipals, federatedIdentityCredentials, passwordCredentials · 3: groups ·
     /// 4: administrativeUnits, roleManagementPolicies (also ordered before the PIM schedule requests they govern) · 5: roleAssignments, roleEligibilityScheduleRequests, roleAssignmentScheduleRequests, privilegedAccess/groupEligibilityScheduleRequests,
     /// privilegedAccess/groupAssignmentScheduleRequests, appRoleAssignments, oauth2PermissionGrants ·
-    /// 6: conditionalAccess/policies.
+    /// 6: conditionalAccess/policies. Entitlement management: catalogs 4, catalogResources and accessPackages 5, resourceRoleScopes and
+    /// accessPackages/assignmentPolicies 6 (role scopes are also ordered after the catalog resources and before the policies they relate to).
     /// </summary>
     public static int Of(string type)
     {
@@ -45,6 +46,11 @@ public static class ApplyPhases
             "appRoleAssignments" => 5,
             "oauth2PermissionGrants" => 5,
             "conditionalAccess/policies" => 6,
+            "entitlementManagement/catalogs" => 4,
+            "entitlementManagement/catalogResources" => 5,
+            "entitlementManagement/accessPackages" => 5,
+            "entitlementManagement/resourceRoleScopes" => 6,
+            "entitlementManagement/accessPackages/assignmentPolicies" => 6,
             _ => UnknownTypePhase,
         };
     }
@@ -53,6 +59,7 @@ public static class ApplyPhases
     /// Complete-mode delete order: CA policies → assignments/eligibilities/PIM active assignments/grants/PIM policies (kept, never deleted) → administrativeUnits → groups →
     /// passwordCredentials/federatedIdentityCredentials → servicePrincipals → applications → users → roleDefinitions
     /// → authenticationStrengths → authenticationContextClassReferences → namedLocations → authenticationMethodConfigurations (reset, never removed).
+    /// Entitlement management: assignment policies and resource role scopes (1) → access packages (2) → catalog resources (3) → catalogs (4).
     /// </summary>
     public static int DeleteOrderOf(string type)
     {
@@ -80,6 +87,11 @@ public static class ApplyPhases
             "conditionalAccess/authenticationContextClassReferences" => 11,
             "conditionalAccess/namedLocations" => 12,
             "authenticationMethodConfigurations" => 13,
+            "entitlementManagement/accessPackages/assignmentPolicies" => 1,
+            "entitlementManagement/resourceRoleScopes" => 1,
+            "entitlementManagement/accessPackages" => 2,
+            "entitlementManagement/catalogResources" => 3,
+            "entitlementManagement/catalogs" => 4,
             _ => 4,
         };
     }
@@ -124,5 +136,10 @@ public static class ApplyPhases
         "appRoleAssignments",
         "oauth2PermissionGrants",
         "conditionalAccess/policies",
+        "entitlementManagement/catalogs",
+        "entitlementManagement/catalogResources",
+        "entitlementManagement/accessPackages",
+        "entitlementManagement/resourceRoleScopes",
+        "entitlementManagement/accessPackages/assignmentPolicies",
     ];
 }

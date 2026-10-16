@@ -44,6 +44,11 @@ public sealed class DiscoveryTests
     [InlineData("Microsoft.Entra/administrativeUnits", typeof(AdministrativeUnitsProvider))]
     [InlineData("Microsoft.Entra/roleDefinitions", typeof(RoleDefinitionsProvider))]
     [InlineData("Microsoft.Entra/roleAssignments", typeof(RoleAssignmentsProvider))]
+    [InlineData("Microsoft.Entra/entitlementManagement/catalogs", typeof(AccessPackageCatalogsProvider))]
+    [InlineData("Microsoft.Entra/entitlementManagement/catalogResources", typeof(CatalogResourcesProvider))]
+    [InlineData("Microsoft.Entra/entitlementManagement/accessPackages", typeof(AccessPackagesProvider))]
+    [InlineData("Microsoft.Entra/entitlementManagement/resourceRoleScopes", typeof(ResourceRoleScopesProvider))]
+    [InlineData("Microsoft.Entra/entitlementManagement/accessPackages/assignmentPolicies", typeof(AssignmentPoliciesProvider))]
     public void TypeIsServedByItsProvider(string type, Type expected)
     {
         var registry = ProviderDiscovery.CreateRegistry(ResourceTypeCatalog.Default);

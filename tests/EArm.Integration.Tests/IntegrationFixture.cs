@@ -131,6 +131,7 @@ public sealed class IntegrationFixture : IAsyncLifetime
         Assert.SkipUnless(!needs.HasFlag(Needs.Roles) || Settings.AllowRoles, $"{IntegrationSettings.AllowRolesVariable}=1 is required to write directory roles, administrative units, app role assignments and consent grants.");
         Assert.SkipUnless(!needs.HasFlag(Needs.Pim) || Settings.AllowPim, $"{IntegrationSettings.AllowPimVariable}=1 is required to write PIM eligibilities and time-bound active assignments (the tenant needs Microsoft Entra ID P2 or ID Governance; the signed-in identity needs its roles ACTIVE, not just eligible: Privileged Role Administrator for directory roles and role-assignable groups, and Groups Administrator, Identity Governance Administrator, User Administrator or Directory Writers (or group ownership) for PIM for Groups on other groups, which Privileged Role Administrator alone does not cover; otherwise Graph answers 403 PimGroupAccessDenied).");
         Assert.SkipUnless(!needs.HasFlag(Needs.AuthMethods) || Settings.AllowAuthMethods, $"{IntegrationSettings.AllowAuthMethodsVariable}=1 is required to change the tenant authentication methods policy (snapshot first, restored at the end).");
+        Assert.SkipUnless(!needs.HasFlag(Needs.AccessPackages) || Settings.AllowAccessPackages, $"{IntegrationSettings.AllowAccessPackagesVariable}=1 is required to write entitlement management objects (prefixed catalogs, access packages and policies; the tenant needs Microsoft Entra ID P2 or ID Governance and the signed-in identity Identity Governance Administrator, active).");
         Assert.SkipUnless(!needs.HasFlag(Needs.PimPolicies) || Settings.AllowPimPolicies, $"{IntegrationSettings.AllowPimPoliciesVariable}=1 is required to change PIM role management policies (Message Center Reader and prefixed test groups only; snapshot first, restored at the end).");
     }
 
@@ -340,7 +341,7 @@ public sealed class IntegrationFixture : IAsyncLifetime
 
         // The prefix sweep removes everything the runs created (every test object carries the run prefix), also what a failed
         // 'deployment delete' left behind and everything tests created directly.
-        var cleanup = new TenantCleanup(_graph, Prefix, includePim: Settings.AllowPim);
+        var cleanup = new TenantCleanup(_graph, Prefix, includePim: Settings.AllowPim, includeAccessPackages: Settings.AllowAccessPackages);
         try
         {
             await cleanup.SweepAsync(_trackedPaths.ToArray(), cancellationToken);
