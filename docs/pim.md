@@ -37,6 +37,10 @@ asynchronously into a **schedule**. EARM hides that:
 - the GUID `name` is only a label; the schedule is found on every run by its tuple, (`principalId`, `roleDefinitionId`, `directoryScopeId` or `appScopeId`)
   for directory roles and (`groupId`, `principalId`, `accessId`) for groups, keeping only Direct (not group-inherited) schedules;
 - not found: `adminAssign`; found with a different schedule: `adminUpdate` (in place, never a recreate); `deployment delete`: `adminRemove`;
+- PIM refuses a schedule shorter than five minutes and the removal of an assignment within five minutes of its creation (Learn:
+  pim-how-to-add-role-to-user): an AfterDuration `duration` below `PT5M`, or an AfterDateTime `endDateTime` less than 5 minutes after a declared
+  `startDateTime`, is refused offline; a `deployment delete` sooner than five minutes after the create fails with `ActiveAssignmentTooNew` (Graph's
+  400 `ActiveDurationTooShort`), exit code 1, and leaves the assignment in place: run the delete again once it is five minutes old (EARM does not wait);
 - `requestType` is optional and only `AdminAssign` is accepted (so ARM snippets paste unchanged): EARM picks the action;
 - `justification` and `ticketInfo` are request metadata, sent with every request and never compared (`justification` defaults to `Deployed by earm`
   because policies often require one);
@@ -116,7 +120,10 @@ Graph behaviours EARM absorbs: the schedule list of a principal or group PIM has
 (read as "no schedule"); the policy assignment list of a group PIM for Groups has not onboarded answers 404 `ResourceNotFound` (read as "not listed", see
 `PimPolicyNotAvailable`); an adminUpdate right after a schedule was replaced can answer `RoleAssignmentExists` while it settles (repeated with a bounded
 backoff, about 75 s, then an apply error); a declared `startDateTime` that is already past is left out of an adminUpdate (Graph starts the updated schedule
-now; a past start is never drift).
+now; a past start is never drift). The first PIM for Groups requests about a group (or principal) created seconds earlier answer 403
+`UnauthorizedAccessException` although the caller's role is active (accepted about 15 s later): when a dependency was created in the same run, the client
+repeats that 403 on `/identityGovernance/privilegedAccess/group/*` on the replication schedule (every 5 s, up to 90 s) before it reports
+`PimGroupAccessDenied`, whose message then also says PIM may need more time for a just-created group.
 
 ## Not covered
 

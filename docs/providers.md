@@ -463,6 +463,10 @@ Comparison and bodies:
   the method name, `state` (`enabled` / `disabled`), AAGUID format, an enforced allow-list (`isEnforced: true`, `enforcementType: allow`) with no
   `aaGuids` (it would block every passkey), Temporary Access Pass `defaultLength` 8–48 and lifetimes 10–43200 minutes with minimum ≤ default ≤ maximum,
   the certificate default and rule modes (`x509CertificateSingleFactor` / `x509CertificateMultiFactor`), and an `id` on every target and passkey profile.
+- Graph answers the PATCH with 204 and serves the previous values for a while; the update reads again every 5 s for up to 90 s until the declared values
+  show, then takes the last read as it is (the update never fails on it; a rerun shows any remaining drift). Observed in a test tenant: a PATCH of
+  Temporary Access Pass `defaultLength` 8 → 9 (inside the documented 8–48) was accepted, but a GET still answered 8 more than 60 s later; Learn documents
+  no further constraint on `defaultLength`, so EARM sends it as declared and the integration test toggles the lifetimes instead.
 
 `deployment delete` treats a kept method like a protected object: it is listed as `[kept: not deletable]`, its outcome is `Refused` with
 `errorCode: NotDeletable`, and it does **not** fail the command. A template that also manages `sms` (say) must stay deletable: a refusal that failed the
@@ -539,7 +543,7 @@ type is namespaced like `conditionalAccess/*` (a top-level type, `parentType` nu
 | Read | `GET /identityGovernance/privilegedAccess/group/eligibilitySchedules?$filter=groupId eq '…' and principalId eq '…'` (Graph requires a `groupId` or `principalId` filter), every page, matched client-side on `accessId` and kept to `memberType` Direct and to schedules that are not revoked or failed |
 | Create | `POST /identityGovernance/privilegedAccess/group/eligibilityScheduleRequests { action: adminAssign, accessId, groupId, principalId, scheduleInfo, justification, ticketInfo }` (`scheduleInfo` is required by Graph and always sent), then the shared read-back. The **first request for a group onboards it in PIM for Groups, permanently** (it cannot be offboarded; its PIM policies then exist) |
 | Update | `POST` with `action: adminUpdate` |
-| Delete | `POST` with `action: adminRemove`, carrying the live schedule as `scheduleInfo`; an eligibility that is already gone is not an error |
+| Delete | `POST` with `action: adminRemove`, carrying the live schedule as `scheduleInfo`; an eligibility that is already gone is not an error; a schedule younger than five minutes (400 `ActiveDurationTooShort`) fails with `ActiveAssignmentTooNew` without waiting |
 
 Comparison and retained eligibilities follow the directory-role type (`PimScheduleComparison`). The orphan scope is new: the Direct eligibilities of
 the **declared target groups** (`OrphanScope.DeclaredTargetGroups`; `GET …/eligibilitySchedules?$filter=groupId eq '…'` per declared group), so an
