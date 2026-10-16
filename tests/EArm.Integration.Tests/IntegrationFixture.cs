@@ -7,6 +7,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Net.Http;
+using System.Runtime.CompilerServices;
 using EArm.Graph;
 using EArm.Graph.Auth;
 using EArm.Core.Types;
@@ -112,6 +113,9 @@ public sealed class IntegrationFixture : IAsyncLifetime
         Assert.SkipUnless(IsAvailable, _unavailableReason);
         Assert.SkipUnless(!needs.HasFlag(Needs.Domain) || Settings.Domain is not null, $"{IntegrationSettings.DomainVariable} is not set (a verified domain for user principal names is required).");
         Assert.SkipUnless(!needs.HasFlag(Needs.ConditionalAccess) || Settings.AllowConditionalAccess, $"{IntegrationSettings.AllowCaVariable}=1 is required to write Conditional Access objects.");
+        Assert.SkipUnless(
+            !needs.HasFlag(Needs.ConditionalAccess) || Prefix.Length <= IntegrationSettings.MaximumConditionalAccessPrefixLength,
+            $"{IntegrationSettings.PrefixVariable}='{Prefix}' is longer than {IntegrationSettings.MaximumConditionalAccessPrefixLength} characters; authentication strength names (limited to 30 characters by Graph) would not fit.");
         Assert.SkipUnless(!needs.HasFlag(Needs.Roles) || Settings.AllowRoles, $"{IntegrationSettings.AllowRolesVariable}=1 is required to write directory roles, administrative units, app role assignments and consent grants.");
     }
 
@@ -255,7 +259,7 @@ public sealed class IntegrationFixture : IAsyncLifetime
         {
             if (Session is not null && _graph is not null)
             {
-                await SweepNowAsync(CancellationToken.None);
+                await SweepNowAsync(CancellationToken.None, "teardown");
                 if (_leftovers.Count > 0)
                 {
                     throw new InvalidOperationException(
@@ -275,8 +279,11 @@ public sealed class IntegrationFixture : IAsyncLifetime
 
     private List<string> _leftovers = [];
 
-    /// <summary>The cleanup guard: sweeps the prefix and purges soft-deleted copies. Safe to call repeatedly.</summary>
-    internal async Task SweepNowAsync(CancellationToken cancellationToken)
+    /// <summary>
+    /// The cleanup guard: sweeps the prefix and purges soft-deleted copies. Safe to call repeatedly; each call appends a
+    /// section to cleanup.log whose header names <paramref name="trigger"/> (the calling test, or the teardown).
+    /// </summary>
+    internal async Task SweepNowAsync(CancellationToken cancellationToken, [CallerMemberName] string trigger = "")
     {
         if (Session is null || _graph is null)
         {
@@ -303,16 +310,18 @@ public sealed class IntegrationFixture : IAsyncLifetime
         _leftovers.AddRange(cleanup.Leftovers);
         log.AddRange(_logCapture.Lines.Select(line => "stack: " + line));
         CleanupLog = log;
-        WriteCleanupLog(log);
+        WriteCleanupLog(log, trigger);
     }
 
-    private void WriteCleanupLog(IReadOnlyList<string> log)
+    private void WriteCleanupLog(IReadOnlyList<string> log, string trigger)
     {
-        string text = string.Join(Environment.NewLine, log.Prepend($"EARM integration cleanup, prefix '{Prefix}', tenant {Settings.TenantId}, {DateTimeOffset.UtcNow:O}"));
+        // Appended, never overwritten: a manual sweep and the teardown sweep of the same run both stay readable.
+        string header = $"==== EARM integration cleanup ({trigger}), prefix '{Prefix}', tenant {Settings.TenantId}, {DateTimeOffset.UtcNow:O}";
+        string text = string.Join(Environment.NewLine, log.Prepend(header));
         try
         {
             Directory.CreateDirectory(RunDirectory);
-            File.WriteAllText(Path.Combine(RunDirectory, "cleanup.log"), text, new UTF8Encoding(false));
+            File.AppendAllText(Path.Combine(RunDirectory, "cleanup.log"), text + Environment.NewLine + Environment.NewLine, new UTF8Encoding(false));
         }
         catch (IOException)
         {

@@ -39,6 +39,12 @@ internal sealed record IntegrationSettings
     /// <summary>The shortest prefix accepted; a short prefix would let the cleanup sweep match objects it does not own.</summary>
     public const int MinimumPrefixLength = 10;
 
+    /// <summary>
+    /// The longest prefix the Conditional Access scenarios accept: Graph limits an authentication strength's displayName to 30
+    /// characters, and the longest strength name the tests build is <c>&lt;prefix&gt;-probe-str</c> (10 more characters).
+    /// </summary>
+    public const int MaximumConditionalAccessPrefixLength = 20;
+
     private static readonly Regex PrefixPattern = new("^[a-z][a-z0-9-]{9,39}$", RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
 
     /// <summary>The tenant id the tests may write to, or null when the tests are not configured.</summary>

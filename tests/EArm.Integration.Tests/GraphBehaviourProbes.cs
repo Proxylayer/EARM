@@ -400,7 +400,7 @@ public sealed class GraphBehaviourProbes : IntegrationTestBase
     {
         Fixture.Require(Needs.ConditionalAccess);
         var report = new ProbeReport("e2");
-        string name = Fixture.Name("probe-strength");
+        string name = Fixture.Name("probe-str");
 
         JsonObject? strength = null;
         try
