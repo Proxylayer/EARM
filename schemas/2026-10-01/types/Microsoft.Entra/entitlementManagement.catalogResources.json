@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/entitlementManagement.catalogResources.json",
+  "title": "Microsoft.Entra/entitlementManagement/catalogResources",
+  "description": "A group added to an entitlement management catalog (accessPackageResource, written through accessPackageResourceRequest adminAdd / adminRemove). Found by the tuple (catalogId, originId); the GUID name is a label.",
+  "type": "object",
+  "properties": {
+    "catalogId": { "description": "Required: the catalog's object id, for example [reference('catalog').id].", "anyOf": [ { "type": "string", "minLength": 1 }, { "$ref": "#/$defs/expression" } ] },
+    "originId": { "description": "Required: the group's object id, for example [reference('group').id].", "anyOf": [ { "type": "string", "minLength": 1 }, { "$ref": "#/$defs/expression" } ] },
+    "originSystem": { "description": "AadGroup (the default, and the only origin EARM manages).", "anyOf": [ { "enum": [ "AadGroup" ] }, { "$ref": "#/$defs/expression" } ] }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "expression": { "type": "string", "pattern": "^\\[.*\\]$", "description": "A template expression, for example [parameters('env')]." }
+  },
+  "x-earm": {
+    "type": "Microsoft.Entra/entitlementManagement/catalogResources",
+    "parentType": null,
+    "graphPath": "/identityGovernance/entitlementManagement/resourceRequests",
+    "apiVersions": { "2026-10-01-preview": "v1.0", "2026-10-01-preview.beta": "beta" },
+    "nameMapsTo": null,
+    "nameKind": "guid",
+    "namePattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+    "keyProperties": ["catalogId", "originId"],
+    "requiredOnCreate": ["catalogId", "originId"],
+    "defaults": {},
+    "immutable": ["*"],
+    "createOnly": [],
+    "secure": [],
+    "relationships": [],
+    "memberKey": {},
+    "stripOnRead": ["id"],
+    "nullable": {},
+    "permissions": {
+      "application": ["EntitlementManagement.ReadWrite.All", "Group.ReadWrite.All"],
+      "delegated": ["EntitlementManagement.ReadWrite.All", "Group.Read.All"],
+      "roles": ["Identity Governance Administrator", "Privileged Role Administrator"],
+      "notes": "Learn (entitlementmanagement-post-resourcerequests, entitlement-management-delegate, groups-concept): EntitlementManagement.ReadWrite.All is the least privileged permission (application callers also need Group.ReadWrite.All). The caller must be a catalog owner or Identity Governance Administrator AND an owner of the group or hold a role that changes its members. A role-assignable group can only be added by a Global Administrator or Privileged Role Administrator (or an owner of the group); an application then needs RoleManagement.ReadWrite.Directory instead of Group.ReadWrite.All. Without them Graph answers 403 (CatalogResourceAccessDenied)."
+    }
+  }
+}

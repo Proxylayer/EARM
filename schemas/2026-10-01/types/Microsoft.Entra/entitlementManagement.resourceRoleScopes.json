@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/entitlementManagement.resourceRoleScopes.json",
+  "title": "Microsoft.Entra/entitlementManagement/resourceRoleScopes",
+  "description": "A group role an access package grants (accessPackageResourceRoleScope). Found by the tuple (accessPackageId, resourceOriginId, role); the GUID name is a label. The group must be a resource of the package's catalog.",
+  "type": "object",
+  "properties": {
+    "accessPackageId": { "description": "Required: the access package's object id, for example [reference('package').id].", "anyOf": [ { "type": "string", "minLength": 1 }, { "$ref": "#/$defs/expression" } ] },
+    "resourceOriginId": { "description": "Required: the group's object id, for example [reference('group').id].", "anyOf": [ { "type": "string", "minLength": 1 }, { "$ref": "#/$defs/expression" } ] },
+    "role": { "description": "Required: the group role's display name. Eligible Member and Eligible Owner (PIM for Groups eligibility) are offered only for a group onboarded in PIM for Groups.", "anyOf": [ { "enum": [ "Member", "Owner", "Eligible Member", "Eligible Owner" ] }, { "$ref": "#/$defs/expression" } ] },
+    "originSystem": { "description": "AadGroup (the default, and the only origin EARM manages).", "anyOf": [ { "enum": [ "AadGroup" ] }, { "$ref": "#/$defs/expression" } ] }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "expression": { "type": "string", "pattern": "^\\[.*\\]$", "description": "A template expression, for example [parameters('env')]." }
+  },
+  "x-earm": {
+    "type": "Microsoft.Entra/entitlementManagement/resourceRoleScopes",
+    "parentType": null,
+    "graphPath": "/identityGovernance/entitlementManagement/accessPackages/{accessPackageId}/resourceRoleScopes",
+    "apiVersions": { "2026-10-01-preview": "v1.0", "2026-10-01-preview.beta": "beta" },
+    "nameMapsTo": null,
+    "nameKind": "guid",
+    "namePattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+    "keyProperties": ["accessPackageId", "resourceOriginId", "role"],
+    "requiredOnCreate": ["accessPackageId", "resourceOriginId", "role"],
+    "defaults": {},
+    "immutable": ["*"],
+    "createOnly": [],
+    "secure": [],
+    "relationships": [],
+    "memberKey": {},
+    "stripOnRead": ["id"],
+    "nullable": {},
+    "permissions": {
+      "application": ["EntitlementManagement.ReadWrite.All"],
+      "delegated": ["EntitlementManagement.ReadWrite.All"],
+      "roles": ["Identity Governance Administrator"],
+      "notes": "Learn (accesspackage-post-resourcerolescopes, accesspackage-delete-resourcerolescopes, accesspackagecatalog-list-resourceroles): EntitlementManagement.ReadWrite.All is the least privileged permission. Least privileged role: access package manager of the catalog, or Identity Governance Administrator. Eligible group roles need Microsoft Entra ID Governance and a group onboarded in PIM for Groups. Deleting a role scope removes the role from the people assigned (Graph does not refuse it)."
+    }
+  }
+}

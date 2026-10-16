@@ -220,7 +220,17 @@
         { "if": { "properties": { "type": { "const": "Microsoft.Entra/privilegedAccess/groupAssignmentScheduleRequests" } }, "required": ["type"] },
           "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/privilegedAccess.groupAssignmentScheduleRequests.json" }, { "$ref": "#/$defs/expression" } ] } } } },
         { "if": { "properties": { "type": { "const": "Microsoft.Entra/roleManagementPolicies" } }, "required": ["type"] },
-          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/roleManagementPolicies.json" }, { "$ref": "#/$defs/expression" } ] } } } }
+          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/roleManagementPolicies.json" }, { "$ref": "#/$defs/expression" } ] } } } },
+        { "if": { "properties": { "type": { "const": "Microsoft.Entra/entitlementManagement/catalogs" } }, "required": ["type"] },
+          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/entitlementManagement.catalogs.json" }, { "$ref": "#/$defs/expression" } ] } } } },
+        { "if": { "properties": { "type": { "const": "Microsoft.Entra/entitlementManagement/catalogResources" } }, "required": ["type"] },
+          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/entitlementManagement.catalogResources.json" }, { "$ref": "#/$defs/expression" } ] } } } },
+        { "if": { "properties": { "type": { "const": "Microsoft.Entra/entitlementManagement/accessPackages" } }, "required": ["type"] },
+          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/entitlementManagement.accessPackages.json" }, { "$ref": "#/$defs/expression" } ] } } } },
+        { "if": { "properties": { "type": { "const": "Microsoft.Entra/entitlementManagement/resourceRoleScopes" } }, "required": ["type"] },
+          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/entitlementManagement.resourceRoleScopes.json" }, { "$ref": "#/$defs/expression" } ] } } } },
+        { "if": { "properties": { "type": { "const": "Microsoft.Entra/entitlementManagement/accessPackages/assignmentPolicies" } }, "required": ["type"] },
+          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/entitlementManagement.accessPackages.assignmentPolicies.json" }, { "$ref": "#/$defs/expression" } ] } } } }
       ]
     },
     "childResource": {
@@ -259,7 +269,9 @@
         { "if": { "properties": { "type": { "enum": ["federatedIdentityCredentials", "Microsoft.Entra/applications/federatedIdentityCredentials"] } }, "required": ["type"] },
           "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/applications.federatedIdentityCredentials.json" }, { "$ref": "#/$defs/expression" } ] } } } },
         { "if": { "properties": { "type": { "enum": ["passwordCredentials", "Microsoft.Entra/applications/passwordCredentials"] } }, "required": ["type"] },
-          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/applications.passwordCredentials.json" }, { "$ref": "#/$defs/expression" } ] } } } }
+          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/applications.passwordCredentials.json" }, { "$ref": "#/$defs/expression" } ] } } } },
+        { "if": { "properties": { "type": { "enum": ["assignmentPolicies", "Microsoft.Entra/entitlementManagement/accessPackages/assignmentPolicies"] } }, "required": ["type"] },
+          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/entitlementManagement.accessPackages.assignmentPolicies.json" }, { "$ref": "#/$defs/expression" } ] } } } }
       ]
     }
   }
