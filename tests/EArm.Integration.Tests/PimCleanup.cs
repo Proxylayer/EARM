@@ -148,6 +148,12 @@ internal sealed class PimCleanup
         {
             _log.Add($"pim: {label} was already gone ({ProbeReport.Describe(ex)})");
         }
+        catch (GraphException ex) when (PimScheduleRequests.IsTooNewToRemove(ex))
+        {
+            // PIM refuses to remove an assignment younger than 5 minutes; waiting would add minutes to every run. Not a leftover on its own: the principal
+            // is deleted (and purged) next, which ends the schedule; a principal that cannot be deleted is one.
+            _log.Add($"pim: {label} is less than 5 minutes old and cannot be removed yet ({ProbeReport.Describe(ex)}); it ends with the principal's deletion");
+        }
         catch (GraphException ex)
         {
             Leftover($"{label} could not be removed: {ProbeReport.Describe(ex)}");

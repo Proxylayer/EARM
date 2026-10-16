@@ -186,6 +186,12 @@ public static class EngineDiagnosticCodes
     /// </summary>
     public const string PimGroupAccessDenied = "PimGroupAccessDenied";
 
+    /// <summary>
+    /// Graph refused to remove a PIM schedule (adminRemove) with 400 <c>ActiveDurationTooShort</c>: an assignment cannot be removed within five minutes
+    /// of being assigned (Learn: pim-how-to-add-role-to-user). The assignment and its access stay; remove it again once it is five minutes old.
+    /// </summary>
+    public const string ActiveAssignmentTooNew = "ActiveAssignmentTooNew";
+
     /// <summary>A <c>roleManagementPolicies</c> declaration is invalid at plan time (unknown role or group, a computed value that breaks a rule, a rule id the live policy does not have).</summary>
     public const string RoleManagementPolicyInvalid = "RoleManagementPolicyInvalid";
 

@@ -21,7 +21,7 @@ public sealed record PimRequestFinding(JsonPath Path, string Message, bool Schem
 /// The pure rules every PIM schedule request type shares (<c>roleEligibilityScheduleRequests</c>, <c>roleAssignmentScheduleRequests</c>,
 /// <c>privilegedAccess/groupEligibilityScheduleRequests</c>, <c>privilegedAccess/groupAssignmentScheduleRequests</c>):
 /// <c>requestType</c> (only <c>AdminAssign</c>; the engine chooses the Graph action), the request metadata (<c>justification</c>, <c>ticketInfo</c>) and the
-/// schedule (<c>scheduleInfo</c>: the expiration type, the endDateTime / duration each type needs, ISO 8601 values, end after start), plus the
+/// schedule (<c>scheduleInfo</c>: the expiration type, the endDateTime / duration each type needs, ISO 8601 values, end after start, at least <see cref="MinimumDuration"/>), plus the
 /// normalisation to Graph's camelCase. Values the caller cannot judge yet are skipped through the <c>isOpaque</c> predicate.
 /// </summary>
 public static class PimScheduleRules
@@ -37,6 +37,12 @@ public static class PimScheduleRules
 
     /// <summary>The one ARM <c>requestType</c> accepted (the engine chooses the Graph action itself).</summary>
     public const string AdminAssign = "AdminAssign";
+
+    /// <summary>
+    /// The shortest schedule PIM accepts: Learn (pim-how-to-add-role-to-user) documents that an assignment "can't be assigned for a duration of less
+    /// than five minutes" and "can't be removed within five minutes of it being assigned" (Graph answers the removal with 400 ActiveDurationTooShort).
+    /// </summary>
+    public static readonly TimeSpan MinimumDuration = TimeSpan.FromMinutes(5);
 
     /// <summary>Request metadata: sent with every request, never compared with the live schedule.</summary>
     public static IReadOnlyList<string> MetadataProperties { get; } = ["justification", "ticketInfo"];
@@ -289,9 +295,16 @@ public static class PimScheduleRules
             }
         }
 
-        if (hasDuration && !isOpaque(duration!.Value.Value) && !(TryString(duration.Value.Value, out string? durationText) && TryParseDuration(durationText, out _)))
+        if (hasDuration && !isOpaque(duration!.Value.Value))
         {
-            findings.Add(new(expirationPath.Append(duration.Value.Key), $"{expirationWhere}.{duration.Value.Key} must be a positive ISO 8601 duration, for example P365D or PT8H"));
+            if (!(TryString(duration.Value.Value, out string? durationText) && TryParseDuration(durationText, out var span)))
+            {
+                findings.Add(new(expirationPath.Append(duration.Value.Key), $"{expirationWhere}.{duration.Value.Key} must be a positive ISO 8601 duration, for example P365D or PT8H"));
+            }
+            else if (span < MinimumDuration)
+            {
+                findings.Add(new(expirationPath.Append(duration.Value.Key), $"{expirationWhere}.{duration.Value.Key} ({durationText.Trim()}) is shorter than PIM's minimum of 5 minutes (PT5M): PIM refuses a schedule shorter than five minutes (Learn: pim-how-to-add-role-to-user)"));
+            }
         }
 
         switch (type)
@@ -337,6 +350,10 @@ public static class PimScheduleRules
         if (start is { } from && endValue is { } to && to <= from)
         {
             findings.Add(new(expirationPath.Append(end!.Value.Key), string.Create(CultureInfo.InvariantCulture, $"{expirationWhere}.{end.Value.Key} ({to:O}) must be after {where}.startDateTime ({from:O})")));
+        }
+        else if (start is { } begin && endValue is { } finish && finish - begin < MinimumDuration)
+        {
+            findings.Add(new(expirationPath.Append(end!.Value.Key), string.Create(CultureInfo.InvariantCulture, $"{expirationWhere}.{end.Value.Key} ({finish:O}) must be at least 5 minutes after {where}.startDateTime ({begin:O}): PIM refuses a schedule shorter than five minutes (Learn: pim-how-to-add-role-to-user)")));
         }
     }
 

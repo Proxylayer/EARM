@@ -321,7 +321,18 @@ public sealed class PimProbes : IntegrationTestBase
 
         var schedules = PimReads.OfAccess(await PimReads.ByGroupAsync(Graph, GroupSchedulesLookup.AssignmentSchedulesPath, groupId, Ct), userId, "member");
         report.Observe("active membership schedule: " + string.Join("; ", schedules.Select(PimReads.DescribeSchedule)));
-        await PimReads.SendAsync(Graph, GroupSchedulesLookup.AssignmentRequestsPath, PimReads.GroupRequest(PimScheduleRequests.AdminRemove, groupId, userId, "member", schedules.Count > 0 ? PimScheduleComparison.ScheduleView(schedules[0]) : null), Ct);
+        try
+        {
+            await PimReads.SendAsync(Graph, GroupSchedulesLookup.AssignmentRequestsPath, PimReads.GroupRequest(PimScheduleRequests.AdminRemove, groupId, userId, "member", schedules.Count > 0 ? PimScheduleComparison.ScheduleView(schedules[0]) : null), Ct);
+        }
+        catch (GraphException ex) when (PimScheduleRequests.IsTooNewToRemove(ex))
+        {
+            // PIM refuses to remove an assignment younger than 5 minutes (Learn: pim-how-to-add-role-to-user); the user's deletion ends it.
+            report.Observe($"the adminRemove was refused {(DateTime.UtcNow - started).TotalSeconds:F0} s after the adminAssign ({ProbeReport.Describe(ex)}); the membership ends with the user's deletion");
+            report.Complete();
+            return;
+        }
+
         var after = await EventuallyAsync(() => IdsOfAsync($"/groups/{groupId}/members"), found => !found.Contains(userId), seconds: 120, stepSeconds: 5);
         report.Observe(after.Contains(userId) ? "the member is STILL listed 120 s after the adminRemove" : "the member left /members after the adminRemove");
         report.Complete();

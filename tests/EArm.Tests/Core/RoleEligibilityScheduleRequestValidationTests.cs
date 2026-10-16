@@ -47,6 +47,7 @@ public sealed class RoleEligibilityScheduleRequestValidationTests
     [InlineData(", \"scheduleInfo\": { \"startDateTime\": \"2026-01-01T00:00:00Z\", \"expiration\": { \"type\": \"AfterDateTime\", \"endDateTime\": \"2027-01-01T00:00:00Z\" } }")]
     [InlineData(", \"scheduleInfo\": { \"expiration\": { \"type\": \"afterDuration\", \"duration\": \"P365D\" } }")]
     [InlineData(", \"scheduleInfo\": { \"expiration\": { \"type\": \"AfterDuration\", \"duration\": \"PT8H\" } }")]
+    [InlineData(", \"scheduleInfo\": { \"expiration\": { \"type\": \"AfterDuration\", \"duration\": \"PT5M\" } }")]
     [InlineData(", \"directoryScopeId\": \"/administrativeUnits/1b2c3d4e-0000-4000-8000-000000000001\"")]
     [InlineData(", \"administrativeUnit\": \"Orders AU\"")]
     [InlineData(", \"appScopeId\": \"/\"")]
@@ -121,6 +122,8 @@ public sealed class RoleEligibilityScheduleRequestValidationTests
     [InlineData(", \"scheduleInfo\": { \"expiration\": { \"type\": \"AfterDateTime\", \"endDateTime\": \"next year\" } }", "properties.scheduleInfo.expiration.endDateTime", "ISO 8601 date-time")]
     [InlineData(", \"scheduleInfo\": { \"startDateTime\": \"tomorrow\" }", "properties.scheduleInfo.startDateTime", "ISO 8601 date-time")]
     [InlineData(", \"scheduleInfo\": { \"startDateTime\": \"2027-01-01T00:00:00Z\", \"expiration\": { \"type\": \"AfterDateTime\", \"endDateTime\": \"2026-01-01T00:00:00Z\" } }", "properties.scheduleInfo.expiration.endDateTime", "must be after")]
+    [InlineData(", \"scheduleInfo\": { \"expiration\": { \"type\": \"AfterDuration\", \"duration\": \"PT4M\" } }", "properties.scheduleInfo.expiration.duration", "shorter than PIM's minimum of 5 minutes")]
+    [InlineData(", \"scheduleInfo\": { \"startDateTime\": \"2027-01-01T00:00:00Z\", \"expiration\": { \"type\": \"AfterDateTime\", \"endDateTime\": \"2027-01-01T00:04:59Z\" } }", "properties.scheduleInfo.expiration.endDateTime", "at least 5 minutes after")]
     public void Rules_AreInvalidRoleEligibilityScheduleRequestErrors(string extra, string pathSuffix, string message)
     {
         var error = Assert.Single(Validate(Props(extra)), d => d.IsError);

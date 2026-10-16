@@ -179,6 +179,44 @@ public sealed class RealTenantPimBehaviourTests
     }
 
     [Fact]
+    public async Task A403UnauthorizedAccessExceptionThatPersists_IsPimGroupAccessDenied_MentioningAJustCreatedGroup()
+    {
+        var (host, ops, alice) = GroupSetup();
+        host.Fake.Failures.Add("POST", GroupRequests, PimGroupForbidden, times: -1);
+
+        var run = await host.CreateAsync(host.Resources(GroupEligibility(ops, alice)));
+
+        Assert.False(run.Succeeded);
+        Assert.Equal(EngineDiagnosticCodes.PimGroupAccessDenied, run.Op(Name).ErrorCode);
+        Assert.Contains("ACTIVE (not just eligible)", run.Op(Name).Error, StringComparison.Ordinal);
+        Assert.Contains("if the group (or the principal) was just created, PIM may need more time", run.Op(Name).Error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task ARemoveAnsweredActiveDurationTooShort_FailsWithActiveAssignmentTooNew_WithoutWaiting()
+    {
+        var (host, ops, alice) = GroupSetup();
+        var document = host.Resources(GroupEligibility(ops, alice, ", \"scheduleInfo\": { \"expiration\": { \"type\": \"afterDuration\", \"duration\": \"P30D\" } }"));
+        Check.Succeeded(await host.CreateAsync(document));
+        host.Fake.Failures.Add("POST", GroupRequests, r => new GraphException(HttpStatusCode.BadRequest, "ActiveDurationTooShort", "The Active duration is too short. Miniumum Required is 5 minutes.", r.Hint), times: -1);
+
+        var deletion = await host.DeleteDeclaredAsync(document);
+
+        Assert.False(deletion.Succeeded);
+        var outcome = Assert.Single(deletion.Outcomes);
+        Assert.Equal(EngineDiagnosticCodes.ActiveAssignmentTooNew, outcome.ErrorCode);
+        Assert.Contains("at least 5 minutes old", outcome.Error, StringComparison.Ordinal);
+        Assert.Single(host.Directory.Objects(GroupSchedules));
+        Assert.Single(host.Fake.Writes, w => w.Method == "POST" && w.Path.Contains(GroupRequests, StringComparison.Ordinal) && w.Body?["action"]?.GetValue<string>() == "adminRemove");
+    }
+
+    private static GraphException PimGroupForbidden(FakeGraphRequest request)
+    {
+        // The real client repeats this answer on the replication schedule first (HttpGraphClientResponseTests); the fake has no transport retries.
+        return new GraphException(HttpStatusCode.Forbidden, "UnauthorizedAccessException", "Attempted to perform an unauthorized operation.", request.Hint);
+    }
+
+    [Fact]
     public async Task A403FromADirectoryRoleSchedule_StaysAGraphError()
     {
         var (host, alice) = RoleSetup();

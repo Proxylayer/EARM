@@ -225,6 +225,7 @@ public sealed class PimScenarioTests : IntegrationTestBase
         Assert.Equal("NoChange", modify.ChangeTypeOf("/" + role));
         Assert.Equal("NoChange", modify.ChangeTypeOf("/" + member));
         AssertCreated(await Fixture.Cli.CreateAsync(moved, Ct), "create with the moved end date");
+        var lastWrite = DateTimeOffset.UtcNow;
         var updated = await EventuallyAsync(
             async () => PimReads.OfAccess(await PimReads.ByGroupAsync(Graph, GroupSchedulesLookup.AssignmentSchedulesPath, groupId, Ct), userId, "owner"),
             found => found.Count == 1 && PimReads.EndDateTime(found[0]) is { } at && (at - newEnd).Duration() <= TimeSpan.FromSeconds(2),
@@ -233,7 +234,28 @@ public sealed class PimScenarioTests : IntegrationTestBase
         AssertEndNear(newEnd, Assert.Single(updated), "the active ownership after the adminUpdate");
         await AssertNoChangesEventuallyAsync(() => Fixture.Cli.WhatIfAsync(moved, Ct, "--exit-code-on-changes"), "rerun after the adminUpdate");
 
-        AssertExit(0, await Fixture.Cli.DeleteAllAsync(moved, Ct), "deployment delete");
+        // PIM refuses to remove an assignment younger than 5 minutes (400 ActiveDurationTooShort; Learn: pim-how-to-add-role-to-user): a delete before
+        // then fails with ActiveAssignmentTooNew and exit 1, and the delete once the assignments are old enough removes them. Only the rest of the
+        // 5 minutes is waited (the lifecycle above takes part of it).
+        var early = await Fixture.Cli.DeleteAllAsync(moved, Ct);
+        if (early.ExitCode != 0)
+        {
+            AssertExit(1, early, "deployment delete before the active assignments are 5 minutes old");
+            Assert.Contains(EngineDiagnosticCodes.ActiveAssignmentTooNew, early.Combined, StringComparison.Ordinal);
+            var remaining = lastWrite + TimeSpan.FromMinutes(5) + TimeSpan.FromSeconds(15) - DateTimeOffset.UtcNow;
+            Observe($"deployment delete refused with ActiveAssignmentTooNew; waiting {Math.Max(0, remaining.TotalSeconds):F0} s until the assignments are 5 minutes old");
+            if (remaining > TimeSpan.Zero)
+            {
+                await Task.Delay(remaining, Ct);
+            }
+
+            AssertExit(0, await Fixture.Cli.DeleteAllAsync(moved, Ct), "deployment delete once the active assignments are 5 minutes old");
+        }
+        else
+        {
+            Observe($"deployment delete succeeded {(DateTimeOffset.UtcNow - lastWrite).TotalSeconds:F0} s after the last write (PIM did not refuse it as too new)");
+        }
+
         var roleLeft = await EventuallyAsync(
             async () => PimReads.OfRole(await PimReads.ByPrincipalAsync(Graph, RoleSchedulesLookup.AssignmentSchedulesPath, userId, Ct), messageCenterReader),
             found => found.Count == 0,

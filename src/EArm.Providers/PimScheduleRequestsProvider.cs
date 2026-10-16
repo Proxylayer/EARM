@@ -29,7 +29,8 @@ namespace EArm.Providers;
 /// after a re-read under replication lag.</item>
 /// <item><b>Update</b>: <c>POST</c> with action <c>adminUpdate</c> (a declared start that is already past is left out; <c>RoleAssignmentExists</c>, which
 /// Graph answers while a just-replaced schedule settles, is repeated on the <see cref="Settle"/> schedule). <b>Delete</b>: <c>POST</c> with action <c>adminRemove</c>; a schedule that is
-/// already gone is not an error.</item>
+/// already gone is not an error; one younger than five minutes (<c>ActiveDurationTooShort</c>) fails with
+/// <see cref="EngineDiagnosticCodes.ActiveAssignmentTooNew"/> without waiting.</item>
 /// </list>
 /// A request refused by a rule of the PIM policy fails with <see cref="PimPolicyViolation"/> and Graph's text plus the type's advice. Defaults applied
 /// before the diff: an absent <c>scheduleInfo</c> is a permanent schedule (the active assignment types refuse it in their rules), an absent
@@ -277,6 +278,13 @@ public abstract class PimScheduleRequestsProvider<TTuple> : ProviderBase, IOrpha
         catch (GraphException ex) when (PimScheduleRequests.IsAlreadyGone(ex))
         {
             // Already removed (or expired) outside EARM.
+        }
+        catch (GraphException ex) when (PimScheduleRequests.IsTooNewToRemove(ex))
+        {
+            // Not waited out (up to 5 minutes): the access stays, so the removal fails with what to do.
+            throw new ProviderException(
+                EngineDiagnosticCodes.ActiveAssignmentTooNew,
+                $"{TypeName} {key.Describe()}: Graph refused to remove the {ScheduleNoun} because it is less than 5 minutes old (PIM requires an assignment to be at least 5 minutes old before it can be removed; Learn: pim-how-to-add-role-to-user). The {ScheduleNoun} and its access remain; run the delete again in a few minutes. {ex.Message}");
         }
         catch (GraphException ex) when (PimScheduleRequests.IsPolicyViolation(ex))
         {

@@ -129,6 +129,18 @@ public static class PimScheduleRequests
             || (ex.Status == System.Net.HttpStatusCode.BadRequest && (GonePattern.IsMatch(ex.Code ?? string.Empty) || GonePattern.IsMatch(ex.GraphMessage ?? string.Empty)));
     }
 
+    /// <summary>
+    /// True when Graph refused an adminRemove because the schedule is younger than five minutes (400 <c>ActiveDurationTooShort</c>, "The Active duration is
+    /// too short. Minimum Required is 5 minutes."; Learn: pim-how-to-add-role-to-user).
+    /// </summary>
+    public static bool IsTooNewToRemove(GraphException ex)
+    {
+        ArgumentNullException.ThrowIfNull(ex);
+        return ex.Status == System.Net.HttpStatusCode.BadRequest
+            && (string.Equals(ex.Code, "ActiveDurationTooShort", StringComparison.OrdinalIgnoreCase)
+                || (ex.GraphMessage ?? string.Empty).Contains("duration is too short", StringComparison.OrdinalIgnoreCase));
+    }
+
     /// <summary>True when Graph answered an adminAssign with "the eligibility already exists" (<c>RoleAssignmentExists</c>, or a 409).</summary>
     public static bool IsAlreadyExists(GraphException ex)
     {
