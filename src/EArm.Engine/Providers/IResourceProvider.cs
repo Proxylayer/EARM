@@ -66,6 +66,14 @@ public interface IResourceProvider
     /// </summary>
     bool CreateIsRepeatable => false;
 
+    /// <summary>
+    /// True when the key read (<see cref="ReadAsync"/>) is a list query that can miss a newly created object for a few seconds (Graph's
+    /// <c>$filter=displayName eq '...'</c> lists: Conditional Access policies, named locations, authentication strengths, administrative units, custom role
+    /// definitions). After a successful create the executor then reads the key again until the created id shows up (read-your-write, waited out with
+    /// the executor's <c>ReplicationWait</c>), so an immediate rerun does not plan a duplicate create. The default is <c>false</c>.
+    /// </summary>
+    bool KeyReadLagsCreate => false;
+
     Task<AppliedResource> CreateAsync(ResourceInstance desired, IGraphClient graph, CancellationToken cancellationToken);
 
     Task<AppliedResource> UpdateAsync(ResourceInstance desired, ExistingResource existing, ResourceChange change, IGraphClient graph, CancellationToken cancellationToken);

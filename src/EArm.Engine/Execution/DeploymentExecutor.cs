@@ -689,9 +689,10 @@ public sealed class DeploymentExecutor
         /// </summary>
         private async Task<CreateOutcome> CreateAsync(IResourceProvider provider, ResourceInstance instance, ResourceKey key, CancellationToken cancellationToken)
         {
+            AppliedResource created;
             try
             {
-                return new CreateOutcome(await WithRetryAsync(ct => provider.CreateAsync(instance, _owner._graph, ct), instance.RetryHint, cancellationToken, idempotent: provider.CreateIsRepeatable).ConfigureAwait(false), null, null);
+                created = await WithRetryAsync(ct => provider.CreateAsync(instance, _owner._graph, ct), instance.RetryHint, cancellationToken, idempotent: provider.CreateIsRepeatable).ConfigureAwait(false);
             }
             catch (ProviderException ex) when (ex.Partial is { } partial)
             {
@@ -751,6 +752,79 @@ public sealed class DeploymentExecutor
                 string failure = $"{instance.Describe()}: the deployment was cancelled while the object was being created; it exists (Graph id {found.GraphId}), but the create may not have completed. Run the deployment again to finish it.";
                 return new CreateOutcome(partial, failure, null);
             }
+
+            if (provider.KeyReadLagsCreate)
+            {
+                await ConfirmCreatedReadableByKeyAsync(provider, instance, key, created.GraphId, cancellationToken).ConfigureAwait(false);
+            }
+
+            return new CreateOutcome(created, null, null);
+        }
+
+        /// <summary>
+        /// Read-your-write after a successful create, for a provider whose key read can miss a new object for a while
+        /// (<see cref="IResourceProvider.KeyReadLagsCreate"/>: the <c>$filter=displayName eq</c> lists). The key is read again every
+        /// <see cref="ReplicationWait.Interval"/> until it returns the created id or <see cref="ReplicationWait.Window"/> of waiting was scheduled, so a run
+        /// started right after this one finds the object instead of planning (and POSTing) it again. Never fails the create: when the object does not
+        /// show up in time (or the read itself fails), the <see cref="EngineDiagnosticCodes.CreatedObjectNotVisible"/> warning says so. The reads are not
+        /// cancellable (the create is done; a cancelled read must not be mistaken for a cancelled create); a cancellation ends the wait with the warning.
+        /// </summary>
+        private async Task ConfirmCreatedReadableByKeyAsync(IResourceProvider provider, ResourceInstance instance, ResourceKey key, string graphId, CancellationToken cancellationToken)
+        {
+            if (string.IsNullOrEmpty(graphId))
+            {
+                return;
+            }
+
+            var wait = _owner._replicationWait;
+            var waited = TimeSpan.Zero;
+            string? readFailure = null;
+            while (true)
+            {
+                try
+                {
+                    var found = await WithRetryAsync(ct => provider.ReadAsync(key, _owner._graph, ct), RetryHint.Default, CancellationToken.None).ConfigureAwait(false);
+                    if (found is not null && string.Equals(found.GraphId, graphId, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return;
+                    }
+                }
+                catch (GraphException ex) when (ex.IsNotFound || GraphException.IsReplicationError(ex.Status, ex.Code, ex.GraphMessage))
+                {
+                    // Not replicated yet.
+                }
+                catch (ProviderException ex) when (ex.Code == ProviderException.AmbiguousMatch)
+                {
+                    // A replacement: the deleted object can still be listed next to the new one for a while.
+                }
+                catch (Exception ex) when (ex is GraphException or GraphTransportException or ProviderException or InvalidOperationException or ArgumentException)
+                {
+                    readFailure = SecretRegistration.Scrub(ex.Message);
+                    break;
+                }
+
+                if (cancellationToken.IsCancellationRequested || waited + wait.Interval > wait.Window)
+                {
+                    break;
+                }
+
+                try
+                {
+                    await wait.Delay.DelayAsync(wait.Interval, cancellationToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    break;
+                }
+
+                waited += wait.Interval;
+                EngineLog.WaitingForReplication(Logger, key.Describe(), waited.TotalSeconds, wait.Window.TotalSeconds);
+            }
+
+            string why = readFailure is not null
+                ? $"looking it up by its key ({key.Describe()}) failed: {readFailure}"
+                : $"a lookup by its key ({key.Describe()}) did not return it after {waited.TotalSeconds:0} s of waiting for Graph to replicate it";
+            AddInstanceDiagnostic(instance, Diagnostic.Warning(EngineDiagnosticCodes.CreatedObjectNotVisible, $"'{instance.Id.Id}': the object was created (Graph id {graphId}), but {why}. A run started before Graph catches up may not find it and plan to create it again (a duplicate); wait a minute before the next run, and check with 'deployment what-if' that it shows no create."));
         }
 
         /// <summary>One look for the object by its key after a failed write; any failure of the look itself counts as "not found".</summary>

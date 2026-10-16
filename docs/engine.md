@@ -114,6 +114,16 @@ load ──► validate ──► expand ──► graph ──► [per batch: r
   (create, update), never a 5xx or a lost connection; reads and deletes stay repeatable. The edge pass sends an add (`POST`) the same way, and **reads the edge back** when its answer was lost: an edge that turns out to exist
   (and was not there when the pass planned it) counts as added. A `$batch` is sent once (the client retries failed sub-requests itself); every failure is read per item from
   `BatchResponse.Error`.
+- **Read-your-write after a create.** Graph's `$filter=displayName eq '...'` lists can omit an object for a few seconds after its `POST`, so a run started right
+  after a create could plan (and `POST`) it again: a duplicate, because those types have no unique key. For a provider whose key read is such a list
+  (`IResourceProvider.KeyReadLagsCreate`, true in `ProviderBase` for the `displayName`-keyed types: Conditional Access policies, named locations,
+  authentication strengths, administrative units, custom role definitions) the executor reads the key again after every successful create (including
+  the create half of a replacement) until it returns the created id, on the same `ReplicationWait` schedule (every 5 s, up to 90 s of scheduled waiting;
+  tests pass a delay provider that does not sleep). A create the list shows at once costs one extra read and no wait. The wait never fails the create:
+  when the object does not show up in time, or the read itself fails, the create is reported done with the `CreatedObjectNotVisible` warning. While
+  waiting, a 404, a replication-lag 400 or an `AmbiguousMatch` (the deleted object of a replacement still listed next to the new one) counts as
+  "not yet"; the reads are not cancellable, and a Ctrl+C ends the wait with the warning. This is one executor step rather than code in each provider:
+  the providers already expose the key read, the wait reuses the executor's replication schedule, and the warning is reported the same way for every type.
 - **A failure after the primary write.** A provider that writes in several steps (create the object, then owners, licenses, a restore...) and fails after the first hands the partial result over
   (`ProviderException.Partial`: `UsersProvider` does it when `assignLicense` fails after `POST /users`); for any other provider the executor looks the object up by key after a failed create. Either way the
   object's one-time secret (a generated password) is written to **the secure outputs file** and the resource is reported failed with the object's Graph id (`ResourceApplyFailed`,
@@ -476,6 +486,7 @@ public interface IResourceProvider
     Task<ExistingResource?> ReadAsync(ResourceKey key, IGraphClient g, CancellationToken ct);   // by key only: no stored id
     ResourceChange Plan(ResourceInstance desired, ExistingResource? existing, PlanOptions o);
     bool CreateIsRepeatable { get; }                            // default false: only an upsert (PATCH + create-if-missing) may be repeated after an unknown outcome
+    bool KeyReadLagsCreate { get; }                             // default false: the key read is a $filter list that can miss a new object (read-your-write after create)
     Task<AppliedResource> CreateAsync(ResourceInstance desired, IGraphClient g, CancellationToken ct);
     Task<AppliedResource> UpdateAsync(ResourceInstance desired, ExistingResource existing, ResourceChange change, IGraphClient g, CancellationToken ct);
     Task DeleteAsync(ResourceKey key, ExistingResource live, IGraphClient g, CancellationToken ct);  // the object just read by key
@@ -495,6 +506,7 @@ public interface IResourceProvider
   one-time secret to the secure outputs file and reports the resource failed with its Graph id; a provider that does not do this is covered by a re-read by key after a failed create (the object is reported, but a value Graph only returned in the lost response,
   such as a generated password, is gone). `UsersProvider` does it for `assignLicense`; the other providers' post-create steps (group owners and licenses, restore, ...) rely on the re-read until they adopt `Partial`.
   `CreateIsRepeatable` says whether the create is an upsert (`ProviderBase`: `uniqueName`- and id-keyed types and federated credentials); any other create is never repeated by the executor's retry policy after a 5xx or a lost connection.
+  `KeyReadLagsCreate` says whether the key read can miss a new object for a while (`ProviderBase`: the `displayName`-keyed types, found with a `$filter` list); the executor then reads the key back after each successful create (see "Read-your-write after a create" above).
 - `PrepareAsync` runs on the evaluated instance right before `ResolveKey`, in the planner (what-if) and the
   executor, inside the retry policy with the default hint. It is where a provider resolves name sugar against Graph
   (`resourceAppId` → `resourceId`, `appRole` → `appRoleId`, `scopes` → `scope`) by rewriting `Properties` in place,

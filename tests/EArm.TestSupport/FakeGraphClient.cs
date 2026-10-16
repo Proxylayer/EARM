@@ -22,6 +22,7 @@ public sealed class FakeGraphClient : IGraphClient
 {
     private readonly object _gate = new();
     private readonly List<FakeGraphRequest> _requests = [];
+    private readonly List<ListLag> _listLags = [];
 
     public FakeGraphClient()
         : this(new FakeDirectory())
@@ -55,6 +56,20 @@ public sealed class FakeGraphClient : IGraphClient
 
     public IReadOnlyList<FakeGraphRequest> Writes => Requests.Where(r => r.IsWrite).ToList();
 
+    /// <summary>
+    /// Simulates Graph's read-your-write lag on collection lists (the <c>$filter=displayName eq</c> reads): an object POSTed to
+    /// <paramref name="collectionPath"/> from now on is left out of the next <paramref name="lists"/> list reads of that collection
+    /// (<see cref="GetAllPagesAsync"/>; a GET by id still finds it). A negative <paramref name="lists"/> hides it from every list.
+    /// </summary>
+    public void HideCreatedFromLists(string collectionPath, int lists)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(collectionPath);
+        lock (_gate)
+        {
+            _listLags.Add(new ListLag(collectionPath.TrimEnd('/'), lists));
+        }
+    }
+
     public void ClearRequests()
     {
         lock (_gate)
@@ -83,6 +98,17 @@ public sealed class FakeGraphClient : IGraphClient
     {
         ArgumentNullException.ThrowIfNull(request);
         var (status, responseBody) = Send("POST", request, body, cancellationToken);
+        if (responseBody is JsonObject created && created["id"] is JsonValue idValue && idValue.TryGetValue<string>(out var createdId))
+        {
+            lock (_gate)
+            {
+                foreach (var lag in _listLags.Where(l => l.Matches(request.Path)))
+                {
+                    lag.Hide(createdId);
+                }
+            }
+        }
+
         return Task.FromResult(new GraphResponse(status, responseBody));
     }
 
@@ -112,6 +138,12 @@ public sealed class FakeGraphClient : IGraphClient
     public async IAsyncEnumerable<JsonNode> GetAllPagesAsync(GraphRequest request, [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
+        HashSet<string> hidden;
+        lock (_gate)
+        {
+            hidden = new HashSet<string>(_listLags.Where(l => l.Matches(request.Path)).SelectMany(l => l.TakeHiddenForOneList()), StringComparer.OrdinalIgnoreCase);
+        }
+
         var current = request;
         while (true)
         {
@@ -125,7 +157,7 @@ public sealed class FakeGraphClient : IGraphClient
             {
                 foreach (var item in items)
                 {
-                    if (item is not null)
+                    if (item is not null && !(hidden.Count > 0 && item is JsonObject listed && listed["id"] is JsonValue listedId && listedId.TryGetValue<string>(out var id) && hidden.Contains(id)))
                     {
                         yield return item;
                     }
@@ -193,6 +225,39 @@ public sealed class FakeGraphClient : IGraphClient
         lock (_gate)
         {
             _requests.Add(request);
+        }
+    }
+
+    /// <summary>One <see cref="HideCreatedFromLists"/> rule: the ids created in the collection and how many more lists leave them out.</summary>
+    private sealed class ListLag(string collectionPath, int lists)
+    {
+        private readonly HashSet<string> _ids = new(StringComparer.OrdinalIgnoreCase);
+        private int _remaining = lists;
+
+        public bool Matches(string path)
+        {
+            return string.Equals(path.TrimEnd('/'), collectionPath, StringComparison.OrdinalIgnoreCase);
+        }
+
+        public void Hide(string id)
+        {
+            _ids.Add(id);
+        }
+
+        /// <summary>The ids one list read leaves out (counting that read against the rule).</summary>
+        public IReadOnlyList<string> TakeHiddenForOneList()
+        {
+            if (_ids.Count == 0 || _remaining == 0)
+            {
+                return [];
+            }
+
+            if (_remaining > 0)
+            {
+                _remaining--;
+            }
+
+            return _ids.ToList();
         }
     }
 

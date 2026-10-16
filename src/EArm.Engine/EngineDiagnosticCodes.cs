@@ -88,6 +88,9 @@ public static class EngineDiagnosticCodes
     /// <summary>A create failed with an ambiguous outcome (timeout, transport error, 5xx); the object was looked up by key and found, so the create counts as done.</summary>
     public const string CreateOutcomeUncertain = "CreateOutcomeUncertain";
 
+    /// <summary>A create succeeded, but a lookup by the key (a <c>displayName</c> <c>$filter</c> list) did not return the new object within the replication window; a run started right away could create it again.</summary>
+    public const string CreatedObjectNotVisible = "CreatedObjectNotVisible";
+
     /// <summary>A replacement (an immutable property changed: delete and create again) was not confirmed with <c>-y</c> or at the prompt; nothing was deleted.</summary>
     public const string RecreateNotConfirmed = "RecreateNotConfirmed";
 

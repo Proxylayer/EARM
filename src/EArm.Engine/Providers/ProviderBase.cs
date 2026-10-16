@@ -78,6 +78,9 @@ public abstract class ProviderBase : IResourceProvider, IExistingResourceLookup
     public virtual bool CreateIsRepeatable => Definition.NameKind is ResourceNameKind.UniqueName or ResourceNameKind.Id
         || Definition.Type.EndsWith("/federatedIdentityCredentials", StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>The <c>displayName</c>-keyed types are found with a <c>$filter</c> list, which can miss a new object for a few seconds after its create.</summary>
+    public virtual bool KeyReadLagsCreate => Definition.NameKind is ResourceNameKind.DisplayName;
+
     // ---- key ----
 
     public virtual ResourceKey ResolveKey(ResourceInstance desired)
