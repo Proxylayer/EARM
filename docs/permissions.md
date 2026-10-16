@@ -83,6 +83,27 @@ precise, and `Application.ReadWrite.OwnedBy` is the only application permission 
   "scopes": [ { "name": "Application.Read.All", "resources": ["…"], "reasons": ["lookup: appRole()", "provider (read of Application.ReadWrite.All)"] } ] }
 ```
 
+These are the scopes the online verbs **request**: a run signed in as a user (`earm auth login`, the Microsoft Graph Command Line Tools app by default) asks the
+identity platform for exactly this set, never for `.default`, and the preflight checks that the token's `scp` carries all of it before anything is read or written.
+A scope that has not been consented stops the run with "Consent needed" (exit 3, JSON code `ConsentRequired`), or prompts once in an interactive terminal; see
+[cli.md](cli.md#consent). Consent the set ahead of time with `earm auth login -f <template> [-p …] --verb <verb>` (the same computation), and check it with
+`earm auth status -f <template>`. A service principal, workload identity or managed identity keeps requesting `.default` and needs the application permissions of
+`--mode app` instead.
+
+### Admin consent
+
+Per the Microsoft Graph permissions reference, nearly every scope EARM requests needs **admin consent**: everything except `User.Read`, including
+`Organization.Read.All` (the preflight), `Policy.Read.All` and every `Policy.ReadWrite.*`, `Application.Read.All` / `Application.ReadWrite.All`,
+`RoleManagement.Read.Directory` / `RoleManagement.ReadWrite.Directory`, `AppRoleAssignment.ReadWrite.All`, `DelegatedPermissionGrant.ReadWrite.All` and the
+directory-wide `Group.*`, `User.*.All`, `Directory.Read.All` and `AdministrativeUnit.*` scopes. In practice:
+
+- An administrator who may grant consent (for example a Global Administrator or Privileged Role Administrator) answers the prompt of `earm auth login` for
+  themselves. Leave **Consent on behalf of your
+  organization** unticked unless every user should get the grant (see [SECURITY.md](../SECURITY.md#delegated-sign-in-and-shared-consent)).
+- Any other user gets "Need admin approval": an administrator grants the listed delegated permissions to the sign-in app (Enterprise applications > Microsoft Graph
+  Command Line Tools > Permissions), or the tenant's admin consent workflow is used.
+- A consented scope is not a role: the user still needs the Entra roles of `--mode delegated` for the objects the template manages.
+
 ## Manifest by type
 
 Application permissions are the `permissions.application` of the type's overlay; roles are `permissions.roles`.
@@ -124,9 +145,11 @@ Conditional entries of `users` (overlay `permissions.conditional`): `memberOf` �
 
 ## Things to know
 
-- **Application and delegated permissions are different grants.** The default public client of `earm auth login` (the Azure.Identity developer client) is first-party and does not carry every
-  granular Graph scope (Conditional Access policies in particular); for the delegated mode, register your own public-client application with the listed
-  scopes as delegated permissions and pass it with `--client-id` at `earm auth login`: the client id (and tenant) of the sign-in is stored in the non-secret sign-in record, so later runs refresh against the same application without repeating the option (an explicit `--client-id` / `--tenant-id` still wins). For unattended runs grant the application permissions to the service principal or managed identity. The delegated column is derived from the application permissions and is verified against a tenant by the integration tests
+- **Application and delegated permissions are different grants.** A user sign-in (`earm auth login`) uses delegated scopes, consented to the sign-in app
+  (Microsoft Graph Command Line Tools by default, no app registration), and requests per run only the scopes of its verb ([above](#delegated-scopes-per-run)).
+  A service principal or managed identity uses application permissions granted with admin consent. Your own public-client app (`--client-id`, stored in the
+  sign-in record) is only an override for Azure operated by 21Vianet and for tenants that block the Microsoft app; see [cli.md](cli.md#signing-in). The delegated
+  column is derived from the application permissions and is verified against a tenant by the integration tests
   (see [tests/EArm.Integration.Tests/README.md](../tests/EArm.Integration.Tests/README.md)), not by this verb.
 - **`RoleManagement.ReadWrite.Directory` and `AppRoleAssignment.ReadWrite.All` are privilege-escalation permissions.** An application-only
   caller holding either can grant itself more (any directory role, any Graph application permission). Treat the service principal that deploys

@@ -105,7 +105,10 @@ on a Linux run) show as uncovered; see [tests/COVERAGE.md](../tests/COVERAGE.md)
 sign-in must belong to) and, depending on what you want to exercise, `EARM_IT_DOMAIN` (a verified domain for user principal names), `EARM_IT_ALLOW_CA=1`
 (Conditional Access objects), `EARM_IT_ALLOW_ROLES=1` (directory roles, administrative units, role and consent assignments), `EARM_IT_PREFIX` (the name prefix of
 every object it creates) and `EARM_IT_SWEEP=1` (a manual cleanup of a leaked prefix). Every object carries the run's prefix and is cleaned up by a guard that
-only touches that prefix. What it creates, what it needs and how to clean up after a crashed run: [tests/EArm.Integration.Tests/README.md](../tests/EArm.Integration.Tests/README.md).
+only touches that prefix. The main sign-in is your own user (`earm auth login`): the fixture requests the delegated scopes of the enabled scenarios, so consent
+them once with the `earm auth login --tenant <id> --scopes ...` command a skipped run prints (or set `EARM_IT_INTERACTIVE=1` to be prompted once at the start);
+a service principal in the `AZURE_*` variables is the CI option. `EARM_IT_CONSENT_PROBE=1` runs the interactive consent probes (`Category=Consent`).
+What it creates, what it needs and how to clean up after a crashed run: [tests/EArm.Integration.Tests/README.md](../tests/EArm.Integration.Tests/README.md).
 Until it has been run once against a tenant, the product is **unvalidated against a real Microsoft Graph**.
 
 ## CI

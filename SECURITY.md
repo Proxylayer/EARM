@@ -70,6 +70,28 @@ Templates and parameter files can arrive from a pull request, a shared directory
 - Key Vault parameter references are read over HTTPS with the signed-in identity's Key Vault token; the value is tainted from the moment it is read.
 - Interactive sign-in tokens live in the platform's **encrypted** cache (DPAPI, Keychain, secret service); EARM never enables unencrypted storage. An `az login` session is not used.
 
+### Delegated sign-in and shared consent
+
+`earm auth login` signs you in to the Microsoft first-party app **Microsoft Graph Command Line Tools** (`14d82eec-204b-4c2f-b7e8-296a70dab67e`); nobody registers an
+app. A run acts with **your** delegated permissions and requests only the scopes of its verb (read scopes for `what-if`), so EARM can never do more than you could
+yourself, and usually much less ([docs/permissions.md](docs/permissions.md#delegated-scopes-per-run)). What to know about the consent this needs:
+
+- **Consent is shared with other tools.** A delegated permission is granted to the sign-in app, not to EARM. Microsoft Graph PowerShell and the Microsoft Graph CLI sign in
+  with the same app, so a scope you consent for EARM is also usable by them for your account (and the other way round). Consent only what your templates need
+  (`earm auth login -f <template>` consents exactly that set).
+- **Never tick "Consent on behalf of your organization"** on the consent prompt unless you intend it: it grants the scopes to the app for **every user** of the tenant
+  (an `AllPrincipals` grant), not just for you. Without the tick an administrator's consent applies to the administrator only.
+- **Review or revoke** at any time:
+  - as the user: My Apps (`https://myapps.microsoft.com`) > the app's permissions;
+  - as an administrator: Microsoft Entra admin center > *Enterprise applications* > *Microsoft Graph Command Line Tools* > *Permissions* (the *User consent* tab lists
+    per-user grants, *Admin consent* the tenant-wide ones; revoke from there, or *Review permissions*);
+  - with Microsoft Graph: find the grants with `GET /oauth2PermissionGrants?$filter=clientId eq '<object id of the app's service principal in your tenant>'`, then
+    `DELETE /oauth2PermissionGrants/<id>` to remove a grant, or `PATCH` its `scope` to drop single scopes. Revoking takes effect for new tokens; an access token
+    already issued stays valid until it expires (about an hour).
+- **Tenants that do not allow user consent** (or that disabled the Microsoft app) need an administrator to grant the scopes, or an app registration of their own passed
+  with `--client-id`; unattended runs should use a service principal or managed identity instead of a user sign-in.
+- An older sign-in record that uses the Microsoft Azure CLI app (`04b07795-...`) keeps working with a warning; `earm auth login` switches to the default app.
+
 ### Residual risks (known, not fully closed)
 
 - **A hostile template can learn one bit per output from a secret it may read.** A secret-dependent expression can make a container empty or not
@@ -95,6 +117,8 @@ Templates and parameter files can arrive from a pull request, a shared directory
 ## Hardening checklist for operators
 
 1. Run unattended deployments as a service principal or managed identity with only the permissions `earm permissions` lists, in a dedicated dev tenant first.
+   Interactive runs act as the signed-in user: consent only the scopes your templates need, never on behalf of the organization by accident, and review the grants of
+   *Microsoft Graph Command Line Tools* from time to time ([Delegated sign-in and shared consent](#delegated-sign-in-and-shared-consent)).
 2. Read `deployment what-if` (and `--mode Complete` what-if) before `create`; in CI use `--exit-code-on-changes` as a drift gate and require review of template changes.
 3. Keep the secure-outputs file (and its `.previous` / `.lock` companions) out of source control and build logs.
 4. Do not pass `-y` in a pipeline unless a human reviewed the what-if (its replacements) for that exact run, and review the `orphan: retained` rows: old assignments keep granting access until you remove them.

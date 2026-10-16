@@ -11,6 +11,7 @@ Two kinds of tests live here:
 |---|---|---|
 | Scenarios | `ApplicationScenarioTests`, `DirectoryScenarioTests`, `ConditionalAccessScenarioTests`, `RoleScenarioTests`, `CleanupScenarioTests` | Create, what-if (NoChange), drift, Complete mode (report only, never deletes), `deployment delete -f` (reverse dependency order), secure outputs and edges, run through the real CLI in-process (`Program.BuildRootCommand`). EARM keeps no state, so every scenario finds its objects by key, as a real run does. |
 | Verification probes (`[Trait("Category","Verify")]`) | `GraphBehaviourProbes` | One test per open verification TODO. Each exercises one real Graph behaviour the code assumes and asserts the assumption. |
+| Consent probes (`[Trait("Category","Consent")]`) | `ConsentProbes` | Interactive, separately gated (`EARM_IT_CONSENT_PROBE=1`); check the delegated-consent flow on real MSAL output. See [Consent probes](#consent-probes). |
 | Spike probes (`[Trait("Category","Spike")]`) | `DelegatedAuthSpikeProbes` | Interactive, separately gated (`EARM_IT_AUTH_SPIKE=1`); record how Microsoft Entra answers delegated-auth questions. See [Delegated-auth spike (DES-0002)](#delegated-auth-spike-des-0002). |
 
 ## Prerequisites
@@ -21,35 +22,61 @@ Two kinds of tests live here:
    `*.onmicrosoft.com` domain is fine) and Microsoft Entra ID P1 (or a trial) for the Conditional Access, authentication strength,
    custom role and role-assignable group scenarios. No Azure subscription is needed.
 
-3. **A sign-in for that tenant.** The fixture builds the same stack as the CLI: `EARM_AUTH` / `EARM_TENANT_ID` / `EARM_CLIENT_ID` / `EARM_CLOUD` and the `AZURE_*`
-   variables apply (see [docs/cli.md](../../docs/cli.md#signing-in)). Either set a service principal in the environment
+3. **A sign-in for that tenant: your own user (the main path).** The fixture builds the same stack as the CLI: `EARM_AUTH` / `EARM_TENANT_ID` / `EARM_CLIENT_ID` /
+   `EARM_CLOUD` and the `AZURE_*` variables apply (see [docs/cli.md](../../docs/cli.md#signing-in)). Sign in once:
+
+   ```powershell
+   earm auth login --tenant <tenant-id>
+   ```
+
+   No app registration is needed: the sign-in app is Microsoft Graph Command Line Tools, and the tests act with **your** delegated permissions. The fixture then
+   requests, explicitly, the delegated scopes of everything the run will do: the union of the what-if, create and delete scope sets
+   (`earm permissions --verb ...`) of every scenario template whose gates are on (`EARM_IT_DOMAIN`, `EARM_IT_ALLOW_CA`, `EARM_IT_ALLOW_ROLES`), plus the scopes of
+   the cleanup guard (table below). One consent covers the whole run:
+
+   * **Consent once, ahead of time** (recommended). A run that lacks consent skips every test with a message that contains the exact command for your gates
+     (`pwsh -File test.ps1 -Target EArm.Integration.Tests -Detailed` shows it). With every gate on it is:
+
+     ```powershell
+     earm auth login --tenant <tenant-id> --scopes AdministrativeUnit.Read.All AdministrativeUnit.ReadWrite.All Application.Read.All Application.ReadWrite.All AppRoleAssignment.ReadWrite.All AuthenticationContext.Read.All AuthenticationContext.ReadWrite.All DelegatedPermissionGrant.Read.All DelegatedPermissionGrant.ReadWrite.All Directory.Read.All Group.Read.All Group.ReadWrite.All GroupMember.Read.All GroupMember.ReadWrite.All Organization.Read.All Policy.Read.All Policy.Read.ConditionalAccess Policy.ReadWrite.ConditionalAccess RoleManagement.Read.Directory RoleManagement.ReadWrite.Directory User.DeleteRestore.All User.Read User.Read.All User.ReadWrite.All
+     ```
+
+     (with no gate on, the list drops `AdministrativeUnit.Read.All`, `AppRoleAssignment.ReadWrite.All`, `AuthenticationContext.*`, `DelegatedPermissionGrant.*` and
+     `RoleManagement.ReadWrite.Directory`). The run's set is computed from the templates (`IntegrationScopes`), so trust the printed command over this copy.
+   * **Or be prompted at the start of the run:** `$env:EARM_IT_INTERACTIVE = '1'` lets the fixture open ONE browser consent prompt for the whole set before the first
+     test (only when a person is at the machine; a test host cannot detect that itself). Without it a run never waits for a browser.
+
+   Nearly all of these scopes need **admin consent** ([docs/permissions.md](../../docs/permissions.md#admin-consent)): sign in as an administrator of the dev tenant
+   (Global Administrator is simplest) and consent for yourself. Do **not** tick "Consent on behalf of your organization", and remember that the grant is shared with
+   Microsoft Graph PowerShell and the Graph CLI ([SECURITY.md](../../SECURITY.md#delegated-sign-in-and-shared-consent), also for how to revoke it). The CLI runs
+   inside the tests never prompt: each requests a subset of the consented set, which the refresh token serves silently, and a missing scope fails that test with
+   `ConsentRequired` (exit 3).
+
+   **CI option: a service principal.** Set it in the environment (it requests `.default` and uses application permissions, unchanged):
 
    ```powershell
    $env:AZURE_TENANT_ID = '<tenant-id>'; $env:AZURE_CLIENT_ID = '<appId>'; $env:AZURE_CLIENT_SECRET = '<secret>'
+   $env:EARM_AUTH = 'default'     # only needed when an 'earm auth login' record also exists on the machine (a stored sign-in wins otherwise)
    ```
 
-   or sign in once with `earm auth login --tenant <tenant-id>`. The preflight (token claims, `GET /organization`) runs once per test run; when nothing signs in, or the
-   token belongs to another tenant than `EARM_IT_TENANT`, every test skips with a message saying so.
+   The preflight (token claims, the `scp` check, `GET /organization`) runs once per test run; when nothing signs in, consent is missing, or the token belongs to another
+   tenant than `EARM_IT_TENANT`, every test skips with a message saying so.
 
-4. **Permissions.** What the signed-in identity needs is the union of the groups you run (`earm permissions` computes the
-   same lists from a template; see [docs/permissions.md](../../docs/permissions.md) for the manifest and the privilege-escalation warning).
-   Two ways to get them:
+4. **Permissions.** What the signed-in identity needs is the union of the groups you run (`earm permissions` computes the same lists from a template; see
+   [docs/permissions.md](../../docs/permissions.md) for the manifest and the privilege-escalation warning). A **user** additionally needs Entra roles that allow the
+   writes (Global Administrator covers every scenario); the delegated scopes come from the consent above. A **service principal** needs the application permissions
+   below, with admin consent granted. The delegated scope names match, except that the delegated runs also request the read variants for what-if.
 
-   * a **user** who holds Global Administrator (simplest; the default public client of `earm auth login` is delegated and does not carry every granular
-     Graph scope, Conditional Access in particular, so some scenarios may fail with a 403 that names the missing scope; register your own public-client
-     app with the delegated permissions and pass `--client-id`), or
-   * a **service principal** with the application permissions below, admin consent granted, signed in through the `AZURE_*` variables above. This is the
-     better choice for the Conditional Access, role and grant scenarios.
-
-   | Test group | Graph application permissions |
+   | Test group | Graph permissions |
    |---|---|
-   | Every test (preflight, cleanup guard) | `Organization.Read.All`, `Application.ReadWrite.All`, `Group.ReadWrite.All`, `User.ReadWrite.All`, `AdministrativeUnit.ReadWrite.All`, `Policy.Read.All`, `RoleManagement.Read.Directory` (the sweep lists and deletes what a run created) |
+   | Every test (preflight, cleanup guard) | `Organization.Read.All`, `User.Read` (delegated only), `Application.ReadWrite.All`, `Group.ReadWrite.All`, `User.ReadWrite.All`, `User.DeleteRestore.All` (purging deleted users), `AdministrativeUnit.ReadWrite.All`, `Policy.Read.All`, `RoleManagement.Read.Directory` (the sweep lists and deletes what a run created; `IntegrationScopes.CleanupScopes`) |
    | `ApplicationScenarioTests` | `Application.ReadWrite.All` |
    | `DirectoryScenarioTests` (groups, users, guest) | `User.ReadWrite.All`, `Group.ReadWrite.All`, `GroupMember.ReadWrite.All`, `User.Read.All` |
-   | `ConditionalAccessScenarioTests` | `Policy.ReadWrite.ConditionalAccess`, `Policy.Read.All`, `Application.Read.All`, `Group.ReadWrite.All`; strengths additionally `Policy.ReadWrite.AuthenticationMethod` |
+   | `ConditionalAccessScenarioTests` | `Policy.ReadWrite.ConditionalAccess`, `Policy.Read.All`, `Application.Read.All`, `Group.ReadWrite.All`; contexts `AuthenticationContext.ReadWrite.All` |
    | `RoleScenarioTests` | `RoleManagement.ReadWrite.Directory`, `AdministrativeUnit.ReadWrite.All`, `Group.ReadWrite.All`, `AppRoleAssignment.ReadWrite.All`, `DelegatedPermissionGrant.ReadWrite.All`, `Application.Read.All`, `Application.ReadWrite.All` |
    | Probes | the union of the above; `B4` (user restore) additionally documents whether `User.DeleteRestore.All` is needed |
-   | Purging soft-deleted objects (cleanup) | the type's `*.ReadWrite.All`; users may need `User.DeleteRestore.All` |
+   | Purging soft-deleted objects (cleanup) | the type's `*.ReadWrite.All`; users `User.DeleteRestore.All` |
+
 5. **Test users and guests.** Users are created and deleted by the tests; they need only the verified domain
    (`EARM_IT_DOMAIN`), get no licenses, and are never signed in. `It_Users_GuestWithExtSuffixIsReadByReference` reads an existing guest
    (a user whose UPN contains `#EXT#`): invite one external address by hand (B2B invitation) once; without a guest that test skips.
@@ -64,6 +91,8 @@ Two kinds of tests live here:
 | `EARM_IT_ALLOW_CA` | `=1` | Required for every Conditional Access **policy**, authentication **strength** and **context** test, and for the orders variant. Named locations do not need it. |
 | `EARM_IT_ALLOW_ROLES` | `=1` | Required for the tests that write directory roles, administrative units, role assignments, app role assignments and consent grants (all of `RoleScenarioTests`, including the orders variant). |
 | `EARM_IT_SWEEP` | `=1` | Enables `It_Cleanup_ManualSweepOfTheConfiguredPrefix` (see Manual cleanup). |
+| `EARM_IT_INTERACTIVE` | `=1` | A person is at the machine: a user sign-in that lacks consent for the run's scopes may open ONE browser consent prompt at the start. Off: the run skips with the `earm auth login --scopes ...` command. Never set it in CI. |
+| `EARM_AUTH` | no | `default` forces the service principal / managed identity of the environment when an `earm auth login` record also exists. |
 
 ## Running
 
@@ -76,6 +105,7 @@ $env:EARM_IT_ALLOW_ROLES = '1'     # optional, see the table
 pwsh -File build.ps1 -Target EArm.Integration.Tests                                   # compile only
 pwsh -File test.ps1 -Target EArm.Integration.Tests                                    # everything that is enabled
 pwsh -File test.ps1 -Target EArm.Integration.Tests -Filter "Category=Verify"          # the probes only
+pwsh -File test.ps1 -Target EArm.Integration.Tests -Detailed                         # shows skip reasons, such as the consent command
 pwsh -File test.ps1 -Target EArm.Integration.Tests -Filter "FullyQualifiedName~ApplicationScenarioTests"
 pwsh -File test.ps1 -Target EArm.Integration.Tests -Filter "FullyQualifiedName~It_Probe_F1" -Detailed   # diagnose one probe
 ```
@@ -181,6 +211,38 @@ A probe asserts an assumption the code makes and names the file to change; the o
 
 When all probes of a letter are green the matching verification item can be closed; paste the diagnostic output of
 the **recorded** items into the TODO or into [docs/providers.md](../../docs/providers.md).
+
+## Consent probes
+
+`ConsentProbes` (`[Trait("Category","Consent")]`) checks the delegated-consent flow of DES-0002 against your tenant, on the real MSAL output that the unit tests can
+only simulate. Three probes, run in order and building on each other:
+
+| Probe | Asserts |
+|---|---|
+| `It_Consent_1_...` | A silent request for a scope the sign-in has not consented is classified by `AzureIdentityTokenProvider` as `ConsentRequiredException` (not "sign-in expired"), `ConsentRequiredException.IsConsentFailure` accepts the real exception chain, and the message carries the `earm auth login --scopes` command. |
+| `It_Consent_2_...` | The provider's consent prompt (browser, once, for exactly that set) followed by the silent retry on a **new** credential succeeds. |
+| `It_Consent_3_...` | The token's `scp` contains every explicitly requested scope. |
+
+They are interactive (one browser sign-in, one consent prompt) and run only with `EARM_IT_CONSENT_PROBE=1` and `EARM_IT_TENANT`; otherwise each skips with the reason.
+They do **not** touch EARM's own sign-in: the sign-in record is kept in memory, the tokens in a separate persisted cache **`earm-consent-probe`**, deleted when the class
+finishes. What cannot be isolated is the consent itself: probe 2 grants the probe scope to Microsoft Graph Command Line Tools for your account, and that grant stays.
+
+| Variable | Required | Meaning |
+|---|---|---|
+| `EARM_IT_CONSENT_PROBE` | `=1` | Enables the probes. |
+| `EARM_IT_TENANT` | yes | The tenant they sign in to. |
+| `EARM_IT_CONSENT_PROBE_SCOPE` | no | The Graph scope requested incrementally, one you have **not** consented to the Graph CLI Tools app. Default `Presence.Read` (user-consentable, reads only your own presence). |
+| `EARM_CLOUD` | no | The cloud (`public` default, `usgov`, `usgovdod`; `china` has no Graph CLI Tools app). |
+
+```powershell
+$env:EARM_IT_TENANT = '<tenant-id>'
+$env:EARM_IT_CONSENT_PROBE = '1'
+pwsh -File test.ps1 -Target EArm.Integration.Tests -Filter "Category=Consent" -Detailed
+```
+
+When the probe scope is already consented, probe 1 skips ("already consented"). To run the probes again, revoke it (Microsoft Entra admin center > *Enterprise
+applications* > *Microsoft Graph Command Line Tools* > *Permissions* > *User consent*, or remove the scope from your `oauth2PermissionGrant`, see
+[SECURITY.md](../../SECURITY.md#delegated-sign-in-and-shared-consent)) or pick another scope with `EARM_IT_CONSENT_PROBE_SCOPE`.
 
 ## Delegated-auth spike (DES-0002)
 

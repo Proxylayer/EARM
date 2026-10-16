@@ -91,10 +91,19 @@ fails with a message that says so. The non-secret account record is stored owner
 elsewhere); every login writes a fresh record naming the client it used.
 
 **Sign-in app.** Nobody registers an application: the default client is the Microsoft first-party app **Microsoft Graph Command Line Tools**
-(`14d82eec-204b-4c2f-b7e8-296a70dab67e`, the app Microsoft Graph PowerShell uses) in the `public`, `usgov` and `usgovdod` clouds. It requests delegated scopes
-dynamically, so EARM acts with **your** delegated permissions, limited to the scopes consented. The app does not exist in Azure operated by 21Vianet: with
-`EARM_CLOUD=china`, `login` without `--client-id` fails (exit 1) and asks for the id of a public-client app registration of your own (delegated Graph permissions, a
-`http://localhost` redirect URI, and "allow public client flows" for `--device-code`). `--client-id` / `EARM_CLIENT_ID` selects such an app in any cloud.
+(`14d82eec-204b-4c2f-b7e8-296a70dab67e`, the app Microsoft Graph PowerShell and the Microsoft Graph CLI use) in the `public`, `usgov` and `usgovdod` clouds. It
+requests delegated scopes dynamically, so EARM acts with **your** delegated permissions (your Entra roles, limited to the scopes consented), never with
+permissions of its own.
+
+Your own app registration is an **optional override**, only for these cases; pass its id with `--client-id` (or `EARM_CLIENT_ID`):
+
+- **Azure operated by 21Vianet** (`EARM_CLOUD=china`): the Microsoft app does not exist there, so `login` without `--client-id` fails (exit 1) and asks for one.
+- **A tenant that blocks the Microsoft app** (user consent turned off and no admin grant, "assignment required", or the enterprise application disabled).
+- The app needs delegated Microsoft Graph permissions, a `http://localhost` redirect URI (mobile and desktop platform), and "Allow public client flows" for
+  `--device-code`. The client id is stored in the sign-in record, so later runs use the same app.
+
+Unattended runs (CI, scheduled jobs) do not sign in as a user at all: use a service principal, workload identity or managed identity (`--auth default`, the
+`AZURE_*` variables), which keeps requesting `.default` and uses the application permissions an administrator granted it.
 
 **Scopes.** A plain `login` requests the base set `User.Read` and `Organization.Read.All`. To consent ahead of time what later runs will request:
 
@@ -129,21 +138,53 @@ With `-f <template>` (and `-p`, `--verb` as for `login`, default `create`), it a
 
 ### Consent
 
-Runs get their tokens silently. When the sign-in is valid but has not been granted a requested scope (the identity platform answers AADSTS65001), the run fails with exit
-code 3 and a `Consent needed` message instead of "sign-in expired": it names the missing scopes and the command that grants them once, interactively
-(`earm auth login --scopes <missing>`, or `earm auth login -f <template>` for everything a template needs). Signing in again without those scopes does not help.
-If your organization requires admin consent for a scope, an administrator grants it to the sign-in app instead.
+**Scopes per verb.** A run signed in as a user requests exactly the delegated scopes of its verb, computed offline from the template (`earm permissions -f <template>
+--verb <verb>` lists them, with the reason for each). Every online verb adds `Organization.Read.All` (the preflight reads `/organization`) and `User.Read`.
 
-`what-if`, `create` and `delete` signed in as a user request exactly the delegated scopes of their verb (`earm permissions --verb ...` lists them; `create` requests
-its write scopes for the whole command, including the what-if it shows first). In an interactive terminal a missing consent is asked for on the spot (a browser,
-or `--device-code`), once, and the run continues; otherwise the run stops with exit 3 and the guidance above **before anything is written**. The preflight also
-checks the token's `scp` claim against the requested scopes. A service principal, workload or managed identity keeps requesting `.default`.
+| Verb | Delegated scopes requested |
+|---|---|
+| `deployment validate` | none (offline, no token) |
+| `deployment what-if`, and `deployment create --what-if` | the **read** variant of every scope the template needs (`Group.Read.All` for `Group.ReadWrite.All`) |
+| `deployment create` | the **write** scopes, for the whole command (including the what-if it shows first and the what-if after a recreate) |
+| `deployment delete` | the write scope of every type it deletes, the read variant for what it only looks up |
 
-Consent is recorded for the **sign-in app**, not for EARM: a grant to Microsoft Graph Command Line Tools is shared by every tool that signs in with that app (Microsoft
-Graph PowerShell, the Microsoft Graph CLI). Review or revoke it under My Apps (`https://myapps.microsoft.com`) or, as an administrator, under Enterprise applications.
+Requesting the read variant does not borrow from a consented write scope: a what-if needs its read scopes consented too (`earm auth login -f <template> --verb
+whatif`). A service principal, workload or managed identity keeps requesting `.default`. Key Vault parameter references use the same sign-in: the first one needs a
+one-time consent for `https://<vault suffix>/user_impersonation` (`earm auth login -f` asks for it when the template has such references); after that the vault token
+comes silently.
 
-A sign-in record from an earlier version uses the Microsoft Azure CLI app (`04b07795-8ddb-461a-bbee-02f9e1bf7b46`). It keeps working for what that app is pre-authorized
-for, with one warning per run (and a note in `auth status`) recommending `earm auth login`, which switches to the default app.
+**Consenting.** Consent once, interactively, ahead of time:
+
+```text
+earm auth login -f template.entra.json -p @params.json            # what a create of this template needs
+earm auth login -f template.entra.json --verb whatif              # its what-if
+earm auth login --scopes Group.ReadWrite.All Policy.Read.All      # named scopes
+```
+
+Plain `earm auth login` only consents the base set. `earm auth status -f <template>` shows which required scopes the token still lacks.
+
+**At run time.** Tokens are requested silently. When the sign-in is valid but a requested scope has not been granted, the identity platform answers AADSTS65001 and EARM
+reports **Consent needed**, never "sign-in expired" (signing in again without those scopes does not help):
+
+- In an **interactive terminal** (standard input and standard error not redirected) the run asks once, on the spot, for exactly the missing scopes: a browser, or
+  the device-code flow with `--device-code` on `what-if`, `create` and `delete`. The prompt is answered as the signed-in account; then the run continues.
+- **Non-interactive** (a script, a pipeline, redirected input), or when the prompt is declined: the run stops with exit code **3** before anything is written. The message
+  names the missing scopes and the command that grants them (`earm auth login --scopes <missing>`, or `earm auth login -f <template>`); with `-o json` the document's
+  diagnostic has the code `ConsentRequired` (other preflight failures use `PreflightFailed`).
+- The preflight also compares the token's `scp` claim with the requested scopes. A token issued **without** some of them (no AADSTS65001: the grant was never given,
+  or was revoked after the token was cached) gets the same treatment, with a message that says the token's `scp` lacks them.
+
+If a scope requires admin consent (most directory-wide `*.ReadWrite.All` scopes, `Policy.*`, `Application.ReadWrite.All`, `RoleManagement.*`; see [permissions.md](permissions.md#admin-consent)), an administrator grants it to the sign-in app instead, or signs in and consents for
+themselves.
+
+**Consent is shared.** It is recorded for the **sign-in app**, not for EARM: a grant to Microsoft Graph Command Line Tools also applies to Microsoft Graph PowerShell and the
+Microsoft Graph CLI for the same user. On the consent prompt, do not tick **Consent on behalf of your organization** unless you intend a tenant-wide grant for every user.
+Review or revoke under My Apps (`https://myapps.microsoft.com`) or, as an administrator, in the Microsoft Entra admin center under *Enterprise applications > Microsoft
+Graph Command Line Tools > Permissions* (see [SECURITY.md](../SECURITY.md#delegated-sign-in-and-shared-consent)).
+
+**Earlier sign-ins.** A sign-in record from an earlier version uses the Microsoft Azure CLI app (`04b07795-8ddb-461a-bbee-02f9e1bf7b46`). It keeps working for what that
+app is pre-authorized for (not for granular scopes such as Conditional Access, which fail with AADSTS65002), with one warning per run and a note in `earm auth status`.
+Switch with `earm auth login` (without `--client-id`; add `-f <template>` to consent a template's scopes at the same time): the new record uses the default app.
 
 ### Migrating from the Azure CLI transport
 

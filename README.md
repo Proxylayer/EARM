@@ -61,7 +61,7 @@ pwsh -File deploy.ps1       # pack the CLI and install it as the global tool `ea
 earm deployment validate -f samples/orders-api.entra.json -p '@samples/orders-api.parameters.json'
 
 # against a DEV tenant you may write to
-earm auth login                                 # interactive; or set AZURE_TENANT_ID / AZURE_CLIENT_ID / AZURE_CLIENT_SECRET (see Signing in)
+earm auth login -f samples/app-with-sp-and-secret.entra.json -p '@samples/app-with-sp-and-secret.parameters.json'   # sign in as yourself, consent what the sample needs (or set AZURE_*, see Signing in)
 earm deployment what-if -f samples/app-with-sp-and-secret.entra.json -p '@samples/app-with-sp-and-secret.parameters.json'
 earm deployment create  -f samples/app-with-sp-and-secret.entra.json -p '@samples/app-with-sp-and-secret.parameters.json' -c --secure-outputs-file ./secure-outputs.json
 ```
@@ -131,10 +131,13 @@ Online verbs use Azure.Identity. Pick whichever fits (`earm auth status` shows w
 |---|---|
 | Unattended runs, CI | A **service principal**: `AZURE_TENANT_ID`, `AZURE_CLIENT_ID` and `AZURE_CLIENT_SECRET` (or `AZURE_CLIENT_CERTIFICATE_PATH`). Grant it Microsoft Graph **application permissions** (`earm permissions` lists them). |
 | Azure-hosted automation | A **managed identity** (set `AZURE_CLIENT_ID` for a user-assigned one) or **workload identity** (`AZURE_FEDERATED_TOKEN_FILE` with `AZURE_TENANT_ID` / `AZURE_CLIENT_ID`). |
-| A person at a keyboard | `earm auth login` (browser) or `earm auth login --device-code`; tokens are kept in an encrypted cache (`earm auth logout` forgets them). Use `--tenant`, and `--client-id` for your own public-client app registration with the needed delegated permissions. |
+| A person at a keyboard | `earm auth login` (browser) or `earm auth login --device-code`, with `--tenant` for a specific tenant. No app registration: the sign-in app is Microsoft's **Microsoft Graph Command Line Tools**, and EARM acts with **your** delegated permissions, requesting per run only the scopes of the verb (read scopes for `what-if`). Consent them once with `earm auth login -f <template>` (or `--scopes ...`); an interactive run asks for a missing consent on the spot, a non-interactive one stops with exit 3 (`ConsentRequired`) before writing anything. Tokens are kept in an encrypted cache (`earm auth logout` forgets them). `--client-id` (your own public-client app) is only needed in Azure operated by 21Vianet or in tenants that block the Microsoft app. |
 
-An `az login` session is **not** used, and the Azure CLI, Azure PowerShell and Visual Studio credentials are deliberately excluded from the chain. `EARM_CLOUD` selects a national cloud
-(`usgov`, `usgovdod`, `china`).
+Consent to the Microsoft Graph Command Line Tools app is **shared** with Microsoft Graph PowerShell and the Graph CLI, and nearly every scope EARM needs requires
+admin consent: read [SECURITY.md](SECURITY.md#delegated-sign-in-and-shared-consent) (never tick "Consent on behalf of your organization" by accident; how to review and
+revoke) and [docs/permissions.md](docs/permissions.md#admin-consent). An `az login` session is **not** used, and the Azure CLI, Azure PowerShell and Visual Studio
+credentials are deliberately excluded from the chain. `EARM_CLOUD` selects a national cloud (`usgov`, `usgovdod`, `china`).
+
 From a checkout (builds, packs and installs the global tool `earm`):
 
 ```powershell
@@ -275,8 +278,8 @@ Manifest tables and warnings: [docs/permissions.md](docs/permissions.md).
 - Graph is eventually consistent: a freshly created object can be invisible for seconds, so dependent calls are retried for up to 90 s. Mail-enabled security groups cannot be
   created through Graph (an existing one is managed when it is found by its `uniqueName`). Tenant policies (an application management policy blocking secrets, licensing) can refuse a call; the Graph error is reported per resource.
 - **Input limits** (a violation is a diagnostic, never a hang or a crash): a template file and a parameter file are each read only up to **8 MiB** (`InputTooLarge`, exit 1; also more than 2,000,000 JSON values), a variable may read at most **128** levels of other variables (`VariableChainTooDeep`), and expression length and depth, value sizes, `copy` expansion (800 per resource), evaluation steps and wall-clock time (`--evaluation-timeout`, default 60 s per evaluation) are bounded too: [docs/format.md](docs/format.md#evaluation-limits).
-- Sign-in is Azure.Identity only (no Azure CLI session, no Graph SDK). The delegated permission mode and a few Graph behaviours are verified by the gated integration
-  tests (`EARM_IT_TENANT`), not by the unit tests.
+- Sign-in is Azure.Identity only (no Azure CLI session, no Graph SDK). The delegated sign-in (per-run scopes, consent classification and the consent prompt) and a few
+  Graph behaviours are verified by the gated integration tests (`EARM_IT_TENANT`, `EARM_IT_CONSENT_PROBE`), not by the unit tests.
 
 ## Documentation
 
