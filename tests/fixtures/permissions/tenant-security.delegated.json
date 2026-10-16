@@ -1,0 +1,191 @@
+{
+  "template": "samples/tenant-security.entra.json",
+  "mode": "delegated",
+  "resourceCount": 10,
+  "permissions": [
+    {
+      "name": "AdministrativeUnit.ReadWrite.All",
+      "kind": "graphDelegated",
+      "resources": [
+        "/providers/Microsoft.Entra/administrativeUnits/Security AU"
+      ],
+      "reasons": [
+        "provider"
+      ]
+    },
+    {
+      "name": "Application.Read.All",
+      "kind": "graphDelegated",
+      "resources": [
+        "/providers/Microsoft.Entra/conditionalAccess/policies/CA-Admins-PhishingResistant",
+        "/providers/Microsoft.Entra/conditionalAccess/policies/CA-SensitiveActions-StepUp"
+      ],
+      "reasons": [
+        "provider"
+      ]
+    },
+    {
+      "name": "Application.ReadWrite.All",
+      "kind": "graphDelegated",
+      "resources": [
+        "/providers/Microsoft.Entra/groups/contoso-dev-security-admins"
+      ],
+      "reasons": [
+        "edge: members (when a member is a service principal)"
+      ]
+    },
+    {
+      "name": "AuthenticationContext.ReadWrite.All",
+      "kind": "graphDelegated",
+      "resources": [
+        "/providers/Microsoft.Entra/conditionalAccess/authenticationContextClassReferences/c10"
+      ],
+      "reasons": [
+        "provider"
+      ]
+    },
+    {
+      "name": "Directory.Read.All",
+      "kind": "graphDelegated",
+      "resources": [
+        "/providers/Microsoft.Entra/groups/contoso-dev-security-admins"
+      ],
+      "reasons": [
+        "edge: directoryRoles",
+        "edge: members"
+      ]
+    },
+    {
+      "name": "Group.ReadWrite.All",
+      "kind": "graphDelegated",
+      "resources": [
+        "/providers/Microsoft.Entra/groups/contoso-dev-break-glass",
+        "/providers/Microsoft.Entra/groups/contoso-dev-security-admins"
+      ],
+      "reasons": [
+        "provider"
+      ]
+    },
+    {
+      "name": "GroupMember.ReadWrite.All",
+      "kind": "graphDelegated",
+      "resources": [
+        "/providers/Microsoft.Entra/groups/contoso-dev-security-admins"
+      ],
+      "reasons": [
+        "edge: members"
+      ]
+    },
+    {
+      "name": "Policy.Read.All",
+      "kind": "graphDelegated",
+      "resources": [
+        "/providers/Microsoft.Entra/conditionalAccess/authenticationStrengths/Admin phishing-resistant",
+        "/providers/Microsoft.Entra/conditionalAccess/namedLocations/Allowed countries",
+        "/providers/Microsoft.Entra/conditionalAccess/namedLocations/Contoso offices",
+        "/providers/Microsoft.Entra/conditionalAccess/policies/CA-Admins-PhishingResistant",
+        "/providers/Microsoft.Entra/conditionalAccess/policies/CA-SensitiveActions-StepUp"
+      ],
+      "reasons": [
+        "provider"
+      ]
+    },
+    {
+      "name": "Policy.ReadWrite.ConditionalAccess",
+      "kind": "graphDelegated",
+      "resources": [
+        "/providers/Microsoft.Entra/conditionalAccess/authenticationStrengths/Admin phishing-resistant",
+        "/providers/Microsoft.Entra/conditionalAccess/namedLocations/Allowed countries",
+        "/providers/Microsoft.Entra/conditionalAccess/namedLocations/Contoso offices",
+        "/providers/Microsoft.Entra/conditionalAccess/policies/CA-Admins-PhishingResistant",
+        "/providers/Microsoft.Entra/conditionalAccess/policies/CA-SensitiveActions-StepUp"
+      ],
+      "reasons": [
+        "provider"
+      ]
+    },
+    {
+      "name": "RoleManagement.ReadWrite.Directory",
+      "kind": "graphDelegated",
+      "resources": [
+        "/providers/Microsoft.Entra/groups/contoso-dev-security-admins",
+        "/providers/Microsoft.Entra/roleDefinitions/Security Policy Reviewer"
+      ],
+      "reasons": [
+        "edge: directoryRoles",
+        "provider"
+      ]
+    }
+  ],
+  "entraRoles": [
+    {
+      "anyOf": [
+        "Authentication Policy Administrator"
+      ],
+      "resources": [
+        "/providers/Microsoft.Entra/conditionalAccess/authenticationStrengths/Admin phishing-resistant"
+      ],
+      "reasons": [
+        "provider"
+      ]
+    },
+    {
+      "anyOf": [
+        "Conditional Access Administrator"
+      ],
+      "resources": [
+        "/providers/Microsoft.Entra/conditionalAccess/authenticationContextClassReferences/c10"
+      ],
+      "reasons": [
+        "provider"
+      ]
+    },
+    {
+      "anyOf": [
+        "Conditional Access Administrator",
+        "Security Administrator"
+      ],
+      "resources": [
+        "/providers/Microsoft.Entra/conditionalAccess/namedLocations/Allowed countries",
+        "/providers/Microsoft.Entra/conditionalAccess/namedLocations/Contoso offices",
+        "/providers/Microsoft.Entra/conditionalAccess/policies/CA-Admins-PhishingResistant",
+        "/providers/Microsoft.Entra/conditionalAccess/policies/CA-SensitiveActions-StepUp"
+      ],
+      "reasons": [
+        "provider"
+      ]
+    },
+    {
+      "anyOf": [
+        "Groups Administrator"
+      ],
+      "resources": [
+        "/providers/Microsoft.Entra/groups/contoso-dev-break-glass",
+        "/providers/Microsoft.Entra/groups/contoso-dev-security-admins"
+      ],
+      "reasons": [
+        "edge: members",
+        "provider"
+      ]
+    },
+    {
+      "anyOf": [
+        "Privileged Role Administrator"
+      ],
+      "resources": [
+        "/providers/Microsoft.Entra/administrativeUnits/Security AU",
+        "/providers/Microsoft.Entra/groups/contoso-dev-security-admins",
+        "/providers/Microsoft.Entra/roleDefinitions/Security Policy Reviewer"
+      ],
+      "reasons": [
+        "condition: isAssignableToRole",
+        "edge: directoryRoles",
+        "provider"
+      ]
+    }
+  ],
+  "notes": [
+    "Delegated scopes must be present on the token that earm auth login obtains (the app registration of --client-id needs them as delegated permissions); the signed-in user must additionally hold at least one role of every 'Entra roles' group (the roles are alternatives).",
+    "Edge permissions are listed for every relationship property the template declares (including an empty array, which removes edges). Key Vault access is an Azure RBAC / access-policy requirement of the signed-in identity, not a Graph permission."
+  ]
+}

@@ -13,21 +13,17 @@ using EArm.Core;
 using EArm.Core.Diagnostics;
 using EArm.Core.Loading;
 using EArm.Core.Types;
-using EArm.Core.Validation;
-using EArm.Engine.Planning;
-using EArm.Engine.Providers;
-using EArm.Expressions;
-using EArm.Expressions.Evaluation;
-using EArm.Expressions.Validation;
+using EArm.Engine.Permissions;
 using EArm.Providers;
 
 namespace EArm.Cli.Commands;
 
 /// <summary>
-/// <c>earm permissions -f &lt;template&gt; [-p ...] [--mode app|delegated] [-o table|json]</c>:
+/// <c>earm permissions -f &lt;template&gt; [-p ...] [--mode app|delegated] [--verb whatif|create|delete] [-o table|json]</c>:
 /// the Microsoft Graph permissions (and, for delegated use, the Entra roles) a template needs, computed
 /// offline from the expanded resources. They cover both deployment modes: Complete mode never deletes, it only reads the
-/// declared types to report undeclared objects.
+/// declared types to report undeclared objects. With <c>--verb</c>, the delegated scopes one run of that verb requests
+/// (<see cref="RunScopes"/>).
 /// Exit 0; 2 when the template has validation errors; 1 when it or a parameter
 /// file cannot be loaded or an argument is malformed.
 /// </summary>
@@ -55,24 +51,52 @@ internal static class PermissionsCommand
         };
         mode.AcceptOnlyFromAmongIgnoreCase("app", "delegated");
 
+        var verb = new Option<string?>("--verb")
+        {
+            Description = "whatif|create|delete: the delegated scopes one run of that verb requests for a signed-in user (implies --mode delegated).",
+        };
+        verb.AcceptOnlyFromAmongIgnoreCase("whatif", "create", "delete");
+
         var command = new Command("permissions", "Lists the Microsoft Graph permissions and Entra roles a template needs, offline (no tenant access).");
         command.Options.Add(templateFile);
         command.Options.Add(parameters);
         command.Options.Add(mode);
-        command.SetAction((parseResult, ct) => RunAsync(
-            parseResult.GetRequiredValue(templateFile),
-            parseResult.GetValue(parameters) ?? [],
-            string.Equals(parseResult.GetValue(mode), "delegated", StringComparison.OrdinalIgnoreCase) ? PermissionMode.Delegated : PermissionMode.App,
-            GlobalOptions.GetOutputFormat(parseResult),
-            parseResult.InvocationConfiguration.Output,
-            parseResult.InvocationConfiguration.Error,
-            ct));
+        command.Options.Add(verb);
+        command.SetAction((parseResult, ct) =>
+        {
+            bool explicitApp = parseResult.GetResult(mode) is { Implicit: false } && string.Equals(parseResult.GetValue(mode), "app", StringComparison.OrdinalIgnoreCase);
+            string? verbText = parseResult.GetValue(verb);
+            return RunAsync(
+                parseResult.GetRequiredValue(templateFile),
+                parseResult.GetValue(parameters) ?? [],
+                string.Equals(parseResult.GetValue(mode), "delegated", StringComparison.OrdinalIgnoreCase) ? PermissionMode.Delegated : PermissionMode.App,
+                GlobalOptions.GetOutputFormat(parseResult),
+                parseResult.InvocationConfiguration.Output,
+                parseResult.InvocationConfiguration.Error,
+                ct,
+                verbText is null ? null : ParseVerb(verbText),
+                explicitApp);
+        });
         return command;
     }
 
-    internal static async Task<int> RunAsync(string templateFile, IReadOnlyList<string> parameterTokens, PermissionMode mode, OutputFormat format, TextWriter stdout, TextWriter stderr, CancellationToken ct)
+    private static RunVerb ParseVerb(string text)
+    {
+        return text.ToLowerInvariant() switch
+        {
+            "create" => RunVerb.Create,
+            "delete" => RunVerb.Delete,
+            _ => RunVerb.WhatIf,
+        };
+    }
+
+    internal static async Task<int> RunAsync(string templateFile, IReadOnlyList<string> parameterTokens, PermissionMode mode, OutputFormat format, TextWriter stdout, TextWriter stderr, CancellationToken ct, RunVerb? verb = null, bool explicitAppMode = false)
     {
         var report = new ValidationReport { TemplateFile = templateFile };
+        if (verb is not null && explicitAppMode)
+        {
+            return Fail(report, [Diagnostic.Error(ValidateCommand.InvalidArgumentCode, "--verb lists the delegated scopes of a user sign-in; it cannot be combined with --mode app.")], format, stdout, stderr, ExitCodes.Failure);
+        }
 
         ParameterSet parameters;
         try
@@ -100,89 +124,21 @@ internal static class PermissionsCommand
             return Fail(report, [ex.ToDiagnostic()], format, stdout, stderr, ExitCodes.Failure);
         }
 
-        // Offline validation first: the permissions of a broken template are not meaningful.
-        var diagnostics = new List<Diagnostic>(new TemplateValidator(catalog).Validate(document));
-        var analysis = new ExpressionValidator(catalog).Analyze(document);
-        diagnostics.AddRange(analysis.Diagnostics);
-        if (diagnostics.Any(d => d.IsError))
+        var expansion = OfflineTemplateExpansion.Run(document, catalog);
+        if (!expansion.Succeeded)
         {
-            diagnostics.Sort(DiagnosticOrder.Instance);
-            return Fail(report, diagnostics, format, stdout, stderr, ExitCodes.ValidationFailed);
-        }
-
-        // Expand copy loops and conditions with the offline context, then wire the dependency graph so the providers
-        // can see what each instance references (the planner does the same before it asks for permissions).
-        var evaluator = ExpressionEvaluator.Default;
-        var expansionDiagnostics = new List<Diagnostic>();
-        var instances = new ResourceExpander(evaluator, catalog).Expand(analysis.Static, analysis.Static.Context, expansionDiagnostics);
-        if (!expansionDiagnostics.Any(d => d.IsError))
-        {
-            DependencyGraph.Build(instances, analysis.Static, evaluator, catalog, expansionDiagnostics);
-        }
-
-        if (expansionDiagnostics.Any(d => d.IsError))
-        {
-            expansionDiagnostics.Sort(DiagnosticOrder.Instance);
-            return Fail(report, expansionDiagnostics, format, stdout, stderr, ExitCodes.ValidationFailed);
-        }
-
-        int ignored = instances.Count(i => i.IsIgnored);
-        var active = instances.Where(i => !i.IsIgnored).ToList();
-        foreach (var instance in active)
-        {
-            try
-            {
-                InstanceEvaluator.EvaluateProperties(evaluator, instance);
-            }
-            catch (ExpressionException)
-            {
-                // Deploy-time values: the providers fall back to the declaration.
-            }
+            return Fail(report, expansion.Errors, format, stdout, stderr, ExitCodes.ValidationFailed);
         }
 
         var registry = ProviderDiscovery.CreateRegistry(catalog);
-        var result = PermissionManifest.Build(
-            templateFile,
-            mode,
-            active,
-            registry,
-            ExpressionStrings(document.Root),
-            document.ParameterValues.Values
-                .Where(b => b.PendingReference is not null)
-                .Select(b => (b.Name, b.PendingReference!)),
-            ignored);
-
-        Write(result, format, stdout);
-        return ExitCodes.Ok;
-    }
-
-    private static IEnumerable<string> ExpressionStrings(JsonNode? root)
-    {
-        var stack = new Stack<JsonNode?>();
-        stack.Push(root);
-        while (stack.Count > 0)
+        if (verb is { } runVerb)
         {
-            switch (stack.Pop())
-            {
-                case JsonObject obj:
-                    foreach (var pair in obj)
-                    {
-                        stack.Push(pair.Value);
-                    }
-
-                    break;
-                case JsonArray array:
-                    foreach (var item in array)
-                    {
-                        stack.Push(item);
-                    }
-
-                    break;
-                case JsonValue value when value.TryGetValue<string>(out string? text) && text.StartsWith('['):
-                    yield return text;
-                    break;
-            }
+            WriteScopes(templateFile, RunScopes.Compute(expansion, registry, runVerb), format, stdout);
+            return ExitCodes.Ok;
         }
+
+        Write(PermissionManifest.Build(templateFile, mode, expansion, registry), format, stdout);
+        return ExitCodes.Ok;
     }
 
     private static int Fail(ValidationReport report, IReadOnlyList<Diagnostic> diagnostics, OutputFormat format, TextWriter stdout, TextWriter stderr, int exitCode)
@@ -207,6 +163,67 @@ internal static class PermissionsCommand
                 WriteTable(report, stdout);
                 return;
         }
+    }
+
+    internal static void WriteScopes(string template, RunScopeSet scopes, OutputFormat format, TextWriter stdout)
+    {
+        switch (format)
+        {
+            case OutputFormat.None:
+                return;
+            case OutputFormat.Json:
+                stdout.WriteLine(ToJson(template, scopes).ToJsonString(new JsonSerializerOptions { WriteIndented = true, MaxDepth = JsonOutput.MaxDepth, Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping }));
+                return;
+            default:
+                stdout.WriteLine($"Delegated scopes a {VerbName(scopes.Verb)} run of {template} requests ({scopes.Scopes.Count} scope(s))");
+                stdout.WriteLine();
+                stdout.WriteLine("Microsoft Graph delegated scopes");
+                foreach (var scope in scopes.Scopes)
+                {
+                    stdout.WriteLine("  " + scope.Name);
+                    WriteResources(stdout, scope.Resources, scope.Reasons);
+                }
+
+                stdout.WriteLine();
+                stdout.WriteLine(scopes.NeedsKeyVault
+                    ? "Azure Key Vault: https://vault.azure.net/user_impersonation (the template has Key Vault parameter references)"
+                    : "Azure Key Vault: not needed");
+                return;
+        }
+    }
+
+    internal static JsonObject ToJson(string template, RunScopeSet scopes)
+    {
+        var details = new JsonArray();
+        foreach (var scope in scopes.Scopes)
+        {
+            details.Add(new JsonObject
+            {
+                ["name"] = scope.Name,
+                ["resources"] = new JsonArray(scope.Resources.Select(r => (JsonNode?)JsonValue.Create(r)).ToArray()),
+                ["reasons"] = new JsonArray(scope.Reasons.Select(r => (JsonNode?)JsonValue.Create(r)).ToArray()),
+            });
+        }
+
+        return new JsonObject
+        {
+            ["template"] = template,
+            ["verb"] = VerbName(scopes.Verb),
+            ["graphScopes"] = new JsonArray(scopes.GraphScopes.Select(s => (JsonNode?)JsonValue.Create(s)).ToArray()),
+            ["needsKeyVault"] = scopes.NeedsKeyVault,
+            ["scopes"] = details,
+        };
+    }
+
+    private static string VerbName(RunVerb verb)
+    {
+        return verb switch
+        {
+            RunVerb.WhatIf => "whatif",
+            RunVerb.Create => "create",
+            RunVerb.Delete => "delete",
+            _ => "validate",
+        };
     }
 
     internal static JsonObject ToJson(PermissionReport report)

@@ -1,0 +1,125 @@
+Permissions required by samples/orders-api.flat.entra.json (mode: delegated, 16 resource(s))
+
+Microsoft Graph delegated permissions
+  AdministrativeUnit.ReadWrite.All
+      /providers/Microsoft.Entra/administrativeUnits/Orders AU
+      /providers/Microsoft.Entra/users/bg-orders@contoso.com
+      (edge: administrativeUnits; edge: members; provider)
+  Application.Read.All
+      (expression lookups)
+      /providers/Microsoft.Entra/appRoleAssignments/4969f686-a5b1-5d65-8c0b-9f158025db97
+      /providers/Microsoft.Entra/conditionalAccess/policies/CA-Orders-Admins-MFA
+      /providers/Microsoft.Entra/oauth2PermissionGrants/30936788-431e-536d-82b1-38b2a5ed43fb
+      /providers/Microsoft.Entra/users/bg-orders@contoso.com
+      reference(Microsoft.Entra/servicePrincipals, apiVersion)
+      (edge: appRoleAssignments; lookup: appRole(); lookup: existing resource; lookup: permissionScope(); provider)
+  Application.ReadWrite.All
+      /providers/Microsoft.Entra/applications/contoso-prod-api
+      /providers/Microsoft.Entra/applications/contoso-prod-api/federatedIdentityCredentials/github-0
+      /providers/Microsoft.Entra/applications/contoso-prod-api/federatedIdentityCredentials/github-1
+      /providers/Microsoft.Entra/applications/contoso-prod-api/passwordCredentials/ci-secret
+      /providers/Microsoft.Entra/groups/contoso-prod-orders-admins
+      /providers/Microsoft.Entra/servicePrincipals/ref(/providers/Microsoft.Entra/applications/contoso-prod-api).appId
+      /providers/Microsoft.Entra/users/bg-orders@contoso.com
+      (edge: members (when a member is a service principal); edge: ownerOf (when a target is an application or service principal); provider)
+  AppRoleAssignment.ReadWrite.All
+      /providers/Microsoft.Entra/appRoleAssignments/4969f686-a5b1-5d65-8c0b-9f158025db97
+      /providers/Microsoft.Entra/users/bg-orders@contoso.com
+      (edge: appRoleAssignments; provider)
+  AuthenticationContext.ReadWrite.All
+      /providers/Microsoft.Entra/conditionalAccess/authenticationContextClassReferences/c10
+      (provider)
+  DelegatedPermissionGrant.ReadWrite.All
+      /providers/Microsoft.Entra/oauth2PermissionGrants/30936788-431e-536d-82b1-38b2a5ed43fb
+      (provider)
+  Directory.Read.All
+      /providers/Microsoft.Entra/appRoleAssignments/4969f686-a5b1-5d65-8c0b-9f158025db97
+      /providers/Microsoft.Entra/applications/contoso-prod-api
+      /providers/Microsoft.Entra/groups/contoso-prod-orders-admins
+      /providers/Microsoft.Entra/roleAssignments/guid(ref(/providers/Microsoft.Entra/applications/contoso-prod-api).appId, 'Directory Readers', '/')
+      /providers/Microsoft.Entra/users/bg-orders@contoso.com
+      (edge: appRoleAssignments; edge: directoryRoles; edge: memberOf; edge: members; edge: ownerOf; edge: owners; provider)
+  Group.ReadWrite.All
+      /providers/Microsoft.Entra/groups/contoso-prod-orders-admins
+      /providers/Microsoft.Entra/users/bg-orders@contoso.com
+      (edge: ownerOf (when a target is a group); provider)
+  GroupMember.ReadWrite.All
+      /providers/Microsoft.Entra/groups/contoso-prod-orders-admins
+      /providers/Microsoft.Entra/users/bg-orders@contoso.com
+      (edge: memberOf; edge: members; provider)
+  LicenseAssignment.Read.All
+      /providers/Microsoft.Entra/users/bg-orders@contoso.com
+      (edge: assignedLicenses; provider)
+  LicenseAssignment.ReadWrite.All
+      /providers/Microsoft.Entra/users/bg-orders@contoso.com
+      (edge: assignedLicenses; provider)
+  Policy.Read.All
+      /providers/Microsoft.Entra/conditionalAccess/authenticationStrengths/Orders phishing-resistant
+      /providers/Microsoft.Entra/conditionalAccess/namedLocations/Contoso offices
+      /providers/Microsoft.Entra/conditionalAccess/policies/CA-Orders-Admins-MFA
+      (provider)
+  Policy.ReadWrite.ConditionalAccess
+      /providers/Microsoft.Entra/conditionalAccess/authenticationStrengths/Orders phishing-resistant
+      /providers/Microsoft.Entra/conditionalAccess/namedLocations/Contoso offices
+      /providers/Microsoft.Entra/conditionalAccess/policies/CA-Orders-Admins-MFA
+      (provider)
+  RoleManagement.ReadWrite.Directory
+      /providers/Microsoft.Entra/groups/contoso-prod-orders-admins
+      /providers/Microsoft.Entra/roleAssignments/guid(ref(/providers/Microsoft.Entra/applications/contoso-prod-api).appId, 'Directory Readers', '/')
+      /providers/Microsoft.Entra/roleDefinitions/Orders Support
+      (edge: directoryRoles; provider)
+  User.ReadWrite.All
+      /providers/Microsoft.Entra/users/bg-orders@contoso.com
+      (edge: manager; provider)
+
+Entra roles (the signed-in user needs at least one role of each group)
+  Application Administrator | Application Developer | Cloud Application Administrator
+      /providers/Microsoft.Entra/applications/contoso-prod-api
+      /providers/Microsoft.Entra/applications/contoso-prod-api/federatedIdentityCredentials/github-0
+      /providers/Microsoft.Entra/applications/contoso-prod-api/federatedIdentityCredentials/github-1
+      /providers/Microsoft.Entra/applications/contoso-prod-api/passwordCredentials/ci-secret
+      (provider)
+  Application Administrator | Cloud Application Administrator
+      /providers/Microsoft.Entra/appRoleAssignments/4969f686-a5b1-5d65-8c0b-9f158025db97
+      /providers/Microsoft.Entra/oauth2PermissionGrants/30936788-431e-536d-82b1-38b2a5ed43fb
+      /providers/Microsoft.Entra/servicePrincipals/ref(/providers/Microsoft.Entra/applications/contoso-prod-api).appId
+      /providers/Microsoft.Entra/users/bg-orders@contoso.com
+      (edge: appRoleAssignments; provider)
+  Authentication Policy Administrator
+      /providers/Microsoft.Entra/conditionalAccess/authenticationStrengths/Orders phishing-resistant
+      (provider)
+  Conditional Access Administrator
+      /providers/Microsoft.Entra/conditionalAccess/authenticationContextClassReferences/c10
+      (provider)
+  Conditional Access Administrator | Security Administrator
+      /providers/Microsoft.Entra/conditionalAccess/namedLocations/Contoso offices
+      /providers/Microsoft.Entra/conditionalAccess/policies/CA-Orders-Admins-MFA
+      (provider)
+  Groups Administrator
+      /providers/Microsoft.Entra/groups/contoso-prod-orders-admins
+      /providers/Microsoft.Entra/users/bg-orders@contoso.com
+      (condition: memberOf; edge: memberOf; edge: members; provider)
+  License Administrator
+      /providers/Microsoft.Entra/users/bg-orders@contoso.com
+      (condition: assignedLicenses; edge: assignedLicenses)
+  Privileged Role Administrator
+      /providers/Microsoft.Entra/administrativeUnits/Orders AU
+      /providers/Microsoft.Entra/groups/contoso-prod-orders-admins
+      /providers/Microsoft.Entra/roleAssignments/guid(ref(/providers/Microsoft.Entra/applications/contoso-prod-api).appId, 'Directory Readers', '/')
+      /providers/Microsoft.Entra/roleDefinitions/Orders Support
+      /providers/Microsoft.Entra/users/bg-orders@contoso.com
+      (condition: administrativeUnits; condition: isAssignableToRole; edge: administrativeUnits; edge: directoryRoles; edge: members; provider)
+  User Administrator
+      /providers/Microsoft.Entra/users/bg-orders@contoso.com
+      (edge: manager; provider)
+
+Azure (signed-in identity)
+  Key Vault secret read ('Key Vault Secrets User' or the get-secret access policy) on vault 'contoso-kv'
+      parameter 'initialPassword'
+      (GET https://contoso-kv.vault.azure.net/secrets/bg-initial)
+
+note: Delegated scopes must be present on the token that earm auth login obtains (the app registration of --client-id needs them as delegated permissions); the signed-in user must additionally hold at least one role of every 'Entra roles' group (the roles are alternatives).
+note: 2 resource(s) have a name that depends on another resource (for example a service principal named after reference(...).appId); their permissions are computed from the declaration and the references it contains.
+note: Learn (application-post-owners, serviceprincipal-post-owners): adding an owner needs Application.ReadWrite.OwnedBy AND Directory.Read.All, and "Application.ReadWrite.OwnedBy isn't sufficient to add another owner": when the declared owners include anyone besides the principal that owns the application, grant Application.ReadWrite.All as well.
+note: Restoring soft-deleted objects (--on-soft-deleted-conflict restore): users need User.DeleteRestore.All, groups Group.ReadWrite.All, administrative units AdministrativeUnit.ReadWrite.All, applications and service principals Application.ReadWrite.OwnedBy (Learn: directory-deleteditems-restore). Probing /directory/deletedItems before a create needs the type's read permission (for applications Application.Read.All, which Application.ReadWrite.OwnedBy does not carry: the probe is then skipped with a SoftDeleteProbeSkipped warning).
+note: Edge permissions are listed for every relationship property the template declares (including an empty array, which removes edges). Key Vault access is an Azure RBAC / access-policy requirement of the signed-in identity, not a Graph permission.
