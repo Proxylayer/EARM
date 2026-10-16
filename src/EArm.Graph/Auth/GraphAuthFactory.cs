@@ -88,7 +88,21 @@ public class GraphAuthFactory
         var credential = CreateCredential(options);
         var record = InteractiveRecord(options);
         var signIn = record is null ? null : new SignInAccount(record.Username, InteractiveClientId(options, record));
-        return new AzureIdentityTokenProvider(credential, options.Mode, logger: _logger, signIn: signIn, consentPrompter: record is null ? null : consentPrompter);
+        var prompter = record is null ? null : consentPrompter;
+
+        // After a consent prompt the silent retry uses a NEW credential over the same stored record (the combination verified against a real tenant).
+        Func<TokenCredential>? renew = prompter is null ? null : () => CreateCredential(options);
+        return new AzureIdentityTokenProvider(credential, options.Mode, logger: _logger, signIn: signIn, consentPrompter: prompter, renewCredential: renew);
+    }
+
+    /// <summary>
+    /// True when the options sign in with the stored interactive sign-in (interactive or auto mode with a record of the same cloud): the run acts with the
+    /// user's DELEGATED permissions and requests explicit scopes. False for the default chain (service principal, workload or managed identity: <c>.default</c>).
+    /// </summary>
+    public bool UsesStoredSignIn(GraphAuthOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        return InteractiveRecord(options) is not null;
     }
 
     /// <summary>

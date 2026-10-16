@@ -10,6 +10,7 @@ using EArm.Cli.Output;
 using EArm.Engine;
 using EArm.Graph;
 using EArm.Engine.Execution;
+using EArm.Engine.Permissions;
 using EArm.Engine.Planning;
 using EArm.Engine.Providers;
 using EArm.Engine.WhatIf;
@@ -58,8 +59,11 @@ internal static class DeploymentRunner
         // Without -y the replacements must be known (and confirmed) before anything is written: the plan reads every resource first (read-only).
         var planMode = needsWhatIf || !invocation.Yes ? PlanMode.WhatIf : PlanMode.Create;
 
-        // 1-5. Load, validate, sign in, resolve Key Vault references and plan.
-        var (opened, setupExit) = await PlannedDeployment.OpenAsync(invocation, invocation.Mode, planMode, stdout, stderr, cancellationToken).ConfigureAwait(false);
+        // 1-5. Load, validate, sign in, resolve Key Vault references and plan. A user sign-in requests the delegated scopes of the verb: what-if reads only;
+        //     create requests the write scopes for the whole command, including its read-only what-if pass (-c, or the replacement check), because that
+        //     pass plans the very plan that is then executed with the same token: one consent covers the whole command.
+        var verb = invocation.WhatIf ? RunVerb.WhatIf : RunVerb.Create;
+        var (opened, setupExit) = await PlannedDeployment.OpenAsync(invocation, verb, invocation.Mode, planMode, stdout, stderr, cancellationToken).ConfigureAwait(false);
         if (opened is null)
         {
             return setupExit;

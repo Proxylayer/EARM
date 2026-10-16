@@ -54,6 +54,9 @@ internal sealed record DeploymentInvocation
 
     public LogLevel LogLevel { get; init; } = LogLevel.Information;
 
+    /// <summary><c>--device-code</c>: a consent prompt the run needs uses the device-code flow instead of a browser.</summary>
+    public bool DeviceCode { get; init; }
+
     /// <summary><c>-n</c>, or the template file stem without <c>.entra</c> (<c>orders-api.entra.json</c> → <c>orders-api</c>).</summary>
     public string EffectiveName
     {
@@ -105,6 +108,11 @@ internal sealed class DeploymentOptions
     };
 
     public Option<string> OnSoftDeletedConflict { get; } = CreateChoice("--on-soft-deleted-conflict", "What to do when the key of a resource to create is held by a soft-deleted object.", "error", "error", "restore");
+
+    public Option<bool> DeviceCode { get; } = new("--device-code")
+    {
+        Description = "When the signed-in user must consent to a delegated scope this run needs, prompt with the device-code flow instead of a browser (interactive terminals only).",
+    };
 
     // what-if
     public Option<string> ResultFormat { get; } = CreateChoice("--result-format", "What-if detail: FullResourcePayloads (default) or ResourceIdOnly.", "FullResourcePayloads", "FullResourcePayloads", "ResourceIdOnly");
@@ -160,6 +168,7 @@ internal sealed class DeploymentOptions
         command.Options.Add(Parallelism);
         command.Options.Add(AllowCaEnforce);
         command.Options.Add(OnSoftDeletedConflict);
+        command.Options.Add(DeviceCode);
     }
 
     public void AddWhatIf(Command command)
@@ -209,6 +218,7 @@ internal sealed class DeploymentOptions
             Output = GlobalOptions.GetOutputFormat(parseResult),
             Connection = GlobalOptions.BuildConnection(parseResult, parallelism),
             LogLevel = GlobalOptions.GetLogLevel(parseResult),
+            DeviceCode = parseResult.GetValue(DeviceCode),
         };
     }
 

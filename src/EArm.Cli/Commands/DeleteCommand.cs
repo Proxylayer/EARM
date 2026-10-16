@@ -10,6 +10,7 @@ using System.Threading.Tasks;
 using EArm.Cli.Hosting;
 using EArm.Cli.Output;
 using EArm.Engine.Execution;
+using EArm.Engine.Permissions;
 using EArm.Engine.Planning;
 using EArm.Graph;
 
@@ -43,6 +44,7 @@ internal static class DeleteCommand
         command.Options.Add(options.Parameters);
         command.Options.Add(options.Name);
         command.Options.Add(options.Parallelism);
+        command.Options.Add(options.DeviceCode);
         command.Options.Add(yes);
         command.Options.Add(continueOnError);
         command.SetAction((parseResult, ct) => RunAsync(
@@ -60,7 +62,7 @@ internal static class DeleteCommand
         using var scrubScope = SecretScrubber.Begin();
 
         // The declared objects are found exactly as what-if finds them: by key, read-only.
-        var (opened, setupExit) = await PlannedDeployment.OpenAsync(invocation, DeploymentMode.Incremental, PlanMode.WhatIf, stdout, stderr, cancellationToken).ConfigureAwait(false);
+        var (opened, setupExit) = await PlannedDeployment.OpenAsync(invocation, RunVerb.Delete, DeploymentMode.Incremental, PlanMode.WhatIf, stdout, stderr, cancellationToken).ConfigureAwait(false);
         if (opened is null)
         {
             return setupExit;

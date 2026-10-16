@@ -11,18 +11,22 @@ using EArm.Core.Loading;
 using EArm.Core.Types;
 using EArm.Engine.Execution;
 using EArm.Engine.KeyVault;
+using EArm.Engine.Permissions;
 using EArm.Engine.Planning;
 using EArm.Engine.Providers;
 using EArm.Graph;
+using EArm.Graph.Auth;
 using Microsoft.Extensions.Logging;
 
 namespace EArm.Cli.Commands;
 
 /// <summary>
 /// The setup shared by the online verbs (<c>what-if</c>, <c>create</c>, <c>delete</c>): parameters and template (exit 1 when they cannot be loaded) →
+/// the delegated scopes of the verb (<see cref="RunScopes"/>, offline; requested only by a user sign-in, app-only identities keep <c>.default</c>) →
 /// engine services (exit 3 when no credential can be built) → offline validation (exit 2; before preflight, so a broken template is reported
 /// without a sign-in) → preflight (exit 3 when no credential signs in) → Key Vault parameter references (exit 3) → plan (exit 2 on validation
-/// errors, exit 1 when a type has no provider). Identity is resolved by live key; nothing is read from or written to the local disk. Owns the
+/// errors, exit 1 when a type has no provider). A missing delegated consent stops the run at preflight or at the Key Vault step, before any write (exit 3),
+/// unless an interactive terminal lets the user consent on the spot. Identity is resolved by live key; nothing is read from or written to the local disk. Owns the
 /// services and the logger factory of the run: dispose it when the verb is done.
 /// </summary>
 internal sealed class PlannedDeployment : IDisposable
@@ -44,10 +48,10 @@ internal sealed class PlannedDeployment : IDisposable
     public DeploymentPlan Plan { get; }
 
     /// <summary>
-    /// Runs the setup and plans the template with <paramref name="mode"/> and <paramref name="planMode"/>. Returns the planned deployment, or
-    /// <c>null</c> with the exit code of the step that failed (its message is already written).
+    /// Runs the setup and plans the template with <paramref name="mode"/> and <paramref name="planMode"/>; a user sign-in requests the delegated scopes of
+    /// <paramref name="verb"/>. Returns the planned deployment, or <c>null</c> with the exit code of the step that failed (its message is already written).
     /// </summary>
-    public static async Task<(PlannedDeployment? Deployment, int ExitCode)> OpenAsync(DeploymentInvocation invocation, DeploymentMode mode, PlanMode planMode, TextWriter stdout, TextWriter stderr, CancellationToken cancellationToken)
+    public static async Task<(PlannedDeployment? Deployment, int ExitCode)> OpenAsync(DeploymentInvocation invocation, RunVerb verb, DeploymentMode mode, PlanMode planMode, TextWriter stdout, TextWriter stderr, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(invocation);
         ArgumentNullException.ThrowIfNull(stdout);
@@ -82,11 +86,15 @@ internal sealed class PlannedDeployment : IDisposable
 
         SecretRegistration.RegisterDocument(document);
 
+        // The delegated scopes of this run, computed offline from the loaded template before the services (and their token provider) exist. Null when the
+        // template does not expand offline: the validation below then reports why.
+        var runScopes = TemplateRunScopes.Compute(document, verb);
+
         ILoggerFactory? loggerFactory = GlobalOptions.CreateLoggerFactory(invocation.LogLevel);
         EngineServices? services = null;
         try
         {
-            if (!EngineServices.TryCreate(invocation.Connection, loggerFactory, stdout, stderr, invocation.Output, out services, out int createExit))
+            if (!EngineServices.TryCreate(invocation.Connection, loggerFactory, stdout, stderr, invocation.Output, new RunAuthentication(runScopes, invocation.DeviceCode), out services, out int createExit))
             {
                 return (null, createExit);
             }
@@ -138,6 +146,13 @@ internal sealed class PlannedDeployment : IDisposable
             return (FailValidation(invocation, ex.Diagnostics, stdout, stderr, ExitCodes.ValidationFailed), null, null);
         }
 
+        // A user sign-in never falls back to .default: without the run's scopes (the template did not expand offline) it stops here, before any sign-in.
+        if (services.UsesDelegatedSignIn && !services.HasRunScopes)
+        {
+            var expansion = OfflineTemplateExpansion.Run(document, catalog);
+            return (FailValidation(invocation, expansion.Errors, stdout, stderr, ExitCodes.ValidationFailed), null, null);
+        }
+
         // 3. Preflight: sign-in, tenant, signed-in principal and the one /organization read (tenant info for tenant()).
         GraphPreflightResult preflight;
         try
@@ -146,7 +161,9 @@ internal sealed class PlannedDeployment : IDisposable
         }
         catch (Exception ex) when (ex is GraphTransportException or GraphException)
         {
-            return (VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.AuthOrPreflight, "PreflightFailed", "Preflight failed: " + SecretScrubber.Scrub(ex.Message)), null, null);
+            // A missing delegated consent (non-interactive run, declined prompt, scp check) has its own code; nothing has been written.
+            string code = ConsentRequiredException.FindIn(ex) is null ? "PreflightFailed" : "ConsentRequired";
+            return (VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.AuthOrPreflight, code, "Preflight failed: " + SecretScrubber.Scrub(ex.Message)), null, null);
         }
 
         // 4. Key Vault parameter references, with a Key Vault token of the same identity.

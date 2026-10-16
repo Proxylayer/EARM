@@ -48,10 +48,16 @@ public sealed class GraphPreflight
     private readonly GraphAuthMode _mode;
     private readonly ILogger _logger;
     private readonly TokenScopes _scopes;
+    private readonly IConsentPrompter? _consentPrompter;
 
     /// <param name="scopes">The Graph token scopes to inspect: the same set the Graph client attaches. <c>null</c> means <paramref name="cloud"/>'s <c>.default</c>.</param>
-    public GraphPreflight(IGraphTokenProvider tokens, IGraphClient graph, GraphCloud cloud, GraphAuthMode mode, ILogger? logger = null, TokenScopes? scopes = null)
+    /// <param name="consentPrompter">
+    /// Asked once for the explicit scopes the token's <c>scp</c> claim lacks (then the token is requested again); null fails with
+    /// <see cref="ConsentRequiredException"/> guidance instead. Unused for <c>.default</c> and for app-only tokens.
+    /// </param>
+    public GraphPreflight(IGraphTokenProvider tokens, IGraphClient graph, GraphCloud cloud, GraphAuthMode mode, ILogger? logger = null, TokenScopes? scopes = null, IConsentPrompter? consentPrompter = null)
     {
+        _consentPrompter = consentPrompter;
         ArgumentNullException.ThrowIfNull(tokens);
         ArgumentNullException.ThrowIfNull(graph);
         ArgumentNullException.ThrowIfNull(cloud);
@@ -72,6 +78,10 @@ public sealed class GraphPreflight
     {
         var token = await _tokens.GetTokenAsync(_scopes, cancellationToken).ConfigureAwait(false);
         var hasClaims = TokenClaims.TryDecode(token.Value, out var claims);
+        if (hasClaims)
+        {
+            claims = await EnsureScopesAsync(claims, cancellationToken).ConfigureAwait(false);
+        }
 
         JsonObject? organization = null;
         try
@@ -120,5 +130,87 @@ public sealed class GraphPreflight
             _mode);
         GraphLog.PreflightAccount(_logger, tenantId, result.PrincipalName, result.PrincipalType, _cloud.Key, GraphAuthOptions.ModeName(_mode));
         return result;
+    }
+
+    /// <summary>The explicit scopes of <see cref="Scopes"/> that <paramref name="claims"/>' <c>scp</c> lacks (case-insensitive); empty for <c>.default</c> and app-only tokens.</summary>
+    public IReadOnlyList<string> MissingScopes(TokenClaims claims)
+    {
+        ArgumentNullException.ThrowIfNull(claims);
+        if (_scopes.IsDefault || claims.IsApplication)
+        {
+            return [];
+        }
+
+        var granted = new HashSet<string>(claims.Scopes, StringComparer.OrdinalIgnoreCase);
+        var missing = new List<string>();
+        foreach (var name in _scopes.Names)
+        {
+            if (!granted.Contains(name))
+            {
+                missing.Add(name);
+            }
+        }
+
+        return missing;
+    }
+
+    /// <summary>
+    /// The <c>scp</c> check, before anything is read or written: every requested delegated scope must be in the token. Missing scopes are prompted for once
+    /// (when a prompter is available) and the token requested again; otherwise, or when they are still missing, the run stops with the consent guidance.
+    /// </summary>
+    private async Task<TokenClaims> EnsureScopesAsync(TokenClaims claims, CancellationToken cancellationToken)
+    {
+        var missing = MissingScopes(claims);
+        if (missing.Count == 0)
+        {
+            return claims;
+        }
+
+        var consent = new ConsentRequiredException(TokenScopes.Explicit(_scopes.Resource, missing), claims.PrincipalName, claims.AppId, innerException: null);
+        if (_consentPrompter is null)
+        {
+            throw ScopesMissing(consent, "The access token lacks requested delegated scopes (scp: " + Describe(claims.Scopes) + ").");
+        }
+
+        try
+        {
+            await _consentPrompter.ConsentAsync(consent.Scopes, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            var detail = GraphAuthGuidance.CredentialLines(ex);
+            throw ScopesMissing(new ConsentRequiredException(consent.Scopes, consent.Account, consent.ClientId, ex), "Consent for " + consent.Scopes + " was not completed: " + (detail.Count > 0 ? detail[0] : ex.GetType().Name));
+        }
+
+        _tokens.Invalidate(_scopes);
+        var token = await _tokens.GetTokenAsync(_scopes, cancellationToken).ConfigureAwait(false);
+        if (!TokenClaims.TryDecode(token.Value, out var renewed))
+        {
+            return claims;
+        }
+
+        var stillMissing = MissingScopes(renewed);
+        if (stillMissing.Count > 0)
+        {
+            throw ScopesMissing(
+                new ConsentRequiredException(TokenScopes.Explicit(_scopes.Resource, stillMissing), renewed.PrincipalName, renewed.AppId, innerException: null),
+                "Consent was completed, but the access token still lacks requested delegated scopes (scp: " + Describe(renewed.Scopes) + ").");
+        }
+
+        return renewed;
+    }
+
+    private static string Describe(IReadOnlyList<string> scopes)
+    {
+        return scopes.Count == 0 ? "none" : string.Join(' ', scopes);
+    }
+
+    private static GraphTransportException ScopesMissing(ConsentRequiredException consent, string prefix)
+    {
+        return new GraphTransportException(GraphTransportFailure.NotAuthenticated, prefix + Environment.NewLine + GraphAuthGuidance.ConsentNeeded(consent), consent);
     }
 }

@@ -20,13 +20,30 @@ namespace EArm.Cli.Commands;
 /// <param name="ParameterFile">The parameter file named by <c>-p @file</c>, when one was.</param>
 internal sealed record TemplateRunScopeResult(RunScopeSet? Scopes, IReadOnlyList<Diagnostic> Errors, int ExitCode, string? ParameterFile);
 
+/// <summary>A template loaded with its parameters and expanded offline (no token), or why it could not be.</summary>
+/// <param name="Expansion">The offline expansion; null on failure.</param>
+/// <param name="Errors">The load or validation errors; empty on success.</param>
+/// <param name="ExitCode">1 when the template or a parameter file cannot be loaded or an argument is malformed, 2 for validation errors, 0 on success.</param>
+/// <param name="ParameterFile">The parameter file named by <c>-p @file</c>, when one was.</param>
+internal sealed record TemplateExpansionResult(OfflineTemplateExpansion? Expansion, IReadOnlyList<Diagnostic> Errors, int ExitCode, string? ParameterFile);
+
 /// <summary>
-/// Computes <see cref="RunScopes"/> for <c>-f &lt;template&gt; [-p ...] [--verb ...]</c> offline (no token): the scopes <c>auth login -f</c> consents and
-/// <c>auth status -f</c> checks. Loads and expands the template the way <c>earm permissions --verb</c> does, with the same exit codes.
+/// Computes <see cref="RunScopes"/> for <c>-f &lt;template&gt; [-p ...] [--verb ...]</c> offline (no token): the scopes <c>auth login -f</c> consents,
+/// <c>auth status -f</c> checks and the online verbs request. Loads and expands the template the way <c>earm permissions</c> does (which uses
+/// <see cref="ExpandAsync"/> itself), with the same exit codes.
 /// </summary>
 internal static class TemplateRunScopes
 {
     public static async Task<TemplateRunScopeResult> ComputeAsync(string templateFile, IReadOnlyList<string> parameterTokens, RunVerb verb, CancellationToken cancellationToken)
+    {
+        var expanded = await ExpandAsync(templateFile, parameterTokens, cancellationToken).ConfigureAwait(false);
+        return expanded.Expansion is null
+            ? Failed(expanded.Errors, expanded.ExitCode, expanded.ParameterFile)
+            : new TemplateRunScopeResult(Compute(expanded.Expansion, verb), [], ExitCodes.Ok, expanded.ParameterFile);
+    }
+
+    /// <summary>Loads <paramref name="templateFile"/> with the parameters of <paramref name="parameterTokens"/> and expands it offline.</summary>
+    public static async Task<TemplateExpansionResult> ExpandAsync(string templateFile, IReadOnlyList<string> parameterTokens, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(templateFile);
         ArgumentNullException.ThrowIfNull(parameterTokens);
@@ -38,11 +55,11 @@ internal static class TemplateRunScopes
         }
         catch (TemplateLoadException ex)
         {
-            return Failed([ex.ToDiagnostic()], ExitCodes.Failure, null);
+            return new TemplateExpansionResult(null, [ex.ToDiagnostic()], ExitCodes.Failure, null);
         }
         catch (ArgumentException ex)
         {
-            return Failed([Diagnostic.Error(ValidateCommand.InvalidArgumentCode, ex.Message)], ExitCodes.Failure, null);
+            return new TemplateExpansionResult(null, [Diagnostic.Error(ValidateCommand.InvalidArgumentCode, ex.Message)], ExitCodes.Failure, null);
         }
 
         var catalog = ResourceTypeCatalog.Default;
@@ -53,17 +70,28 @@ internal static class TemplateRunScopes
         }
         catch (TemplateLoadException ex)
         {
-            return Failed([ex.ToDiagnostic()], ExitCodes.Failure, parameterFile);
+            return new TemplateExpansionResult(null, [ex.ToDiagnostic()], ExitCodes.Failure, parameterFile);
         }
 
         var expansion = OfflineTemplateExpansion.Run(document, catalog);
-        if (!expansion.Succeeded)
-        {
-            return Failed(expansion.Errors, ExitCodes.ValidationFailed, parameterFile);
-        }
+        return expansion.Succeeded
+            ? new TemplateExpansionResult(expansion, [], ExitCodes.Ok, parameterFile)
+            : new TemplateExpansionResult(null, expansion.Errors, ExitCodes.ValidationFailed, parameterFile);
+    }
 
-        var scopes = RunScopes.Compute(expansion, ProviderDiscovery.CreateRegistry(catalog), verb);
-        return new TemplateRunScopeResult(scopes, [], ExitCodes.Ok, parameterFile);
+    /// <summary>The scopes of an already loaded template (the online verbs: parameters bound, Key Vault references not resolved yet); null when it does not expand offline.</summary>
+    public static RunScopeSet? Compute(TemplateDocument document, RunVerb verb)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        var expansion = OfflineTemplateExpansion.Run(document, ResourceTypeCatalog.Default);
+        return expansion.Succeeded ? Compute(expansion, verb) : null;
+    }
+
+    /// <summary>The scopes of <paramref name="verb"/> for an offline expansion, with the discovered providers.</summary>
+    public static RunScopeSet Compute(OfflineTemplateExpansion expansion, RunVerb verb)
+    {
+        ArgumentNullException.ThrowIfNull(expansion);
+        return RunScopes.Compute(expansion, ProviderDiscovery.CreateRegistry(ResourceTypeCatalog.Default), verb);
     }
 
     /// <summary>Writes the errors of a failed computation the way <c>earm permissions</c> does (a validation report) and returns its exit code.</summary>

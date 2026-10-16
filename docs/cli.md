@@ -134,6 +134,11 @@ code 3 and a `Consent needed` message instead of "sign-in expired": it names the
 (`earm auth login --scopes <missing>`, or `earm auth login -f <template>` for everything a template needs). Signing in again without those scopes does not help.
 If your organization requires admin consent for a scope, an administrator grants it to the sign-in app instead.
 
+`what-if`, `create` and `delete` signed in as a user request exactly the delegated scopes of their verb (`earm permissions --verb ...` lists them; `create` requests
+its write scopes for the whole command, including the what-if it shows first). In an interactive terminal a missing consent is asked for on the spot (a browser,
+or `--device-code`), once, and the run continues; otherwise the run stops with exit 3 and the guidance above **before anything is written**. The preflight also
+checks the token's `scp` claim against the requested scopes. A service principal, workload or managed identity keeps requesting `.default`.
+
 Consent is recorded for the **sign-in app**, not for EARM: a grant to Microsoft Graph Command Line Tools is shared by every tool that signs in with that app (Microsoft
 Graph PowerShell, the Microsoft Graph CLI). Review or revoke it under My Apps (`https://myapps.microsoft.com`) or, as an administrator, under Enterprise applications.
 
@@ -174,6 +179,7 @@ and the only file a run writes is the `--secure-outputs-file` you name.
 | `--parallelism <n>` | both | Resources read or applied concurrently inside a dependency batch. Default 4. At least 1: a smaller value is a usage error (exit 1). |
 | `--allow-ca-enforce` | both | Allow Conditional Access policies with `state: enabled` (default: report-only or disabled only). |
 | `--on-soft-deleted-conflict error\|restore` | both | What to do when a key to create is held by a soft-deleted object: fail with a hint (default), or restore it and continue. Nothing is ever purged. |
+| `--device-code` | both | When the run must ask the signed-in user for a delegated consent (see [Consent](#consent)), prompt with the device-code flow instead of a browser. |
 | `--result-format FullResourcePayloads\|ResourceIdOnly` | both | What-if detail. |
 | `--exit-code-on-changes` | both | `what-if`: exit 5 when the what-if contains a Create, Modify or Delete, or an edge change. `create`: exit 5 when the deployment succeeded and applied at least one of them (a resource created, updated, replaced or deleted, or a relationship entry added or removed); with `-c` too it is the applied run that counts, not the what-if shown before it. A failure exits 1 first; orphan report rows never count. |
 | `--no-pretty-print` | both | Compact JSON for `-o json`. |
@@ -211,7 +217,7 @@ With `-o json` the standard output of a verb that fails **before** it has anythi
 
 ### `deployment delete`
 
-`earm deployment delete -f <template> [-p …] [-n <name>] [-y] [--continue-on-error] [--parallelism <n>]` deletes the objects the template declares. They are
+`earm deployment delete -f <template> [-p …] [-n <name>] [-y] [--continue-on-error] [--parallelism <n>] [--device-code]` deletes the objects the template declares. They are
 found exactly as `what-if` finds them, **by their live keys** (no state is involved; `-n` is only a label), and deleted in **reverse dependency order**
 (the reverse of the dependency batches: children and assignments before their parents). Resources whose condition is false, whose name is only known at
 deployment time or that do not exist are skipped. The list (resource id, type, `displayName`, Graph id, `[kept: protected]`, a delete-risk note such as "deleted

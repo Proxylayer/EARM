@@ -98,46 +98,20 @@ internal static class PermissionsCommand
             return Fail(report, [Diagnostic.Error(ValidateCommand.InvalidArgumentCode, "--verb lists the delegated scopes of a user sign-in; it cannot be combined with --mode app.")], format, stdout, stderr, ExitCodes.Failure);
         }
 
-        ParameterSet parameters;
-        try
+        var expanded = await TemplateRunScopes.ExpandAsync(templateFile, parameterTokens, ct).ConfigureAwait(false);
+        report.ParameterFile = expanded.ParameterFile;
+        if (expanded.Expansion is not { } expansion)
         {
-            parameters = ValidateCommand.BuildParameterSet(parameterTokens, out string? parameterFile);
-            report.ParameterFile = parameterFile;
-        }
-        catch (TemplateLoadException ex)
-        {
-            return Fail(report, [ex.ToDiagnostic()], format, stdout, stderr, ExitCodes.Failure);
-        }
-        catch (ArgumentException ex)
-        {
-            return Fail(report, [Diagnostic.Error(ValidateCommand.InvalidArgumentCode, ex.Message)], format, stdout, stderr, ExitCodes.Failure);
+            return Fail(report, expanded.Errors, format, stdout, stderr, expanded.ExitCode);
         }
 
-        var catalog = ResourceTypeCatalog.Default;
-        TemplateDocument document;
-        try
-        {
-            document = await new TemplateLoader(catalog).LoadAsync(templateFile, parameters, ct).ConfigureAwait(false);
-        }
-        catch (TemplateLoadException ex)
-        {
-            return Fail(report, [ex.ToDiagnostic()], format, stdout, stderr, ExitCodes.Failure);
-        }
-
-        var expansion = OfflineTemplateExpansion.Run(document, catalog);
-        if (!expansion.Succeeded)
-        {
-            return Fail(report, expansion.Errors, format, stdout, stderr, ExitCodes.ValidationFailed);
-        }
-
-        var registry = ProviderDiscovery.CreateRegistry(catalog);
         if (verb is { } runVerb)
         {
-            WriteScopes(templateFile, RunScopes.Compute(expansion, registry, runVerb), format, stdout);
+            WriteScopes(templateFile, TemplateRunScopes.Compute(expansion, runVerb), format, stdout);
             return ExitCodes.Ok;
         }
 
-        Write(PermissionManifest.Build(templateFile, mode, expansion, registry), format, stdout);
+        Write(PermissionManifest.Build(templateFile, mode, expansion, ProviderDiscovery.CreateRegistry(ResourceTypeCatalog.Default)), format, stdout);
         return ExitCodes.Ok;
     }
 

@@ -15,14 +15,17 @@ namespace EArm.Graph.Auth;
 /// one credential call. A credential failure becomes a <see cref="GraphTransportException"/> with the sign-in guidance, never a raw
 /// Azure.Identity exception. A silent failure that means "consent needed" (<see cref="ConsentRequiredException.IsConsentFailure"/>) becomes a
 /// <see cref="GraphTransportException"/> whose inner exception is a <see cref="ConsentRequiredException"/>; with an <see cref="IConsentPrompter"/>
-/// (opt-in) the provider first asks it for consent to exactly that scope set and retries silently once.
+/// (opt-in) the provider first asks it for consent to exactly that scope set (for a Key Vault <c>.default</c> request: the vault's delegated
+/// <see cref="GraphCloud.KeyVaultConsentScopes"/>, which is what <c>.default</c> needs consented) and retries silently once, with a NEW credential from
+/// the renew callback when one is given (a new credential over the same stored sign-in is what was verified against a real tenant).
 /// </summary>
 public sealed class AzureIdentityTokenProvider : IGraphTokenProvider, IDisposable
 {
     /// <summary>A cached token is replaced once it has less than this left.</summary>
     public static readonly TimeSpan RefreshSkew = TimeSpan.FromMinutes(5);
 
-    private readonly TokenCredential _credential;
+    private readonly Func<TokenCredential>? _renewCredential;
+    private TokenCredential _credential;
     private readonly GraphAuthMode _mode;
     private readonly TimeProvider _time;
     private readonly ILogger _logger;
@@ -41,7 +44,11 @@ public sealed class AzureIdentityTokenProvider : IGraphTokenProvider, IDisposabl
     /// <param name="logger">Diagnostics.</param>
     /// <param name="signIn">The stored interactive sign-in the credential uses, when it uses one (named in the consent guidance).</param>
     /// <param name="consentPrompter">Opt-in incremental consent: called once per consent failure, followed by one silent retry. Null fails with <see cref="ConsentRequiredException"/>.</param>
-    public AzureIdentityTokenProvider(TokenCredential credential, GraphAuthMode mode = GraphAuthMode.Default, TimeProvider? timeProvider = null, ILogger? logger = null, SignInAccount? signIn = null, IConsentPrompter? consentPrompter = null)
+    /// <param name="renewCredential">
+    /// Builds a new credential over the same stored sign-in; after a completed consent the provider switches to it for the silent retry and every later
+    /// request. Null keeps the original credential.
+    /// </param>
+    public AzureIdentityTokenProvider(TokenCredential credential, GraphAuthMode mode = GraphAuthMode.Default, TimeProvider? timeProvider = null, ILogger? logger = null, SignInAccount? signIn = null, IConsentPrompter? consentPrompter = null, Func<TokenCredential>? renewCredential = null)
     {
         ArgumentNullException.ThrowIfNull(credential);
         _credential = credential;
@@ -50,10 +57,21 @@ public sealed class AzureIdentityTokenProvider : IGraphTokenProvider, IDisposabl
         _logger = logger ?? NullLogger.Instance;
         _signIn = signIn;
         _consentPrompter = consentPrompter;
+        _renewCredential = renewCredential;
+        ConsentPrompter = consentPrompter is null ? null : new RenewingPrompter(this);
     }
 
     /// <summary>True when the provider prompts for missing consent instead of failing.</summary>
     public bool PromptsForConsent => _consentPrompter is not null;
+
+    /// <summary>
+    /// The provider's prompter for consent found missing OUTSIDE a failed request (the preflight's <c>scp</c> check): prompts through the same one-at-a-time
+    /// gate, then renews the credential and drops the cached tokens, exactly like the consent of a failed request. Null when the provider does not prompt.
+    /// </summary>
+    public IConsentPrompter? ConsentPrompter { get; }
+
+    /// <summary>The credential the provider currently asks (replaced after a completed consent when a renew callback was given).</summary>
+    internal TokenCredential Credential => Volatile.Read(ref _credential);
 
     public async ValueTask<GraphToken> GetTokenAsync(TokenScopes scopes, CancellationToken cancellationToken)
     {
@@ -76,7 +94,7 @@ public sealed class AzureIdentityTokenProvider : IGraphTokenProvider, IDisposabl
             var accessToken = await AcquireAsync(scopes, new TokenRequestContext([.. scopes.Scopes]), cancellationToken).ConfigureAwait(false);
             var token = new GraphToken(accessToken.Token, accessToken.ExpiresOn);
             _cache[key] = token;
-            GraphLog.TokenAcquired(_logger, scopes.ToString(), token.ExpiresOn, _credential.GetType().Name);
+            GraphLog.TokenAcquired(_logger, scopes.ToString(), token.ExpiresOn, Credential.GetType().Name);
             LogIdentityOnce(token);
             return token;
         }
@@ -114,7 +132,7 @@ public sealed class AzureIdentityTokenProvider : IGraphTokenProvider, IDisposabl
             var accessToken = await AcquireAsync(scopes, new TokenRequestContext([.. scopes.Scopes], claims: claims), cancellationToken).ConfigureAwait(false);
             var token = new GraphToken(accessToken.Token, accessToken.ExpiresOn);
             _cache[key] = token;
-            GraphLog.TokenAcquired(_logger, scopes.ToString(), token.ExpiresOn, _credential.GetType().Name);
+            GraphLog.TokenAcquired(_logger, scopes.ToString(), token.ExpiresOn, Credential.GetType().Name);
             return token;
         }
         finally
@@ -143,7 +161,7 @@ public sealed class AzureIdentityTokenProvider : IGraphTokenProvider, IDisposabl
         Exception failure;
         try
         {
-            return await _credential.GetTokenAsync(context, cancellationToken).ConfigureAwait(false);
+            return await Credential.GetTokenAsync(context, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -159,7 +177,8 @@ public sealed class AzureIdentityTokenProvider : IGraphTokenProvider, IDisposabl
             throw NotAuthenticated(scopes, failure);
         }
 
-        var consent = new ConsentRequiredException(scopes, _signIn?.Username, _signIn?.ClientId, failure);
+        // What to consent: the requested set itself, except a Key Vault .default request, which needs the vault's delegated scope consented.
+        var consent = new ConsentRequiredException(ConsentSetFor(scopes), _signIn?.Username, _signIn?.ClientId, failure);
         if (_consentPrompter is null)
         {
             throw ConsentNeeded(consent, prefix: null);
@@ -168,8 +187,8 @@ public sealed class AzureIdentityTokenProvider : IGraphTokenProvider, IDisposabl
         await PromptAsync(consent, cancellationToken).ConfigureAwait(false);
         try
         {
-            // The one silent retry: the consent prompt stored the new grant in the shared persistent cache.
-            return await _credential.GetTokenAsync(context, cancellationToken).ConfigureAwait(false);
+            // The one silent retry, on the renewed credential: the consent prompt stored the new grant in the shared persistent cache.
+            return await Credential.GetTokenAsync(context, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -177,7 +196,7 @@ public sealed class AzureIdentityTokenProvider : IGraphTokenProvider, IDisposabl
         }
         catch (Exception retry) when (ConsentRequiredException.IsConsentFailure(retry))
         {
-            throw ConsentNeeded(new ConsentRequiredException(scopes, _signIn?.Username, _signIn?.ClientId, retry), "Consent was completed, but the silent request for " + scopes + " still needs consent.");
+            throw ConsentNeeded(new ConsentRequiredException(consent.Scopes, _signIn?.Username, _signIn?.ClientId, retry), "Consent was completed, but the silent request for " + scopes + " still needs consent.");
         }
         catch (Exception retry)
         {
@@ -192,6 +211,7 @@ public sealed class AzureIdentityTokenProvider : IGraphTokenProvider, IDisposabl
         {
             GraphLog.ConsentPrompting(_logger, consent.Scopes.ToString());
             await _consentPrompter!.ConsentAsync(consent.Scopes, cancellationToken).ConfigureAwait(false);
+            RenewCredential();
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -207,6 +227,34 @@ public sealed class AzureIdentityTokenProvider : IGraphTokenProvider, IDisposabl
         {
             _promptGate.Release();
         }
+    }
+
+    /// <summary>After a completed consent: a new credential over the same sign-in (when a renew callback was given), and no cached token from before the grant.</summary>
+    private void RenewCredential()
+    {
+        if (_renewCredential is not null)
+        {
+            Volatile.Write(ref _credential, _renewCredential());
+        }
+
+        _cache.Clear();
+    }
+
+    /// <summary>The scopes a consent prompt for <paramref name="requested"/> asks for: a Key Vault <c>.default</c> request needs the vault's <c>user_impersonation</c>.</summary>
+    internal static TokenScopes ConsentSetFor(TokenScopes requested)
+    {
+        if (requested.IsDefault)
+        {
+            foreach (var cloud in GraphCloud.All)
+            {
+                if (string.Equals(requested.Resource, cloud.KeyVaultResource, StringComparison.OrdinalIgnoreCase))
+                {
+                    return cloud.KeyVaultConsentScopes;
+                }
+            }
+        }
+
+        return requested;
     }
 
     private GraphTransportException NotAuthenticated(TokenScopes scopes, Exception failure)
@@ -231,7 +279,7 @@ public sealed class AzureIdentityTokenProvider : IGraphTokenProvider, IDisposabl
             return;
         }
 
-        var credential = _credential.GetType().Name;
+        var credential = Credential.GetType().Name;
         if (TokenClaims.TryDecode(token.Value, out var claims))
         {
             GraphLog.IdentityUsed(_logger, claims.PrincipalName, claims.PrincipalType, claims.TenantId, claims.ObjectId, claims.AppId, credential);
@@ -252,5 +300,32 @@ public sealed class AzureIdentityTokenProvider : IGraphTokenProvider, IDisposabl
 
         token = null!;
         return false;
+    }
+
+    /// <summary><see cref="ConsentPrompter"/>: the provider's gate, prompter and credential renewal, for consent a caller found missing.</summary>
+    private sealed class RenewingPrompter : IConsentPrompter
+    {
+        private readonly AzureIdentityTokenProvider _owner;
+
+        public RenewingPrompter(AzureIdentityTokenProvider owner)
+        {
+            _owner = owner;
+        }
+
+        public async Task ConsentAsync(TokenScopes scopes, CancellationToken cancellationToken)
+        {
+            ArgumentNullException.ThrowIfNull(scopes);
+            await _owner._promptGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                GraphLog.ConsentPrompting(_owner._logger, scopes.ToString());
+                await _owner._consentPrompter!.ConsentAsync(scopes, cancellationToken).ConfigureAwait(false);
+                _owner.RenewCredential();
+            }
+            finally
+            {
+                _owner._promptGate.Release();
+            }
+        }
     }
 }
