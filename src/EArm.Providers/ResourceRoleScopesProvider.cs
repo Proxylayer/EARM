@@ -93,6 +93,7 @@ public sealed class ResourceRoleScopesProvider : ProviderBase, IApplyOrderSource
     {
         ArgumentNullException.ThrowIfNull(desired);
         ArgumentNullException.ThrowIfNull(graph);
+        _notOnboarded.Remove(desired);
         if (desired.Properties is not { } properties || !IsEligibleRole(JsonObjects.GetString(properties, RoleProperty))
             || JsonObjects.GetString(properties, PackageProperty) is not { Length: > 0 } packageId
             || JsonObjects.GetString(properties, OriginIdProperty) is not { Length: > 0 } groupId)
