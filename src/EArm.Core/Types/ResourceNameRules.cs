@@ -77,7 +77,7 @@ public static class ResourceNameRules
         return null;
     }
 
-    /// <summary>The problem with the last segment of a name for the type's <c>nameKind</c> and <c>namePattern</c>; <c>null</c> when it is fine.</summary>
+    /// <summary>The problem with the last segment of a name for the type's <c>nameKind</c>, <c>nameMaxLength</c> and <c>namePattern</c>; <c>null</c> when it is fine.</summary>
     public static string? LeafProblem(ResourceTypeDefinition definition, string leaf)
     {
         ArgumentNullException.ThrowIfNull(definition);
@@ -109,6 +109,11 @@ public static class ResourceNameRules
                 }
 
                 break;
+        }
+
+        if (definition.NameMaxLength is { } maxLength && leaf.Length > maxLength)
+        {
+            return $"Name '{shown}' is {leaf.Length} characters long; a '{definition.Type}' name (its {definition.NameMapsTo ?? "name"}) can be at most {maxLength} characters.";
         }
 
         if (definition.NamePattern is { } pattern && !MatchesPattern(pattern, leaf))

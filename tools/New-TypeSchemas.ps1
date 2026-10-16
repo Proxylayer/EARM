@@ -434,9 +434,9 @@ $specs['conditionalAccess.authenticationContextClassReferences'] = [ordered]@{
 # --- conditionalAccess/authenticationStrengths --------------------------------------------------------------------
 $specs['conditionalAccess.authenticationStrengths'] = [ordered]@{
     NamePattern = $uniqueNamePattern
-    Description = 'A custom authentication strength policy. The resource name is the displayName; built-in strengths are read-only and can only be referenced.'
+    Description = 'A custom authentication strength policy. The resource name is the displayName (at most 30 characters); built-in strengths are read-only and can only be referenced.'
     Props       = [ordered]@{
-        displayName         = Str 'Set from the resource name; declaring it is only allowed when it equals the name.'
+        displayName         = Str 'Set from the resource name; declaring it is only allowed when it equals the name. At most 30 characters (Graph: "Policy DisplayName length cannot be longer than 30 characters").' -Max 30
         description         = Str 'Description.' -Nullable
         allowedCombinations = Arr -d 'Required: authentication method combinations, compared as a set. A combination is one method or a comma-separated list: password, voice, hardwareOath, softwareOath, sms, fido2, windowsHelloForBusiness, microsoftAuthenticatorPush, deviceBasedPush, temporaryAccessPassOneTime, temporaryAccessPassMultiUse, email, x509CertificateSingleFactor, x509CertificateMultiFactor, federatedSingleFactor, federatedMultiFactor, for example fido2 or password,microsoftAuthenticatorPush.' -Unique -Items (Str '' -Min 1)
     }

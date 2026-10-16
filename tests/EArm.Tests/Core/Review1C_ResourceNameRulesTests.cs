@@ -33,6 +33,36 @@ public sealed class Review1C_ResourceNameRulesTests
     // ---- the rules ----
 
     [Theory]
+    [InlineData("earm-it-c0ceb0-phish", true)]
+    [InlineData("123456789012345678901234567890", true)]
+    [InlineData("1234567890123456789012345678901", false)]
+    [InlineData("earm-it-c0ceb0-phishing-resistant", false)]
+    public void AnAuthenticationStrengthName_IsAtMostThirtyCharacters(string name, bool valid)
+    {
+        var strengths = Type("Microsoft.Entra/conditionalAccess/authenticationStrengths");
+
+        string? problem = ResourceNameRules.Validate(strengths, name);
+
+        Assert.Equal(30, strengths.NameMaxLength);
+        Assert.Equal(valid, problem is null);
+        if (!valid)
+        {
+            Assert.Contains($"is {name.Length} characters long", problem, StringComparison.Ordinal);
+            Assert.Contains("at most 30 characters", problem, StringComparison.Ordinal);
+        }
+    }
+
+    [Theory]
+    [InlineData("Microsoft.Entra/conditionalAccess/namedLocations")]
+    [InlineData("Microsoft.Entra/conditionalAccess/policies")]
+    [InlineData("Microsoft.Entra/groups")]
+    public void OnlyTypesWithADocumentedOrObservedLimit_CarryANameMaxLength(string type)
+    {
+        Assert.Null(Type(type).NameMaxLength);
+        Assert.Null(ResourceNameRules.Validate(Type(type), new string('a', 200)));
+    }
+
+    [Theory]
     [InlineData("abc", true)]
     [InlineData("a b", true)]
     [InlineData("a?b#c", true)]

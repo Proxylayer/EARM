@@ -2,12 +2,12 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/conditionalAccess.authenticationStrengths.json",
   "title": "Microsoft.Entra/conditionalAccess/authenticationStrengths",
-  "description": "A custom authentication strength policy. The resource name is the displayName; built-in strengths are read-only and can only be referenced.",
+  "description": "A custom authentication strength policy. The resource name is the displayName (at most 30 characters); built-in strengths are read-only and can only be referenced.",
   "type": "object",
   "properties": {
     "displayName": {
-      "description": "Set from the resource name; declaring it is only allowed when it equals the name.",
-      "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+      "description": "Set from the resource name; declaring it is only allowed when it equals the name. At most 30 characters (Graph: \"Policy DisplayName length cannot be longer than 30 characters\").",
+      "anyOf": [ { "type": "string", "maxLength": 30 }, { "$ref": "#/$defs/expression" } ]
     },
     "description": { "description": "Description.", "anyOf": [ { "type": [ "string", "null" ] }, { "$ref": "#/$defs/expression" } ] },
     "allowedCombinations": {
@@ -30,6 +30,7 @@
     "nameMapsTo": "displayName",
     "nameKind": "displayName",
     "namePattern": "^\\S(.{0,254}\\S)?$",
+    "nameMaxLength": 30,
     "keyProperties": ["displayName"],
     "requiredOnCreate": ["allowedCombinations"],
     "defaults": {},

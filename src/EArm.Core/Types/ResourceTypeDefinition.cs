@@ -37,6 +37,9 @@ public sealed record ResourceTypeDefinition
     /// <summary>Regex a literal final name segment must match, when the type constrains it.</summary>
     public string? NamePattern { get; init; }
 
+    /// <summary>The most characters a final name segment may have, when Graph limits it more tightly than <see cref="NamePattern"/> says (overlay <c>nameMaxLength</c>).</summary>
+    public int? NameMaxLength { get; init; }
+
     /// <summary>Properties that identify the object in Graph (alternate key or composite key).</summary>
     public IReadOnlyList<string> KeyProperties { get; init; } = [];
 

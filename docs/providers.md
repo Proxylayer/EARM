@@ -397,7 +397,7 @@ MFA) are read-only: reference them with
 | Operation | Requests |
 |---|---|
 | Read | `GET /policies/authenticationStrengthPolicies` (every page; the displayName match is client-side because `$filter` on this collection is unverified): one custom hit is the object, several are `AmbiguousMatch`, only a built-in hit is the built-in (which `Plan` refuses to manage), nothing is "create" |
-| Create | `POST /policies/authenticationStrengthPolicies { displayName, description, allowedCombinations }` |
+| Create | `POST /policies/authenticationStrengthPolicies { displayName, description, allowedCombinations }`. Graph refuses a displayName over 30 characters ("Policy DisplayName length cannot be longer than 30 characters"), so the name is limited to 30 characters offline (`nameMaxLength`; `deployment validate` reports `InvalidResourceName`) |
 | Update | `PATCH …/{id}` only when `displayName` / `description` changed (never carrying `allowedCombinations`) → `POST …/{id}/updateAllowedCombinations { allowedCombinations }` only when the combination set differs → `GET …/{id}` |
 | Delete | `DELETE …/{id}`; a 400 while a policy references the strength is surfaced as `Referenced` (`deployment delete` deletes policies first: reverse dependency order; a `Referenced` refusal right after a policy was deleted in the same run is repeated every 5 s for up to 90 s, because the Conditional Access service sees the policy delete late) |
 

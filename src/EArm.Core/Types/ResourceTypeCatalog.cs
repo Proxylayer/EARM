@@ -256,6 +256,7 @@ public sealed class ResourceTypeCatalog
             NameMapsTo = TemplateJson.AsString(overlay["nameMapsTo"]),
             NameKind = nameKind,
             NamePattern = TemplateJson.AsString(overlay["namePattern"]),
+            NameMaxLength = TemplateJson.AsInt64(overlay["nameMaxLength"]) is { } maxLength and > 0 and <= int.MaxValue ? (int)maxLength : null,
             KeyProperties = StringList(overlay["keyProperties"]),
             RequiredOnCreate = StringList(overlay["requiredOnCreate"]),
             Defaults = overlay["defaults"] as JsonObject,

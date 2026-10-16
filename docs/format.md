@@ -89,9 +89,11 @@ table and its consequences are in [engine.md](engine.md#identity-without-state).
 | GUID | appRoleAssignments, oauth2PermissionGrants, roleAssignments | A deterministic GUID chosen by the author with `guid(...)`, as with `Microsoft.Authorization/roleAssignments`. The `name` is a **label** (it gives the resource its id in the what-if and the result); the Graph object is found by its composite properties on every run. A changed composite is a **different assignment**: it is created, and the old one is retained and reported (`orphan: retained`), never removed (see [engine.md](engine.md#retained-assignments)). Only a change of a mutable property (a grant's `scope`) updates in place. |
 
 Every name segment, of every type, must be printable single-line text without leading or trailing whitespace and must not consist of dots only
-(`.`, `..`); `namePattern` and `nameKind` are checked for literal names offline and for names an expression computes (offline once the value
+(`.`, `..`); `namePattern`, `nameMaxLength` and `nameKind` are checked for literal names offline and for names an expression computes (offline once the value
 is known, and again for each `copy` iteration). `namePattern` is matched against the whole segment: `^` and `$` mean the start and the very end of
-the text, so a name with a trailing line feed does not match. A property whose expression evaluates, offline, to a value of the wrong JSON type for
+the text, so a name with a trailing line feed does not match. `nameMaxLength` caps a name Graph limits more tightly: an authentication strength's
+name (its displayName) is at most 30 characters (Graph: "Policy DisplayName length cannot be longer than 30 characters"; Learn documents no
+limit for named locations or Conditional Access policies, so none is enforced for them). A property whose expression evaluates, offline, to a value of the wrong JSON type for
 the type's schema is `PropertyTypeMismatch`.
 
 The resource id is `/providers/Microsoft.Entra/<type>/<name>[/<childType>/<childName>]` (tenant scope, ARM style):
@@ -402,7 +404,7 @@ Conventions of the per-type schemas:
   diagnostic codes instead). Note that an `anyOf` of `required` alternatives is reported against its first alternative.
 - `additionalProperties` stays `true` (Graph passthrough) except for the edge entry objects of `appRoleAssignments`, `directoryRoles`
   and `assignedLicenses`, whose handlers reject unknown members.
-- `x-earm` (`type`, `graphPath`, `apiVersions`, `nameMapsTo`, `nameKind`, `namePattern`, `keyProperties`, `requiredOnCreate`,
+- `x-earm` (`type`, `graphPath`, `apiVersions`, `nameMapsTo`, `nameKind`, `namePattern`, `nameMaxLength`, `keyProperties`, `requiredOnCreate`,
   `defaults`, `immutable`, `createOnly`, `secure`, `relationships`, `memberKey`, `stripOnRead`, `nullable`, `ignoreLiveOnly`, `permissions`) drives the executor.
   `ignoreLiveOnly` lists dotted paths (`web`, `api`, `sessionControls.signInFrequency`) under which sub-properties that exist only on the live object (server-defaulted
   children) are not drift and are not nulled in a PATCH.
