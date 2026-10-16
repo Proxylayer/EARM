@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
+using EArm.Engine;
 using EArm.Engine.Execution;
 using EArm.Graph;
 using EArm.Providers;
@@ -71,6 +72,77 @@ public sealed class DirectoryScenarioTests : IntegrationTestBase
         AssertExit(0, await Fixture.Cli.DeleteAllAsync(run, Ct), "deployment delete");
         Assert.Null(await FindOneEventuallyAsync("/groups", "displayName", Fixture.Name("ga"), found => found is null, "id"));
         Assert.Null(await UserAsync(Fixture.Upn("u1"), "id"));
+    }
+
+    [Fact]
+    public async Task It_Groups_AdoptsExistingGroupByDisplayName()
+    {
+        Fixture.Require();
+        string displayName = Fixture.Name("adopt");
+        string uniqueName = Fixture.Name("adopt-u");
+        string rowSuffix = "/groups/" + uniqueName;
+
+        // A group created outside EARM: no uniqueName, the declared displayName and mailNickname. The adoption reads it by displayName, so wait for the list.
+        string groupId = (await TenantObjects.CreateGroupAsync(Fixture, "adopt", Ct)).RequireId();
+        await FindOneEventuallyAsync("/groups", "displayName", displayName, found => found is not null, "id");
+
+        var run = Fixture.NewRun("adopt", "group-adopt.entra.json");
+        var preview = await Fixture.Cli.WhatIfAsync(run, Ct, "--exit-code-on-changes");
+        AssertChange(preview, rowSuffix, "Modify", "what-if of the adoption");
+        Assert.DoesNotContain(preview.Changes, c => (string?)c["changeType"] == "Create");
+        Assert.True(preview.HasDiagnostic(EngineDiagnosticCodes.GroupAdoptedByDisplayName), $"what-if did not warn {EngineDiagnosticCodes.GroupAdoptedByDisplayName}: {Tail(preview.Combined)}");
+
+        var created = await Fixture.Cli.CreateAsync(run, Ct);
+        AssertCreated(created, "create (adoption)");
+        Assert.True(created.HasDiagnostic(EngineDiagnosticCodes.GroupAdoptedByDisplayName), $"create did not warn {EngineDiagnosticCodes.GroupAdoptedByDisplayName}: {Tail(created.Combined)}");
+
+        var adopted = await EventuallyAsync(
+            () => Graph.GetObjectAsync(new GraphRequest("/groups/" + groupId).WithSelect("id", "uniqueName", "description"), Ct),
+            found => string.Equals(found.Text("uniqueName"), uniqueName, StringComparison.OrdinalIgnoreCase) && found.Text("description") is not null);
+        Assert.Equal(uniqueName, adopted.Text("uniqueName"), ignoreCase: true);
+        Assert.Equal("Adopted by the EARM integration tests", adopted.Text("description"));
+        Assert.Equal(groupId, (await FindOneAsync("/groups", "displayName", displayName, "id"))!.RequireId());
+        await AssertNoChangesEventuallyAsync(() => Fixture.Cli.WhatIfAsync(run, Ct, "--exit-code-on-changes"), "what-if after the adoption");
+
+        // Two groups without a uniqueName share the declared displayName: EARM cannot tell which to adopt and creates nothing.
+        string duplicateName = Fixture.Name("adopt-dup");
+        string duplicateUniqueName = Fixture.Name("adopt-dup-u");
+        string first = (await TenantObjects.CreateGroupAsync(Fixture, "adopt-dup1", Ct, duplicateName)).RequireId();
+        string second = (await TenantObjects.CreateGroupAsync(Fixture, "adopt-dup2", Ct, duplicateName)).RequireId();
+        await EventuallyAsync(() => GroupIdsByDisplayNameAsync(duplicateName), ids => ids.Contains(first) && ids.Contains(second));
+        var ambiguousRun = Fixture.NewRun("adopt-dup", "group-adopt.entra.json")
+            .WithParameter("uniqueNameSuffix", "adopt-dup-u")
+            .WithParameter("displayNameSuffix", "adopt-dup");
+
+        var ambiguousPreview = await Fixture.Cli.WhatIfAsync(ambiguousRun, Ct, "--exit-code-on-changes");
+        Assert.NotEqual(0, ambiguousPreview.ExitCode);
+        var row = ambiguousPreview.Changes.FirstOrDefault(c => ((string?)c["resourceId"])?.EndsWith("/groups/" + duplicateUniqueName, StringComparison.OrdinalIgnoreCase) == true);
+        string reason = (string?)row?["unsupportedReason"] ?? string.Empty;
+        Assert.True(
+            (string?)row?["changeType"] == "Unsupported" && reason.Contains(first, StringComparison.OrdinalIgnoreCase) && reason.Contains(second, StringComparison.OrdinalIgnoreCase),
+            $"what-if of the ambiguous adoption: expected an Unsupported row naming both groups ({first}, {second}) but got: {ambiguousPreview.DescribeChanges()}{Environment.NewLine}{Tail(ambiguousPreview.Combined)}");
+
+        var ambiguousCreate = await Fixture.Cli.CreateAsync(ambiguousRun, Ct);
+        Assert.NotEqual(0, ambiguousCreate.ExitCode);
+        var operation = ambiguousCreate.Operations.FirstOrDefault(o => ((string?)o["resourceId"])?.EndsWith("/groups/" + duplicateUniqueName, StringComparison.OrdinalIgnoreCase) == true);
+        Assert.True(
+            (string?)operation?["errorCode"] == EngineDiagnosticCodes.AmbiguousMatch,
+            $"create of the ambiguous adoption: expected {EngineDiagnosticCodes.AmbiguousMatch} but the operations are: {ambiguousCreate.DescribeOperations()}{Environment.NewLine}{Tail(ambiguousCreate.Combined)}");
+        Assert.Null(await Graph.GetObjectAsync(new GraphRequest(GraphPath.AlternateKey("/groups", "uniqueName", duplicateUniqueName)).WithSelect("id"), Ct));
+        var duplicates = await GroupIdsByDisplayNameAsync(duplicateName);
+        Assert.Equal(2, duplicates.Count);
+        Assert.Contains(first, duplicates);
+        Assert.Contains(second, duplicates);
+
+        // The adopted group now holds the uniqueName, so deployment delete removes it.
+        AssertExit(0, await Fixture.Cli.DeleteAllAsync(run, Ct), "deployment delete");
+        Assert.Null(await EventuallyAsync(() => Graph.GetObjectAsync(new GraphRequest("/groups/" + groupId).WithSelect("id"), Ct), found => found is null));
+    }
+
+    private async Task<HashSet<string>> GroupIdsByDisplayNameAsync(string displayName)
+    {
+        var groups = await Graph.ListAsync(new GraphRequest("/groups").WithFilter($"displayName eq '{displayName}'").WithSelect("id"), Ct);
+        return new HashSet<string>(groups.Select(g => g.RequireId()), StringComparer.OrdinalIgnoreCase);
     }
 
     [Fact]

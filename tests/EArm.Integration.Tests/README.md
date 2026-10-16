@@ -138,6 +138,7 @@ and run sequentially: they share the sign-in and the cleanup guard, and the in-p
 |---|---|
 | `It_Applications_RoundTripWithServicePrincipalFicAndSecret` | - |
 | `It_Groups_MemberOfMembersOwnersEdgesOnBothSides` | `DOMAIN` |
+| `It_Groups_AdoptsExistingGroupByDisplayName` | - |
 | `It_Users_GeneratedPasswordUsageLocationAndSecureOutput` | `DOMAIN` |
 | `It_Users_GuestWithExtSuffixIsReadByReference` | a guest user in the tenant |
 | `It_NamedLocations_IpAndCountryRoundTrip` | - |
@@ -157,6 +158,7 @@ and run sequentially: they share the sign-in and the cleanup guard, and the in-p
 | `It_Cleanup_SweepRemovesTrackedGroupWithThePrefix` | - |
 | `It_Cleanup_ManualSweepOfTheConfiguredPrefix` | `SWEEP=1` |
 | `It_Probe_A` ... `It_Probe_H` (15 probes) | A, B1, B2, B3, D, F1-F4, G: -; B4: `DOMAIN`; C, E1, E2: `ALLOW_CA`; H: `DOMAIN`, `ALLOW_ROLES` |
+| `It_Probe_GA1` (group adoption) | - |
 | `It_Probe_P1` ... `It_Probe_P5` (PIM) | `DOMAIN`, `ALLOW_PIM` |
 | `It_Probe_AM1` ... `It_Probe_AM4` (authentication methods) | `ALLOW_AUTH_METHODS`; AM3 also skips unless Temporary Access Pass is disabled in the tenant |
 | `It_Probe_PP1` ... `It_Probe_PP6` (PIM policies) | `ALLOW_PIM`, `ALLOW_PIM_POLICIES`; PP1 and PP4 also `DOMAIN`; PP6 only records when the tenant has an available authentication context |
@@ -312,6 +314,7 @@ A probe asserts an assumption the code makes and names the file to change; the o
 | `F4` app role value change | disable PATCH then re-enable-and-change-value PATCH works (a single-PATCH attempt is **recorded**) | `ApplicationsRules.cs` / `ApplicationsProvider.UpdateAsync` |
 | `G` nested nulls | per sub-property of `web`, `api`, `info`, `spa`, `publicClient`: an explicit `null` clears scalars and collections, but not `web.implicitGrantSettings` / `api.requestedAccessTokenVersion`; prints the whole table | the `nullable` map of the applications overlay |
 | `H` group members (`GroupMembershipProbes`) | a service principal and a user added to a group in one `$batch` (as the edge pass sends them) are both read back, for a plain and a role-assignable security group: the user through v1.0 `/members`, the service principal through the type cast `/members/microsoft.graph.servicePrincipal`; whether v1.0 `/members` lists the service principal is **recorded** | `src/EArm.Engine/Edges/GroupMembershipEdgeKind.cs` (the reads of group members) |
+| `GA1` uniqueName on an existing group (`GroupAdoptionProbes`) | `PATCH /groups/{id}` sets the `uniqueName` of a group created without one, and it reads back; whether a second PATCH to another value is accepted is **recorded** | `src/EArm.Providers/GroupsProvider.cs` (`AdoptUniqueNameAsync`, adoption by display name) and the group adoption notes in `docs/providers.md` |
 
 | `P1` PIM errors (`PimProbes`) | a second adminAssign of an existing eligibility fails with an error `PimScheduleRequests.IsAlreadyExists` recognises (or is accepted); an adminRemove of a missing eligibility fails with an error `IsAlreadyGone` recognises (or is accepted); any 400 the default policy answers to a permanent group eligibility, a 10-year or a permanent active role assignment is classified by `IsPolicyViolation`. The exact codes are **recorded**; when no attempt is refused the policy mapping is reported as unverified | `src/EArm.Providers/PimScheduleRequests.cs` |
 | `P2` AfterDuration and ids | an AfterDuration eligibility reads back as `afterDuration` or `afterDateTime` (the read-back shape is **recorded**); the adminAssign response's `targetScheduleId` is the schedule id; an adminUpdate without `startDateTime` (what EARM sends for a declared past start) is accepted, `RoleAssignmentExists` repeated with the provider's backoff (the variant that worked, omitted or live start, and the number of `RoleAssignmentExists` answers are **recorded**); after the adminUpdate the tuple lists exactly one Direct schedule (id stability **recorded**) and a fractional-second end reads back within `TimeTolerance` | `PimScheduleComparison.cs`, `PimScheduleRequestsProvider.cs` (`StandInFor`, `TimeTolerance`), `RoleSchedulesLookup.cs` |

@@ -79,6 +79,7 @@ internal static class IntegrationScopes
     [
         new("app-roundtrip.entra.json", Needs.Tenant, Empty()),
         new("named-locations.entra.json", Needs.Tenant, Empty()),
+        new("group-adopt.entra.json", Needs.Tenant, Empty()),
         new("guest-member.entra.json", Needs.Tenant, With(("guestUpn", "guest_example.com#EXT#@example.onmicrosoft.com"))),
         new("groups-edges.entra.json", Needs.Domain, With(("domain", "example.onmicrosoft.com"), ("u2Password", PlaceholderPassword))),
         new("users.entra.json", Needs.Domain, With(("domain", "example.onmicrosoft.com"), ("u2Password", PlaceholderPassword))),
