@@ -9,6 +9,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using EArm.Cli.Hosting;
 using EArm.Cli.Output;
+using EArm.Engine;
 using EArm.Engine.Execution;
 using EArm.Engine.Permissions;
 using EArm.Engine.Planning;
@@ -111,6 +112,7 @@ internal static class DeleteCommand
         string note = target switch
         {
             { Problem: { } problem } => $" [cannot be checked: {problem}]",
+            { Refusal: not null, RefusalCode: EngineDiagnosticCodes.NotDeletable } => " [kept: not deletable]",
             { Refusal: not null } => " [kept: protected]",
             { Risk: { } risk } => $" [{risk}]",
             _ => string.Empty,

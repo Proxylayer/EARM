@@ -25,7 +25,7 @@ public enum DeletionStatus
     /// <summary>Not attempted: an earlier delete failed (without <c>--continue-on-error</c>), or the run was cancelled.</summary>
     Skipped,
 
-    /// <summary>Deliberately kept, not an error: the object is protected (<see cref="DeleteGuards"/>).</summary>
+    /// <summary>Deliberately kept, not an error: the object is protected (<see cref="DeleteGuards"/>) or cannot be deleted at all (<see cref="IDeleteRefusalSource"/>).</summary>
     Refused,
 }
 
@@ -36,6 +36,12 @@ public enum DeletionStatus
 public sealed record DeclaredObject(ResourceInstance Instance, ExistingResource? Live, string? DisplayName, string? Refusal, string? Risk, string? Problem)
 {
     public string? GraphId => Live?.GraphId;
+
+    /// <summary>
+    /// The code of <see cref="Refusal"/>: <see cref="EngineDiagnosticCodes.ProtectedObject"/> (the signed-in principal, another organization's service
+    /// principal) or <see cref="EngineDiagnosticCodes.NotDeletable"/> (an object Graph cannot delete, <see cref="IDeleteRefusalSource"/>).
+    /// </summary>
+    public string RefusalCode { get; init; } = EngineDiagnosticCodes.ProtectedObject;
 }
 
 /// <summary>What happened to one <see cref="DeclaredObject"/>.</summary>
@@ -124,8 +130,8 @@ public sealed class TemplateDeleter
                 var live = new ExistingResource(graphId, raw, raw);
                 var provider = plan.Registry.Get(instance.Type);
                 string? risk = provider is IDeleteWarningSource warnings && instance.IsEvaluated ? warnings.DescribeDeleteRisk(provider.ResolveKey(instance), live) : null;
-                string? refusal = DeleteGuards.Refusal(instance.Id.Id, instance.Type, live, plan.SignedInPrincipalId, plan.TenantId);
-                found.Add(new DeclaredObject(instance, live, JsonObjects.GetString(raw, "displayName"), refusal, risk, null));
+                var (refusal, refusalCode) = Refusal(plan, provider, instance, live);
+                found.Add(new DeclaredObject(instance, live, JsonObjects.GetString(raw, "displayName"), refusal, risk, null) { RefusalCode = refusalCode });
             }
         }
 
@@ -192,7 +198,7 @@ public sealed class TemplateDeleter
 
         if (target.Refusal is { } refusal)
         {
-            return new DeclaredObjectDeletion(target, DeletionStatus.Refused, refusal, EngineDiagnosticCodes.ProtectedObject, stopwatch.Elapsed);
+            return new DeclaredObjectDeletion(target, DeletionStatus.Refused, refusal, target.RefusalCode, stopwatch.Elapsed);
         }
 
         try
@@ -211,9 +217,9 @@ public sealed class TemplateDeleter
                 return new DeclaredObjectDeletion(target, DeletionStatus.Failed, $"{instance.Describe()} was not deleted: its key ({key.Describe()}) now names Graph id {live.GraphId}, not the object that was listed ({target.Live.GraphId}). Run the command again.", EngineDiagnosticCodes.ResourceDeleted, stopwatch.Elapsed);
             }
 
-            if (DeleteGuards.Refusal(instance.Id.Id, instance.Type, live, plan.SignedInPrincipalId, plan.TenantId) is { } protectedNow)
+            if (Refusal(plan, provider, instance, live) is ({ } refusedNow, var refusedCode))
             {
-                return new DeclaredObjectDeletion(target, DeletionStatus.Refused, protectedNow, EngineDiagnosticCodes.ProtectedObject, stopwatch.Elapsed);
+                return new DeclaredObjectDeletion(target, DeletionStatus.Refused, refusedNow, refusedCode, stopwatch.Elapsed);
             }
 
             EngineLog.Deleting(_logger, instance.Id.Id, live.GraphId);
@@ -241,6 +247,22 @@ public sealed class TemplateDeleter
         {
             return new DeclaredObjectDeletion(target, DeletionStatus.Failed, SecretRegistration.Scrub($"{ex.GetType().Name}: {ex.Message}"), EngineDiagnosticCodes.ResourceDeleted, stopwatch.Elapsed);
         }
+    }
+
+    /// <summary>Why the object must be kept: the delete guards first (<see cref="EngineDiagnosticCodes.ProtectedObject"/>), then the provider (<see cref="EngineDiagnosticCodes.NotDeletable"/>).</summary>
+    private static (string? Refusal, string Code) Refusal(DeploymentPlan plan, IResourceProvider provider, ResourceInstance instance, ExistingResource live)
+    {
+        if (DeleteGuards.Refusal(instance.Id.Id, instance.Type, live, plan.SignedInPrincipalId, plan.TenantId) is { } guarded)
+        {
+            return (guarded, EngineDiagnosticCodes.ProtectedObject);
+        }
+
+        if (provider is IDeleteRefusalSource refusals && instance.IsEvaluated && refusals.DescribeDeleteRefusal(provider.ResolveKey(instance), live) is { } refused)
+        {
+            return (refused, EngineDiagnosticCodes.NotDeletable);
+        }
+
+        return (null, EngineDiagnosticCodes.ProtectedObject);
     }
 
     private static Task<T> WithRetryAsync<T>(DeploymentPlan plan, Func<CancellationToken, Task<T>> operation, CancellationToken cancellationToken)

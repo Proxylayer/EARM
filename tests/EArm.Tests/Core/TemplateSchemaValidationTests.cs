@@ -24,6 +24,7 @@ public sealed class TemplateSchemaValidationTests
     private const string Orders = "orders-api";
     private const string Tenant = "tenant-security";
     private const string App = "app-with-sp-and-secret";
+    private const string Methods = "authentication-methods";
     private const string SchemaUri = "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#";
 
     private static readonly TemplateLoader Loader = new();
@@ -94,6 +95,13 @@ public sealed class TemplateSchemaValidationTests
         I(Orders, "oauth2PermissionGrants", 0, ["consentType"], "\"Everyone\"", "enum"),
         I(Orders, "administrativeUnits", 0, ["membershipType"], "\"Auto\"", "enum"),
         I(Orders, "roleAssignments", 0, ["directoryScopeId"], "\"tenant\"", "pattern"),
+
+        // authenticationMethodConfigurations (tenant singletons, one declaration per method)
+        I(Methods, "authenticationMethodConfigurations", 3, ["state"], "\"on\"", "enum"),
+        I(Methods, "authenticationMethodConfigurations", 1, ["defaultLength"], "6", "minimum"),
+        I(Methods, "authenticationMethodConfigurations", 0, ["passkeyProfiles", 0, "keyRestrictions", "aaGuids"], "[ \"not-a-guid\" ]", "pattern", "[0]"),
+        I(Methods, "authenticationMethodConfigurations", 2, ["authenticationModeConfiguration", "x509CertificateAuthenticationDefaultMode"], "\"strong\"", "enum"),
+        I(Methods, "authenticationMethodConfigurations", 1, ["includeTargets", 0], "{ \"targetType\": \"group\" }", "required"),
     ];
 
     public static TheoryData<int> InjectionIndexes()
@@ -208,7 +216,7 @@ public sealed class TemplateSchemaValidationTests
             Assert.Contains(definition.Type, covered);
         }
 
-        Assert.Equal(15, ResourceTypeCatalog.Default.Types.Count);
+        Assert.Equal(16, ResourceTypeCatalog.Default.Types.Count);
         foreach (string keyword in new[] { "enum", "pattern", "type", "required", "additionalProperties" })
         {
             Assert.Contains(Injections, i => i.Keyword == keyword);

@@ -13,7 +13,7 @@ public static class ApplyPhases
     public const int UnknownTypePhase = 3;
 
     /// <summary>
-    /// 1: namedLocations, authenticationContextClassReferences, authenticationStrengths, roleDefinitions, users,
+    /// 1: namedLocations, authenticationContextClassReferences, authenticationStrengths, authenticationMethodConfigurations, roleDefinitions, users,
     /// applications · 2: servicePrincipals, federatedIdentityCredentials, passwordCredentials · 3: groups ·
     /// 4: administrativeUnits · 5: roleAssignments, appRoleAssignments, oauth2PermissionGrants ·
     /// 6: conditionalAccess/policies.
@@ -29,6 +29,7 @@ public static class ApplyPhases
             "conditionalAccess/namedLocations" => 1,
             "conditionalAccess/authenticationContextClassReferences" => 1,
             "conditionalAccess/authenticationStrengths" => 1,
+            "authenticationMethodConfigurations" => 1,
             "servicePrincipals" => 2,
             "applications/federatedIdentityCredentials" => 2,
             "applications/passwordCredentials" => 2,
@@ -45,7 +46,7 @@ public static class ApplyPhases
     /// <summary>
     /// Complete-mode delete order: CA policies → assignments/grants → administrativeUnits → groups →
     /// passwordCredentials/federatedIdentityCredentials → servicePrincipals → applications → users → roleDefinitions
-    /// → authenticationStrengths → authenticationContextClassReferences → namedLocations.
+    /// → authenticationStrengths → authenticationContextClassReferences → namedLocations → authenticationMethodConfigurations (reset, never removed).
     /// </summary>
     public static int DeleteOrderOf(string type)
     {
@@ -67,6 +68,7 @@ public static class ApplyPhases
             "conditionalAccess/authenticationStrengths" => 10,
             "conditionalAccess/authenticationContextClassReferences" => 11,
             "conditionalAccess/namedLocations" => 12,
+            "authenticationMethodConfigurations" => 13,
             _ => 4,
         };
     }
@@ -96,6 +98,7 @@ public static class ApplyPhases
         "conditionalAccess/namedLocations",
         "conditionalAccess/authenticationContextClassReferences",
         "conditionalAccess/authenticationStrengths",
+        "authenticationMethodConfigurations",
         "servicePrincipals",
         "applications/federatedIdentityCredentials",
         "applications/passwordCredentials",

@@ -10,6 +10,7 @@ to a Key Vault secret unless you replace its parameter file's `reference` entry.
 | [`orders-api.flat.entra.json`](orders-api.flat.entra.json) | The same template with the children written as top-level resources with `parent/child` names instead of nested; it loads to the identical model | the same file |
 | [`app-with-sp-and-secret.entra.json`](app-with-sp-and-secret.entra.json) | An application with `web`, `api` scopes, `appRoles` and `requiredResourceAccess`, its service principal (named after the application's `appId`), a GitHub Actions federated credential and a rotating client secret; outputs `appId`, the service principal's object id, the tenant id and the secret as a `securestring` | [`app-with-sp-and-secret.parameters.json`](app-with-sp-and-secret.parameters.json) |
 | [`tenant-security.entra.json`](tenant-security.entra.json) | A tenant security baseline: IP and country named locations, a phishing-resistant authentication strength, an authentication context, two report-only Conditional Access policies (with a break-glass exclusion), a role-assignable admin group holding built-in, custom and administrative-unit-scoped directory roles, a custom role definition and an administrative unit | [`tenant-security.parameters.json`](tenant-security.parameters.json) |
+| [`authentication-methods.entra.json`](authentication-methods.entra.json) | The authentication methods policy (tenant singletons, updated and never created): passkeys limited to an AAGUID allow-list through the default passkey profile, one-time Temporary Access Passes for a helpdesk group, certificate-based authentication bound as multi-factor while the live binding rules are kept, and SMS, voice and email one-time passcodes switched off | [`authentication-methods.parameters.json`](authentication-methods.parameters.json) (the allowed AAGUIDs and the helpdesk group id) |
 
 ## Try them
 
@@ -35,5 +36,9 @@ Notes:
   Keep an emergency-access exclusion (the `tenant-security` sample has one) before enforcing anything.
 - `tenant-security.entra.json` needs Entra ID P1 and, for the role-assignable group and the directory roles, a Privileged Role Administrator
   (or an application with `RoleManagement.ReadWrite.Directory`).
+- `authentication-methods.entra.json` changes tenant-wide sign-in methods: review the what-if first. Switching SMS, voice or email off removes them as
+  sign-in and password-reset methods for everyone; the FIDO2 allow-list blocks every other passkey model. `earm deployment delete` resets fido2,
+  temporaryAccessPass and x509Certificate to the Microsoft default and keeps the other methods (they cannot be reset). Needs an Authentication Policy
+  Administrator (or an application with `Policy.ReadWrite.AuthenticationMethod`).
 - `app-with-sp-and-secret.entra.json` returns the client secret exactly once, in the run that creates or rotates it; rerunning without changing `secretTag`
   prints that output as `null` with a warning. Change `secretTag` to rotate.

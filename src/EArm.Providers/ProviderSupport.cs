@@ -31,6 +31,9 @@ public static class ProviderWarnings
     /// <summary>A <c>addPassword</c> call failed ambiguously and a credential with the same name that EARM did not record exists: it is reported, never removed.</summary>
     public const string PasswordCredentialOrphaned = EngineDiagnosticCodes.PasswordCredentialOrphaned;
 
+    /// <summary>A FIDO2 authentication method configuration declares the deprecated <c>isAttestationEnforced</c> / <c>keyRestrictions</c> (removed October 2027; use <c>passkeyProfiles</c>).</summary>
+    public const string DeprecatedAuthenticationMethodProperty = EngineDiagnosticCodes.DeprecatedAuthenticationMethodProperty;
+
     /// <summary>The text of a reason / diagnostic: <c>Code: message</c>.</summary>
     public static string Format(string code, string message)
     {

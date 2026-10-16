@@ -236,6 +236,7 @@ declared resource matches by key: an `Ignore` row with `orphan: undeclared`. The
 | Service principals, federated identity credentials, password credentials | The children of the applications the template declares (the service principal of each declared application; its federated identity credentials and password credentials). |
 | Role assignments, app role assignments, OAuth2 permission grants | The assignments of the principals (grants: the clients) the declared resources of that type name (`orphan: retained`, see below). |
 | Applications, groups, users | Not listed: tenant-wide collections. An `Info` diagnostic `OrphanReportIncomplete` says so. |
+| Authentication method configurations | Nothing: every method is a tenant singleton that always exists, so none can be an orphan (no listing, no diagnostic). |
 
 Only types the template declares are looked at. A type is not listed (warning `OrphanReportIncomplete`) when one of its declared resources is not known in the run (a
 deploy-time name or condition, a failed read or apply): its live object could otherwise be mistaken for an orphan. A resource whose condition is false declares
@@ -286,6 +287,7 @@ result format; `tests/fixtures/whatif/README.md` has the seed format.
 | `modify-resource-id-only` | The same inputs rendered with `--result-format ResourceIdOnly`. |
 | `orphans-complete` | `--mode Complete` orphan report: a named location the template does not declare (`orphan: undeclared`), a role assignment of the declared principal whose tuple the template no longer declares (`orphan: retained`, `AssignmentRetained` warning), the `Orphans:` footer line; two Create rows; no Delete row. |
 | `retained-incremental` | The same inputs in Incremental mode: only the retained assignment is listed. |
+| `auth-methods-incremental` | Authentication method configurations (tenant singletons): a FIDO2 AAGUID added to a set compared case-insensitively, a state and Temporary Access Pass changes, a certificate-based authentication default mode changed while the undeclared live binding rules are kept (no delta for them), a `NoChange` sms row, and the `DeprecatedAuthenticationMethodProperty` reason and warning for the legacy `keyRestrictions`. |
 
 Regenerate them after an intentional rendering change with:
 

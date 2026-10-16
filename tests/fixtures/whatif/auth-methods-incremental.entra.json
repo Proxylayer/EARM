@@ -1,0 +1,35 @@
+{
+  "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "resources": [
+    {
+      "type": "Microsoft.Entra/authenticationMethodConfigurations",
+      "apiVersion": "2026-10-01-preview",
+      "name": "fido2",
+      "properties": {
+        "state": "enabled",
+        "keyRestrictions": { "isEnforced": true, "enforcementType": "allow", "aaGuids": ["EE882879-721C-4913-9775-3DFCCE97072A", "cb69481e-8ff7-4039-93ec-0a2729a154a8"] }
+      }
+    },
+    {
+      "type": "Microsoft.Entra/authenticationMethodConfigurations",
+      "apiVersion": "2026-10-01-preview",
+      "name": "temporaryAccessPass",
+      "properties": { "isUsableOnce": true, "defaultLength": 12 }
+    },
+    {
+      "type": "Microsoft.Entra/authenticationMethodConfigurations",
+      "apiVersion": "2026-10-01-preview",
+      "name": "x509Certificate",
+      "properties": {
+        "authenticationModeConfiguration": { "x509CertificateAuthenticationDefaultMode": "x509CertificateMultiFactor" }
+      }
+    },
+    {
+      "type": "Microsoft.Entra/authenticationMethodConfigurations",
+      "apiVersion": "2026-10-01-preview",
+      "name": "sms",
+      "properties": { "state": "disabled" }
+    }
+  ]
+}

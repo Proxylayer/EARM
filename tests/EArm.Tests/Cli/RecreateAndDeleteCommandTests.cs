@@ -230,4 +230,40 @@ public sealed class RecreateAndDeleteCommandTests
         Assert.Empty(sandbox.UnexpectedFiles());
         Assert.Contains("deleted 2 object(s)", result.StandardOutput, StringComparison.Ordinal);
     }
+
+    // ---- tenant singletons (authentication method configurations) ----
+
+    private static string AuthenticationMethodsTemplate(CliSandbox sandbox)
+    {
+        return sandbox.WriteTemplate("methods.entra.json", "\"resources\": [ "
+            + "{ \"type\": \"Microsoft.Entra/authenticationMethodConfigurations\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"fido2\", \"properties\": { \"state\": \"enabled\" } }, "
+            + "{ \"type\": \"Microsoft.Entra/authenticationMethodConfigurations\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"sms\", \"properties\": { \"state\": \"disabled\" } } ]");
+    }
+
+    [Fact]
+    public async Task Delete_OfAuthenticationMethods_ListsTheResetRisk_AndKeepsTheMethodsWithoutAReset()
+    {
+        var (sandbox, _) = Setup(nameof(Delete_OfAuthenticationMethods_ListsTheResetRisk_AndKeepsTheMethodsWithoutAReset));
+        using var _sandbox = sandbox;
+        string template = AuthenticationMethodsTemplate(sandbox);
+        using var stdout = new StringWriter();
+        using var stderr = new StringWriter();
+
+        int declined = await DeleteCommand.RunAsync(Invocation(sandbox, template), stdout, stderr, () => "n", Ct);
+        var result = await CliRunner.RunAsync("deployment", "delete", "-f", template, "-y", "-o", "json");
+
+        Assert.Equal(ExitCodes.Failure, declined);
+        string listing = stderr.ToString();
+        Assert.Contains("declares 2 object(s) found in tenant " + CliSandbox.Tenant + "; 1 will be DELETED", listing, StringComparison.Ordinal);
+        Assert.Contains("authenticationMethodConfigurations/sms (Microsoft.Entra/authenticationMethodConfigurations) Graph id Sms [kept: not deletable]", listing, StringComparison.Ordinal);
+        Assert.Contains("[resets the fido2 authentication method policy to the Microsoft default", listing, StringComparison.Ordinal);
+
+        Assert.True(result.ExitCode == 0, result.StandardOutput + result.StandardError);
+        Assert.Equal(1, result.Json["deleted"]!.GetValue<int>());
+        Assert.Equal(1, result.Json["kept"]!.GetValue<int>());
+        var kept = result.Json["outcomes"]!.AsArray().Single(o => o!["status"]!.GetValue<string>() == "Refused")!;
+        Assert.Equal("NotDeletable", kept["errorCode"]!.GetValue<string>());
+        Assert.EndsWith("/sms", kept["resourceId"]!.GetValue<string>(), StringComparison.Ordinal);
+        Assert.Single(sandbox.RecordedCommands(), c => c.StartsWith("DELETE ", StringComparison.Ordinal) && c.Contains("/authenticationMethodConfigurations/Fido2", StringComparison.Ordinal));
+    }
 }

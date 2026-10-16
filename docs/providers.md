@@ -418,6 +418,56 @@ the sets are equal the desired array adopts the live spelling before the shared 
 cased combinations are not drift; the values Graph receives are the template's own (trimmed). `policyType` is immutable
 and stripped on read; a declared `custom` is dropped as implied, anything else is an unsupported row.
 
+### Worked example: authentication method configurations
+
+`Microsoft.Entra/authenticationMethodConfigurations`: the per-method configurations of the tenant authentication methods policy. Each one is a **tenant
+singleton** that always exists, so the type is never created and never listed as an orphan. The name is the method id, compared case-insensitively
+(Graph returns `Fido2`), and the provider derives the `@odata.type` Graph requires on every PATCH from it
+(`AuthenticationMethodConfigurationRules.Methods`, shared with the offline validator):
+
+| Name | Graph id (URL segment) | `@odata.type` | Delete |
+|---|---|---|---|
+| `fido2` | `Fido2` | `#microsoft.graph.fido2AuthenticationMethodConfiguration` | reset to the Microsoft default |
+| `temporaryAccessPass` | `TemporaryAccessPass` | `#microsoft.graph.temporaryAccessPassAuthenticationMethodConfiguration` | reset to the Microsoft default |
+| `x509Certificate` | `X509Certificate` | `#microsoft.graph.x509CertificateAuthenticationMethodConfiguration` | reset to the Microsoft default |
+| `microsoftAuthenticator` | `MicrosoftAuthenticator` | `#microsoft.graph.microsoftAuthenticatorAuthenticationMethodConfiguration` | kept (`NotDeletable`) |
+| `sms` | `Sms` | `#microsoft.graph.smsAuthenticationMethodConfiguration` | kept (`NotDeletable`) |
+| `voice` | `Voice` | `#microsoft.graph.voiceAuthenticationMethodConfiguration` | kept (`NotDeletable`) |
+| `email` | `Email` | `#microsoft.graph.emailAuthenticationMethodConfiguration` | kept (`NotDeletable`) |
+| `softwareOath` | `SoftwareOath` | `#microsoft.graph.softwareOathAuthenticationMethodConfiguration` | kept (`NotDeletable`) |
+
+The eight are the derived types Learn lists for `authenticationMethodConfiguration` in Graph v1.0; other methods (hardware OATH, QR code) are beta-only
+and not supported yet.
+
+| Operation | Requests |
+|---|---|
+| Read | `GET /policies/authenticationMethodsPolicy/authenticationMethodConfigurations/{GraphId}`; a 404 means the tenant does not offer the method |
+| Create | never: a missing configuration is an unsupported plan row ("does not exist in the tenant ... EARM never creates") and a failed operation |
+| Update | `PATCH …/{GraphId} { "@odata.type": …, <changed top-level properties> }` (a merge PATCH) → `GET …/{GraphId}` |
+| Delete | fido2, temporaryAccessPass, x509Certificate: `DELETE …/{GraphId}`, which Graph documents as "revert to the default configuration" (a 404 is nothing to reset); the delete-risk text (`IDeleteWarningSource`) says so in the `deployment delete` listing. Every other method: no request; the object is **kept** (`IDeleteRefusalSource`, `NotDeletable`) |
+
+Comparison and bodies:
+
+- Only declared top-level properties are compared (Graph PATCH merges them). **Below** them Graph replaces a complex property whole, so before the diff
+  every undeclared sub-property of a declared object, and of a declared `includeTargets` / `excludeTargets` / `passkeyProfiles` member (matched by
+  `id`), is copied from the live object (`AuthenticationMethodConfigurationsShape.FillUndeclared`) and resent. The costly case is certificate-based
+  authentication: a declared `authenticationModeConfiguration` without `rules` keeps (and resends) the live binding rules; an explicit `"rules": []`
+  clears them. A declared value always wins, so `null` / `[]` clear.
+- `includeTargets`, `excludeTargets` and `passkeyProfiles` compare as sets keyed by `id` (overlay `memberKey`); FIDO2 `aaGuids` compare as a set and are
+  normalised to Graph's lower-case form, as are `state` and `enforcementType`. A declared `id` / `@odata.type` that names the same method is accepted and
+  dropped (never diffed); one that names another method is an error.
+- FIDO2 `isAttestationEnforced` and `keyRestrictions` are deprecated by Microsoft (removed in October 2027) in favour of `passkeyProfiles` /
+  `defaultPasskeyProfile`. Both are still managed; declaring the legacy ones adds a `DeprecatedAuthenticationMethodProperty` plan reason and warning
+  (what-if and create).
+- The plan-time checks repeat the offline ones on evaluated values (`InvalidAuthenticationMethodConfiguration` offline, an unsupported row at plan time):
+  the method name, `state` (`enabled` / `disabled`), AAGUID format, an enforced allow-list (`isEnforced: true`, `enforcementType: allow`) with no
+  `aaGuids` (it would block every passkey), Temporary Access Pass `defaultLength` 8–48 and lifetimes 10–43200 minutes with minimum ≤ default ≤ maximum,
+  the certificate default and rule modes (`x509CertificateSingleFactor` / `x509CertificateMultiFactor`), and an `id` on every target and passkey profile.
+
+`deployment delete` treats a kept method like a protected object: it is listed as `[kept: not deletable]`, its outcome is `Refused` with
+`errorCode: NotDeletable`, and it does **not** fail the command. A template that also manages `sms` (say) must stay deletable: a refusal that failed the
+run could never succeed, and the method can be switched off with `state: disabled` instead.
+
 ## Adding an edge kind
 
 Part B edge kinds (app role assignments, directory roles) live next to their standalone provider and

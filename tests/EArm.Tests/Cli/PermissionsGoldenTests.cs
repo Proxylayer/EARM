@@ -25,6 +25,7 @@ public sealed class PermissionsGoldenTests
             ("orders-api.flat", "orders-api"),
             ("app-with-sp-and-secret", "app-with-sp-and-secret"),
             ("tenant-security", "tenant-security"),
+            ("authentication-methods", "authentication-methods"),
         ];
         foreach (var (sample, parameters) in samples)
         {

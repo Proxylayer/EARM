@@ -82,6 +82,12 @@ public static class EngineDiagnosticCodes
     /// <summary>A delete (a recreate, or <c>deployment delete</c>) was refused because the object is the signed-in principal or a service principal owned by another organization.</summary>
     public const string ProtectedObject = "ProtectedObject";
 
+    /// <summary>
+    /// A delete (<c>deployment delete</c>) was refused because Graph cannot delete or reset the object: a tenant singleton such as an authentication method
+    /// configuration without a documented reset (sms, voice, email, softwareOath, microsoftAuthenticator). The object is kept, like a <see cref="ProtectedObject"/>.
+    /// </summary>
+    public const string NotDeletable = "NotDeletable";
+
     /// <summary>Two declared resources resolve to the same Graph object.</summary>
     public const string DuplicateGraphObject = "DuplicateGraphObject";
 
@@ -124,6 +130,9 @@ public static class EngineDiagnosticCodes
 
     /// <summary>A live password credential carries no rotation tag in its displayName (created by an older EARM) while the template declares one: treated as matching, stamped by the next rotation.</summary>
     public const string RotationTagNotStamped = "RotationTagNotStamped";
+
+    /// <summary>A FIDO2 authentication method configuration declares <c>isAttestationEnforced</c> or <c>keyRestrictions</c>, which Microsoft deprecated (removed October 2027) in favour of <c>passkeyProfiles</c>.</summary>
+    public const string DeprecatedAuthenticationMethodProperty = "DeprecatedAuthenticationMethodProperty";
 
     /// <summary>A failed <c>addPassword</c> left a credential of the same name that EARM did not record; it is reported, never removed.</summary>
     public const string PasswordCredentialOrphaned = "PasswordCredentialOrphaned";

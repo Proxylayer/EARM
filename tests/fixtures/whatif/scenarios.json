@@ -67,5 +67,17 @@
     "parameters": {},
     "expectedText": "retained-incremental.expected.txt",
     "expectedJson": "retained-incremental.expected.json"
+  },
+  {
+    "name": "auth-methods-incremental",
+    "deploymentName": "auth-methods-incremental",
+    "mode": "Incremental",
+    "resultFormat": "FullResourcePayloads",
+    "tenantId": "11111111-1111-1111-1111-111111111111",
+    "template": "auth-methods-incremental.entra.json",
+    "seed": "auth-methods-incremental.seed.json",
+    "parameters": {},
+    "expectedText": "auth-methods-incremental.expected.txt",
+    "expectedJson": "auth-methods-incremental.expected.json"
   }
 ]

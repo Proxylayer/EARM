@@ -602,6 +602,67 @@ $specs['roleAssignments'] = [ordered]@{
     }
 }
 
+# --- authenticationMethodConfigurations ---------------------------------------------------------------------------
+$authMethodTargetProps = [ordered]@{
+    id                     = Str 'Required: a group object id, or all_users. Members are matched by id (a set).' -Min 1
+    targetType             = Str 'group (or user).' -Enum 'group', 'user', 'unknownFutureValue'
+    isRegistrationRequired = Bool 'Whether users are nudged to register the method.'
+    authenticationMode     = Str 'microsoftAuthenticator only: any, push or deviceBasedPush.' -Enum 'any', 'push', 'deviceBasedPush', 'unknownFutureValue'
+    allowedPasskeyProfiles = StrArr 'fido2 only: ids of the passkey profiles this target may use.' -Unique
+}
+$keyRestrictions = { param($d) Obj -d $d -Props (Props ([ordered]@{
+    isEnforced      = Bool 'Whether the AAGUID list is enforced.'
+    enforcementType = Str 'allow (only the listed models) or block (every model but the listed ones). An enforced allow-list needs at least one AAGUID.' -Enum 'allow', 'block'
+    aaGuids         = StrArr 'Authenticator model AAGUIDs, compared as a set and normalised to lower case.' -Pattern $script:GuidPattern -Unique
+})) }
+
+$specs['authenticationMethodConfigurations'] = [ordered]@{
+    NamePattern = '^(?i:fido2|temporaryAccessPass|x509Certificate|microsoftAuthenticator|sms|voice|email|softwareOath)$'
+    Description = 'An authentication method configuration of the tenant authentication methods policy (a tenant singleton). The resource name is the method id (fido2, temporaryAccessPass, x509Certificate, microsoftAuthenticator, sms, voice, email, softwareOath; case-insensitive); @odata.type is derived from it. Never created: a missing configuration is an error. Updated with a merge PATCH; undeclared sub-properties of declared objects keep their live values. Delete resets fido2, temporaryAccessPass and x509Certificate to the Microsoft default; the other methods are kept (NotDeletable). Properties not listed here are passed through to Graph unchanged.'
+    Props       = [ordered]@{
+        id            = Str 'Set from the resource name; declaring it is only allowed when it names the same method.'
+        '@odata.type' = Str 'Derived from the resource name; declaring it is only allowed when it matches the method.' -Enum '#microsoft.graph.fido2AuthenticationMethodConfiguration', '#microsoft.graph.temporaryAccessPassAuthenticationMethodConfiguration', '#microsoft.graph.x509CertificateAuthenticationMethodConfiguration', '#microsoft.graph.microsoftAuthenticatorAuthenticationMethodConfiguration', '#microsoft.graph.smsAuthenticationMethodConfiguration', '#microsoft.graph.voiceAuthenticationMethodConfiguration', '#microsoft.graph.emailAuthenticationMethodConfiguration', '#microsoft.graph.softwareOathAuthenticationMethodConfiguration'
+        state         = Str 'enabled or disabled.' -Enum 'enabled', 'disabled'
+        includeTargets = Arr -d 'Groups (or all_users) enabled for the method; compared as a set by id.' -Items (Obj '' -Required 'id' -Props (Props $authMethodTargetProps))
+        excludeTargets = Arr -d 'Groups excluded from the method; compared as a set by id.' -Items (Obj '' -Required 'id' -Props (Props ([ordered]@{
+            id         = Str 'Required: a group object id.' -Min 1
+            targetType = Str 'group.' -Enum 'group', 'user', 'unknownFutureValue'
+        })))
+        isSelfServiceRegistrationAllowed = Bool 'fido2: whether users can register new passkeys.'
+        isAttestationEnforced = Bool 'fido2 (deprecated by Microsoft, removed October 2027; use passkeyProfiles): enforce attestation at registration. Declaring it raises DeprecatedAuthenticationMethodProperty.'
+        keyRestrictions       = & $keyRestrictions 'fido2 (deprecated by Microsoft, removed October 2027; use passkeyProfiles): the AAGUID allow- or block-list. Declaring it raises DeprecatedAuthenticationMethodProperty.'
+        passkeyProfiles       = Arr -d 'fido2: passkey profiles, compared as a set by id.' -Items (Obj '' -Required 'id' -Props (Props ([ordered]@{
+            id                     = Str 'Required: the profile id (the default profile is 00000000-0000-0000-0000-000000000001).' -Min 1
+            name                   = Str 'Profile name.'
+            passkeyTypes           = Str 'Comma-separated passkey types, for example deviceBound,synced.'
+            attestationEnforcement = Str 'Attestation enforcement, for example disabled or registrationOnly.'
+            keyRestrictions        = & $keyRestrictions 'The profile AAGUID allow- or block-list.'
+        })))
+        defaultPasskeyProfile = Str 'fido2: the id of the baseline passkey profile.'
+        defaultLifetimeInMinutes = Int 'temporaryAccessPass: default lifetime; between minimumLifetimeInMinutes and maximumLifetimeInMinutes.' -Min 10 -Max 43200
+        defaultLength            = Int 'temporaryAccessPass: default pass length (8-48 characters).' -Min 8 -Max 48
+        minimumLifetimeInMinutes = Int 'temporaryAccessPass: minimum lifetime (10-43200 minutes).' -Min 10 -Max 43200
+        maximumLifetimeInMinutes = Int 'temporaryAccessPass: maximum lifetime (10-43200 minutes).' -Min 10 -Max 43200
+        isUsableOnce             = Bool 'temporaryAccessPass: restrict every pass to one-time use.'
+        authenticationModeConfiguration = Obj -d 'x509Certificate: the default binding and the binding rules. Undeclared rules keep their live value (EARM resends them, since Graph replaces the object whole); an explicit [] clears them.' -Props (Props ([ordered]@{
+            x509CertificateAuthenticationDefaultMode = Str 'x509CertificateSingleFactor or x509CertificateMultiFactor.' -Enum 'x509CertificateSingleFactor', 'x509CertificateMultiFactor'
+            rules = Arr -d 'Binding rules (policy OID or issuer subject to an authentication mode).' -Items (Obj '' -Props (Props ([ordered]@{
+                x509CertificateRuleType           = Str 'issuerSubject, policyOID, issuerSubjectAndPolicyOID...'
+                identifier                        = Str 'The issuer subject or policy OID.'
+                x509CertificateAuthenticationMode = Str 'x509CertificateSingleFactor or x509CertificateMultiFactor.' -Enum 'x509CertificateSingleFactor', 'x509CertificateMultiFactor'
+            })))
+        }))
+        certificateUserBindings    = Arr -d 'x509Certificate: certificate field to user attribute bindings (by priority).' -Items (FreeObj '')
+        certificateAuthorityScopes = Arr -d 'x509Certificate: issuing CA scopes.' -Items (FreeObj '')
+        crlValidationConfiguration = FreeObj 'x509Certificate: certificate revocation list validation.'
+        issuerHintsConfiguration   = FreeObj 'x509Certificate: issuer hints for the certificate picker.'
+        featureSettings            = FreeObj 'microsoftAuthenticator: feature settings (displayAppInformationRequiredState, displayLocationInformationRequiredState...).'
+        isSoftwareOathEnabled      = Bool 'microsoftAuthenticator: allow OTP codes from the Authenticator app.'
+        isOfficePhoneAllowed       = Bool 'voice: allow office phone numbers.'
+        allowExternalIdToUseEmailOtp = Str 'email: default, enabled or disabled.' -Enum 'default', 'enabled', 'disabled'
+    }
+}
+
 # ---------------------------------------------------------------------------------------------------------------
 # Rewrite the files
 # ---------------------------------------------------------------------------------------------------------------

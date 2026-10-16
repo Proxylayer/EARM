@@ -19,6 +19,7 @@ public sealed class ResourceTypeCatalogTests
         "Microsoft.Entra/applications/federatedIdentityCredentials",
         "Microsoft.Entra/applications/passwordCredentials",
         "Microsoft.Entra/appRoleAssignments",
+        "Microsoft.Entra/authenticationMethodConfigurations",
         "Microsoft.Entra/conditionalAccess/authenticationContextClassReferences",
         "Microsoft.Entra/conditionalAccess/authenticationStrengths",
         "Microsoft.Entra/conditionalAccess/namedLocations",
@@ -48,10 +49,10 @@ public sealed class ResourceTypeCatalogTests
     }
 
     [Fact]
-    public void Default_ContainsExactlyTheFifteenV1Types()
+    public void Default_ContainsExactlyTheSixteenTypes()
     {
         Assert.Equal(ExpectedTypes, Catalog.Types.Select(t => t.Type).ToList());
-        Assert.Equal(15, EmbeddedSchemas.NamesUnder(EmbeddedSchemas.TypeSchemaPrefix).Count);
+        Assert.Equal(16, EmbeddedSchemas.NamesUnder(EmbeddedSchemas.TypeSchemaPrefix).Count);
         Assert.Same(Catalog, ResourceTypeCatalog.Default);
     }
 
@@ -160,7 +161,7 @@ public sealed class ResourceTypeCatalogTests
             Assert.Contains("{parentId}", child.GraphPath);
         });
 
-        Assert.Equal(13, Catalog.Types.Count(t => !t.IsChildType));
+        Assert.Equal(14, Catalog.Types.Count(t => !t.IsChildType));
         Assert.All(Catalog.Types.Where(t => !t.IsChildType), t => Assert.Equal(1, t.Depth));
         Assert.Empty(Catalog.ChildrenOf("Microsoft.Entra/groups"));
     }
@@ -173,6 +174,7 @@ public sealed class ResourceTypeCatalogTests
         Assert.Equal(ResourceNameKind.UserPrincipalName, Catalog.Find("Microsoft.Entra/users")!.NameKind);
         Assert.Equal(ResourceNameKind.AppId, Catalog.Find("Microsoft.Entra/servicePrincipals")!.NameKind);
         Assert.Equal(ResourceNameKind.Id, Catalog.Find("Microsoft.Entra/conditionalAccess/authenticationContextClassReferences")!.NameKind);
+        Assert.Equal(ResourceNameKind.Id, Catalog.Find("Microsoft.Entra/authenticationMethodConfigurations")!.NameKind);
         Assert.Equal("^c[1-9][0-9]?$", Catalog.Find("Microsoft.Entra/conditionalAccess/authenticationContextClassReferences")!.NamePattern);
         Assert.Equal(ResourceNameKind.Guid, Catalog.Find("Microsoft.Entra/appRoleAssignments")!.NameKind);
         Assert.Equal(ResourceNameKind.Guid, Catalog.Find("Microsoft.Entra/oauth2PermissionGrants")!.NameKind);
@@ -264,7 +266,7 @@ public sealed class ResourceTypeCatalogTests
         Assert.Equal("https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentParameters.json", ResourceTypeCatalog.ParametersSchemaUri);
         Assert.Contains(EmbeddedSchemas.TemplateSchemaResource, EmbeddedSchemas.Names);
         Assert.Contains(EmbeddedSchemas.ParametersSchemaResource, EmbeddedSchemas.Names);
-        Assert.Equal(17, EmbeddedSchemas.Names.Count);
+        Assert.Equal(18, EmbeddedSchemas.Names.Count);
         Assert.Contains("\"$id\": \"https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json\"", EmbeddedSchemas.ReadText(EmbeddedSchemas.TemplateSchemaResource));
         Assert.NotEmpty(EmbeddedSchemas.ReadBytes(EmbeddedSchemas.ParametersSchemaResource));
     }

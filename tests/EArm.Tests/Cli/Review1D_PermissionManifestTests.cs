@@ -177,6 +177,9 @@ public sealed class Review1D_PermissionManifestTests
         Assert.Equal(["AuthenticationContext.ReadWrite.All"], catalog.Find("Microsoft.Entra/conditionalAccess/authenticationContextClassReferences")!.Permissions.Application);
         Assert.Contains("Directory.Read.All", catalog.Find("Microsoft.Entra/roleAssignments")!.Permissions.Application);
         Assert.Contains("Directory.Read.All", catalog.Find("Microsoft.Entra/appRoleAssignments")!.Permissions.Application);
-        Assert.DoesNotContain(catalog.Types.SelectMany(t => t.Permissions.Application), p => p == "Policy.ReadWrite.AuthenticationMethod");
+        // Policy.ReadWrite.AuthenticationMethod belongs to the authentication methods policy only (not to authentication strengths).
+        Assert.Equal(["Microsoft.Entra/authenticationMethodConfigurations"], catalog.Types.Where(t => t.Permissions.Application.Contains("Policy.ReadWrite.AuthenticationMethod")).Select(t => t.Type).ToArray());
+        Assert.Equal(["Policy.ReadWrite.AuthenticationMethod"], catalog.Find("Microsoft.Entra/authenticationMethodConfigurations")!.Permissions.Delegated);
+        Assert.Equal(["Authentication Policy Administrator"], catalog.Find("Microsoft.Entra/authenticationMethodConfigurations")!.Permissions.Roles);
     }
 }

@@ -45,6 +45,7 @@ public static class DiagnosticCodes
     public const string DuplicateFederatedCredentialAudience = "DuplicateFederatedCredentialAudience";
     public const string DuplicateFederatedCredentialSubject = "DuplicateFederatedCredentialSubject";
     public const string ConflictingApplicationIncludes = "ConflictingApplicationIncludes";
+    public const string InvalidAuthenticationMethodConfiguration = "InvalidAuthenticationMethodConfiguration";
     public const string InvalidCopy = "InvalidCopy";
 
     // ---- Parameters ----

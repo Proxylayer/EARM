@@ -1,0 +1,17 @@
+Permissions required by samples/authentication-methods.entra.json (mode: app, 6 resource(s))
+
+Microsoft Graph application permissions
+  Organization.Read.All
+      (every deployment)
+      (preflight: GET /organization)
+  Policy.ReadWrite.AuthenticationMethod
+      /providers/Microsoft.Entra/authenticationMethodConfigurations/email
+      /providers/Microsoft.Entra/authenticationMethodConfigurations/fido2
+      /providers/Microsoft.Entra/authenticationMethodConfigurations/sms
+      /providers/Microsoft.Entra/authenticationMethodConfigurations/temporaryAccessPass
+      /providers/Microsoft.Entra/authenticationMethodConfigurations/voice
+      /providers/Microsoft.Entra/authenticationMethodConfigurations/x509Certificate
+      (provider)
+
+note: Application permissions are Microsoft Graph app roles granted (with admin consent) to the service principal EARM signs in with (AZURE_CLIENT_ID, or the managed identity). Application.ReadWrite.OwnedBy replaces Application.ReadWrite.All for applications the service principal owns.
+note: Edge permissions are listed for every relationship property the template declares (including an empty array, which removes edges). Key Vault access is an Azure RBAC / access-policy requirement of the signed-in identity, not a Graph permission.

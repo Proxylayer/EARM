@@ -44,8 +44,24 @@ public sealed class RunScopesTests
         { "orders-api.flat.entra.json", "orders-api.parameters.json" },
         { "app-with-sp-and-secret.entra.json", "app-with-sp-and-secret.parameters.json" },
         { "tenant-security.entra.json", "tenant-security.parameters.json" },
+        { "authentication-methods.entra.json", "authentication-methods.parameters.json" },
         { "orders-api.entra.json", null },
     };
+
+    // ---- authentication methods policy ----
+
+    [Fact]
+    public async Task AuthenticationMethods_WriteWithPolicyReadWriteAuthenticationMethod_AndWhatIfReadsWithItsReadVariant()
+    {
+        var create = await ComputeAsync("authentication-methods.entra.json", "authentication-methods.parameters.json", RunVerb.Create);
+        var whatIf = await ComputeAsync("authentication-methods.entra.json", "authentication-methods.parameters.json", RunVerb.WhatIf);
+        var delete = await ComputeAsync("authentication-methods.entra.json", "authentication-methods.parameters.json", RunVerb.Delete);
+
+        Assert.Equal(["Organization.Read.All", "Policy.ReadWrite.AuthenticationMethod", "User.Read"], create.GraphScopes);
+        Assert.Equal(["Organization.Read.All", "Policy.Read.AuthenticationMethod", "User.Read"], whatIf.GraphScopes);
+        Assert.Contains("Policy.ReadWrite.AuthenticationMethod", delete.GraphScopes);
+        Assert.Contains("/providers/Microsoft.Entra/authenticationMethodConfigurations/fido2", create.Scopes.Single(s => s.Name == "Policy.ReadWrite.AuthenticationMethod").Resources);
+    }
 
     // ---- invariants over every sample ----
 

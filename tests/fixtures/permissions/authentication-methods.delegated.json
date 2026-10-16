@@ -1,0 +1,44 @@
+{
+  "template": "samples/authentication-methods.entra.json",
+  "mode": "delegated",
+  "resourceCount": 6,
+  "permissions": [
+    {
+      "name": "Policy.ReadWrite.AuthenticationMethod",
+      "kind": "graphDelegated",
+      "resources": [
+        "/providers/Microsoft.Entra/authenticationMethodConfigurations/email",
+        "/providers/Microsoft.Entra/authenticationMethodConfigurations/fido2",
+        "/providers/Microsoft.Entra/authenticationMethodConfigurations/sms",
+        "/providers/Microsoft.Entra/authenticationMethodConfigurations/temporaryAccessPass",
+        "/providers/Microsoft.Entra/authenticationMethodConfigurations/voice",
+        "/providers/Microsoft.Entra/authenticationMethodConfigurations/x509Certificate"
+      ],
+      "reasons": [
+        "provider"
+      ]
+    }
+  ],
+  "entraRoles": [
+    {
+      "anyOf": [
+        "Authentication Policy Administrator"
+      ],
+      "resources": [
+        "/providers/Microsoft.Entra/authenticationMethodConfigurations/email",
+        "/providers/Microsoft.Entra/authenticationMethodConfigurations/fido2",
+        "/providers/Microsoft.Entra/authenticationMethodConfigurations/sms",
+        "/providers/Microsoft.Entra/authenticationMethodConfigurations/temporaryAccessPass",
+        "/providers/Microsoft.Entra/authenticationMethodConfigurations/voice",
+        "/providers/Microsoft.Entra/authenticationMethodConfigurations/x509Certificate"
+      ],
+      "reasons": [
+        "provider"
+      ]
+    }
+  ],
+  "notes": [
+    "Delegated scopes must be present on the token that earm auth login obtains (the app registration of --client-id needs them as delegated permissions); the signed-in user must additionally hold at least one role of every 'Entra roles' group (the roles are alternatives).",
+    "Edge permissions are listed for every relationship property the template declares (including an empty array, which removes edges). Key Vault access is an Azure RBAC / access-policy requirement of the signed-in identity, not a Graph permission."
+  ]
+}

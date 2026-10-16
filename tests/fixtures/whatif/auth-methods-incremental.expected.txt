@@ -1,0 +1,36 @@
+Deployment 'auth-methods-incremental' (Incremental) on tenant 11111111-1111-1111-1111-111111111111
+
+Resource and property changes are indicated with these symbols:
+  + Create
+  ~ Modify
+  - Delete
+  = NoChange
+  * Ignore
+  ? Value only known at deployment time
+  ! Change cannot be applied as planned
+
+The deployment would make the following changes:
+
+  ~ /providers/Microsoft.Entra/authenticationMethodConfigurations/fido2 [Microsoft.Entra/authenticationMethodConfigurations]
+      ~ properties.state: "disabled" => "enabled"
+      ~ properties.keyRestrictions:
+          ~ aaGuids: [
+              + [0]: "ee882879-721c-4913-9775-3dfcce97072a"
+            ]
+      (DeprecatedAuthenticationMethodProperty: keyRestrictions is deprecated by Microsoft and will be removed in October 2027; move the attestation and AAGUID settings to passkeyProfiles (and defaultPasskeyProfile).)
+
+  = /providers/Microsoft.Entra/authenticationMethodConfigurations/sms [Microsoft.Entra/authenticationMethodConfigurations]
+
+  ~ /providers/Microsoft.Entra/authenticationMethodConfigurations/temporaryAccessPass [Microsoft.Entra/authenticationMethodConfigurations]
+      ~ properties.isUsableOnce: false => true
+      ~ properties.defaultLength: 8 => 12
+
+  ~ /providers/Microsoft.Entra/authenticationMethodConfigurations/x509Certificate [Microsoft.Entra/authenticationMethodConfigurations]
+      ~ properties.authenticationModeConfiguration:
+          ~ x509CertificateAuthenticationDefaultMode: "x509CertificateSingleFactor" => "x509CertificateMultiFactor"
+
+Resource changes: 0 to create, 3 to modify, 0 to delete, 1 unchanged, 0 ignored.
+Edges: 0 to add, 0 to remove.
+Required permissions: Policy.ReadWrite.AuthenticationMethod.
+
+warning DeprecatedAuthenticationMethodProperty: '/providers/Microsoft.Entra/authenticationMethodConfigurations/fido2': keyRestrictions is deprecated by Microsoft and will be removed in October 2027; move the attestation and AAGUID settings to passkeyProfiles (and defaultPasskeyProfile).

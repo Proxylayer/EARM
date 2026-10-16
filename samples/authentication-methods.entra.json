@@ -1,0 +1,69 @@
+{
+  "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "Authentication methods policy baseline: passkeys (FIDO2) limited to an AAGUID allow-list through the default passkey profile, one-time Temporary Access Passes for the helpdesk group, certificate-based authentication bound as multi-factor (the existing binding rules are kept), and SMS, voice and email one-time passcodes switched off. Every configuration is a tenant singleton: EARM updates it, never creates it. Needs Authentication Policy Administrator (or Policy.ReadWrite.AuthenticationMethod); see docs/permissions.md."
+  },
+  "parameters": {
+    "passkeyAaGuids":  { "type": "array", "metadata": { "description": "AAGUIDs of the authenticator models allowed to register passkeys." } },
+    "helpdeskGroupId": { "type": "string", "metadata": { "description": "Object id of the group whose members may use Temporary Access Passes." } }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Entra/authenticationMethodConfigurations",
+      "apiVersion": "2026-10-01-preview",
+      "name": "fido2",
+      "properties": {
+        "state": "enabled",
+        "isSelfServiceRegistrationAllowed": true,
+        "passkeyProfiles": [
+          {
+            "id": "00000000-0000-0000-0000-000000000001",
+            "keyRestrictions": { "isEnforced": true, "enforcementType": "allow", "aaGuids": "[parameters('passkeyAaGuids')]" }
+          }
+        ],
+        "includeTargets": [ { "id": "all_users", "targetType": "group" } ]
+      }
+    },
+    {
+      "type": "Microsoft.Entra/authenticationMethodConfigurations",
+      "apiVersion": "2026-10-01-preview",
+      "name": "temporaryAccessPass",
+      "properties": {
+        "state": "enabled",
+        "isUsableOnce": true,
+        "defaultLength": 12,
+        "minimumLifetimeInMinutes": 60,
+        "defaultLifetimeInMinutes": 60,
+        "maximumLifetimeInMinutes": 480,
+        "includeTargets": [ { "id": "[parameters('helpdeskGroupId')]", "targetType": "group" } ]
+      }
+    },
+    {
+      "type": "Microsoft.Entra/authenticationMethodConfigurations",
+      "apiVersion": "2026-10-01-preview",
+      "name": "x509Certificate",
+      "properties": {
+        "authenticationModeConfiguration": { "x509CertificateAuthenticationDefaultMode": "x509CertificateMultiFactor" }
+      }
+    },
+    {
+      "type": "Microsoft.Entra/authenticationMethodConfigurations",
+      "apiVersion": "2026-10-01-preview",
+      "name": "sms",
+      "properties": { "state": "disabled" }
+    },
+    {
+      "type": "Microsoft.Entra/authenticationMethodConfigurations",
+      "apiVersion": "2026-10-01-preview",
+      "name": "voice",
+      "properties": { "state": "disabled" }
+    },
+    {
+      "type": "Microsoft.Entra/authenticationMethodConfigurations",
+      "apiVersion": "2026-10-01-preview",
+      "name": "email",
+      "properties": { "state": "disabled" }
+    }
+  ]
+}

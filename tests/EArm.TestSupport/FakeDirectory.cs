@@ -43,6 +43,7 @@ public sealed class FakeDirectory
         "roleManagement/directory/roleDefinitions",
         "roleManagement/directory/roleAssignments",
         "policies/authenticationStrengthPolicies",
+        "policies/authenticationMethodsPolicy/authenticationMethodConfigurations",
         "applications",
         "groups",
         "users",
@@ -92,6 +93,12 @@ public sealed class FakeDirectory
             ["displayName"] = "Contoso (fake)",
             ["verifiedDomains"] = new JsonArray(new JsonObject { ["name"] = "contoso.com", ["isDefault"] = true }),
         });
+
+        // The authentication methods policy always holds one configuration per method (Microsoft's defaults).
+        foreach (var configuration in FakeAuthenticationMethodsPolicy.Defaults())
+        {
+            Add(FakeAuthenticationMethodsPolicy.CollectionPath, configuration);
+        }
     }
 
     /// <summary>The tenant id of the fake organization.</summary>
@@ -118,7 +125,10 @@ public sealed class FakeDirectory
 
     // ---- seeding ----
 
-    /// <summary>Adds an entity to a collection (<c>/applications</c>, <c>/applications/{id}/federatedIdentityCredentials</c>...), assigning an id when missing.</summary>
+    /// <summary>
+    /// Adds an entity to a collection (<c>/applications</c>, <c>/applications/{id}/federatedIdentityCredentials</c>...), assigning an id when missing. In the
+    /// authentication methods policy (<see cref="FakeAuthenticationMethodsPolicy.CollectionPath"/>, singletons) an entity replaces the configuration with its id.
+    /// </summary>
     public JsonObject Add(string collectionPath, JsonObject entity)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(collectionPath);
@@ -131,7 +141,13 @@ public sealed class FakeDirectory
                 stored["id"] = Guid.NewGuid().ToString("D");
             }
 
-            Collection(Normalize(collectionPath)).Add(stored);
+            var collection = Collection(Normalize(collectionPath));
+            if (FakeAuthenticationMethodsPolicy.IsCollection(Normalize(collectionPath)))
+            {
+                collection.RemoveAll(o => ValueEquals(GetString(o, "id"), GetString(stored, "id")));
+            }
+
+            collection.Add(stored);
             return stored;
         }
     }
@@ -360,6 +376,11 @@ public sealed class FakeDirectory
                 throw BadRequest("Listing /directory/deletedItems requires a type cast (for example /directory/deletedItems/microsoft.graph.application).", hint);
             }
 
+            if (method == "POST" && FakeAuthenticationMethodsPolicy.IsCollection(collectionPath))
+            {
+                throw MethodNotAllowed("The authentication method configurations are tenant singletons; they cannot be created.", hint);
+            }
+
             return method switch
             {
                 "GET" => (HttpStatusCode.OK, Page(Project(Filter(Collection(collectionPath), query, hint), FakeDirectorySchema.ForCollection(collectionPath), query, hint), route.Root, query, pageSize)),
@@ -379,7 +400,7 @@ public sealed class FakeDirectory
                 {
                     // Alternate-key upsert (applications, groups: Prefer: create-if-missing) or id upsert
                     // (authenticationContextClassReferences: Graph creates on PATCH /{id} without any header).
-                    if (PrefersCreateIfMissing(headers) || collectionPath.Equals(AuthenticationContextsPath, StringComparison.OrdinalIgnoreCase))
+                    if (!FakeAuthenticationMethodsPolicy.IsCollection(collectionPath) && (PrefersCreateIfMissing(headers) || collectionPath.Equals(AuthenticationContextsPath, StringComparison.OrdinalIgnoreCase)))
                     {
                         var created = Create(collectionPath, Merge(new JsonObject(), body), hint, route.Selector);
                         return (HttpStatusCode.Created, created);
@@ -389,6 +410,11 @@ public sealed class FakeDirectory
                 }
 
                 RejectBuiltInStrengthWrite(collectionPath, entity, hint);
+                if (FakeAuthenticationMethodsPolicy.IsCollection(collectionPath))
+                {
+                    FakeAuthenticationMethodsPolicy.RequireODataType(entity, body, hint);
+                }
+
                 Patch(entity, body, collectionPath, hint);
                 return (HttpStatusCode.NoContent, null);
 
@@ -400,6 +426,14 @@ public sealed class FakeDirectory
                 if (entity is null)
                 {
                     throw NotFound(route.Path, hint);
+                }
+
+                if (FakeAuthenticationMethodsPolicy.IsCollection(collectionPath))
+                {
+                    // Graph's DELETE reverts the configuration to its default; it never removes it.
+                    var configurations = Collection(collectionPath);
+                    configurations[configurations.IndexOf(entity)] = FakeAuthenticationMethodsPolicy.ResetDefault(entity, hint);
+                    return (HttpStatusCode.NoContent, null);
                 }
 
                 RejectBuiltInStrengthWrite(collectionPath, entity, hint);

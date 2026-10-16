@@ -1,0 +1,13 @@
+[
+  { "collection": "/policies/authenticationMethodsPolicy/authenticationMethodConfigurations", "entity": {
+      "@odata.type": "#microsoft.graph.fido2AuthenticationMethodConfiguration", "id": "Fido2", "state": "disabled",
+      "isSelfServiceRegistrationAllowed": true, "isAttestationEnforced": false,
+      "keyRestrictions": { "isEnforced": true, "enforcementType": "allow", "aaGuids": ["cb69481e-8ff7-4039-93ec-0a2729a154a8"] },
+      "includeTargets": [ { "targetType": "group", "id": "all_users", "isRegistrationRequired": false } ], "excludeTargets": [] } },
+  { "collection": "/policies/authenticationMethodsPolicy/authenticationMethodConfigurations", "entity": {
+      "@odata.type": "#microsoft.graph.x509CertificateAuthenticationMethodConfiguration", "id": "X509Certificate", "state": "enabled",
+      "authenticationModeConfiguration": {
+        "x509CertificateAuthenticationDefaultMode": "x509CertificateSingleFactor",
+        "rules": [ { "x509CertificateRuleType": "policyOID", "identifier": "1.3.6.1.4.1.311.21.8.1", "x509CertificateAuthenticationMode": "x509CertificateMultiFactor" } ] },
+      "includeTargets": [ { "targetType": "group", "id": "all_users", "isRegistrationRequired": false } ], "excludeTargets": [] } }
+]

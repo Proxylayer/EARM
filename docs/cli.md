@@ -263,10 +263,12 @@ With `-o json` the standard output of a verb that fails **before** it has anythi
 `earm deployment delete -f <template> [-p …] [-n <name>] [-y] [--continue-on-error] [--parallelism <n>] [--device-code]` deletes the objects the template declares. They are
 found exactly as `what-if` finds them, **by their live keys** (no state is involved; `-n` is only a label), and deleted in **reverse dependency order**
 (the reverse of the dependency batches: children and assignments before their parents). Resources whose condition is false, whose name is only known at
-deployment time or that do not exist are skipped. The list (resource id, type, `displayName`, Graph id, `[kept: protected]`, a delete-risk note such as "deleted
-permanently") goes to stderr with `Delete these <n> object(s)? (y/n):`; `-y` skips the question, and a non-interactive standard input without `-y` deletes nothing
+deployment time or that do not exist are skipped. The list (resource id, type, `displayName`, Graph id, `[kept: protected]` or `[kept: not deletable]`, a delete-risk note such as "deleted
+permanently" or "resets the fido2 authentication method policy to the Microsoft default") goes to stderr with `Delete these <n> object(s)? (y/n):`; `-y` skips the question, and a non-interactive standard input without `-y` deletes nothing
 (exit 1, "Nothing deleted."). Every object is re-read by its key right before it is deleted and must be the one that was listed. The signed-in principal and service
-principals owned by another organization (Microsoft first-party or multi-tenant apps) are **never deleted**: they are reported as kept, which is not a failure.
+principals owned by another organization (Microsoft first-party or multi-tenant apps) are **never deleted**: they are reported as kept, which is not a failure. So are the tenant singletons Graph can neither delete nor reset (the sms, voice,
+email, softwareOath and microsoftAuthenticator authentication method configurations: `errorCode: NotDeletable`); deleting the fido2, temporaryAccessPass or
+x509Certificate configuration resets it to the Microsoft default.
 A failure stops the rest (reported as skipped) unless `--continue-on-error`. Exit 0 when every listed object was deleted, already gone or kept; 1 when a delete
 failed, the confirmation was declined or the template cannot be loaded; 2 on validation errors; 3 when no credential signs in. A declared object that could not be
 read is a failure of that object.
