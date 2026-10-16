@@ -54,9 +54,12 @@ public static class NamedLocationsRules
     /// Normalises the evaluated properties in place (kind casing, per-kind defaults, <c>ipRanges</c> range types and
     /// canonical CIDR text, upper-cased country codes) and returns the problems that make the object unsupported:
     /// an unknown kind, a property of the other kind, a non-object range, an invalid CIDR, host bits set, or a
-    /// declared range type that contradicts the address family. Deploy-time-unknown values are left alone.
+    /// declared range type that contradicts the address family. Deploy-time-unknown values are left alone. The per-kind
+    /// defaults (<c>isTrusted: false</c>; <c>includeUnknownCountriesAndRegions: false</c>,
+    /// <c>countryLookupMethod: clientIpAddress</c>) apply only when <paramref name="isCreate"/>: an existing location's
+    /// undeclared properties are left as they are live.
     /// </summary>
-    public static IReadOnlyList<string> NormalizeDesired(JsonObject properties)
+    public static IReadOnlyList<string> NormalizeDesired(JsonObject properties, bool isCreate)
     {
         ArgumentNullException.ThrowIfNull(properties);
         var problems = new List<string>();
@@ -80,7 +83,11 @@ public static class NamedLocationsRules
             RejectForeign(properties, "countriesAndRegions", "country", problems);
             RejectForeign(properties, "includeUnknownCountriesAndRegions", "country", problems);
             RejectForeign(properties, "countryLookupMethod", "country", problems);
-            JsonObjects.SetDefault(properties, "isTrusted", JsonValue.Create(false));
+            if (isCreate)
+            {
+                JsonObjects.SetDefault(properties, "isTrusted", JsonValue.Create(false));
+            }
+
             if (JsonObjects.TryGetIgnoreCase(properties, "ipRanges", out var ranges) && ranges is JsonArray array)
             {
                 NormalizeRanges(array, problems);
@@ -90,8 +97,11 @@ public static class NamedLocationsRules
         {
             RejectForeign(properties, "ipRanges", "IP", problems);
             RejectForeign(properties, "isTrusted", "IP", problems);
-            JsonObjects.SetDefault(properties, "includeUnknownCountriesAndRegions", JsonValue.Create(false));
-            JsonObjects.SetDefault(properties, "countryLookupMethod", JsonValue.Create(DefaultCountryLookupMethod));
+            if (isCreate)
+            {
+                JsonObjects.SetDefault(properties, "includeUnknownCountriesAndRegions", JsonValue.Create(false));
+                JsonObjects.SetDefault(properties, "countryLookupMethod", JsonValue.Create(DefaultCountryLookupMethod));
+            }
             if (JsonObjects.TryGetIgnoreCase(properties, "countriesAndRegions", out var countries) && countries is JsonArray codes)
             {
                 UpperCaseStrings(codes);

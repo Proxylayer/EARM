@@ -100,6 +100,43 @@ public sealed class NamedLocationsProviderTests
     }
 
     [Fact]
+    public async Task ExistingLocation_WithoutDeclaredDefaults_KeepsItsLiveValues_AndIsNotPatched()
+    {
+        var host = new ProviderHost();
+        host.Directory.Add(LocPath, new JsonObject
+        {
+            ["@odata.type"] = "#microsoft.graph.ipNamedLocation",
+            ["displayName"] = LocName,
+            ["isTrusted"] = true,
+            ["ipRanges"] = new JsonArray(new JsonObject { ["@odata.type"] = "#microsoft.graph.iPv4CidrRange", ["cidrAddress"] = "10.0.0.0/8" }),
+        });
+        string id = host.IdOf(LocPath, "displayName", LocName);
+
+        var run = await host.CreateAsync(host.Resources(IpLocation("{ \"cidrAddress\": \"10.0.0.0/8\" }")));
+
+        Check.Succeeded(run);
+        Assert.All(run.Executed.Operations, o => Assert.Equal(ChangeType.NoChange, o.ChangeType));
+        Check.NoWrites(run);
+        Assert.True(host.Directory.FindById(id)!["isTrusted"]!.GetValue<bool>());
+
+        var country = new ProviderHost();
+        country.Directory.Add(LocPath, new JsonObject
+        {
+            ["@odata.type"] = "#microsoft.graph.countryNamedLocation",
+            ["displayName"] = LocName,
+            ["countriesAndRegions"] = new JsonArray("GB", "IE"),
+            ["includeUnknownCountriesAndRegions"] = true,
+            ["countryLookupMethod"] = "authenticatorAppGps",
+        });
+
+        var countryRun = await country.CreateAsync(country.Resources(CountryLocation()));
+
+        Check.Succeeded(countryRun);
+        Assert.All(countryRun.Executed.Operations, o => Assert.Equal(ChangeType.NoChange, o.ChangeType));
+        Check.NoWrites(countryRun);
+    }
+
+    [Fact]
     public async Task CountryLocation_IsPostedWithDefaults_AndComparedCaseInsensitively()
     {
         var host = new ProviderHost();

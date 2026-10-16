@@ -71,15 +71,20 @@ public static class ConditionalAccessPoliciesRules
     }
 
     /// <summary>
-    /// Normalises the evaluated properties in place: <c>state</c> defaults to <see cref="DefaultState"/>,
+    /// Normalises the evaluated properties in place: <c>state</c> defaults to <see cref="DefaultState"/> when
+    /// <paramref name="isCreate"/> (an existing policy's undeclared <c>state</c> is left as it is live),
     /// <c>conditions.clientAppTypes</c> to <c>["all"]</c> (when <c>conditions</c> is an object), <c>grantControls.operator</c>
     /// to <c>OR</c> (only when <c>grantControls</c> is declared: a policy may carry session controls alone), and a declared
-    /// <c>grantControls.authenticationStrength</c> is reduced to <c>{ id }</c>.
+    /// <c>grantControls.authenticationStrength</c> is reduced to <c>{ id }</c>. The two nested defaults apply on every run:
+    /// Graph replaces <c>conditions</c> and <c>grantControls</c> whole, so a declared object without them would clear them.
     /// </summary>
-    public static void NormalizeDesired(JsonObject properties)
+    public static void NormalizeDesired(JsonObject properties, bool isCreate)
     {
         ArgumentNullException.ThrowIfNull(properties);
-        JsonObjects.SetDefault(properties, "state", JsonValue.Create(DefaultState));
+        if (isCreate)
+        {
+            JsonObjects.SetDefault(properties, "state", JsonValue.Create(DefaultState));
+        }
 
         if (JsonObjects.TryGetIgnoreCase(properties, "conditions", out var conditions) && conditions is JsonObject conditionsObject)
         {

@@ -48,12 +48,13 @@ public static partial class AuthenticationContextClassReferencesRules
     }
 
     /// <summary>
-    /// Normalises the evaluated properties in place (<c>isAvailable</c> defaults to <c>true</c>, an explicit
-    /// <c>null</c> included) and returns the problems that make the object unsupported: a missing or non-string
-    /// <c>displayName</c>, a non-string <c>description</c>, a non-boolean <c>isAvailable</c>. Deploy-time-unknown
-    /// values are left alone.
+    /// Normalises the evaluated properties in place and returns the problems that make the object unsupported: a
+    /// missing or non-string <c>displayName</c>, a non-string <c>description</c>, a non-boolean <c>isAvailable</c>.
+    /// Deploy-time-unknown values are left alone. An explicit <c>isAvailable: null</c> means <c>true</c>; an undeclared
+    /// one defaults to <c>true</c> only when <paramref name="isCreate"/>, so an existing context switched off outside
+    /// EARM stays off unless the template declares <c>isAvailable</c>.
     /// </summary>
-    public static IReadOnlyList<string> NormalizeDesired(JsonObject properties)
+    public static IReadOnlyList<string> NormalizeDesired(JsonObject properties, bool isCreate)
     {
         ArgumentNullException.ThrowIfNull(properties);
         var problems = new List<string>();
@@ -74,10 +75,14 @@ public static partial class AuthenticationContextClassReferencesRules
             problems.Add($"properties.{DescriptionProperty} must be a string");
         }
 
+        string? isAvailableKey = JsonObjects.FindKey(properties, IsAvailableProperty);
         JsonObjects.TryGetIgnoreCase(properties, IsAvailableProperty, out var isAvailable);
         if (JsonObjects.IsAbsent(isAvailable))
         {
-            properties[JsonObjects.FindKey(properties, IsAvailableProperty) ?? IsAvailableProperty] = true;
+            if (isCreate || isAvailableKey is not null)
+            {
+                properties[isAvailableKey ?? IsAvailableProperty] = true;
+            }
         }
         else if (!UnknownJson.IsUnknown(isAvailable) && !IsBoolean(isAvailable))
         {

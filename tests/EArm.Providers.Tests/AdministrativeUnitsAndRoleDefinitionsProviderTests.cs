@@ -107,6 +107,32 @@ public sealed class AdministrativeUnitsProviderTests
     }
 
     [Fact]
+    public async Task U4b_ExistingDynamicUnit_PausedOutsideEarm_StaysPausedUnlessTheStateIsDeclared()
+    {
+        var host = new ProviderHost();
+        const string rule = "\"membershipType\": \"Dynamic\", \"membershipRule\": \"(user.department -eq \\\"Orders\\\")\"";
+        host.Directory.Add(BuiltInRoles.UnitsPath, new JsonObject
+        {
+            ["displayName"] = "Dyn AU",
+            ["membershipType"] = "Dynamic",
+            ["membershipRule"] = "(user.department -eq \"Orders\")",
+            ["membershipRuleProcessingState"] = "Paused",
+        });
+
+        var undeclared = await host.CreateAsync(host.Resources(Au(name: "Dyn AU", props: rule)));
+
+        Check.Succeeded(undeclared);
+        Assert.Equal(ChangeType.NoChange, undeclared.OpOfType(AuType).ChangeType);
+        Check.NoWrites(undeclared);
+        Assert.Equal("Paused", host.Directory.Find(BuiltInRoles.UnitsPath, "displayName", "Dyn AU")!["membershipRuleProcessingState"]!.GetValue<string>());
+
+        var declared = await host.CreateAsync(host.Resources(Au(name: "Dyn AU", props: rule + ", \"membershipRuleProcessingState\": \"On\"")));
+
+        Check.Succeeded(declared);
+        Assert.Equal("""{"membershipRuleProcessingState":"On"}""", Assert.Single(declared.Writes).Body!.ToJsonString());
+    }
+
+    [Fact]
     public async Task U5_ChangingIsMemberManagementRestricted_IsAnImmutableChange()
     {
         var host = new ProviderHost();

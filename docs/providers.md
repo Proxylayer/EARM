@@ -249,8 +249,12 @@ unknown / disabled scope values); the Graph reads shared with the edge kind are 
 
 Type-specific rules (`ServicePrincipalsRules`, pure):
 
-- The overlay defaults `accountEnabled: true` and `appRoleAssignmentRequired: false` are part of the desired state: `Plan`
-  fills them in, so a principal that drifted from a default is corrected on the next run.
+- The overlay defaults `accountEnabled: true` and `appRoleAssignmentRequired: false` apply only to a principal EARM
+  creates (including the restore of a soft-deleted one that replaces the create). An existing principal never receives
+  them: one found by the read is diffed on its declared properties only, and one adopted after a 400 "already exists"
+  is PATCHed with the declared properties without the defaults `Plan` filled in for the create. A principal disabled or
+  switched to assignment-required outside EARM therefore stays so unless the template declares `accountEnabled` /
+  `appRoleAssignmentRequired`.
 - `appRoles` and `oauth2PermissionScopes` of the principal mirror the application's and lag an application PATCH by
   seconds. They are selected (for `reference()`) but stripped from the diff; resolving role or scope ids goes through
   `ServicePrincipalLookup.FindByAppIdAsync`, which always reads fresh.
@@ -311,7 +315,7 @@ Type-specific rules (`UsersRules`, `UsersLicensing`, pure):
   `passwordProfile.forceChangePasswordNextSignIn: true`. An existing user found by UPN never receives a default: an
   undeclared property is neither diffed nor PATCHed, so a declaration with only edge properties (`memberOf`,
   `administrativeUnits`, …) leaves a disabled account disabled. Declare `accountEnabled` to manage it on existing users.
-  (Unlike `servicePrincipals`, whose overlay defaults are part of the desired state on every run.)
+  (The same create-only rule holds for every type's defaults; see [format.md](format.md#resource-type-catalog).)
 - `passwordProfile` is create-only and write-only: never diffed (a declared one on an existing user is ignored), never in
   a PATCH, and its `password` is tainted at plan time, so what-if, logs, diagnostics and the result only see `***`;
   the plain text exists in the `POST /users` body alone. Without a declared password a random 24-character one is
@@ -357,7 +361,10 @@ a second one.
 delete while a policy references the location). `NamedLocationsRules.NormalizeDesired` runs inside `Plan` (so what-if,
 bodies and the result describe the same object): the IPv4/IPv6 range `@odata.type` is inferred when omitted, a CIDR with
 host bits set is rejected, ranges and country codes are canonicalised, and the live object is normalised the same way,
-so reordered or differently spelt ranges are not drift.
+so reordered or differently spelt ranges are not drift. The per-kind defaults (`isTrusted: false`;
+`includeUnknownCountriesAndRegions: false`, `countryLookupMethod: clientIpAddress`) apply only to a location EARM creates,
+including the replacement of a kind change: an existing location's undeclared properties are never written, so a
+location marked trusted outside EARM stays trusted unless the template declares `isTrusted`.
 
 `Microsoft.Entra/conditionalAccess/policies`:
 
@@ -368,8 +375,11 @@ so reordered or differently spelt ranges are not drift.
 | Update | `PATCH …/{id}` carrying every changed top-level property **whole** (`conditions`, `grantControls`, `sessionControls` are replaced, not merged, by Graph; a removed control is an explicit `null`) → `GET …/{id}` |
 | Delete | `DELETE …/{id}`; a 404 is "already gone" |
 
-`ConditionalAccessPoliciesRules.NormalizeDesired` fills the defaults (`state: enabledForReportingButNotEnforced`,
-`conditions.clientAppTypes: ["all"]`, `grantControls.operator: OR`) and reduces `authenticationStrength` to `{ id }`;
+`ConditionalAccessPoliciesRules.NormalizeDesired` fills the defaults and reduces `authenticationStrength` to `{ id }`.
+`state: enabledForReportingButNotEnforced` is a create default: an existing policy whose template does not declare
+`state` keeps its live state (an enabled or disabled policy is not switched to report-only). `conditions.clientAppTypes:
+["all"]` and `grantControls.operator: OR` are filled on every run, but only inside a declared `conditions` /
+`grantControls`: Graph replaces those objects whole, so leaving the default out of the PATCH would clear the value.
 `NormalizeLive` removes read-back noise (`customAuthenticationFactors: []`, `termsOfUse: []`, `platforms: null`). `Plan` refuses
 what Graph would reject or the plan guards against: `state: enabled` without `--allow-ca-enforce`, an empty users or
 applications include, no control at all, `block` combined with another control, `mfa` together with
@@ -397,8 +407,9 @@ last `PlanOptions` seen is kept so a direct `CreateAsync`/`UpdateAsync` applies 
 | Update | `PATCH …/{id}` (merge body of the changed scalars) → `GET …/{id}` |
 | Delete | `GET …/{id}` (404 = already gone) → `PATCH …/{id} { isAvailable: false }` while the context is still available (Graph refuses to delete an available one) → `DELETE …/{id}`; a 400 (still available, or referenced by a policy's `includeAuthenticationContextClassReferences`) is surfaced as `Referenced` (repeated every 5 s for up to 90 s when a policy was deleted earlier in the same run, like the strength) |
 
-`Plan` requires `displayName` and defaults `isAvailable: true` into the evaluated properties, so a context switched off
-outside EARM shows as drift. The id is immutable by definition: another name is another resource, never a recreate.
+`Plan` requires `displayName` and, for a context EARM creates, defaults `isAvailable: true` into the evaluated
+properties (an explicit `isAvailable: null` also means `true`). An existing context's undeclared `isAvailable` is never
+written: one switched off outside EARM shows as drift only when the template declares `isAvailable: true`. The id is immutable by definition: another name is another resource, never a recreate.
 Policies reference a context by id (`"includeAuthenticationContextClassReferences": ["c10"]`, or
 `[reference(resourceId('Microsoft.Entra/conditionalAccess/authenticationContextClassReferences', 'c10')).id]` to get the
 ordering dependency).

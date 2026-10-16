@@ -23,7 +23,7 @@ public sealed class AdministrativeUnitsRulesTests
     {
         var properties = Obj("{ \"membershipType\": \"" + declared + "\", \"membershipRule\": \"(user.department -eq \\\"x\\\")\" }");
 
-        Assert.Empty(AdministrativeUnitsRules.NormalizeDesired(properties));
+        Assert.Empty(AdministrativeUnitsRules.NormalizeDesired(properties, liveMembershipType: null));
         Assert.Equal(expected, properties["membershipType"]!.GetValue<string>());
     }
 
@@ -31,22 +31,38 @@ public sealed class AdministrativeUnitsRulesTests
     public void NormalizeDesired_DynamicUnit_InjectsProcessingOn_ButKeepsADeclaredState()
     {
         var injected = Obj("""{ "membershipType": "Dynamic", "membershipRule": "r" }""");
-        Assert.Empty(AdministrativeUnitsRules.NormalizeDesired(injected));
+        Assert.Empty(AdministrativeUnitsRules.NormalizeDesired(injected, liveMembershipType: null));
         Assert.Equal("On", injected["membershipRuleProcessingState"]!.GetValue<string>());
 
         var paused = Obj("""{ "membershipType": "Dynamic", "membershipRule": "r", "membershipRuleProcessingState": "paused" }""");
-        Assert.Empty(AdministrativeUnitsRules.NormalizeDesired(paused));
+        Assert.Empty(AdministrativeUnitsRules.NormalizeDesired(paused, liveMembershipType: null));
         Assert.Equal("Paused", paused["membershipRuleProcessingState"]!.GetValue<string>());
 
         var assigned = Obj("""{ "membershipType": "Assigned", "description": "d" }""");
-        Assert.Empty(AdministrativeUnitsRules.NormalizeDesired(assigned));
+        Assert.Empty(AdministrativeUnitsRules.NormalizeDesired(assigned, liveMembershipType: null));
         Assert.False(assigned.ContainsKey("membershipRuleProcessingState"));
+    }
+
+    [Fact]
+    public void NormalizeDesired_ExistingDynamicUnit_KeepsItsLiveProcessingState_ButAUnitSwitchedToDynamicStartsOn()
+    {
+        var alreadyDynamic = Obj("""{ "membershipType": "Dynamic", "membershipRule": "r" }""");
+        Assert.Empty(AdministrativeUnitsRules.NormalizeDesired(alreadyDynamic, liveMembershipType: "Dynamic"));
+        Assert.False(alreadyDynamic.ContainsKey("membershipRuleProcessingState"));
+
+        var switched = Obj("""{ "membershipType": "Dynamic", "membershipRule": "r" }""");
+        Assert.Empty(AdministrativeUnitsRules.NormalizeDesired(switched, liveMembershipType: "Assigned"));
+        Assert.Equal("On", switched["membershipRuleProcessingState"]!.GetValue<string>());
+
+        var declared = Obj("""{ "membershipType": "Dynamic", "membershipRule": "r", "membershipRuleProcessingState": "on" }""");
+        Assert.Empty(AdministrativeUnitsRules.NormalizeDesired(declared, liveMembershipType: "Dynamic"));
+        Assert.Equal("On", declared["membershipRuleProcessingState"]!.GetValue<string>());
     }
 
     [Fact]
     public void NormalizeDesired_DynamicWithoutARule_IsAProblem()
     {
-        var problems = AdministrativeUnitsRules.NormalizeDesired(Obj("""{ "membershipType": "Dynamic" }"""));
+        var problems = AdministrativeUnitsRules.NormalizeDesired(Obj("""{ "membershipType": "Dynamic" }"""), liveMembershipType: null);
 
         Assert.Contains(problems, p => p.Contains("requires properties.membershipRule", StringComparison.Ordinal));
     }
@@ -54,13 +70,13 @@ public sealed class AdministrativeUnitsRulesTests
     [Fact]
     public void NormalizeDesired_ReportsShapeProblems()
     {
-        Assert.Contains(AdministrativeUnitsRules.NormalizeDesired(Obj("""{ "membershipType": "Hybrid" }""")), p => p.Contains("must be 'Assigned' or 'Dynamic'", StringComparison.Ordinal));
-        Assert.Contains(AdministrativeUnitsRules.NormalizeDesired(Obj("""{ "membershipType": 5 }""")), p => p.Contains("membershipType must be", StringComparison.Ordinal));
-        Assert.Contains(AdministrativeUnitsRules.NormalizeDesired(Obj("""{ "membershipRule": "  " }""")), p => p.Contains("membershipRule must be a non-empty string", StringComparison.Ordinal));
-        Assert.Contains(AdministrativeUnitsRules.NormalizeDesired(Obj("""{ "membershipRuleProcessingState": "Off" }""")), p => p.Contains("'On' or 'Paused'", StringComparison.Ordinal));
-        Assert.Contains(AdministrativeUnitsRules.NormalizeDesired(Obj("""{ "isMemberManagementRestricted": "yes" }""")), p => p.Contains("isMemberManagementRestricted must be a boolean", StringComparison.Ordinal));
-        Assert.Empty(AdministrativeUnitsRules.NormalizeDesired(Obj("""{ "isMemberManagementRestricted": true }""")));
-        Assert.Empty(AdministrativeUnitsRules.NormalizeDesired(new JsonObject()));
+        Assert.Contains(AdministrativeUnitsRules.NormalizeDesired(Obj("""{ "membershipType": "Hybrid" }"""), liveMembershipType: null), p => p.Contains("must be 'Assigned' or 'Dynamic'", StringComparison.Ordinal));
+        Assert.Contains(AdministrativeUnitsRules.NormalizeDesired(Obj("""{ "membershipType": 5 }"""), liveMembershipType: null), p => p.Contains("membershipType must be", StringComparison.Ordinal));
+        Assert.Contains(AdministrativeUnitsRules.NormalizeDesired(Obj("""{ "membershipRule": "  " }"""), liveMembershipType: null), p => p.Contains("membershipRule must be a non-empty string", StringComparison.Ordinal));
+        Assert.Contains(AdministrativeUnitsRules.NormalizeDesired(Obj("""{ "membershipRuleProcessingState": "Off" }"""), liveMembershipType: null), p => p.Contains("'On' or 'Paused'", StringComparison.Ordinal));
+        Assert.Contains(AdministrativeUnitsRules.NormalizeDesired(Obj("""{ "isMemberManagementRestricted": "yes" }"""), liveMembershipType: null), p => p.Contains("isMemberManagementRestricted must be a boolean", StringComparison.Ordinal));
+        Assert.Empty(AdministrativeUnitsRules.NormalizeDesired(Obj("""{ "isMemberManagementRestricted": true }"""), liveMembershipType: null));
+        Assert.Empty(AdministrativeUnitsRules.NormalizeDesired(new JsonObject(), liveMembershipType: null));
     }
 
     [Fact]

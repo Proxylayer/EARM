@@ -30,8 +30,9 @@ namespace EArm.Providers;
 /// </para>
 /// <para>
 /// Type-specific rules (<see cref="AdministrativeUnitsRules"/>): <c>membershipType</c> is <c>Assigned</c> or
-/// <c>Dynamic</c>; a dynamic unit requires <c>membershipRule</c> and is written with
-/// <c>membershipRuleProcessingState: On</c> unless declared; a dynamic unit declaring <c>members</c> fails edge
+/// <c>Dynamic</c>; a dynamic unit requires <c>membershipRule</c> and, when it becomes dynamic (created, or switched
+/// from assigned), is written with <c>membershipRuleProcessingState: On</c> unless declared (an already dynamic unit's
+/// undeclared processing state is never written, so a paused unit stays paused); a dynamic unit declaring <c>members</c> fails edge
 /// validation (the edge pass rejects dynamic targets); <c>isMemberManagementRestricted</c> is immutable (the overlay
 /// makes a change an error). Restricted units: Graph only lets holders of a role scoped to the unit add members, and
 /// part A (members) runs before part B (scoped role assignments), so declare the members of a restricted unit in a
@@ -118,7 +119,7 @@ public sealed class AdministrativeUnitsProvider : ProviderBase, IOrphanCandidate
             return base.Plan(desired, existing, options);
         }
 
-        var problems = AdministrativeUnitsRules.NormalizeDesired(properties);
+        var problems = AdministrativeUnitsRules.NormalizeDesired(properties, LiveMembershipType(existing));
         if (problems.Count > 0)
         {
             return Unsupported(desired, existing, $"{desired.Describe()}: {string.Join("; ", problems)}.");
@@ -147,7 +148,7 @@ public sealed class AdministrativeUnitsProvider : ProviderBase, IOrphanCandidate
         var properties = desired.Properties
             ?? throw new InvalidOperationException($"{desired.Describe()}: properties must be evaluated before creating.");
 
-        RequireValid(desired, properties);
+        RequireValid(desired, properties, liveMembershipType: null);
         var key = ResolveKey(desired);
         var body = BuildCreateBody(desired);
         RemoveServerAssigned(body);
@@ -197,7 +198,7 @@ public sealed class AdministrativeUnitsProvider : ProviderBase, IOrphanCandidate
         var properties = desired.Properties
             ?? throw new InvalidOperationException($"{desired.Describe()}: properties must be evaluated before updating.");
 
-        RequireValid(desired, properties);
+        RequireValid(desired, properties, LiveMembershipType(existing));
         var body = BuildPatchBody(desired, existing, change);
         RemoveServerAssigned(body);
 
@@ -280,15 +281,21 @@ public sealed class AdministrativeUnitsProvider : ProviderBase, IOrphanCandidate
             ?? throw new InvalidOperationException($"The catalog does not define '{ResourceType}'.");
     }
 
+    /// <summary>The live unit's <c>membershipType</c> (<c>null</c> for a unit that is created, or reads back without one).</summary>
+    private static string? LiveMembershipType(ExistingResource? existing)
+    {
+        return existing is null ? null : JsonObjects.GetString(existing.Raw, "membershipType");
+    }
+
     private static bool DeclaresMembers(ResourceInstance desired)
     {
         return JsonObjects.TryGetIgnoreCase(desired.EdgeProperties, MembersProperty, out var members) && !JsonObjects.IsAbsent(members) && (members is not JsonArray array || array.Count > 0);
     }
 
     /// <summary>The same normalisation as <see cref="Plan"/>, for callers that skip planning; problems are a hard error here.</summary>
-    private static void RequireValid(ResourceInstance desired, JsonObject properties)
+    private static void RequireValid(ResourceInstance desired, JsonObject properties, string? liveMembershipType)
     {
-        var problems = AdministrativeUnitsRules.NormalizeDesired(properties);
+        var problems = AdministrativeUnitsRules.NormalizeDesired(properties, liveMembershipType);
         if (problems.Count > 0)
         {
             throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{desired.Describe()}: {string.Join("; ", problems)}.", desired.Id);

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
@@ -21,15 +22,17 @@ namespace EArm.Providers;
 /// Requests per operation (every read selects <see cref="ManagedProperties"/>):
 /// <list type="bullet">
 /// <item><b>Read</b>: <c>GET /servicePrincipals(appId='…')</c>; a 404 is "does not exist".</item>
-/// <item><b>Create</b>: <c>POST /servicePrincipals</c> with <c>{ appId, accountEnabled, appRoleAssignmentRequired, …declared properties }</c> under the instance's retry hint (<see cref="RetryHint.ExpectReplicationLag"/> when the application was created in this run: the Graph transport retries the 400 "does not reference a valid application object" / 404 for up to 90 s). A 400 "same value for property appId already exists" means the principal exists (auto-provisioned, or not yet visible to the earlier read): it is re-read by appId under <see cref="RetryHint.ExpectReplicationLag"/> and adopted, with one <c>PATCH /servicePrincipals/{id}</c> when the declared properties differ from it, then re-read.</item>
+/// <item><b>Create</b>: <c>POST /servicePrincipals</c> with <c>{ appId, accountEnabled, appRoleAssignmentRequired, …declared properties }</c> under the instance's retry hint (<see cref="RetryHint.ExpectReplicationLag"/> when the application was created in this run: the Graph transport retries the 400 "does not reference a valid application object" / 404 for up to 90 s). A 400 "same value for property appId already exists" means the principal exists (auto-provisioned, or not yet visible to the earlier read): it is re-read by appId under <see cref="RetryHint.ExpectReplicationLag"/> and adopted, with one <c>PATCH /servicePrincipals/{id}</c> when the declared properties (without the create defaults) differ from it, then re-read.</item>
 /// <item><b>Update</b>: <c>PATCH /servicePrincipals/{id}</c> (merge body: changed scalars, arrays such as <c>tags</c> / <c>notificationEmailAddresses</c> / <c>replyUrls</c> / <c>alternativeNames</c> and nested objects such as <c>samlSingleSignOnSettings</c> whole) → <c>GET /servicePrincipals/{id}</c>.</item>
 /// <item><b>Delete</b>: <c>DELETE /servicePrincipals/{id}</c> (soft delete; cascades the principal's assignments and grants); a 404 is "already gone".</item>
 /// </list>
 /// <c>owners</c>, <c>memberOf</c>, <c>ownerOf</c>, <c>appRoleAssignments</c> and <c>directoryRoles</c> are edge properties
 /// (catalog <c>relationships</c>): the engine keeps them out of <c>Properties</c>, so they never reach the body or the
 /// diff; the edge pass applies them. <c>id</c> and <c>servicePrincipalType</c> are never written; <c>appId</c> only on
-/// create. The overlay defaults (<c>accountEnabled: true</c>, <c>appRoleAssignmentRequired: false</c>) are part of the
-/// desired state: <see cref="Plan"/> fills them in, so a live principal that drifted from a default is corrected.
+/// create. The overlay defaults (<c>accountEnabled: true</c>, <c>appRoleAssignmentRequired: false</c>) apply only to a
+/// principal EARM creates (including the restore of a soft-deleted one that replaces the create): an existing principal,
+/// found by the read or adopted after an "already exists" answer, never receives them, so its undeclared properties are
+/// left as they are live (declare them to manage them).
 /// </para>
 /// <para>
 /// A principal's <c>appRoles</c> / <c>oauth2PermissionScopes</c> mirror the application's and lag an application PATCH
@@ -57,6 +60,9 @@ public sealed class ServicePrincipalsProvider : ProviderBase, IOrphanCandidateSo
     private readonly DeclaredSelects _selects = new();
 
     private volatile PlanOptions _planOptions = PlanOptions.Default;
+
+    /// <summary>Per evaluated property object: the overlay defaults <see cref="Plan"/> filled in for a create (not declared by the template).</summary>
+    private readonly ConditionalWeakTable<JsonObject, IReadOnlyList<string>> _plannedDefaults = new();
 
     /// <summary>The managed property set every read selects; properties outside it are not diffed.</summary>
     public static readonly string[] ManagedProperties =
@@ -171,11 +177,12 @@ public sealed class ServicePrincipalsProvider : ProviderBase, IOrphanCandidateSo
             }
         }
 
-        // The overlay defaults are part of the desired state (they are written on create and corrected on drift).
-        ApplyDefaults(properties);
-
         if (existing is null)
         {
+            // The overlay defaults describe the principal EARM creates; an existing one never receives them (its
+            // undeclared properties are not diffed or written). Remember which ones this plan filled in, so a create that
+            // turns into an adoption (the principal appeared after the read) writes only what the template declares.
+            _plannedDefaults.AddOrUpdate(properties, ApplyCreateDefaults(properties));
             return base.Plan(desired, null, options);
         }
 
@@ -258,11 +265,47 @@ public sealed class ServicePrincipalsProvider : ProviderBase, IOrphanCandidateSo
         {
             // "Another object with the same value for property appId already exists": the principal exists (created
             // by consent or another run, or not yet visible to the read that planned this create). Adopt it and bring
-            // the declared properties onto it.
-            live = await AdoptExistingAsync(desired, name, body, graph, cancellationToken).ConfigureAwait(false);
+            // the declared properties onto it; the create defaults are not written to an object EARM did not create.
+            live = await AdoptExistingAsync(desired, name, BuildDeclaredBody(desired), graph, cancellationToken).ConfigureAwait(false);
         }
 
         return new AppliedResource(desired.Id, RequireId(live, desired), live, key) { Warnings = warnings };
+    }
+
+    /// <summary>Fills the overlay defaults the template left out and returns the paths it filled.</summary>
+    private IReadOnlyList<string> ApplyCreateDefaults(JsonObject properties)
+    {
+        var filled = new List<string>();
+        if (Definition.Defaults is not { } defaults)
+        {
+            return filled;
+        }
+
+        foreach (var pair in defaults)
+        {
+            if (JsonObjects.SetDefault(properties, pair.Key, pair.Value))
+            {
+                filled.Add(pair.Key);
+            }
+        }
+
+        return filled;
+    }
+
+    /// <summary>The create body without the overlay defaults: only what the template declares (plus the name), secrets revealed.</summary>
+    private JsonObject BuildDeclaredBody(ResourceInstance desired)
+    {
+        var body = CloneProperties(desired);
+        if (desired.Properties is { } properties && _plannedDefaults.TryGetValue(properties, out var filled))
+        {
+            foreach (string path in filled)
+            {
+                JsonObjects.Remove(body, EArm.Core.Json.JsonPath.Parse(path));
+            }
+        }
+
+        InjectName(body, desired);
+        return Reveal(body);
     }
 
     private async Task<JsonObject> AdoptExistingAsync(ResourceInstance desired, string appId, JsonObject createBody, IGraphClient graph, CancellationToken cancellationToken)

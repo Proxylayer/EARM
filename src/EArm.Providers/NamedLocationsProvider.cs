@@ -35,7 +35,8 @@ namespace EArm.Providers;
 /// <c>@odata.type</c> selects the kind and is immutable: a kind change is a <see cref="ChangeMode.Recreate"/>
 /// (delete, then create; Graph refuses the delete while a policy references the location). <see cref="Plan"/>
 /// normalises the evaluated properties in place (see <see cref="NamedLocationsRules.NormalizeDesired"/>) so that
-/// what-if rows and request bodies describe the same object; the live object is normalised the
+/// what-if rows and request bodies describe the same object (the per-kind defaults only for a location EARM creates,
+/// including the replacement of a kind change; an existing location's undeclared properties are never written); the live object is normalised the
 /// same way on read, so reordered or differently spelt ranges and country codes are not drift.
 /// </para>
 /// </summary>
@@ -112,7 +113,9 @@ public sealed class NamedLocationsProvider : ProviderBase, IOrphanCandidateSourc
             return base.Plan(desired, existing, options);
         }
 
-        var problems = NamedLocationsRules.NormalizeDesired(properties);
+        // Defaults apply to a location EARM creates: a new one, or the replacement of a kind change (recreate).
+        bool createsObject = existing is null || !string.Equals(NamedLocationsRules.KindOf(properties), NamedLocationsRules.KindOf(existing.Raw), StringComparison.Ordinal);
+        var problems = NamedLocationsRules.NormalizeDesired(properties, createsObject);
         if (problems.Count > 0)
         {
             return Unsupported(desired, existing, $"{desired.Describe()}: {string.Join("; ", problems)}.");
@@ -130,7 +133,7 @@ public sealed class NamedLocationsProvider : ProviderBase, IOrphanCandidateSourc
         var properties = desired.Properties
             ?? throw new InvalidOperationException($"{desired.Describe()}: properties must be evaluated before creating.");
 
-        RequireValid(desired, properties);
+        RequireValid(desired, properties, isCreate: true);
         var body = BuildCreateBody(desired);
         RemoveServerAssigned(body);
 
@@ -153,7 +156,7 @@ public sealed class NamedLocationsProvider : ProviderBase, IOrphanCandidateSourc
         var properties = desired.Properties
             ?? throw new InvalidOperationException($"{desired.Describe()}: properties must be evaluated before updating.");
 
-        RequireValid(desired, properties);
+        RequireValid(desired, properties, isCreate: false);
         var body = BuildPatchBody(desired, existing, change);
         RemoveServerAssigned(body);
 
@@ -295,9 +298,9 @@ public sealed class NamedLocationsProvider : ProviderBase, IOrphanCandidateSourc
     }
 
     /// <summary>The same normalisation as <see cref="Plan"/>, for callers that skip planning; problems are a hard error here.</summary>
-    private static void RequireValid(ResourceInstance desired, JsonObject properties)
+    private static void RequireValid(ResourceInstance desired, JsonObject properties, bool isCreate)
     {
-        var problems = NamedLocationsRules.NormalizeDesired(properties);
+        var problems = NamedLocationsRules.NormalizeDesired(properties, isCreate);
         if (problems.Count > 0)
         {
             throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{desired.Describe()}: {string.Join("; ", problems)}.", desired.Id);

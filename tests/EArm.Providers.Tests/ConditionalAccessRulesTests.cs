@@ -58,7 +58,7 @@ public sealed class ConditionalAccessRulesTests
     {
         var properties = (JsonObject)JsonNode.Parse("""{ "@odata.type": "#MICROSOFT.graph.ipNamedLocation", "ipRanges": [ { "cidrAddress": "10.0.0.0/8" }, { "cidrAddress": "2001:DB8::/32", "@odata.type": "#microsoft.graph.ipv6cidrrange" } ] }""")!;
 
-        var problems = NamedLocationsRules.NormalizeDesired(properties);
+        var problems = NamedLocationsRules.NormalizeDesired(properties, isCreate: true);
 
         Assert.Empty(problems);
         Assert.Equal(NamedLocationsRules.IpKind, properties["@odata.type"]!.GetValue<string>());
@@ -73,7 +73,7 @@ public sealed class ConditionalAccessRulesTests
     {
         var properties = (JsonObject)JsonNode.Parse("""{ "@odata.type": "#microsoft.graph.countryNamedLocation", "countriesAndRegions": [ "gb", " ie " ] }""")!;
 
-        var problems = NamedLocationsRules.NormalizeDesired(properties);
+        var problems = NamedLocationsRules.NormalizeDesired(properties, isCreate: true);
 
         Assert.Empty(problems);
         Assert.Equal("""["GB","IE"]""", properties["countriesAndRegions"]!.ToJsonString());
@@ -83,10 +83,28 @@ public sealed class ConditionalAccessRulesTests
     }
 
     [Fact]
+    public void NormalizeDesired_ExistingLocation_GetsNoPerKindDefaults_ButDeclaredValuesStay()
+    {
+        var ip = (JsonObject)JsonNode.Parse("""{ "@odata.type": "#microsoft.graph.ipNamedLocation", "ipRanges": [ { "cidrAddress": "10.0.0.0/8" } ] }""")!;
+        Assert.Empty(NamedLocationsRules.NormalizeDesired(ip, isCreate: false));
+        Assert.False(ip.ContainsKey("isTrusted"));
+
+        var country = (JsonObject)JsonNode.Parse("""{ "@odata.type": "#microsoft.graph.countryNamedLocation", "countriesAndRegions": ["gb"], "countryLookupMethod": "authenticatorAppGps" }""")!;
+        Assert.Empty(NamedLocationsRules.NormalizeDesired(country, isCreate: false));
+        Assert.False(country.ContainsKey("includeUnknownCountriesAndRegions"));
+        Assert.Equal("authenticatorAppGps", country["countryLookupMethod"]!.GetValue<string>());
+        Assert.Equal("""["GB"]""", country["countriesAndRegions"]!.ToJsonString());
+
+        var trusted = (JsonObject)JsonNode.Parse("""{ "@odata.type": "#microsoft.graph.ipNamedLocation", "isTrusted": true }""")!;
+        Assert.Empty(NamedLocationsRules.NormalizeDesired(trusted, isCreate: false));
+        Assert.True(trusted["isTrusted"]!.GetValue<bool>());
+    }
+
+    [Fact]
     public void NormalizeDesired_ReportsForeignProperties_BadRanges_AndUnknownKinds()
     {
         var foreignOnIp = (JsonObject)JsonNode.Parse("""{ "@odata.type": "#microsoft.graph.ipNamedLocation", "countriesAndRegions": ["GB"], "ipRanges": [ { "cidrAddress": "10.0.0.1/8" }, "text", { }, { "cidrAddress": "10.0.0.0/8", "@odata.type": "#microsoft.graph.iPv6CidrRange" } ] }""")!;
-        var problems = NamedLocationsRules.NormalizeDesired(foreignOnIp);
+        var problems = NamedLocationsRules.NormalizeDesired(foreignOnIp, isCreate: true);
         Assert.Contains(problems, p => p.Contains("countriesAndRegions applies to country", StringComparison.Ordinal));
         Assert.Contains(problems, p => p.Contains("ipRanges[0]", StringComparison.Ordinal) && p.Contains("host bits", StringComparison.Ordinal));
         Assert.Contains(problems, p => p.Contains("ipRanges[1] must be an object", StringComparison.Ordinal));
@@ -94,15 +112,15 @@ public sealed class ConditionalAccessRulesTests
         Assert.Contains(problems, p => p.Contains("ipRanges[3]", StringComparison.Ordinal) && p.Contains("IPv4 range but declares", StringComparison.Ordinal));
 
         var foreignOnCountry = (JsonObject)JsonNode.Parse("""{ "@odata.type": "#microsoft.graph.countryNamedLocation", "isTrusted": true, "ipRanges": [ { "cidrAddress": "10.0.0.0/8" } ] }""")!;
-        problems = NamedLocationsRules.NormalizeDesired(foreignOnCountry);
+        problems = NamedLocationsRules.NormalizeDesired(foreignOnCountry, isCreate: true);
         Assert.Contains(problems, p => p.Contains("isTrusted applies to IP", StringComparison.Ordinal));
         Assert.Contains(problems, p => p.Contains("ipRanges applies to IP", StringComparison.Ordinal));
 
         var unknownKind = (JsonObject)JsonNode.Parse("""{ "@odata.type": "#microsoft.graph.somethingElse" }""")!;
-        Assert.Contains(NamedLocationsRules.NormalizeDesired(unknownKind), p => p.Contains("must be", StringComparison.Ordinal));
+        Assert.Contains(NamedLocationsRules.NormalizeDesired(unknownKind, isCreate: true), p => p.Contains("must be", StringComparison.Ordinal));
         Assert.Null(NamedLocationsRules.KindOf(unknownKind));
 
-        Assert.Empty(NamedLocationsRules.NormalizeDesired((JsonObject)JsonNode.Parse("""{ "isTrusted": true }""")!));
+        Assert.Empty(NamedLocationsRules.NormalizeDesired((JsonObject)JsonNode.Parse("""{ "isTrusted": true }""")!, isCreate: true));
     }
 
     [Fact]
@@ -144,7 +162,7 @@ public sealed class ConditionalAccessRulesTests
 
     private static JsonObject Normalized(JsonObject properties)
     {
-        ConditionalAccessPoliciesRules.NormalizeDesired(properties);
+        ConditionalAccessPoliciesRules.NormalizeDesired(properties, isCreate: true);
         return properties;
     }
 
@@ -153,7 +171,7 @@ public sealed class ConditionalAccessRulesTests
     {
         var properties = Policy(DefaultConditions, "{ \"authenticationStrength\": { \"id\": \"" + StrengthId + "\", \"displayName\": \"ignored\" } }");
 
-        ConditionalAccessPoliciesRules.NormalizeDesired(properties);
+        ConditionalAccessPoliciesRules.NormalizeDesired(properties, isCreate: true);
 
         Assert.Equal(ConditionalAccessPoliciesRules.DefaultState, properties["state"]!.GetValue<string>());
         Assert.Equal("""["all"]""", properties["conditions"]!["clientAppTypes"]!.ToJsonString());
@@ -161,9 +179,28 @@ public sealed class ConditionalAccessRulesTests
         Assert.Equal("{\"id\":\"" + StrengthId + "\"}", properties["grantControls"]!["authenticationStrength"]!.ToJsonString());
 
         var sessionOnly = Policy(DefaultConditions, grant: null, session: "{ \"signInFrequency\": { \"value\": 1 } }", state: "disabled");
-        ConditionalAccessPoliciesRules.NormalizeDesired(sessionOnly);
+        ConditionalAccessPoliciesRules.NormalizeDesired(sessionOnly, isCreate: true);
         Assert.Equal("disabled", sessionOnly["state"]!.GetValue<string>());
         Assert.False(sessionOnly.ContainsKey("grantControls"));
+    }
+
+    [Fact]
+    public void NormalizeDesired_ExistingPolicy_LeavesAnUndeclaredStateAlone_ButKeepsTheNestedDefaultsOfDeclaredObjects()
+    {
+        var properties = Policy(DefaultConditions);
+
+        ConditionalAccessPoliciesRules.NormalizeDesired(properties, isCreate: false);
+
+        // state is top-level and undeclared: never written to an existing policy.
+        Assert.False(properties.ContainsKey("state"));
+
+        // conditions and grantControls are declared and replaced whole by Graph: their defaults stay, or the PATCH would clear them.
+        Assert.Equal("""["all"]""", properties["conditions"]!["clientAppTypes"]!.ToJsonString());
+        Assert.Equal("OR", properties["grantControls"]!["operator"]!.GetValue<string>());
+
+        var declared = Policy(DefaultConditions, state: "disabled");
+        ConditionalAccessPoliciesRules.NormalizeDesired(declared, isCreate: false);
+        Assert.Equal("disabled", declared["state"]!.GetValue<string>());
     }
 
     [Fact]

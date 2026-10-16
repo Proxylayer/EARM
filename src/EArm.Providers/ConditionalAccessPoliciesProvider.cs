@@ -28,7 +28,8 @@ namespace EArm.Providers;
 /// </para>
 /// <para>
 /// <see cref="Plan"/> normalises the evaluated properties in place (defaults, <c>authenticationStrength</c> reduced to
-/// <c>{ id }</c>; see <see cref="ConditionalAccessPoliciesRules.NormalizeDesired"/>) and refuses (unsupported row)
+/// <c>{ id }</c>; see <see cref="ConditionalAccessPoliciesRules.NormalizeDesired"/>: the top-level <c>state</c> default
+/// applies only to a policy EARM creates, so an existing policy's undeclared <c>state</c> is never written) and refuses (unsupported row)
 /// what Graph would reject or what the plan guards against: <c>state: enabled</c> without <c>--allow-ca-enforce</c>,
 /// an empty applications or users include, no control at all, <c>block</c> combined with another control, <c>mfa</c>
 /// with <c>authenticationStrength</c>, the lockout pattern, and preview-only properties on v1.0. The live object is
@@ -120,7 +121,7 @@ public sealed class ConditionalAccessPoliciesProvider : ProviderBase, IOrphanCan
             return base.Plan(desired, existing, options);
         }
 
-        ConditionalAccessPoliciesRules.NormalizeDesired(properties);
+        ConditionalAccessPoliciesRules.NormalizeDesired(properties, isCreate: existing is null);
         ConditionalAccessPoliciesRules.MarkRemovedControls(properties, existing?.Properties);
         var problems = ConditionalAccessPoliciesRules.Problems(properties, desired.Api, options.AllowCaEnforce);
         if (problems.Count > 0)
@@ -143,7 +144,7 @@ public sealed class ConditionalAccessPoliciesProvider : ProviderBase, IOrphanCan
         var properties = desired.Properties
             ?? throw new InvalidOperationException($"{desired.Describe()}: properties must be evaluated before creating.");
 
-        RequireValid(desired, properties);
+        RequireValid(desired, properties, isCreate: true);
         var body = BuildCreateBody(desired);
         ConditionalAccessPoliciesRules.FinishCreateBody(body, properties);
         RequireValidBody(desired, body, isCreate: true);
@@ -168,7 +169,7 @@ public sealed class ConditionalAccessPoliciesProvider : ProviderBase, IOrphanCan
             ?? throw new InvalidOperationException($"{desired.Describe()}: properties must be evaluated before updating.");
 
         ConditionalAccessPoliciesRules.MarkRemovedControls(properties, existing.Properties);
-        RequireValid(desired, properties);
+        RequireValid(desired, properties, isCreate: false);
         existing = ProviderSupport.PruneLiveOnly(Definition, properties, existing);
         var body = BuildPatchBody(desired, existing, change);
         ConditionalAccessPoliciesRules.FinishPatchBody(body, existing.Properties);
@@ -249,9 +250,9 @@ public sealed class ConditionalAccessPoliciesProvider : ProviderBase, IOrphanCan
     }
 
     /// <summary>The same normalisation and checks as <see cref="Plan"/>, for callers that skip planning; a problem is a hard error before any write.</summary>
-    private void RequireValid(ResourceInstance desired, JsonObject properties)
+    private void RequireValid(ResourceInstance desired, JsonObject properties, bool isCreate)
     {
-        ConditionalAccessPoliciesRules.NormalizeDesired(properties);
+        ConditionalAccessPoliciesRules.NormalizeDesired(properties, isCreate);
         var problems = ConditionalAccessPoliciesRules.Problems(properties, desired.Api, _planOptions.AllowCaEnforce);
         if (problems.Count > 0)
         {

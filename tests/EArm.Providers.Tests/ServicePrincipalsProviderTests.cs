@@ -150,7 +150,7 @@ public sealed class ServicePrincipalsProviderTests
     }
 
     [Fact]
-    public async Task DefaultDrift_IsCorrected_AndNestedObjectsArePatchedWhole()
+    public async Task UndeclaredDefaults_OnAnExistingPrincipal_AreLeftAlone_DeclaredOnesAreEnforced_AndNestedObjectsArePatchedWhole()
     {
         string appId = Guid.NewGuid().ToString("D");
         var disabled = new ProviderHost();
@@ -158,12 +158,22 @@ public sealed class ServicePrincipalsProviderTests
         disabled.Directory.AddServicePrincipal(appId, "Test API", sp =>
         {
             sp["accountEnabled"] = false;
-            sp["appRoleAssignmentRequired"] = false;
+            sp["appRoleAssignmentRequired"] = true;
         });
 
-        var fix = await disabled.CreateAsync(disabled.Resources(LiteralSp(appId, """{ "tags": [] }""")));
+        // Neither default is declared: the disabled, assignment-required principal is left as it is.
+        var untouched = await disabled.CreateAsync(disabled.Resources(LiteralSp(appId, """{ "tags": [] }""")));
+        Check.Succeeded(untouched);
+        Assert.Equal(ChangeType.NoChange, untouched.OpOfType(SpType).ChangeType);
+        Check.NoWrites(untouched);
+        var live = disabled.Directory.Find("/servicePrincipals", "appId", appId)!;
+        Assert.False(live["accountEnabled"]!.GetValue<bool>());
+        Assert.True(live["appRoleAssignmentRequired"]!.GetValue<bool>());
+
+        // Declared, the same values are enforced.
+        var fix = await disabled.CreateAsync(disabled.Resources(LiteralSp(appId, """{ "accountEnabled": true, "appRoleAssignmentRequired": false }""")));
         Assert.Equal(ChangeType.Modify, fix.OpOfType(SpType).ChangeType);
-        Assert.Equal("""{"accountEnabled":true}""", Assert.Single(fix.Writes).Body!.ToJsonString());
+        Assert.Equal("""{"accountEnabled":true,"appRoleAssignmentRequired":false}""", Assert.Single(fix.Writes).Body!.ToJsonString());
 
         var saml = new ProviderHost();
         saml.Directory.AddApplication(AppName, "Test API", appId);
@@ -226,6 +236,34 @@ public sealed class ServicePrincipalsProviderTests
         Assert.Equal("""{"notes":"managed by EARM"}""", writes[1].Body!.ToJsonString());
         Assert.Equal(1, drift.Directory.Count("/servicePrincipals"));
         Assert.Equal("managed by EARM", drift.Directory.Find("/servicePrincipals", "appId", appId)!["notes"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public async Task AlreadyExistsOnPost_TheAdoptedPrincipal_DoesNotReceiveTheCreateDefaults()
+    {
+        string appId = Guid.NewGuid().ToString("D");
+        var host = new ProviderHost();
+        host.Directory.AddApplication(AppName, "Test API", appId);
+        var seeded = host.Directory.AddServicePrincipal(appId, "Test API", sp =>
+        {
+            sp["accountEnabled"] = false;
+            sp["appRoleAssignmentRequired"] = true;
+            sp["tags"] = new JsonArray("WindowsAzureActiveDirectoryIntegratedApp");
+            sp["notes"] = "managed by EARM";
+        });
+        host.Fake.Failures.ReplicationLag("servicePrincipals(appId=", times: 1, method: "GET");
+
+        var run = await host.CreateAsync(host.Resources(AppMinimalResource + "," + SpResource));
+
+        Check.Succeeded(run);
+        Assert.Equal(ChangeType.Create, run.OpOfType(SpType).ChangeType);
+        Assert.Equal(seeded["id"]!.GetValue<string>(), run.OpOfType(SpType).GraphId);
+
+        // The POST carried the create defaults; the adoption that followed the "already exists" answer did not PATCH them.
+        var write = Assert.Single(run.Writes);
+        Assert.Equal("POST", write.Method);
+        Assert.Contains("\"accountEnabled\":true", write.Body!.ToJsonString(), StringComparison.Ordinal);
+        Assert.False(host.Directory.Find("/servicePrincipals", "appId", appId)!["accountEnabled"]!.GetValue<bool>());
     }
 
     [Fact]

@@ -30,10 +30,14 @@ public static class AdministrativeUnitsRules
     /// <summary>
     /// Normalises the evaluated properties in place and returns the problems found (empty when the object is valid):
     /// <c>membershipType</c> and <c>membershipRuleProcessingState</c> are put into their canonical casing, a dynamic
-    /// unit requires <c>membershipRule</c> and gets <c>membershipRuleProcessingState: On</c> when none is declared,
-    /// and <c>isMemberManagementRestricted</c> must be a boolean. Deploy-time-unknown leaves are left alone.
+    /// unit requires <c>membershipRule</c> and gets <c>membershipRuleProcessingState: On</c> when none is declared and the
+    /// unit becomes dynamic in this run (it is created, or its live <paramref name="liveMembershipType"/> is not
+    /// <c>Dynamic</c>); a unit that is already dynamic keeps its live processing state, so a paused unit stays paused.
+    /// <c>isMemberManagementRestricted</c> must be a boolean. Deploy-time-unknown leaves are left alone.
     /// </summary>
-    public static IReadOnlyList<string> NormalizeDesired(JsonObject properties)
+    /// <param name="properties">The evaluated properties, normalised in place.</param>
+    /// <param name="liveMembershipType">The live unit's <c>membershipType</c>; <c>null</c> when the unit is created (or is assigned).</param>
+    public static IReadOnlyList<string> NormalizeDesired(JsonObject properties, string? liveMembershipType)
     {
         ArgumentNullException.ThrowIfNull(properties);
         var problems = new List<string>();
@@ -69,9 +73,10 @@ public static class AdministrativeUnitsRules
                 properties[JsonObjects.FindKey(properties, "membershipRuleProcessingState")!] = canonicalState;
             }
         }
-        else if (string.Equals(membershipType, MembershipDynamic, StringComparison.Ordinal) && hasRule)
+        else if (string.Equals(membershipType, MembershipDynamic, StringComparison.Ordinal) && hasRule
+            && !string.Equals(liveMembershipType, MembershipDynamic, StringComparison.OrdinalIgnoreCase))
         {
-            // A dynamic unit is created with its rule processing switched on.
+            // A unit that becomes dynamic (created, or switched from assigned) starts with its rule processing on.
             properties[JsonObjects.FindKey(properties, "membershipRuleProcessingState") ?? "membershipRuleProcessingState"] = ProcessingOn;
         }
 

@@ -56,18 +56,35 @@ public sealed class AuthenticationProvidersTests
     public void ContextNormalizeDesired_DefaultsIsAvailable_AndReportsShapeProblems()
     {
         var ok = (JsonObject)JsonNode.Parse("""{ "displayName": "Sensitive", "isAvailable": null }""")!;
-        Assert.Empty(AuthenticationContextClassReferencesRules.NormalizeDesired(ok));
+        Assert.Empty(AuthenticationContextClassReferencesRules.NormalizeDesired(ok, isCreate: true));
         Assert.True(ok["isAvailable"]!.GetValue<bool>());
 
         var missing = new JsonObject();
-        Assert.Contains(AuthenticationContextClassReferencesRules.NormalizeDesired(missing), p => p.Contains("displayName is required", StringComparison.Ordinal));
+        Assert.Contains(AuthenticationContextClassReferencesRules.NormalizeDesired(missing, isCreate: true), p => p.Contains("displayName is required", StringComparison.Ordinal));
         Assert.True(missing["isAvailable"]!.GetValue<bool>());
 
         var wrong = (JsonObject)JsonNode.Parse("""{ "displayName": 5, "description": 6, "isAvailable": "yes" }""")!;
-        var problems = AuthenticationContextClassReferencesRules.NormalizeDesired(wrong);
+        var problems = AuthenticationContextClassReferencesRules.NormalizeDesired(wrong, isCreate: true);
         Assert.Contains(problems, p => p.Contains("displayName must be a string", StringComparison.Ordinal));
         Assert.Contains(problems, p => p.Contains("description must be a string", StringComparison.Ordinal));
         Assert.Contains(problems, p => p.Contains("isAvailable must be a boolean", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ContextNormalizeDesired_ExistingContext_LeavesAnUndeclaredIsAvailableAlone()
+    {
+        var undeclared = (JsonObject)JsonNode.Parse("""{ "displayName": "Sensitive" }""")!;
+        Assert.Empty(AuthenticationContextClassReferencesRules.NormalizeDesired(undeclared, isCreate: false));
+        Assert.False(undeclared.ContainsKey("isAvailable"));
+
+        // An explicit null is a declaration meaning the default.
+        var explicitNull = (JsonObject)JsonNode.Parse("""{ "displayName": "Sensitive", "isAvailable": null }""")!;
+        Assert.Empty(AuthenticationContextClassReferencesRules.NormalizeDesired(explicitNull, isCreate: false));
+        Assert.True(explicitNull["isAvailable"]!.GetValue<bool>());
+
+        var declared = (JsonObject)JsonNode.Parse("""{ "displayName": "Sensitive", "isAvailable": false }""")!;
+        Assert.Empty(AuthenticationContextClassReferencesRules.NormalizeDesired(declared, isCreate: false));
+        Assert.False(declared["isAvailable"]!.GetValue<bool>());
     }
 
     [Fact]
@@ -189,6 +206,25 @@ public sealed class AuthenticationProvidersTests
         Assert.Equal("PATCH", write.Method);
         Assert.Equal(AccrPath + "/c10", write.Path);
         Assert.Equal("""{"displayName":"New"}""", write.Body!.ToJsonString());
+    }
+
+    [Fact]
+    public async Task Context_SwitchedOffOutsideEarm_StaysOffUnlessIsAvailableIsDeclared()
+    {
+        var host = new ProviderHost();
+        host.Directory.Add(AccrPath, new JsonObject { ["id"] = "c10", ["displayName"] = "Sensitive", ["description"] = "d", ["isAvailable"] = false });
+
+        var undeclared = await host.CreateAsync(host.Resources(Accr("c10", """{ "displayName": "Sensitive", "description": "d" }""")));
+
+        Check.Succeeded(undeclared);
+        Assert.Equal(ChangeType.NoChange, Assert.Single(undeclared.Executed.Operations).ChangeType);
+        Check.NoWrites(undeclared);
+        Assert.False(host.Directory.Find(AccrPath, "id", "c10")!["isAvailable"]!.GetValue<bool>());
+
+        var declared = await host.CreateAsync(host.Resources(Accr("c10", """{ "displayName": "Sensitive", "description": "d", "isAvailable": true }""")));
+
+        Check.Succeeded(declared);
+        Assert.Equal("""{"isAvailable":true}""", Assert.Single(declared.Writes).Body!.ToJsonString());
     }
 
     [Theory]

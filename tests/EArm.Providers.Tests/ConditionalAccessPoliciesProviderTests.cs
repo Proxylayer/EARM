@@ -142,6 +142,28 @@ public sealed class ConditionalAccessPoliciesProviderTests
     }
 
     [Fact]
+    public async Task ExistingPolicy_WithoutADeclaredState_KeepsItsLiveState_AndADeclaredStateIsEnforced()
+    {
+        var host = new ProviderHost();
+        await host.CreateAsync(host.Resources(Policy(state: "disabled")));
+        string id = host.IdOf(PolPath, "displayName", PolName);
+
+        // state undeclared: the disabled policy is not switched to report-only.
+        var undeclared = await host.CreateAsync(host.Resources(Policy()));
+        Check.Succeeded(undeclared);
+        Assert.Equal(ChangeType.NoChange, Assert.Single(undeclared.Executed.Operations).ChangeType);
+        Check.NoWrites(undeclared);
+        Assert.Equal("disabled", host.Directory.FindById(id)!["state"]!.GetValue<string>());
+
+        // state declared: enforced.
+        var declared = await host.CreateAsync(host.Resources(Policy(state: "enabledForReportingButNotEnforced")));
+        Check.Succeeded(declared);
+        var patch = Assert.Single(declared.Writes);
+        Assert.Equal(PolPath + "/" + id, patch.Path);
+        Assert.Equal("{\"state\":\"enabledForReportingButNotEnforced\"}", patch.Body!.ToJsonString());
+    }
+
+    [Fact]
     public async Task GrantControlsChange_PatchesTheFullObject_AndStrengthSwitchClearsBuiltIns()
     {
         var host = new ProviderHost();

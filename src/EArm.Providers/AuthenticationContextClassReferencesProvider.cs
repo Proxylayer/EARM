@@ -27,8 +27,9 @@ namespace EArm.Providers;
 /// </para>
 /// <para>
 /// <see cref="Plan"/> validates the name against <see cref="AuthenticationContextClassReferencesRules.IdPattern"/>,
-/// requires <c>displayName</c> and defaults <c>isAvailable</c> to <c>true</c> in the evaluated properties, so a context
-/// switched off outside EARM shows as drift. The id is immutable by definition: a different name is a different
+/// requires <c>displayName</c> and, for a context EARM creates, defaults <c>isAvailable</c> to <c>true</c> in the evaluated
+/// properties. An existing context's undeclared <c>isAvailable</c> is never written: one switched off outside EARM shows
+/// as drift only when the template declares <c>isAvailable: true</c>. The id is immutable by definition: a different name is a different
 /// resource, never a recreate.
 /// </para>
 /// </summary>
@@ -90,7 +91,7 @@ public sealed class AuthenticationContextClassReferencesProvider : ProviderBase,
             return base.Plan(desired, existing, options);
         }
 
-        var problems = Problems(desired, properties);
+        var problems = Problems(desired, properties, isCreate: existing is null);
         if (problems.Count > 0)
         {
             return Unsupported(desired, existing, $"{desired.Describe()}: {string.Join("; ", problems)}.");
@@ -108,7 +109,7 @@ public sealed class AuthenticationContextClassReferencesProvider : ProviderBase,
         var properties = desired.Properties
             ?? throw new InvalidOperationException($"{desired.Describe()}: properties must be evaluated before creating.");
 
-        RequireValid(desired, properties);
+        RequireValid(desired, properties, isCreate: true);
         var body = BuildCreateBody(desired);
         AuthenticationContextClassReferencesRules.RemoveServerAssigned(body);
 
@@ -137,7 +138,7 @@ public sealed class AuthenticationContextClassReferencesProvider : ProviderBase,
         var properties = desired.Properties
             ?? throw new InvalidOperationException($"{desired.Describe()}: properties must be evaluated before updating.");
 
-        RequireValid(desired, properties);
+        RequireValid(desired, properties, isCreate: false);
         var body = BuildPatchBody(desired, existing, change);
         AuthenticationContextClassReferencesRules.RemoveServerAssigned(body);
 
@@ -206,7 +207,7 @@ public sealed class AuthenticationContextClassReferencesProvider : ProviderBase,
     }
 
     /// <summary>The name check (skipped while the name is symbolic) and the in-place normalisation of the properties.</summary>
-    private static List<string> Problems(ResourceInstance desired, JsonObject properties)
+    private static List<string> Problems(ResourceInstance desired, JsonObject properties, bool isCreate)
     {
         var problems = new List<string>();
         if (!desired.IsSymbolic && AuthenticationContextClassReferencesRules.NameProblem(desired.Id.NameLeaf) is { } nameProblem)
@@ -214,14 +215,14 @@ public sealed class AuthenticationContextClassReferencesProvider : ProviderBase,
             problems.Add(nameProblem);
         }
 
-        problems.AddRange(AuthenticationContextClassReferencesRules.NormalizeDesired(properties));
+        problems.AddRange(AuthenticationContextClassReferencesRules.NormalizeDesired(properties, isCreate));
         return problems;
     }
 
     /// <summary>The same checks as <see cref="Plan"/>, for callers that skip planning; a problem is a hard error before any write.</summary>
-    private static void RequireValid(ResourceInstance desired, JsonObject properties)
+    private static void RequireValid(ResourceInstance desired, JsonObject properties, bool isCreate)
     {
-        var problems = Problems(desired, properties);
+        var problems = Problems(desired, properties, isCreate);
         if (problems.Count > 0)
         {
             throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{desired.Describe()}: {string.Join("; ", problems)}.", desired.Id);
