@@ -258,8 +258,13 @@ public sealed class GraphBehaviourProbes : IntegrationTestBase
         string path = $"{PoliciesPath}/{policy.RequireId()}";
         Fixture.Track(path);
 
+        // A PATCH right after the POST can answer 404 until the new policy replicates: wait until a GET sees it, and let
+        // the requests themselves retry replication lag too.
+        var replicated = await EventuallyAsync(() => Graph.GetObjectAsync(new GraphRequest(path), Ct), live => live is not null, 90);
+        Assert.True(replicated is not null, $"The CA policy {path} was not readable 90 s after its POST.");
+
         // 1. [] clears a collection inside conditions (the provider coerces its explicit nulls to []).
-        await Graph.PatchAsync(new GraphRequest(path), new JsonObject { ["conditions"] = Conditions(included.RequireId(), null) }, Ct);
+        await Graph.PatchAsync(new GraphRequest(path).WithHint(RetryHint.ExpectReplicationLag), new JsonObject { ["conditions"] = Conditions(included.RequireId(), null) }, Ct);
         var afterEmpty = await Graph.GetObjectAsync(new GraphRequest(path), Ct);
         report.Expect(
             afterEmpty.Nested("conditions.users").IsEmptyOrAbsent("excludeGroups"),
