@@ -59,8 +59,13 @@ public sealed class AuthMethodScenarioTests : IntegrationTestBase
             AssertChange(preview, "/temporaryAccessPass", "Modify", "what-if of the safe toggles");
             AssertCreated(await Fixture.Cli.CreateAsync(changedRun, Ct), "create with the safe toggles");
 
-            var tap = await ReadAsync("temporaryAccessPass");
-            foreach (var (name, value) in Declared(changed, "temporaryAccessPass"))
+            // Graph accepts the PATCH (204) and serves the previous values for a while: every read-back waits (up to ~60 s) for the declared values.
+            var declaredTap = Declared(changed, "temporaryAccessPass").ToList();
+            var tap = await EventuallyAsync(
+                () => ReadAsync("temporaryAccessPass"),
+                live => declaredTap.All(d => AuthMethodRestoreGuard.Canonical(live[d.Key]) == AuthMethodRestoreGuard.Canonical(d.Value)),
+                seconds: 60);
+            foreach (var (name, value) in declaredTap)
             {
                 Assert.True(
                     AuthMethodRestoreGuard.Canonical(tap[name]) == AuthMethodRestoreGuard.Canonical(value),
@@ -69,13 +74,17 @@ public sealed class AuthMethodScenarioTests : IntegrationTestBase
 
             if (HasResource(changed, "fido2"))
             {
-                var fido2 = await ReadAsync("fido2");
+                var fido2 = await EventuallyAsync(
+                    () => ReadAsync("fido2"),
+                    live => live.Nested("keyRestrictions").Strings("aaGuids").Contains(TestAaGuid, StringComparer.OrdinalIgnoreCase),
+                    seconds: 60);
                 Assert.Contains(TestAaGuid, fido2.Nested("keyRestrictions").Strings("aaGuids"), StringComparer.OrdinalIgnoreCase);
             }
 
             if (HasResource(changed, "softwareOath"))
             {
-                Assert.Equal("enabled", (await ReadAsync("softwareOath")).Text("state"), ignoreCase: true);
+                var oath = await EventuallyAsync(() => ReadAsync("softwareOath"), live => string.Equals(live.Text("state"), "enabled", StringComparison.OrdinalIgnoreCase), seconds: 60);
+                Assert.Equal("enabled", oath.Text("state"), ignoreCase: true);
             }
 
             await AssertNoChangesEventuallyAsync(() => Fixture.Cli.WhatIfAsync(changedRun, Ct, "--exit-code-on-changes"), "rerun of the safe toggles");
@@ -86,7 +95,7 @@ public sealed class AuthMethodScenarioTests : IntegrationTestBase
             await AssertNoChangesEventuallyAsync(() => Fixture.Cli.WhatIfAsync(originalRun, Ct, "--exit-code-on-changes"), "rerun of the snapshot values");
             foreach (string method in Methods)
             {
-                var live = await ReadAsync(method);
+                var live = await EventuallyAsync(() => ReadAsync(method), read => AuthMethodRestoreGuard.Differences(snapshots[method], read).Count == 0, seconds: 60);
                 var differing = AuthMethodRestoreGuard.Differences(snapshots[method], live);
                 Assert.True(differing.Count == 0, $"{method} differs from its snapshot after EARM deployed the snapshot values back: {string.Join(", ", differing)}");
             }

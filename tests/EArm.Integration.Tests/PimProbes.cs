@@ -153,10 +153,26 @@ public sealed class PimProbes : IntegrationTestBase
             $"the adminAssign response's targetScheduleId ({response.Text("targetScheduleId")}, id {response.Text("id")}) is not the schedule's id ({schedule.Text("id")}); the stand-in used until the schedule is listed would carry a wrong id. Fix StandInFor in src/EArm.Providers/PimScheduleRequestsProvider.cs.");
 
         // adminUpdate to a fractional-second end: the comparison tolerates TimeTolerance, the update keeps one Direct schedule for the tuple.
+        // Variant "omit" leaves startDateTime out (what UpdateAsync sends for a declared past start); variant "live start" reuses the schedule's own
+        // start. Both repeat RoleAssignmentExists (answered while a just-replaced schedule settles) with the provider's doubling backoff.
         var end = PimReads.DaysFromNow(40);
         var scheduleInfo = PimReads.ScheduleInfo(end: end);
         scheduleInfo["expiration"]!["endDateTime"] = PimReads.Iso(end).Replace("Z", ".500Z", StringComparison.Ordinal);
-        var update = await PimReads.SendAsync(Graph, RoleSchedulesLookup.EligibilityRequestsPath, PimReads.RoleRequest(PimScheduleRequests.AdminUpdate, userId, role, scheduleInfo), Ct);
+        scheduleInfo.Remove("startDateTime");
+        var (update, omitOutcome) = await TryAdminUpdateAsync(userId, role, scheduleInfo, "omit startDateTime");
+        report.Observe(omitOutcome);
+        if (update is null && schedule.Nested("scheduleInfo")?.Text("startDateTime") is { } liveStart)
+        {
+            var withLiveStart = (JsonObject)scheduleInfo.DeepClone();
+            withLiveStart["startDateTime"] = liveStart;
+            (update, string liveOutcome) = await TryAdminUpdateAsync(userId, role, withLiveStart, "live startDateTime " + liveStart);
+            report.Observe(liveOutcome);
+        }
+
+        report.Expect(
+            omitOutcome.Contains("ACCEPTED", StringComparison.Ordinal),
+            $"an adminUpdate without startDateTime was not accepted ({omitOutcome}); PimScheduleRequestsProvider.UpdateSchedule leaves a declared past start out, so switch it to the variant this probe found working (src/EArm.Providers/PimScheduleRequestsProvider.cs).");
+        Assert.NotNull(update);
         report.Observe($"adminUpdate response: id={update.Text("id")} targetScheduleId={update.Text("targetScheduleId")} status={update.Text("status")}");
         var declaredEnd = end.AddMilliseconds(500);
         var updated = await EventuallyAsync(
@@ -181,6 +197,36 @@ public sealed class PimProbes : IntegrationTestBase
 
         await PimReads.SendAsync(Graph, RoleSchedulesLookup.EligibilityRequestsPath, PimReads.RoleRequest(PimScheduleRequests.AdminRemove, userId, role, null), Ct);
         report.Complete();
+    }
+
+    /// <summary>
+    /// One adminUpdate of the role eligibility, repeated on RoleAssignmentExists with the provider's schedule (5 s, doubling, within 90 s): the response, or
+    /// <c>null</c> with the refusal; the outcome text says ACCEPTED or REFUSED and how many RoleAssignmentExists answers came first.
+    /// </summary>
+    private async Task<(JsonObject? Response, string Outcome)> TryAdminUpdateAsync(string userId, string role, JsonObject scheduleInfo, string variant)
+    {
+        var delay = TimeSpan.FromSeconds(5);
+        var waited = TimeSpan.Zero;
+        int exists = 0;
+        while (true)
+        {
+            try
+            {
+                var response = await PimReads.SendAsync(Graph, RoleSchedulesLookup.EligibilityRequestsPath, PimReads.RoleRequest(PimScheduleRequests.AdminUpdate, userId, role, scheduleInfo), Ct);
+                return (response, $"adminUpdate ({variant}): ACCEPTED after {exists} RoleAssignmentExists answer(s), {waited.TotalSeconds.ToString(CultureInfo.InvariantCulture)} s of backoff");
+            }
+            catch (GraphException ex) when (PimScheduleRequests.IsAlreadyExists(ex) && waited + delay <= TimeSpan.FromSeconds(90))
+            {
+                exists++;
+                await Task.Delay(delay, Ct);
+                waited += delay;
+                delay += delay;
+            }
+            catch (GraphException ex)
+            {
+                return (null, $"adminUpdate ({variant}): REFUSED after {exists} RoleAssignmentExists answer(s): {ex.Message}");
+            }
+        }
     }
 
     [Fact]
