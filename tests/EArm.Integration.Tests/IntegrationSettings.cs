@@ -34,6 +34,7 @@ internal sealed record IntegrationSettings
     public const string AllowCaVariable = "EARM_IT_ALLOW_CA";
     public const string AllowRolesVariable = "EARM_IT_ALLOW_ROLES";
     public const string SweepVariable = "EARM_IT_SWEEP";
+    public const string InteractiveVariable = "EARM_IT_INTERACTIVE";
 
     /// <summary>The shortest prefix accepted; a short prefix would let the cleanup sweep match objects it does not own.</summary>
     public const int MinimumPrefixLength = 10;
@@ -56,7 +57,22 @@ internal sealed record IntegrationSettings
     /// <summary><c>EARM_IT_SWEEP=1</c>: the manual cleanup test may run.</summary>
     public bool SweepRequested { get; init; }
 
+    /// <summary>
+    /// <c>EARM_IT_INTERACTIVE=1</c>: a person is at the machine, so a user sign-in that lacks consent for the run's scopes may open ONE consent prompt
+    /// (browser) at the start of the run. Off (the default, and always in CI): the run skips with the <c>earm auth login --scopes ...</c> command instead.
+    /// A test host has no console to detect this from, so it is an explicit opt-in.
+    /// </summary>
+    public bool InteractiveConsent { get; init; }
+
     public bool IsConfigured => !string.IsNullOrWhiteSpace(TenantId);
+
+    /// <summary>True when the configuration enables tests with <paramref name="needs"/> (the gates of <see cref="IntegrationFixture.Require"/>, without the tenant check).</summary>
+    public bool Meets(Needs needs)
+    {
+        return (!needs.HasFlag(Needs.Domain) || Domain is not null)
+            && (!needs.HasFlag(Needs.ConditionalAccess) || AllowConditionalAccess)
+            && (!needs.HasFlag(Needs.Roles) || AllowRoles);
+    }
 
     public static IntegrationSettings FromEnvironment()
     {
@@ -83,6 +99,7 @@ internal sealed record IntegrationSettings
             AllowConditionalAccess = IsOn(AllowCaVariable),
             AllowRoles = IsOn(AllowRolesVariable),
             SweepRequested = IsOn(SweepVariable),
+            InteractiveConsent = IsOn(InteractiveVariable),
         };
     }
 

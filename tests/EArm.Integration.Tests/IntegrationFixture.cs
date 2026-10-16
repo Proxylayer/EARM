@@ -29,6 +29,12 @@ namespace EArm.Integration.Tests;
 /// a tenant other than <c>EARM_IT_TENANT</c> turns every test into a skip with that reason.
 /// </para>
 /// <para>
+/// Sign-in: a user sign-in (a stored <c>earm auth login</c> record, the main path) requests the delegated scopes of the enabled scenarios explicitly
+/// (<see cref="IntegrationScopes"/>: their what-if, create and delete sets plus the cleanup scopes), so one consent covers the run. When that consent is
+/// missing, <c>EARM_IT_INTERACTIVE=1</c> opens ONE consent prompt up front; otherwise every test skips with the exact <c>earm auth login --scopes ...</c>
+/// command. A service principal (<c>AZURE_*</c> variables, or <c>EARM_AUTH=default</c>) keeps <c>.default</c>.
+/// </para>
+/// <para>
 /// Cleanup guard: <see cref="DisposeAsync"/> (1) sweeps everything whose name starts with the run
 /// prefix (<see cref="TenantCleanup"/>) and purges their soft-deleted copies, (2) writes a log into the run
 /// directory and fails loudly when a live object with the prefix could not be removed. Objects without the prefix are
@@ -76,6 +82,12 @@ public sealed class IntegrationFixture : IAsyncLifetime
 
     /// <summary>What the preflight learned (tenant, signed-in principal); null until a sign-in was verified.</summary>
     public GraphPreflightResult? Session { get; private set; }
+
+    /// <summary>
+    /// The delegated Graph scopes the fixture's client requests for a user sign-in (<see cref="IntegrationScopes.ComputeAsync"/>); empty for a service
+    /// principal (<c>.default</c>).
+    /// </summary>
+    public IReadOnlyList<string> RunScopes { get; private set; } = [];
 
     /// <summary>The production Graph client (HTTP with the retry policy).</summary>
     internal HttpGraphClient Graph => _graph ?? throw NotAvailable();
@@ -182,11 +194,39 @@ public sealed class IntegrationFixture : IAsyncLifetime
 
         var cloud = GraphCloud.FromEnvironment();
         var auth = GraphAuthOptions.Resolve(null, null, null, cloud);
-        _tokens = new GraphAuthFactory(null, _loggerFactory.CreateLogger<GraphAuthFactory>()).Create(auth);
+        var factory = new GraphAuthFactory(null, _loggerFactory.CreateLogger<GraphAuthFactory>());
+
+        // A user sign-in (stored 'earm auth login' record) requests the run's delegated scopes explicitly, as the CLI does; a service principal from the
+        // AZURE_* variables (or EARM_AUTH=default) keeps .default.
+        TokenScopes? scopes = null;
+        IConsentPrompter? prompter = null;
+        if (factory.UsesStoredSignIn(auth))
+        {
+            try
+            {
+                RunScopes = await IntegrationScopes.ComputeAsync(Settings, cancellationToken);
+            }
+            catch (InvalidOperationException ex)
+            {
+                _unavailableReason = "The delegated scopes of the enabled scenarios could not be computed, so the real-tenant tests are skipped: " + ex.Message;
+                return;
+            }
+
+            scopes = TokenScopes.Explicit(cloud.GraphOrigin, RunScopes);
+            prompter = Settings.InteractiveConsent
+                ? factory.CreateConsentPrompter(auth, deviceCode: false, deviceCodeCallback: null, notice: notice => TestContext.Current.SendDiagnosticMessage("[consent] " + notice))
+                : null;
+        }
+
+        _tokens = factory.Create(auth, prompter);
         _http = HttpGraphClient.CreateHttpClient();
         var retryPolicy = new RetryPolicy(_loggerFactory.CreateLogger<RetryPolicy>());
-        _graph = new HttpGraphClient(_http, _tokens, retryPolicy, new GraphOptions { Cloud = cloud }, _loggerFactory.CreateLogger<HttpGraphClient>());
-        var preflight = new GraphPreflight(_tokens, _graph, cloud, auth.Mode, _loggerFactory.CreateLogger<GraphPreflight>());        Providers = ProviderDiscovery.CreateRegistry(ResourceTypeCatalog.Default);
+        _graph = new HttpGraphClient(_http, _tokens, retryPolicy, new GraphOptions { Cloud = cloud, Scopes = scopes }, _loggerFactory.CreateLogger<HttpGraphClient>());
+
+        // The preflight prompts through the provider (credential renewed after consent), like EngineServices.
+        var preflightPrompter = _tokens is AzureIdentityTokenProvider provider ? provider.ConsentPrompter : prompter;
+        var preflight = new GraphPreflight(_tokens, _graph, cloud, auth.Mode, _loggerFactory.CreateLogger<GraphPreflight>(), scopes, preflightPrompter);
+        Providers = ProviderDiscovery.CreateRegistry(ResourceTypeCatalog.Default);
         EdgeKinds = ProviderDiscovery.CreateEdgeKinds(ResourceTypeCatalog.Default);
 
         try
@@ -195,7 +235,9 @@ public sealed class IntegrationFixture : IAsyncLifetime
         }
         catch (Exception ex) when (ex is GraphTransportException or GraphException)
         {
-            _unavailableReason = $"The sign-in preflight failed, so the real-tenant tests are skipped: {ex.Message}";
+            _unavailableReason = ConsentRequiredException.FindIn(ex) is { } consent
+                ? ConsentMissingReason(consent, auth)
+                : $"The sign-in preflight failed, so the real-tenant tests are skipped: {ex.Message}";
             return;
         }
 
@@ -301,6 +343,20 @@ public sealed class IntegrationFixture : IAsyncLifetime
         catch (UnauthorizedAccessException)
         {
         }
+    }
+
+    /// <summary>
+    /// Why the run skips when the user sign-in lacks consent and no prompt is allowed: the missing scopes and the ONE command that consents the whole run
+    /// (the full list, so a later run with the same gates needs no further consent).
+    /// </summary>
+    private string ConsentMissingReason(ConsentRequiredException consent, GraphAuthOptions auth)
+    {
+        string? clientId = auth.ClientId ?? (PublicClients.NameOf(consent.ClientId) is null ? consent.ClientId : null);
+        string account = string.IsNullOrWhiteSpace(consent.Account) ? "The stored sign-in" : $"The stored sign-in ({consent.Account})";
+        return $"{account} has not been granted every delegated scope the enabled scenarios need (missing: {string.Join(' ', consent.Scopes.Names)}), so the real-tenant tests are skipped. "
+            + $"Consent once, interactively, for the whole run with:{Environment.NewLine}  {IntegrationScopes.LoginCommand(RunScopes, Settings.TenantId, clientId)}{Environment.NewLine}"
+            + $"or set {IntegrationSettings.InteractiveVariable}=1 to be prompted once at the start of the run. "
+            + GraphAuthGuidance.SharedConsentNote;
     }
 
     private InvalidOperationException NotAvailable()

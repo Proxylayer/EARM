@@ -277,7 +277,11 @@ public sealed class RunScopeConsentTests
         Assert.Equal(GraphTransportFailure.NotAuthenticated, error.Failure);
         var consent = ConsentRequiredException.FindIn(error)!;
         Assert.Equal(["Group.Read.All"], consent.Scopes.Names);
+        Assert.Equal(ConsentGap.ScopesMissingFromToken, consent.Gap);
         Assert.Contains("lacks requested delegated scopes", error.Message, StringComparison.Ordinal);
+        Assert.Contains("scp does not include Group.Read.All", error.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("AADSTS65001", error.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("no access token could be obtained", error.Message, StringComparison.Ordinal);
         Assert.Contains("earm auth login --scopes Group.Read.All", error.Message, StringComparison.Ordinal);
         Assert.Empty(handler.Requests);
     }
@@ -326,8 +330,68 @@ public sealed class RunScopeConsentTests
         var error = await Assert.ThrowsAsync<GraphTransportException>(() => preflight.RunAsync(Ct));
 
         Assert.Contains("was not completed", error.Message, StringComparison.Ordinal);
-        Assert.NotNull(ConsentRequiredException.FindIn(error));
+        Assert.Equal(ConsentGap.ScopesMissingFromToken, ConsentRequiredException.FindIn(error)!.Gap);
+        Assert.DoesNotContain("AADSTS65001", error.Message, StringComparison.Ordinal);
         Assert.Empty(handler.Requests);
+    }
+
+    // ---- consent guidance wording: refused silent request vs. a token without the scopes --------------------------------
+
+    [Fact]
+    public void ConsentGuidance_ForARefusedSilentRequest_NamesAADSTS65001_AndThatNoTokenWasIssued()
+    {
+        var consent = new ConsentRequiredException(GraphRead, "alice@contoso.example", PublicClients.GraphCommandLineTools, innerException: null);
+
+        var message = GraphAuthGuidance.ConsentNeeded(consent);
+
+        Assert.Equal(ConsentGap.SilentRequestRefused, consent.Gap);
+        Assert.StartsWith("Consent needed: your sign-in (alice@contoso.example) has not been granted User.Read Organization.Read.All Group.Read.All for https://graph.microsoft.com (AADSTS65001)", message, StringComparison.Ordinal);
+        Assert.Contains("no access token could be obtained without a consent prompt", message, StringComparison.Ordinal);
+        Assert.DoesNotContain("scp", message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ConsentGuidance_ForATokenWithoutTheScopes_SaysATokenWasIssued_WithoutAADSTS65001_AndKeepsTheConsentCommand()
+    {
+        var missing = TokenScopes.Explicit("https://graph.microsoft.com", "Group.Read.All", "Policy.Read.All");
+        var consent = new ConsentRequiredException(missing, "alice@contoso.example", PublicClients.GraphCommandLineTools, innerException: null, ConsentGap.ScopesMissingFromToken);
+
+        var message = GraphAuthGuidance.ConsentNeeded(consent);
+
+        Assert.StartsWith("Consent needed: your sign-in (alice@contoso.example) got an access token for https://graph.microsoft.com whose scp does not include Group.Read.All Policy.Read.All", message, StringComparison.Ordinal);
+        Assert.Contains("not (or no longer) granted to the sign-in app", message, StringComparison.Ordinal);
+        Assert.Contains("stopped before reading or writing anything", message, StringComparison.Ordinal);
+        Assert.DoesNotContain("AADSTS65001", message, StringComparison.Ordinal);
+        Assert.DoesNotContain("no access token could be obtained", message, StringComparison.Ordinal);
+        Assert.Contains("earm auth login --scopes Group.Read.All Policy.Read.All" + Environment.NewLine, message, StringComparison.Ordinal);
+        Assert.Contains("earm auth login -f <template>", message, StringComparison.Ordinal);
+        Assert.Contains(GraphAuthGuidance.SharedConsentNote, message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ConsentGuidance_ForATokenWithoutTheScopes_OfACustomClient_KeepsTheClientArgument()
+    {
+        const string custom = "22222222-2222-2222-2222-222222222222";
+        var consent = new ConsentRequiredException(TokenScopes.Explicit("https://graph.microsoft.com", "Group.Read.All"), null, custom, innerException: null, ConsentGap.ScopesMissingFromToken);
+
+        var message = GraphAuthGuidance.ConsentNeeded(consent);
+
+        Assert.StartsWith("Consent needed: your sign-in got an access token", message, StringComparison.Ordinal);
+        Assert.Contains("earm auth login --scopes Group.Read.All --client-id " + custom, message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Preflight_ScopesStillMissingAfterThePrompt_UseTheScpWording()
+    {
+        var tokens = new QueuedTokens(UserToken("User.Read Organization.Read.All"));
+        var (preflight, _, http) = Preflight(tokens, GraphRead, new FakePrompter(), Organization());
+        using var closeHttp = http;
+
+        var error = await Assert.ThrowsAsync<GraphTransportException>(() => preflight.RunAsync(Ct));
+
+        Assert.Equal(ConsentGap.ScopesMissingFromToken, ConsentRequiredException.FindIn(error)!.Gap);
+        Assert.Contains("scp does not include Group.Read.All", error.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("AADSTS65001", error.Message, StringComparison.Ordinal);
     }
 
     [Fact]

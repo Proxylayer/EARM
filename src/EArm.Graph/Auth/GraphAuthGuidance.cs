@@ -82,7 +82,8 @@ public static partial class GraphAuthGuidance
     public const string SharedConsentNote = "Note: consent is granted to the sign-in app (Microsoft Graph Command Line Tools by default) and is shared by every tool that signs in with that app, such as Microsoft Graph PowerShell; review or revoke it under My Apps (https://myapps.microsoft.com) or Enterprise applications.";
 
     /// <summary>
-    /// The message for a sign-in that is valid but lacks consent for some delegated scopes (AADSTS65001): which scopes of which resource, and the exact
+    /// The message for a sign-in that is valid but lacks consent for some delegated scopes: the silent request was refused (AADSTS65001), or a token was
+    /// issued without them in <c>scp</c> (<see cref="ConsentGap.ScopesMissingFromToken"/>, worded differently). Which scopes of which resource, and the exact
     /// command that consents them (<c>earm auth login --scopes ...</c>, or <c>earm auth login -f &lt;template&gt;</c> for everything a template needs).
     /// </summary>
     public static string ConsentNeeded(ConsentRequiredException consent)
@@ -97,8 +98,18 @@ public static partial class GraphAuthGuidance
 
         // Graph scopes are listed by name (as --scopes and a token's scp take them); a Key Vault scope fully qualified.
         var listed = IsKeyVault(consent.Scopes.Resource) ? consent.Scopes.Scopes : consent.Scopes.Names;
-        builder.Append(" has not been granted ").Append(string.Join(' ', listed)).Append(" for ").Append(consent.Scopes.Resource)
-            .AppendLine(" (AADSTS65001), so no access token could be obtained without a consent prompt.");
+        if (consent.Gap == ConsentGap.ScopesMissingFromToken)
+        {
+            // A token WAS issued (no AADSTS65001): its scp lacks the scopes, so the sign-in app has no grant for them (never given, or revoked since).
+            builder.Append(" got an access token for ").Append(consent.Scopes.Resource).Append(" whose scp does not include ").Append(string.Join(' ', listed))
+                .AppendLine(": those delegated permissions are not (or no longer) granted to the sign-in app, so EARM stopped before reading or writing anything.");
+        }
+        else
+        {
+            builder.Append(" has not been granted ").Append(string.Join(' ', listed)).Append(" for ").Append(consent.Scopes.Resource)
+                .AppendLine(" (AADSTS65001), so no access token could be obtained without a consent prompt.");
+        }
+
         builder.AppendLine("Grant it once, interactively, with:");
         builder.Append("  earm auth login").Append(consent.Scopes.IsDefault ? string.Empty : " --scopes " + string.Join(' ', listed)).Append(ClientArgument(consent.ClientId)).AppendLine();
         builder.Append("or consent everything a template needs: earm auth login -f <template> [-p ...] [--verb create|whatif|delete]").Append(ClientArgument(consent.ClientId)).AppendLine();

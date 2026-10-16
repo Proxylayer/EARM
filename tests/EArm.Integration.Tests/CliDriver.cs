@@ -7,6 +7,7 @@ using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 using EArm.Cli;
+using EArm.Cli.Hosting;
 
 namespace EArm.Integration.Tests;
 
@@ -90,11 +91,20 @@ internal sealed record DeploymentRun(string Name, string TemplateFile, IReadOnly
 /// <summary>
 /// Drives the real command line in-process (<see cref="Program.BuildRootCommand"/> with the production parser
 /// configuration) against the tenant. Nothing is kept between calls: every run resolves identity from the tenant. Sign-in comes from
-/// the environment (<c>AZURE_*</c>, <c>EARM_AUTH</c>) or <c>earm auth login</c>. Calls must not overlap: the global <c>-o</c> option is
+/// the environment (<c>AZURE_*</c>, <c>EARM_AUTH</c>) or <c>earm auth login</c>; a user sign-in requests each verb's delegated scopes, as in production. Calls must not overlap: the global <c>-o</c> option is
 /// static, so every test class shares one xUnit collection.
 /// </summary>
 internal sealed class CliDriver
 {
+    /// <summary>
+    /// The in-process CLI never opens a consent prompt: the fixture consented the union of every enabled scenario's scopes before the first test, so a
+    /// run that still lacks one fails with <c>ConsentRequired</c> (exit 3) instead of waiting for a browser no one may be watching.
+    /// </summary>
+    public CliDriver()
+    {
+        ConsentPrompting.TerminalIsInteractive = static () => false;
+    }
+
     public async Task<CliResult> RunAsync(IReadOnlyList<string> args, CancellationToken cancellationToken)
     {
         var argv = new List<string>(args);

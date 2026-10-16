@@ -166,7 +166,7 @@ public sealed class GraphPreflight
             return claims;
         }
 
-        var consent = new ConsentRequiredException(TokenScopes.Explicit(_scopes.Resource, missing), claims.PrincipalName, claims.AppId, innerException: null);
+        var consent = new ConsentRequiredException(TokenScopes.Explicit(_scopes.Resource, missing), claims.PrincipalName, claims.AppId, innerException: null, ConsentGap.ScopesMissingFromToken);
         if (_consentPrompter is null)
         {
             throw ScopesMissing(consent, "The access token lacks requested delegated scopes (scp: " + Describe(claims.Scopes) + ").");
@@ -183,7 +183,7 @@ public sealed class GraphPreflight
         catch (Exception ex)
         {
             var detail = GraphAuthGuidance.CredentialLines(ex);
-            throw ScopesMissing(new ConsentRequiredException(consent.Scopes, consent.Account, consent.ClientId, ex), "Consent for " + consent.Scopes + " was not completed: " + (detail.Count > 0 ? detail[0] : ex.GetType().Name));
+            throw ScopesMissing(new ConsentRequiredException(consent.Scopes, consent.Account, consent.ClientId, ex, consent.Gap), "Consent for " + consent.Scopes + " was not completed: " + (detail.Count > 0 ? detail[0] : ex.GetType().Name));
         }
 
         _tokens.Invalidate(_scopes);
@@ -197,7 +197,7 @@ public sealed class GraphPreflight
         if (stillMissing.Count > 0)
         {
             throw ScopesMissing(
-                new ConsentRequiredException(TokenScopes.Explicit(_scopes.Resource, stillMissing), renewed.PrincipalName, renewed.AppId, innerException: null),
+                new ConsentRequiredException(TokenScopes.Explicit(_scopes.Resource, stillMissing), renewed.PrincipalName, renewed.AppId, innerException: null, ConsentGap.ScopesMissingFromToken),
                 "Consent was completed, but the access token still lacks requested delegated scopes (scp: " + Describe(renewed.Scopes) + ").");
         }
 

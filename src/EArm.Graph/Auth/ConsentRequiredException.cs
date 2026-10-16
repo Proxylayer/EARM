@@ -16,13 +16,22 @@ namespace EArm.Graph.Auth;
 /// </summary>
 public sealed class ConsentRequiredException : Exception
 {
-    public ConsentRequiredException(TokenScopes scopes, string? account, string? clientId, Exception? innerException)
+    /// <param name="scopes">The scopes that need consent (one resource).</param>
+    /// <param name="account">The account of the stored sign-in, when known.</param>
+    /// <param name="clientId">The client id of the stored sign-in, when known.</param>
+    /// <param name="innerException">The failure behind it, when there is one.</param>
+    /// <param name="gap">How the missing consent showed: a refused silent request (default) or an issued token without the scopes.</param>
+    public ConsentRequiredException(TokenScopes scopes, string? account, string? clientId, Exception? innerException, ConsentGap gap = ConsentGap.SilentRequestRefused)
         : base("Consent is required for " + (scopes ?? throw new ArgumentNullException(nameof(scopes))) + ".", innerException)
     {
         Scopes = scopes;
         Account = account;
         ClientId = clientId;
+        Gap = gap;
     }
+
+    /// <summary>How the missing consent showed; the guidance words it accordingly (<see cref="GraphAuthGuidance.ConsentNeeded"/>).</summary>
+    public ConsentGap Gap { get; }
 
     /// <summary>The scope set whose silent request needed consent (one resource).</summary>
     public TokenScopes Scopes { get; }
@@ -78,4 +87,14 @@ public sealed class ConsentRequiredException : Exception
             || string.Equals(ui.ErrorCode, "consent_required", StringComparison.OrdinalIgnoreCase)
             || ui.Message.Contains("AADSTS65001", StringComparison.Ordinal);
     }
+}
+
+/// <summary>How a missing delegated consent showed up.</summary>
+public enum ConsentGap
+{
+    /// <summary>The identity provider refused the silent token request (AADSTS65001): no token was issued.</summary>
+    SilentRequestRefused,
+
+    /// <summary>A token was issued, but its <c>scp</c> claim lacks some requested scopes (the preflight's <c>scp</c> check).</summary>
+    ScopesMissingFromToken,
 }
