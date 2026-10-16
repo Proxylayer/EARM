@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Azure.Core;
@@ -37,6 +38,12 @@ public class GraphAuthFactory
     /// <summary>Name of the persistent MSAL token cache (<see cref="TokenCachePersistenceOptions.Name"/>).</summary>
     public const string CacheName = "earm";
 
+    /// <summary>
+    /// <see cref="AppContext"/> switch that makes <see cref="Logout"/> throw instead of deleting cache files in the platform cache directories.
+    /// The unit-test projects set it (tests/Directory.Build.props) so no test can ever wipe the developer's real sign-in.
+    /// </summary>
+    internal const string ForbidPlatformCacheSwitch = "EArm.Graph.Auth.ForbidPlatformTokenCacheDeletion";
+
     /// <summary>The <c>AZURE_TOKEN_CREDENTIALS</c> values that cannot enable a credential that starts a process.</summary>
     private static readonly HashSet<string> SafeTokenCredentialValues = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -60,7 +67,7 @@ public class GraphAuthFactory
 
     /// <param name="recordStore">Where the sign-in record lives; default <see cref="AuthRecordStore.DefaultPath"/>.</param>
     /// <param name="logger">Diagnostics.</param>
-    /// <param name="cacheDirectories">The directories whose <c>earm*</c> token-cache files <see cref="Logout"/> deletes; null means the platform locations (<c>.IdentityService</c> under the local application data and the user profile). Tests pass a temp directory.</param>
+    /// <param name="cacheDirectories">The directories whose <c>earm</c> token-cache files (<c>earm</c> and <c>earm.*</c>, e.g. <c>earm.cae</c> / <c>earm.nocae</c>) <see cref="Logout"/> deletes; null means the platform locations (<c>.IdentityService</c> under the local application data and the user profile). Tests pass a temp directory.</param>
     public GraphAuthFactory(AuthRecordStore? recordStore = null, ILogger? logger = null, IReadOnlyList<string>? cacheDirectories = null)
     {
         RecordStore = recordStore ?? new AuthRecordStore();
@@ -530,13 +537,19 @@ public class GraphAuthFactory
             directories.UnionWith(explicitDirectories);
         }
 
-        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.DoNotVerify);
-        var profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile, Environment.SpecialFolderOption.DoNotVerify);
-        foreach (var root in explicitDirectories is not null ? Array.Empty<string>() : new[] { localAppData, profile })
+        var platformDirectories = PlatformCacheDirectories();
+        if (explicitDirectories is null)
         {
-            if (!string.IsNullOrEmpty(root))
+            directories.UnionWith(platformDirectories);
+        }
+
+        if (AppContext.TryGetSwitch(ForbidPlatformCacheSwitch, out var forbidden) && forbidden)
+        {
+            var platform = new HashSet<string>(platformDirectories.Select(NormalizeDirectory), StringComparer.OrdinalIgnoreCase);
+            var hit = directories.FirstOrDefault(d => platform.Contains(NormalizeDirectory(d)));
+            if (hit is not null)
             {
-                directories.Add(Path.Combine(root, ".IdentityService"));
+                throw new InvalidOperationException($"Logout would delete the real '{CacheName}' token cache in '{hit}', and the switch '{ForbidPlatformCacheSwitch}' forbids that (test runs set it). Pass a temp directory as the cache directory.");
             }
         }
 
@@ -568,6 +581,27 @@ public class GraphAuthFactory
         }
 
         return deleted;
+    }
+
+    /// <summary>Where Azure.Identity persists the token cache on this platform: <c>.IdentityService</c> under the local application data and the user profile.</summary>
+    private static List<string> PlatformCacheDirectories()
+    {
+        var result = new List<string>();
+        foreach (var folder in new[] { Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolder.UserProfile })
+        {
+            var root = Environment.GetFolderPath(folder, Environment.SpecialFolderOption.DoNotVerify);
+            if (!string.IsNullOrEmpty(root))
+            {
+                result.Add(Path.Combine(root, ".IdentityService"));
+            }
+        }
+
+        return result;
+    }
+
+    private static string NormalizeDirectory(string directory)
+    {
+        return Path.TrimEndingDirectorySeparator(Path.GetFullPath(directory));
     }
 
     /// <summary>

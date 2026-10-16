@@ -14,4 +14,14 @@
     <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
   </PropertyGroup>
 
+  <!--
+    Safety net: GraphAuthFactory.Logout throws instead of deleting earm token-cache files in the platform cache
+    directories (%LOCALAPPDATA%\.IdentityService, ~/.IdentityService), so no unit test can wipe the developer's real
+    sign-in. The switch lands in each test executable's runtimeconfig.json, so it is on before any test code runs.
+    The live integration suite signs in for real and is left out.
+  -->
+  <ItemGroup Condition="'$(MSBuildProjectName)' != 'EArm.Integration.Tests'">
+    <RuntimeHostConfigurationOption Include="EArm.Graph.Auth.ForbidPlatformTokenCacheDeletion" Value="true" />
+  </ItemGroup>
+
 </Project>

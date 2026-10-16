@@ -47,7 +47,7 @@ internal sealed class EngineServices : IDisposable
         _http = overrides?.Handler is { } handler
             ? new HttpClient(handler, disposeHandler: false) { Timeout = System.Threading.Timeout.InfiniteTimeSpan }
             : HttpGraphClient.CreateHttpClient();
-        var authFactory = overrides?.AuthFactory ?? new GraphAuthFactory(overrides?.RecordStore, loggerFactory.CreateLogger<GraphAuthFactory>());
+        var authFactory = overrides?.AuthFactory ?? new GraphAuthFactory(overrides?.RecordStore, loggerFactory.CreateLogger<GraphAuthFactory>(), overrides?.TokenCacheDirectories);
         UsesDelegatedSignIn = authFactory.UsesStoredSignIn(auth);
         HasRunScopes = run.Scopes is not null;
 

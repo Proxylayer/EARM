@@ -371,7 +371,7 @@ internal static class AuthCommand
         }
 
         var overrides = invocation.Connection.Overrides ?? ServiceOverrides.Ambient;
-        factory = overrides?.AuthFactory ?? new GraphAuthFactory(overrides?.RecordStore, loggerFactory.CreateLogger<GraphAuthFactory>());
+        factory = overrides?.AuthFactory ?? new GraphAuthFactory(overrides?.RecordStore, loggerFactory.CreateLogger<GraphAuthFactory>(), overrides?.TokenCacheDirectories);
         return true;
     }
 

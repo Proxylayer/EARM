@@ -46,7 +46,9 @@ internal sealed class CliSandbox : IDisposable
         Directory.CreateDirectory(Root);
         TemplatesDir = Path.Combine(Root, "templates");
         RecordPath = Path.Combine(Root, "auth", "record.json");
+        TokenCacheDir = Path.Combine(Root, "token-cache");
         Directory.CreateDirectory(TemplatesDir);
+        Directory.CreateDirectory(TokenCacheDir);
 
         Handler = new ScriptedGraphHandler();
         Tokens = new FakeJwtTokenProvider();
@@ -56,6 +58,7 @@ internal sealed class CliSandbox : IDisposable
             Tokens = Tokens,
             Delay = new NoDelay(),
             RecordStore = new AuthRecordStore(RecordPath),
+            TokenCacheDirectories = [TokenCacheDir],
         };
         _ambient = ServiceOverrides.UseAmbient(Overrides);
     }
@@ -66,6 +69,9 @@ internal sealed class CliSandbox : IDisposable
 
     /// <summary>Where the sandbox's sign-in record would live.</summary>
     public string RecordPath { get; }
+
+    /// <summary>The only token-cache directory <c>auth logout</c> of this sandbox deletes <c>earm</c> cache files from (never the real cache).</summary>
+    public string TokenCacheDir { get; }
 
     /// <summary>The fake Microsoft Graph every online command of this sandbox talks to.</summary>
     public ScriptedGraphHandler Handler { get; }

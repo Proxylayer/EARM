@@ -377,4 +377,31 @@ public sealed class Review3J_CliTests
             Assert.NotNull(JsonNode.Parse(result.StandardOutput));
         }
     }
+
+    [Fact]
+    public async Task Logout_InASandbox_DeletesOnlyTheSandboxCache_NeverAnotherDirectory()
+    {
+        // The safety net of tests/Directory.Build.props is on in this test executable too.
+        Assert.True(AppContext.TryGetSwitch(GraphAuthFactory.ForbidPlatformCacheSwitch, out var forbidden) && forbidden);
+        using var sandbox = new CliSandbox(nameof(Logout_InASandbox_DeletesOnlyTheSandboxCache_NeverAnotherDirectory));
+        // Stands in for the real cache directory: same file names, outside the sandbox's cache directory.
+        string elsewhere = Path.Combine(sandbox.Root, "elsewhere", ".IdentityService");
+        Directory.CreateDirectory(elsewhere);
+        foreach (string name in new[] { "earm.nocae", "earm.cae" })
+        {
+            await File.WriteAllTextAsync(Path.Combine(elsewhere, name), "real", TestContext.Current.CancellationToken);
+        }
+
+        foreach (string name in new[] { "earm.nocae", "earm.cae", "earm-spike.nocae" })
+        {
+            await File.WriteAllTextAsync(Path.Combine(sandbox.TokenCacheDir, name), "x", TestContext.Current.CancellationToken);
+        }
+
+        var result = await CliRunner.RunAsync("auth", "logout", "-o", "json");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.True(File.Exists(Path.Combine(elsewhere, "earm.nocae")));
+        Assert.True(File.Exists(Path.Combine(elsewhere, "earm.cae")));
+        Assert.Equal(["earm-spike.nocae"], Directory.GetFiles(sandbox.TokenCacheDir).Select(Path.GetFileName));
+    }
 }

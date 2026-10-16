@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Net.Http;
 using System.Threading;
 using EArm.Graph;
@@ -26,6 +27,12 @@ internal sealed class ServiceOverrides
 
     /// <summary>Where the sign-in record lives (a temp path in tests); also given to the default factory.</summary>
     public AuthRecordStore? RecordStore { get; init; }
+
+    /// <summary>
+    /// The token-cache directories the default factory's <c>auth logout</c> deletes <c>earm</c> cache files from (a temp folder in tests); null means
+    /// the platform locations of the real cache.
+    /// </summary>
+    public IReadOnlyList<string>? TokenCacheDirectories { get; init; }
 
     /// <summary>Waits between retries; tests pass a zero-delay one.</summary>
     public IDelayProvider? Delay { get; init; }

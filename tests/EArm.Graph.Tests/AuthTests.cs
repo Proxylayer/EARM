@@ -472,7 +472,7 @@ public sealed class AuthTests
         Directory.CreateDirectory(cache);
         try
         {
-            foreach (var name in new[] { "earm", "earm.nocae", "earm.cae", "msal.cache", "earmother", "other.earm" })
+            foreach (var name in new[] { "earm", "earm.nocae", "earm.cae", "earm.lock", "msal.cache", "earmother", "other.earm", "earm-spike.nocae", "earm-consent-probe.nocae" })
             {
                 await File.WriteAllTextAsync(Path.Combine(cache, name), "x", Ct);
             }
@@ -484,9 +484,9 @@ public sealed class AuthTests
             var result = factory.Logout();
 
             Assert.True(result.RecordDeleted);
-            Assert.Equal(3, result.CacheFilesDeleted);
+            Assert.Equal(4, result.CacheFilesDeleted);
             Assert.False(store.Exists);
-            Assert.Equal(["earmother", "msal.cache", "other.earm"], Directory.GetFiles(cache).Select(Path.GetFileName).Order(StringComparer.Ordinal));
+            Assert.Equal(["earm-consent-probe.nocae", "earm-spike.nocae", "earmother", "msal.cache", "other.earm"], Directory.GetFiles(cache).Select(Path.GetFileName).Order(StringComparer.Ordinal));
             var again = factory.Logout();
             Assert.False(again.RecordDeleted);
             Assert.Equal(0, again.CacheFilesDeleted);
@@ -497,6 +497,29 @@ public sealed class AuthTests
             Directory.Delete(cache, recursive: true);
         }
     }
+
+    [Fact]
+    public void LogoutWithThePlatformCacheDirectories_ThrowsInTestRuns_AndDeletesNothing()
+    {
+        // The switch comes from tests/Directory.Build.props; without it the Logout below would hit the real cache, so check it first.
+        Assert.True(AppContext.TryGetSwitch(GraphAuthFactory.ForbidPlatformCacheSwitch, out var on) && on, "The test run must forbid deleting the real token cache.");
+        var path = NewTempFile();
+        try
+        {
+            var platform = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.DoNotVerify), ".IdentityService");
+
+            var implicitDefaults = Assert.Throws<InvalidOperationException>(() => new GraphAuthFactory(new AuthRecordStore(path)).Logout());
+            var explicitDefault = Assert.Throws<InvalidOperationException>(() => new GraphAuthFactory(new AuthRecordStore(path), cacheDirectories: [platform + Path.DirectorySeparatorChar]).Logout());
+
+            Assert.Contains(GraphAuthFactory.ForbidPlatformCacheSwitch, implicitDefaults.Message, StringComparison.Ordinal);
+            Assert.Contains(".IdentityService", explicitDefault.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Cleanup(path);
+        }
+    }
+
     [Theory]
     [InlineData("dev")]
     [InlineData("AzureCliCredential")]
