@@ -125,6 +125,9 @@ public static class EngineDiagnosticCodes
     /// <summary>A Microsoft 365 group is created without owners declared (created with an application token it is ownerless).</summary>
     public const string GroupHasNoOwnerAtCreate = "GroupHasNoOwnerAtCreate";
 
+    /// <summary>No group holds the declared uniqueName and exactly one group without a uniqueName carries the declared displayName (created outside EARM): it is adopted, and its uniqueName is set.</summary>
+    public const string GroupAdoptedByDisplayName = "GroupAdoptedByDisplayName";
+
     /// <summary>A password credential has expired or is about to, and rotating it would not extend its life.</summary>
     public const string SecretExpiresSoon = "SecretExpiresSoon";
 
@@ -137,7 +140,7 @@ public static class EngineDiagnosticCodes
     /// <summary>A failed <c>addPassword</c> left a credential of the same name that EARM did not record; it is reported, never removed.</summary>
     public const string PasswordCredentialOrphaned = "PasswordCredentialOrphaned";
 
-    /// <summary>Graph refused to set the <c>uniqueName</c> of an existing application (the property is immutable).</summary>
+    /// <summary>Graph refused to set the <c>uniqueName</c> of an existing application or group being adopted (the property is immutable).</summary>
     public const string UniqueNameNotSettable = "UniqueNameNotSettable";
 
     /// <summary>An <c>appRoleAssignments</c> declaration is invalid (unresolvable app role, principal or resource).</summary>

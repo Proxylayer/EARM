@@ -187,7 +187,7 @@ declared resource **in the live tenant by a key derived from its type and `name`
 
 | Type (`Microsoft.Entra/...`) | Found by |
 |---|---|
-| `applications`, `groups` | `uniqueName` = the template `name` |
+| `applications`, `groups` | `uniqueName` = the template `name` (a group created outside EARM, without a `uniqueName`, is adopted by its `displayName` when exactly one such group has it; the name is then set) |
 | `users` | `userPrincipalName` = the `name` |
 | `servicePrincipals` | the `appId` of its application = the `name` |
 | `applications/federatedIdentityCredentials` | its `name` under the parent application |

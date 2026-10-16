@@ -708,6 +708,15 @@ What the engine's edge pass expects from a part B handler (worked example: `Edge
   multi-clause `$filter … and …` → `clientId eq '…'` alone with a client-side match on a 400.
 - **`ApplicationsProvider.AdoptUniqueNameAsync`** sets the `uniqueName` of an application that has none (adoption by `appId`) with its own PATCH and turns a Graph
   refusal into `UniqueNameNotSettable` (uniqueName is documented as immutable and read-only; an application created without it may not be adoptable by name).
+- **Groups adopted by display name** (`GroupsProvider`): `ResolveKey` puts the declared `displayName` (a known string) in `ResourceKey.Hints["displayName"]`. When `GET /groups(uniqueName='…')`
+  finds nothing, `ReadAsync` lists `GET /groups?$filter=displayName eq '…'` (basic query) and re-checks client-side (case-insensitive): a match that already holds the
+  declared `uniqueName` is the object (the key read lagged); exactly one match WITHOUT a `uniqueName` is adopted; several are `AmbiguousMatch`; a match holding another
+  `uniqueName` is ignored (the group is created). `Plan` diffs the adopted group as if it held the key, adds a `properties.uniqueName` delta (a `Modify` even when
+  nothing else differs) and a `GroupAdoptedByDisplayName: adopting existing group '<displayName>' (Graph id …) by display name; uniqueName will be set to '<name>'`
+  reason (a warning diagnostic in what-if and create). `UpdateAsync` sets `uniqueName` with its own `PATCH /groups/{id}` before the other changes; a 400 is
+  `UniqueNameNotSettable` and nothing else is written. `KeyReadLagsCreate` stays `false`: the key read is the alternate key, the fallback targets groups that existed
+  before the run, and the read after the adoption (or a create) goes by `uniqueName`, so no absence confirmation or read-your-write wait is needed. Deletes go by
+  `uniqueName`: `deployment delete` refuses a group without one (`IDeleteRefusalSource`, `NotDeletable`), so it never deletes a group no deployment adopted.
 
 ## Test fixtures
 

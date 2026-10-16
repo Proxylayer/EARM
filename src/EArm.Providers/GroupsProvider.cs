@@ -6,6 +6,7 @@ using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 using EArm.Graph;
+using EArm.Core;
 using EArm.Core.Json;
 using EArm.Core.Secrets;
 using EArm.Core.Types;
@@ -32,9 +33,12 @@ namespace EArm.Providers;
 /// applied by the edge pass. Security (dynamic ones included) and Microsoft 365 groups are soft-deleted and keep their keys for
 /// 30 days (Learn group-delete): a create probes the recycle bin and conflicts, or restores with <c>--on-soft-deleted-conflict restore</c>;
 /// only distribution lists and mail-enabled security groups (adopt-only) are deleted permanently, and that delete warns.
+/// A group created outside EARM has no uniqueName: when none holds the key, the one group without a uniqueName whose displayName equals the
+/// declared one is adopted (<c>GroupAdoptedByDisplayName</c>; the update sets its uniqueName first, a refusal is <c>UniqueNameNotSettable</c>),
+/// several are <c>AmbiguousMatch</c>; <c>deployment delete</c> never deletes such a group (deletes go by uniqueName).
 /// </summary>
 [EntraProvider("Microsoft.Entra/groups")]
-public sealed class GroupsProvider : ProviderBase, IDeleteWarningSource
+public sealed class GroupsProvider : ProviderBase, IDeleteWarningSource, IDeleteRefusalSource
 {
     private const string Collection = "/groups";
     private const string DeletedGroups = "/directory/deletedItems/microsoft.graph.group";
@@ -122,15 +126,40 @@ public sealed class GroupsProvider : ProviderBase, IDeleteWarningSource
         return JsonObjects.TryGetIgnoreCase(properties, name, out var value) && !JsonObjects.IsAbsent(value);
     }
 
+    /// <summary>
+    /// The uniqueName key, with the declared <c>displayName</c> (when it is a known string) as a read hint (<see cref="DisplayNameHint"/>): a group
+    /// created outside EARM has no uniqueName, and <see cref="ReadAsync"/> adopts it by display name. The hint is not part of the identity
+    /// (never persisted, never compared), so a delete, which reads by the recorded key alone, never adopts by display name.
+    /// </summary>
     public override ResourceKey ResolveKey(ResourceInstance desired)
     {
         var key = base.ResolveKey(desired);
         _selects.Register(key, Definition, desired);
+        if (desired.Properties is { } properties
+            && JsonObjects.TryGetIgnoreCase(properties, "displayName", out var declared)
+            && declared is not null
+            && !SecretJson.IsSecret(declared)
+            && !UnknownJson.IsUnknown(declared)
+            && JsonValues.TryGetString(declared, out var displayName)
+            && !string.IsNullOrWhiteSpace(displayName))
+        {
+            key = key with { Hints = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [DisplayNameHint] = displayName } };
+        }
+
         return key;
     }
 
+    /// <summary>The key hint (<see cref="ResourceKey.Hints"/>) carrying the declared <c>displayName</c> for the adoption fallback of <see cref="ReadAsync"/>.</summary>
+    public const string DisplayNameHint = "displayName";
+
     // ---- read ----
 
+    /// <summary>
+    /// By uniqueName; when no group holds it and the key carries <see cref="DisplayNameHint"/>, by display name: exactly one group with that
+    /// displayName (case-insensitive) and NO uniqueName is adopted (<see cref="Plan"/> then sets its uniqueName), several are
+    /// <see cref="ProviderException.AmbiguousMatch"/>, none is "does not exist". A same-name group that holds another uniqueName belongs to another
+    /// key and is never adopted; one that already holds this uniqueName (the key read lagged) is the object itself.
+    /// </summary>
     public override async Task<ExistingResource?> ReadAsync(ResourceKey key, IGraphClient graph, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(key);
@@ -138,6 +167,11 @@ public sealed class GroupsProvider : ProviderBase, IDeleteWarningSource
 
         var select = _selects.For(key, ManagedSelect);
         var live = await GetByUniqueNameAsync(graph, key, select, cancellationToken).ConfigureAwait(false);
+        if (live is null && key.Hints.TryGetValue(DisplayNameHint, out var displayName))
+        {
+            live = await FindAdoptableByDisplayNameAsync(graph, key, displayName, select, cancellationToken).ConfigureAwait(false);
+        }
+
         if (live is null)
         {
             return null;
@@ -155,10 +189,18 @@ public sealed class GroupsProvider : ProviderBase, IDeleteWarningSource
         ArgumentNullException.ThrowIfNull(options);
         _onSoftDeletedConflict = options.OnSoftDeletedConflict;
 
-        var change = base.Plan(desired, existing, options);
+        // A live group without a uniqueName was found by display name (ReadAsync): it is diffed as if it already held the key, and the
+        // adoption (setting uniqueName) is added below as its own delta.
+        bool adopting = !desired.IsIgnored && existing is not null && string.IsNullOrEmpty(JsonObjects.GetString(existing.Raw, "uniqueName"));
+        var change = base.Plan(desired, adopting ? WithUniqueName(existing!, desired.Id.NameLeaf) : existing, options);
         if (change.Type == ChangeType.Ignore || desired.Properties is not { } properties)
         {
             return change;
+        }
+
+        if (adopting && change.Before is not null)
+        {
+            change = change with { Before = RenderBefore(existing!.Properties, properties) };
         }
 
         var analysis = GroupsShape.Analyze(properties);
@@ -200,7 +242,39 @@ public sealed class GroupsProvider : ProviderBase, IDeleteWarningSource
             }
         }
 
+        if (adopting && !change.HasError)
+        {
+            change = WithAdoption(change, desired, existing!);
+        }
+
         return WithLicenseDelta(change, desired, existing);
+    }
+
+    /// <summary>The live view of a group adopted by display name, with the uniqueName it is about to receive.</summary>
+    private static ExistingResource WithUniqueName(ExistingResource existing, string uniqueName)
+    {
+        var properties = (JsonObject?)JsonValues.Clone(existing.Properties) ?? new JsonObject();
+        properties[JsonObjects.FindKey(properties, "uniqueName") ?? "uniqueName"] = uniqueName;
+        return existing with { Properties = properties };
+    }
+
+    /// <summary>
+    /// Adds the adoption of a group found by display name: a <c>properties.uniqueName</c> delta (the update sets it with its own PATCH first) and a
+    /// <see cref="ProviderWarnings.GroupAdoptedByDisplayName"/> reason, which what-if and create both report as a warning diagnostic.
+    /// </summary>
+    private static ResourceChange WithAdoption(ResourceChange change, ResourceInstance desired, ExistingResource existing)
+    {
+        string name = desired.Id.NameLeaf;
+        string displayName = JsonObjects.GetString(existing.Raw, "displayName") ?? "?";
+        string reason = $"{ProviderWarnings.GroupAdoptedByDisplayName}: adopting existing group '{displayName}' (Graph id {existing.GraphId}) by display name; uniqueName will be set to '{name}'";
+        var adoption = new PropertyDelta(JsonPath.Of("properties", "uniqueName"), PropertyChangeType.Create, null, JsonValue.Create(name));
+        return change with
+        {
+            Type = ChangeType.Modify,
+            Mode = ChangeMode.Patch,
+            Deltas = [.. change.Deltas, adoption],
+            Reasons = [.. change.Reasons, reason],
+        };
     }
 
     private static ResourceChange Unsupported(ResourceChange change, string message)
@@ -393,6 +467,48 @@ public sealed class GroupsProvider : ProviderBase, IDeleteWarningSource
         }
     }
 
+    /// <summary>
+    /// <c>GET /groups?$filter=displayName eq '…'</c> (a basic query: displayName supports <c>eq</c>), re-checked client-side (case-insensitive).
+    /// See <see cref="ReadAsync"/> for which match is adopted.
+    /// </summary>
+    private async Task<JsonObject?> FindAdoptableByDisplayNameAsync(IGraphClient graph, ResourceKey key, string displayName, string[] select, CancellationToken cancellationToken)
+    {
+        string uniqueName = ProviderSupport.SingleKey(key, "uniqueName");
+        var request = new GraphRequest(Collection, key.Api)
+            .WithFilter("displayName eq '" + ProviderSupport.EscapeLiteral(displayName) + "'")
+            .WithSelect(select);
+        var candidates = new List<JsonObject>();
+        await foreach (var item in graph.GetAllPagesAsync(request, cancellationToken).ConfigureAwait(false))
+        {
+            if (item is not JsonObject match || !string.Equals(JsonObjects.GetString(match, "displayName"), displayName, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            string? liveUniqueName = JsonObjects.GetString(match, "uniqueName");
+            if (string.Equals(liveUniqueName, uniqueName, StringComparison.OrdinalIgnoreCase))
+            {
+                return match;
+            }
+
+            if (string.IsNullOrEmpty(liveUniqueName))
+            {
+                candidates.Add(match);
+            }
+        }
+
+        if (candidates.Count > 1)
+        {
+            string ids = string.Join(", ", candidates.Select(m => JsonObjects.GetId(m) ?? "?"));
+            throw new ProviderException(
+                ProviderException.AmbiguousMatch,
+                $"No group has uniqueName '{uniqueName}', and {candidates.Count} groups without a uniqueName have displayName '{displayName}' (ids: {ids}); EARM cannot tell which one to adopt. Rename or delete the others so the display name identifies one group (nothing was created).",
+                ResourceIdentifier.Create(TypeName, uniqueName));
+        }
+
+        return candidates.Count == 1 ? candidates[0] : null;
+    }
+
     private async Task<JsonObject?> FindSoftDeletedAsync(string uniqueName, string? mailNickname, GraphApi api, IGraphClient graph, List<ProviderWarning> warnings, CancellationToken cancellationToken)
     {
         if (string.IsNullOrEmpty(mailNickname))
@@ -472,6 +588,13 @@ public sealed class GroupsProvider : ProviderBase, IDeleteWarningSource
         // The license delta is action-backed; it must not reach the PATCH body.
         var objectChange = change with { Deltas = change.Deltas.Where(d => !d.Path.Equals(LicensesPath)).ToList() };
         var body = BuildPatchBody(desired, existing, objectChange);
+        RemoveUniqueName(body);
+
+        if (string.IsNullOrEmpty(JsonObjects.GetString(existing.Raw, "uniqueName")))
+        {
+            // Adopted by display name (see ReadAsync): the key is set first, with its own PATCH, so a refusal changes nothing else.
+            await AdoptUniqueNameAsync(graph, existing.GraphId, ProviderSupport.SingleKey(key, "uniqueName"), desired, cancellationToken).ConfigureAwait(false);
+        }
 
         JsonObjects.TryGetIgnoreCase(existing.Properties, "groupTypes", out var liveTypes);
         JsonObjects.TryGetIgnoreCase(properties, "groupTypes", out var desiredTypes);
@@ -501,6 +624,26 @@ public sealed class GroupsProvider : ProviderBase, IDeleteWarningSource
         return new AppliedResource(desired.Id, existing.GraphId, live, key, Extra(analysis));
     }
 
+    /// <summary>
+    /// Sets the <c>uniqueName</c> of a group adopted by display name. Learn (group resource) documents the property as "Immutable. Read-only.", so a
+    /// refusal (400) is reported as <see cref="EngineDiagnosticCodes.UniqueNameNotSettable"/> with an explanation instead of a bare Graph error.
+    /// </summary>
+    private static async Task AdoptUniqueNameAsync(IGraphClient graph, string graphId, string uniqueName, ResourceInstance desired, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await graph.PatchAsync(new GraphRequest(Collection + "/" + GraphPath.Segment(graphId), desired.Api, hint: desired.RetryHint), new JsonObject { ["uniqueName"] = uniqueName }, cancellationToken).ConfigureAwait(false);
+        }
+        catch (GraphException ex) when (ex.Status == HttpStatusCode.BadRequest)
+        {
+            throw new ProviderException(
+                EngineDiagnosticCodes.UniqueNameNotSettable,
+                $"{desired.Describe()}: Graph refused to set uniqueName '{uniqueName}' on the existing group {graphId}, found by its display name ({ex.GraphMessage}). uniqueName is documented as immutable and read-only (it is assigned by the upsert PATCH /groups(uniqueName='…') that creates the group), so a group created without it cannot be adopted; delete it and let EARM create the group, or rename it so EARM creates a new one.",
+                desired.Id,
+                ex);
+        }
+    }
+
     // ---- delete ----
 
     public override Task DeleteAsync(ResourceKey key, ExistingResource live, IGraphClient graph, CancellationToken cancellationToken)
@@ -525,6 +668,19 @@ public sealed class GroupsProvider : ProviderBase, IDeleteWarningSource
             ? "this group is a distribution list or a mail-enabled security group and is deleted permanently (no 30-day recycle bin); its memberships, owners and role assignments are lost."
             : null;
     }
+    /// <summary>
+    /// Deletes go by uniqueName only: a group without one was found by its display name (created outside EARM and not adopted yet), so
+    /// <c>deployment delete</c> keeps it instead of deleting a group no deployment has taken over.
+    /// </summary>
+    public string? DescribeDeleteRefusal(ResourceKey key, ExistingResource live)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        ArgumentNullException.ThrowIfNull(live);
+        return string.IsNullOrEmpty(JsonObjects.GetString(live.Raw, "uniqueName"))
+            ? $"the group {live.GraphId} has no uniqueName: it matches only by display name (created outside EARM and not adopted by a deployment yet), and deletes go by uniqueName. Deploy the template to adopt it first, or delete it yourself."
+            : null;
+    }
+
     // ---- helpers ----
 
     private async Task ApplyLicensesAsync(ResourceInstance desired, string graphId, JsonObject? live, IGraphClient graph, CancellationToken cancellationToken)
