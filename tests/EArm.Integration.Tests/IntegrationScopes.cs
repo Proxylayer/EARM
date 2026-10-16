@@ -41,6 +41,27 @@ internal static class IntegrationScopes
         "RoleManagement.Read.Directory",
     ];
 
+    /// <summary>
+    /// What the cleanup guard needs besides <see cref="CleanupScopes"/> when <c>EARM_IT_ALLOW_PIM=1</c>: it lists and removes (adminRemove) the PIM
+    /// eligibilities and time-bound active assignments of prefixed principals and groups (<see cref="PimCleanup"/>).
+    /// </summary>
+    internal static readonly IReadOnlyList<string> PimCleanupScopes =
+    [
+        "RoleEligibilitySchedule.ReadWrite.Directory",
+        "RoleAssignmentSchedule.ReadWrite.Directory",
+        "PrivilegedEligibilitySchedule.ReadWrite.AzureADGroup",
+        "PrivilegedAssignmentSchedule.ReadWrite.AzureADGroup",
+    ];
+
+    /// <summary>
+    /// What the fixture needs besides <see cref="CleanupScopes"/> when <c>EARM_IT_ALLOW_AUTH_METHODS=1</c>: it snapshots and restores authentication method
+    /// configurations (<see cref="AuthMethodRestoreGuard"/>), also at teardown.
+    /// </summary>
+    internal static readonly IReadOnlyList<string> AuthMethodScopes =
+    [
+        "Policy.ReadWrite.AuthenticationMethod",
+    ];
+
     /// <summary>Every scenario template and the gates of the tests that deploy it (keep in step with the <c>Fixture.Require</c> calls of the scenario classes).</summary>
     internal static readonly IReadOnlyList<ScenarioTemplate> Templates =
     [
@@ -54,7 +75,17 @@ internal static class IntegrationScopes
         new("roles.entra.json", Needs.Roles, Empty()),
         new("assignments.entra.json", Needs.Roles, Empty()),
         new("orders-it.entra.json", Needs.Domain | Needs.ConditionalAccess | Needs.Roles, With(("domain", "example.onmicrosoft.com"), ("contextId", "c99"), ("initialPassword", PlaceholderPassword))),
+        new("pim-role-eligibility.entra.json", Needs.Domain | Needs.Pim, With(("domain", "example.onmicrosoft.com"), ("e1Name", PlaceholderGuid1), ("e2Name", PlaceholderGuid2), ("e2End", PlaceholderEnd))),
+        new("pim-group-eligibility.entra.json", Needs.Domain | Needs.Pim, With(("domain", "example.onmicrosoft.com"), ("memberName", PlaceholderGuid1), ("ownerName", PlaceholderGuid2), ("ownerEnd", PlaceholderEnd))),
+        new("pim-active.entra.json", Needs.Domain | Needs.Pim, With(("domain", "example.onmicrosoft.com"), ("roleName", PlaceholderGuid1), ("memberName", PlaceholderGuid2), ("ownerName", PlaceholderGuid3), ("activeEnd", PlaceholderEnd))),
+        new("pim-active-conflicts.entra.json", Needs.Domain | Needs.Pim, With(("domain", "example.onmicrosoft.com"))),
+        new("auth-methods.entra.json", Needs.AuthMethods, Empty()),
     ];
+
+    private const string PlaceholderGuid1 = "00000000-0000-0000-0000-0000000000a1";
+    private const string PlaceholderGuid2 = "00000000-0000-0000-0000-0000000000a2";
+    private const string PlaceholderGuid3 = "00000000-0000-0000-0000-0000000000a3";
+    private const string PlaceholderEnd = "2030-01-01T00:00:00Z";
 
     /// <summary>The verbs the scenarios run through the CLI: what-if requests read variants that a write scope does not grant, so all three are consented.</summary>
     private static readonly RunVerb[] Verbs = [RunVerb.WhatIf, RunVerb.Create, RunVerb.Delete];
@@ -75,6 +106,16 @@ internal static class IntegrationScopes
     {
         ArgumentNullException.ThrowIfNull(settings);
         var names = new SortedSet<string>(CleanupScopes, StringComparer.OrdinalIgnoreCase);
+        if (settings.AllowPim)
+        {
+            names.UnionWith(PimCleanupScopes);
+        }
+
+        if (settings.AllowAuthMethods)
+        {
+            names.UnionWith(AuthMethodScopes);
+        }
+
         foreach (var template in Enabled(settings))
         {
             // The values of the -p options (name=value), as the CLI passes them on.

@@ -36,8 +36,10 @@ namespace EArm.Integration.Tests;
 /// command. A service principal (<c>AZURE_*</c> variables, or <c>EARM_AUTH=default</c>) keeps <c>.default</c>.
 /// </para>
 /// <para>
-/// Cleanup guard: <see cref="DisposeAsync"/> (1) sweeps everything whose name starts with the run
-/// prefix (<see cref="TenantCleanup"/>) and purges their soft-deleted copies, (2) writes a log into the run
+/// Cleanup guard: <see cref="DisposeAsync"/> (0) restores every authentication method snapshot a test left pending
+/// (<see cref="AuthMethodRestoreGuard"/>), (1) sweeps everything whose name starts with the run
+/// prefix (<see cref="TenantCleanup"/>; with <c>EARM_IT_ALLOW_PIM=1</c> first the PIM schedules of the prefixed principals, <see cref="PimCleanup"/>)
+/// and purges their soft-deleted copies, (2) writes a log into the run
 /// directory and fails loudly when a live object with the prefix could not be removed. Objects without the prefix are
 /// never touched.
 /// </para>
@@ -102,6 +104,11 @@ public sealed class IntegrationFixture : IAsyncLifetime
 
     internal CliDriver Cli { get; } = new CliDriver();
 
+    /// <summary>The snapshot / restore guard of the authentication methods tests (restores whatever is pending at teardown, before the prefix sweep).</summary>
+    internal AuthMethodRestoreGuard AuthMethods => _authMethods ?? throw NotAvailable();
+
+    private AuthMethodRestoreGuard? _authMethods;
+
     /// <summary>What the cleanup guard did (filled by <see cref="DisposeAsync"/> or <see cref="SweepNowAsync"/>).</summary>
     public IReadOnlyList<string> CleanupLog { get; private set; } = [];
 
@@ -117,6 +124,8 @@ public sealed class IntegrationFixture : IAsyncLifetime
             !needs.HasFlag(Needs.ConditionalAccess) || Prefix.Length <= IntegrationSettings.MaximumConditionalAccessPrefixLength,
             $"{IntegrationSettings.PrefixVariable}='{Prefix}' is longer than {IntegrationSettings.MaximumConditionalAccessPrefixLength} characters; authentication strength names (limited to 30 characters by Graph) would not fit.");
         Assert.SkipUnless(!needs.HasFlag(Needs.Roles) || Settings.AllowRoles, $"{IntegrationSettings.AllowRolesVariable}=1 is required to write directory roles, administrative units, app role assignments and consent grants.");
+        Assert.SkipUnless(!needs.HasFlag(Needs.Pim) || Settings.AllowPim, $"{IntegrationSettings.AllowPimVariable}=1 is required to write PIM eligibilities and time-bound active assignments (the tenant needs Microsoft Entra ID P2 or ID Governance).");
+        Assert.SkipUnless(!needs.HasFlag(Needs.AuthMethods) || Settings.AllowAuthMethods, $"{IntegrationSettings.AllowAuthMethodsVariable}=1 is required to change the tenant authentication methods policy (snapshot first, restored at the end).");
     }
 
     /// <summary>The verified domain; only valid after <see cref="Require"/> with <see cref="Needs.Domain"/>.</summary>
@@ -226,6 +235,7 @@ public sealed class IntegrationFixture : IAsyncLifetime
         _http = HttpGraphClient.CreateHttpClient();
         var retryPolicy = new RetryPolicy(_loggerFactory.CreateLogger<RetryPolicy>());
         _graph = new HttpGraphClient(_http, _tokens, retryPolicy, new GraphOptions { Cloud = cloud, Scopes = scopes }, _loggerFactory.CreateLogger<HttpGraphClient>());
+        _authMethods = new AuthMethodRestoreGuard(_graph, RunDirectory);
 
         // The preflight prompts through the provider (credential renewed after consent), like EngineServices.
         var preflightPrompter = _tokens is AzureIdentityTokenProvider provider ? provider.ConsentPrompter : prompter;
@@ -293,9 +303,23 @@ public sealed class IntegrationFixture : IAsyncLifetime
         var log = new List<string>();
         _leftovers = [];
 
+        // Authentication method snapshots a test could not restore itself (a failed or aborted test): restored first, they are tenant-wide.
+        if (_authMethods is not null && _authMethods.Pending.Count > 0)
+        {
+            try
+            {
+                _leftovers.AddRange(await _authMethods.RestoreAllAsync(log, cancellationToken));
+            }
+            catch (Exception ex) when (ex is GraphException or GraphTransportException)
+            {
+                log.Add($"auth methods: restore aborted: {ex.GetType().Name}: {ex.Message}");
+                _leftovers.Add($"the authentication method restore was aborted ({ex.Message}); pending snapshots: {string.Join(", ", _authMethods.Pending)}");
+            }
+        }
+
         // The prefix sweep removes everything the runs created (every test object carries the run prefix), also what a failed
         // 'deployment delete' left behind and everything tests created directly.
-        var cleanup = new TenantCleanup(_graph, Prefix);
+        var cleanup = new TenantCleanup(_graph, Prefix, includePim: Settings.AllowPim);
         try
         {
             await cleanup.SweepAsync(_trackedPaths.ToArray(), cancellationToken);

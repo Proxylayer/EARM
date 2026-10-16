@@ -35,6 +35,28 @@ internal static class TenantObjects
         return application;
     }
 
+    /// <summary>
+    /// A disabled user <c>&lt;prefix&gt;-&lt;suffix&gt;@&lt;domain&gt;</c> created with POST /users (no license, a random password that is never kept; it never
+    /// signs in). Needs <c>Require(Needs.Domain)</c>.
+    /// </summary>
+    public static async Task<JsonObject> CreateDisabledUserAsync(IntegrationFixture fixture, string suffix, CancellationToken cancellationToken)
+    {
+        string name = fixture.Name(suffix);
+        var user = await fixture.Graph.CreateObjectAsync(
+            "/users",
+            new JsonObject
+            {
+                ["accountEnabled"] = false,
+                ["displayName"] = name,
+                ["mailNickname"] = name,
+                ["userPrincipalName"] = fixture.Upn(suffix),
+                ["passwordProfile"] = new JsonObject { ["password"] = "Aa1!" + Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(16)), ["forceChangePasswordNextSignIn"] = true },
+            },
+            cancellationToken);
+        fixture.Track("/users/" + user.RequireId());
+        return user;
+    }
+
     /// <summary>A security group <c>&lt;prefix&gt;-&lt;suffix&gt;</c> created with POST /groups.</summary>
     public static async Task<JsonObject> CreateGroupAsync(IntegrationFixture fixture, string suffix, CancellationToken cancellationToken, string? displayName = null)
     {

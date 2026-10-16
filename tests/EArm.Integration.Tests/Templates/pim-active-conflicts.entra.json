@@ -1,0 +1,76 @@
+{
+  "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "NEVER DEPLOYED: four declarations that fight a time-bound PIM active assignment, which the planner must refuse (PimAssignmentConflict) before any Graph write. (1) A Microsoft.Entra/roleAssignments resource and (2) the user's directoryRoles entry for the same principal, role and scope as the active role assignment; (3) the group's authoritative members list (empty) next to an active membership; (4) the user's memberOf naming the group of the active membership. The scenario runs what-if only."
+  },
+  "parameters": {
+    "prefix": { "type": "string" },
+    "domain": { "type": "string" }
+  },
+  "variables": {
+    "user":  "[format('{0}-pcu@{1}', parameters('prefix'), parameters('domain'))]",
+    "group": "[format('{0}-pcgrp', parameters('prefix'))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Entra/users",
+      "apiVersion": "2026-10-01-preview",
+      "name": "[variables('user')]",
+      "properties": {
+        "displayName": "[format('{0}-pcu', parameters('prefix'))]",
+        "accountEnabled": false,
+        "directoryRoles": [ { "role": "Message Center Reader" } ],
+        "memberOf": ["[reference(variables('group')).id]"]
+      }
+    },
+    {
+      "type": "Microsoft.Entra/groups",
+      "apiVersion": "2026-10-01-preview",
+      "name": "[variables('group')]",
+      "properties": {
+        "displayName": "[variables('group')]",
+        "mailEnabled": false,
+        "mailNickname": "[variables('group')]",
+        "securityEnabled": true,
+        "members": []
+      }
+    },
+    {
+      "type": "Microsoft.Entra/roleAssignments",
+      "apiVersion": "2026-10-01-preview",
+      "name": "c0f1c7a1-0000-4000-8000-0000000000c1",
+      "properties": {
+        "principalId": "[reference(variables('user')).id]",
+        "role": "Message Center Reader"
+      },
+      "dependsOn": ["[resourceId('Microsoft.Entra/users', variables('user'))]"]
+    },
+    {
+      "type": "Microsoft.Entra/roleAssignmentScheduleRequests",
+      "apiVersion": "2026-10-01-preview",
+      "name": "c0f1c7a1-0000-4000-8000-0000000000c2",
+      "properties": {
+        "principalId": "[reference(variables('user')).id]",
+        "role": "Message Center Reader",
+        "scheduleInfo": { "expiration": { "type": "AfterDuration", "duration": "P2D" } }
+      },
+      "dependsOn": ["[resourceId('Microsoft.Entra/users', variables('user'))]"]
+    },
+    {
+      "type": "Microsoft.Entra/privilegedAccess/groupAssignmentScheduleRequests",
+      "apiVersion": "2026-10-01-preview",
+      "name": "c0f1c7a1-0000-4000-8000-0000000000c3",
+      "properties": {
+        "groupId": "[reference(variables('group')).id]",
+        "principalId": "[reference(variables('user')).id]",
+        "accessId": "member",
+        "scheduleInfo": { "expiration": { "type": "AfterDuration", "duration": "P2D" } }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Entra/users', variables('user'))]",
+        "[resourceId('Microsoft.Entra/groups', variables('group'))]"
+      ]
+    }
+  ]
+}

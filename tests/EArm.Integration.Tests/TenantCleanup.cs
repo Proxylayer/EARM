@@ -14,7 +14,8 @@ namespace EArm.Integration.Tests;
 /// The prefix sweep of the cleanup guard. It finds every object whose name (<c>displayName</c>, <c>userPrincipalName</c>
 /// or <c>uniqueName</c>) starts with the run prefix and deletes it in dependency order, then purges the soft-deleted
 /// copies. Objects without the prefix are never listed for deletion, and every delete is re-checked against the prefix
-/// right before it is sent. Failures never throw: they are logged and returned as leftovers.
+/// right before it is sent. Failures never throw: they are logged and returned as leftovers. With <c>EARM_IT_ALLOW_PIM=1</c> the PIM schedules of the
+/// prefixed principals are removed first (<see cref="PimCleanup"/>).
 /// </summary>
 internal sealed class TenantCleanup
 {
@@ -45,7 +46,15 @@ internal sealed class TenantCleanup
     private readonly HashSet<string> _deletedIds = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _leftoverIds = new(StringComparer.OrdinalIgnoreCase);
 
-    public TenantCleanup(IGraphClient graph, string prefix)
+    private readonly bool _includePim;
+
+    /// <param name="graph">The fixture's Graph client.</param>
+    /// <param name="prefix">The run prefix; only objects whose name starts with it are touched.</param>
+    /// <param name="includePim">
+    /// True (<c>EARM_IT_ALLOW_PIM=1</c>): the PIM schedules of the prefixed principals are removed first (<see cref="PimCleanup"/>); the run consented the
+    /// PIM scopes only then.
+    /// </param>
+    public TenantCleanup(IGraphClient graph, string prefix, bool includePim = false)
     {
         ArgumentNullException.ThrowIfNull(graph);
         if (!IntegrationSettings.IsValidPrefix(prefix))
@@ -55,6 +64,7 @@ internal sealed class TenantCleanup
 
         _graph = graph;
         _prefix = prefix;
+        _includePim = includePim;
     }
 
     /// <summary>What the sweep did, one line per action.</summary>
@@ -115,6 +125,19 @@ internal sealed class TenantCleanup
         var users = await ListOwnedByNameOrUpnAsync(cancellationToken);
         var applications = await ListOwnedAsync("application", "/applications", "displayName", cancellationToken);
         var servicePrincipals = await ListOwnedServicePrincipalsAsync(applications, cancellationToken);
+
+        // PIM schedules of owned principals (adminRemove) before the plain role assignments and the principals themselves. The service principals of
+        // owned applications count as owned, as for the role assignments below.
+        if (_includePim)
+        {
+            var pim = new PimCleanup(_graph);
+            await pim.RemoveAsync(
+                groups.Concat(users).Concat(servicePrincipals).GroupBy(p => p.RequireId(), StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => Describe(g.First()).Trim('\''), StringComparer.OrdinalIgnoreCase),
+                groups.ToDictionary(g => g.RequireId(), g => Describe(g).Trim('\''), StringComparer.OrdinalIgnoreCase),
+                cancellationToken);
+            _log.AddRange(pim.Entries);
+            _leftovers.AddRange(pim.Leftovers);
+        }
 
         var assignmentFilters = new List<string>();
         assignmentFilters.AddRange(roleDefinitions.Select(r => "roleDefinitionId eq '" + r.RequireId() + "'"));
