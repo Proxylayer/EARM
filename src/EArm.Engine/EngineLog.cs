@@ -100,4 +100,7 @@ internal static partial class EngineLog
 
     [LoggerMessage(EventId = 2080, Level = LogLevel.Information, Message = "Not found yet after the create, reading {Key} again (waited {WaitedSeconds} s of {WindowSeconds} s for replication)")]
     public static partial void WaitingForReplication(ILogger logger, string key, double waitedSeconds, double windowSeconds);
+
+    [LoggerMessage(EventId = 2081, Level = LogLevel.Information, Message = "Deleting {ResourceId} was refused ({Code}), most likely because an earlier change of this run has not reached Graph yet; deleting again (waited {WaitedSeconds} s of {WindowSeconds} s)")]
+    public static partial void RetryingRefusedDelete(ILogger logger, string resourceId, string code, double waitedSeconds, double windowSeconds);
 }

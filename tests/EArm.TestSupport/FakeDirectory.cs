@@ -81,6 +81,8 @@ public sealed class FakeDirectory
     private readonly Dictionary<string, List<JsonObject>> _collections = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, List<string>> _references = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> _singleReferences = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, int> _lingeringTrust = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, int> _lingeringReferences = new(StringComparer.OrdinalIgnoreCase);
 
     public FakeDirectory()
     {
@@ -100,6 +102,13 @@ public sealed class FakeDirectory
     /// app-only token does ("/me request is only valid with delegated authentication flow").
     /// </summary>
     public string? SignedInUserId { get; set; }
+
+    /// <summary>
+    /// Conditional Access propagation lag, counted in refused delete attempts (default 0: none). After a trusted named location is unmarked
+    /// (<c>isTrusted: false</c>) its delete is still refused with Graph's <c>1177</c> this many times; after a policy is deleted, the
+    /// authentication strength, authentication contexts and named locations it referenced are still refused as "referenced" this many times.
+    /// </summary>
+    public int ConditionalAccessLagAttempts { get; set; }
 
     /// <summary>The clock the 30-day soft-delete retention is measured with; tests move it to expire a deleted item.</summary>
     public TimeProvider Clock { get; set; } = TimeProvider.System;
@@ -395,6 +404,7 @@ public sealed class FakeDirectory
                 RejectBuiltInStrengthWrite(collectionPath, entity, hint);
                 RejectConditionalAccessDelete(collectionPath, entity, hint);
                 RejectRoleDefinitionDelete(collectionPath, entity, hint);
+                RecordReferencesLingering(collectionPath, entity);
                 if (IsSoftDeletable(collectionPath, entity))
                 {
                     SoftDeleteWithCascade(entity, collectionPath);
@@ -965,14 +975,24 @@ public sealed class FakeDirectory
         string id = GetString(entity, "id")!;
         if (collectionPath.Equals(NamedLocationsPath, StringComparison.OrdinalIgnoreCase))
         {
-            if (entity["isTrusted"] is JsonValue trusted && trusted.GetValueKind() == JsonValueKind.True)
+            if ((entity["isTrusted"] is JsonValue trusted && trusted.GetValueKind() == JsonValueKind.True) || Linger(_lingeringTrust, id))
             {
                 // The real error: 400, code 1177.
                 throw new GraphException(HttpStatusCode.BadRequest, "1177", $"Named location with id {id} cannot be deleted because it is marked as a Trusted location. You have to unmark this named location before deletion.", hint);
             }
+
+            if (Linger(_lingeringReferences, id))
+            {
+                throw BadRequest("The named location is referenced by one or more conditional access policies.", hint);
+            }
         }
         else if (collectionPath.Equals(AuthenticationContextsPath, StringComparison.OrdinalIgnoreCase))
         {
+            if (Linger(_lingeringReferences, id))
+            {
+                throw BadRequest("The authentication context class reference is referenced by one or more conditional access policies.", hint);
+            }
+
             if (entity["isAvailable"] is not JsonValue available || available.GetValueKind() != JsonValueKind.False)
             {
                 throw BadRequest("The authentication context class reference must be unavailable (isAvailable: false) before it can be deleted.", hint);
@@ -990,6 +1010,11 @@ public sealed class FakeDirectory
         }
         else if (collectionPath.Equals(AuthenticationStrengthsPath, StringComparison.OrdinalIgnoreCase))
         {
+            if (Linger(_lingeringReferences, id))
+            {
+                throw BadRequest("The authentication strength policy is referenced by one or more conditional access policies.", hint);
+            }
+
             foreach (var policy in Collection(ConditionalAccessPoliciesPath))
             {
                 if ((policy["grantControls"] as JsonObject)?["authenticationStrength"] is JsonObject strength && ValueEquals(GetString(strength, "id"), id))
@@ -997,6 +1022,49 @@ public sealed class FakeDirectory
                     throw BadRequest("The authentication strength policy is referenced by one or more conditional access policies.", hint);
                 }
             }
+        }
+    }
+
+    /// <summary>Consumes one refused attempt of a lingering propagation lag; true while the lag lasts.</summary>
+    private static bool Linger(Dictionary<string, int> lingering, string id)
+    {
+        if (!lingering.TryGetValue(id, out int remaining) || remaining <= 0)
+        {
+            return false;
+        }
+
+        lingering[id] = remaining - 1;
+        return true;
+    }
+
+    /// <summary>With <see cref="ConditionalAccessLagAttempts"/>: the objects a policy being deleted references stay "referenced" for that many delete attempts.</summary>
+    private void RecordReferencesLingering(string collectionPath, JsonObject entity)
+    {
+        if (ConditionalAccessLagAttempts <= 0 || !collectionPath.Equals(ConditionalAccessPoliciesPath, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        var referenced = new List<string?>();
+        if ((entity["grantControls"] as JsonObject)?["authenticationStrength"] is JsonObject strength)
+        {
+            referenced.Add(GetString(strength, "id"));
+        }
+
+        var conditions = entity["conditions"] as JsonObject;
+        foreach (var array in new[]
+        {
+            (conditions?["applications"] as JsonObject)?["includeAuthenticationContextClassReferences"] as JsonArray,
+            (conditions?["locations"] as JsonObject)?["includeLocations"] as JsonArray,
+            (conditions?["locations"] as JsonObject)?["excludeLocations"] as JsonArray,
+        })
+        {
+            referenced.AddRange(array?.Select(n => n is JsonValue v && v.TryGetValue<string>(out var text) ? text : null) ?? []);
+        }
+
+        foreach (var id in referenced.OfType<string>())
+        {
+            _lingeringReferences[id] = ConditionalAccessLagAttempts;
         }
     }
 
@@ -1174,6 +1242,15 @@ public sealed class FakeDirectory
         if (collectionPath.Equals(ConditionalAccessPoliciesPath, StringComparison.OrdinalIgnoreCase) && GetString(payload, "state") is { } newState && !PolicyStates.Contains(newState))
         {
             throw BadRequest($"The value '{newState}' of property 'state' is not valid; use enabled, disabled or enabledForReportingButNotEnforced.", hint);
+        }
+
+        if (ConditionalAccessLagAttempts > 0
+            && collectionPath.Equals(NamedLocationsPath, StringComparison.OrdinalIgnoreCase)
+            && entity["isTrusted"] is JsonValue wasTrusted && wasTrusted.GetValueKind() == JsonValueKind.True
+            && payload["isTrusted"] is JsonValue nowTrusted && nowTrusted.GetValueKind() == JsonValueKind.False)
+        {
+            // The unmark is stored at once, but the delete keeps being refused until it has propagated.
+            _lingeringTrust[GetString(entity, "id")!] = ConditionalAccessLagAttempts;
         }
 
         foreach (var property in payload)

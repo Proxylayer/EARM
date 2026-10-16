@@ -80,6 +80,7 @@ public sealed class DeploymentExecutor
         private readonly object _diagnosticsGate = new();
         private readonly ConcurrentDictionary<ResourceInstance, List<Diagnostic>> _instanceDiagnostics = new();
         private readonly SemaphoreSlim _secretsFileGate = new(1, 1);
+        private readonly LaggingDeleteRetry _laggingDeletes;
         private IReadOnlyList<ResourceChange> _orphans = [];
         private bool _oneTimeSecretsWritten;
         private bool _cancelledInEndPhase;
@@ -90,6 +91,7 @@ public sealed class DeploymentExecutor
             _plan = plan;
             _options = options;
             _planOptions = plan.Options with { PlanMode = PlanMode.Create };
+            _laggingDeletes = new LaggingDeleteRetry(owner._replicationWait, owner._logger);
         }
 
         private ILogger Logger => _owner._logger;
@@ -976,13 +978,18 @@ public sealed class DeploymentExecutor
             return new RecreateOutcome(recreated.Applied, recreated.Failure, null);
         }
 
-        private Task DeleteOldAsync(IResourceProvider provider, ResourceInstance instance, ResourceKey key, ExistingResource old, CancellationToken cancellationToken)
+        /// <summary>
+        /// Deletes the old object of a replacement; a refusal that clears once an earlier write of this run reaches Graph (a named location still "trusted" right
+        /// after the provider unmarked it) is repeated on the replication schedule (<see cref="LaggingDeleteRetry"/>).
+        /// </summary>
+        private async Task DeleteOldAsync(IResourceProvider provider, ResourceInstance instance, ResourceKey key, ExistingResource old, CancellationToken cancellationToken)
         {
-            return WithRetryAsync(async ct =>
+            await _laggingDeletes.RunAsync(instance.Id.Id, () => WithRetryAsync(async ct =>
             {
                 await provider.DeleteAsync(key, old, _owner._graph, ct).ConfigureAwait(false);
                 return true;
-            }, instance.RetryHint, cancellationToken);
+            }, instance.RetryHint, cancellationToken), cancellationToken).ConfigureAwait(false);
+            _laggingDeletes.RecordDeleted(instance.Type);
         }
 
         /// <param name="idempotent">

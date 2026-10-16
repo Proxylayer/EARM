@@ -464,6 +464,11 @@ run (what-if: an error row or an unresolved key; executor: not succeeded) or its
 owned by another organization are kept) and the provider's `IDeleteWarningSource` risk (groups: distribution lists and mail-enabled security groups, which Learn
 does not list as restorable). After the confirmation `DeleteAsync` re-reads each object by key (it must be the listed one), deletes it through the provider inside
 the retry policy (a 404 counts as gone) and stops at the first failure unless `continueOnError`; a delete in flight is never cancelled, a Ctrl+C skips the rest.
+A refusal that clears once an earlier change of the run reaches the Conditional Access service is repeated first (`LaggingDeleteRetry`, on the executor's
+`ReplicationWait` schedule: every 5 s, up to 90 s of scheduled waiting, then the refusal is reported): `NamedLocationTrusted` always (the provider unmarked
+the location a moment earlier; Graph answers 1177 until the unmark is applied), and `NamedLocationReferenced` / `AuthenticationStrengthReferenced` /
+`AuthenticationContextReferenced` only when a Conditional Access policy was deleted earlier in the same run (otherwise the reference is real and fails at
+once). The executor uses the same retry for the old object of a recreate. Each repeat is logged (event 2081).
 Nothing is read from or written to the local disk.
 
 ## Key Vault parameter references (`EArm.Engine.KeyVault`)

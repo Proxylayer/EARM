@@ -27,7 +27,8 @@ namespace EArm.Providers;
 /// <item><b>Delete</b>: a trusted IP location (live <c>isTrusted: true</c>) is first unmarked with <c>PATCH …/{id}</c> <c>{"@odata.type": "#microsoft.graph.ipNamedLocation", "isTrusted": false}</c>
 /// (Graph refuses to delete a trusted location, error <c>1177</c>), then <c>DELETE /identity/conditionalAccess/namedLocations/{id}</c>; a 404 is "already gone"; a 1177 refusal
 /// (the location became trusted after the read) unmarks and retries once, and a second one is surfaced as <see cref="TrustedLocation"/>; any other 400 (the location is still
-/// referenced by a Conditional Access policy) is surfaced as <see cref="ReferencedByPolicy"/>.</item>
+/// referenced by a Conditional Access policy) is surfaced as <see cref="ReferencedByPolicy"/>. Graph applies an unmark with a delay: the engine repeats a delete refused as
+/// <see cref="TrustedLocation"/> on its replication schedule (<see cref="EArm.Engine.Execution.LaggingDeleteRetry"/>).</item>
 /// </list>
 /// </para>
 /// <para>

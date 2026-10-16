@@ -195,7 +195,7 @@ internal sealed class ProviderHost
     {
         var plan = await Planner().PlanAsync(document, DeploymentMode.Incremental, PlanMode.WhatIf, Ct);
         var targets = TemplateDeleter.FindDeclaredObjects(plan);
-        return await new TemplateDeleter(Registry, Fake, Logs.For<TemplateDeleter>()).DeleteAsync(plan, targets, continueOnError, Ct);
+        return await new TemplateDeleter(Registry, Fake, Logs.For<TemplateDeleter>(), new ReplicationWait { Delay = ReplicationDelays }).DeleteAsync(plan, targets, continueOnError, Ct);
     }
 
     // ---- directory helpers ----

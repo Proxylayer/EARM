@@ -72,8 +72,13 @@ public sealed class TemplateDeleter
     private readonly ProviderRegistry _registry;
     private readonly IGraphClient _graph;
     private readonly ILogger _logger;
+    private readonly ReplicationWait _replicationWait;
 
-    public TemplateDeleter(ProviderRegistry registry, IGraphClient graph, ILogger<TemplateDeleter> logger)
+    /// <param name="replicationWait">
+    /// How long a delete refused because an earlier delete of the run has not reached Graph yet is repeated (<see cref="LaggingDeleteRetry"/>); default
+    /// <see cref="ReplicationWait.Default"/>.
+    /// </param>
+    public TemplateDeleter(ProviderRegistry registry, IGraphClient graph, ILogger<TemplateDeleter> logger, ReplicationWait? replicationWait = null)
     {
         ArgumentNullException.ThrowIfNull(registry);
         ArgumentNullException.ThrowIfNull(graph);
@@ -81,6 +86,7 @@ public sealed class TemplateDeleter
         _registry = registry;
         _graph = graph;
         _logger = logger;
+        _replicationWait = replicationWait ?? ReplicationWait.Default;
     }
 
     /// <summary>
@@ -129,7 +135,9 @@ public sealed class TemplateDeleter
     /// <summary>
     /// Deletes <paramref name="targets"/> in the given order, stopping at the first failure unless <paramref name="continueOnError"/>. Each object is re-read by
     /// its key first: when the key leads to another object than the one listed, nothing is deleted for it. A delete in flight is never cancelled; a cancellation
-    /// stops before the next one (the rest is skipped, <see cref="TemplateDeleteResult.Cancelled"/>).
+    /// stops before the next one (the rest is skipped, <see cref="TemplateDeleteResult.Cancelled"/>). A delete that Graph refuses because an earlier delete
+    /// of this run has not reached it yet (a strength, named location or context still "referenced" by the policy deleted a moment ago; a named location still
+    /// "trusted" right after it was unmarked) is repeated on the replication schedule before it counts as failed (<see cref="LaggingDeleteRetry"/>).
     /// </summary>
     public async Task<TemplateDeleteResult> DeleteAsync(DeploymentPlan plan, IReadOnlyList<DeclaredObject> targets, bool continueOnError, CancellationToken cancellationToken)
     {
@@ -137,6 +145,7 @@ public sealed class TemplateDeleter
         ArgumentNullException.ThrowIfNull(targets);
 
         var outcomes = new List<DeclaredObjectDeletion>(targets.Count);
+        var lagging = new LaggingDeleteRetry(_replicationWait, _logger);
         bool stop = false;
         bool cancelled = false;
         foreach (var target in targets)
@@ -152,9 +161,13 @@ public sealed class TemplateDeleter
                 continue;
             }
 
-            var outcome = await DeleteOneAsync(plan, target).ConfigureAwait(false);
+            var outcome = await DeleteOneAsync(plan, target, lagging, cancellationToken).ConfigureAwait(false);
             outcomes.Add(outcome);
-            if (outcome.Status == DeletionStatus.Failed)
+            if (outcome.Status == DeletionStatus.Deleted)
+            {
+                lagging.RecordDeleted(target.Instance.Type);
+            }
+            else if (outcome.Status == DeletionStatus.Failed)
             {
                 EngineLog.DeleteFailed(_logger, target.Instance.Id.Id, outcome.Error ?? "unknown error");
                 stop = !continueOnError;
@@ -168,7 +181,7 @@ public sealed class TemplateDeleter
         return new TemplateDeleteResult(outcomes, cancelled);
     }
 
-    private async Task<DeclaredObjectDeletion> DeleteOneAsync(DeploymentPlan plan, DeclaredObject target)
+    private async Task<DeclaredObjectDeletion> DeleteOneAsync(DeploymentPlan plan, DeclaredObject target, LaggingDeleteRetry lagging, CancellationToken cancellationToken)
     {
         var stopwatch = Stopwatch.StartNew();
         var instance = target.Instance;
@@ -204,11 +217,12 @@ public sealed class TemplateDeleter
             }
 
             EngineLog.Deleting(_logger, instance.Id.Id, live.GraphId);
-            await WithRetryAsync(plan, async ct =>
+            // The caller's token only cuts a wait between two attempts short (see LaggingDeleteRetry), never an attempt.
+            await lagging.RunAsync(instance.Id.Id, () => WithRetryAsync(plan, async ct =>
             {
                 await provider.DeleteAsync(key, live, _graph, ct).ConfigureAwait(false);
                 return true;
-            }, CancellationToken.None).ConfigureAwait(false);
+            }, CancellationToken.None), cancellationToken).ConfigureAwait(false);
             return new DeclaredObjectDeletion(target, DeletionStatus.Deleted, null, null, stopwatch.Elapsed);
         }
         catch (GraphException ex) when (ex.IsNotFound)

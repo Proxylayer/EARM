@@ -336,7 +336,7 @@ a second one.
 | Read | `GET /identity/conditionalAccess/namedLocations?$filter=displayName eq '…'` |
 | Create | `POST /identity/conditionalAccess/namedLocations` (the response body is the object) |
 | Update | `PATCH …/{id}`, the body **always** carrying `@odata.type` (Graph requires it on this collection) → `GET …/{id}` |
-| Delete | a trusted IP location (live `isTrusted: true`) is first unmarked with `PATCH …/{id}` `{"@odata.type": "#microsoft.graph.ipNamedLocation", "isTrusted": false}` (Graph refuses to delete a trusted location: 400, error `1177`), then `DELETE …/{id}`; a 1177 on the DELETE unmarks and retries once, and a second 1177 is surfaced as `NamedLocationTrusted`; any other 400 (a policy still references the location) is surfaced as `NamedLocationReferenced` |
+| Delete | a trusted IP location (live `isTrusted: true`) is first unmarked with `PATCH …/{id}` `{"@odata.type": "#microsoft.graph.ipNamedLocation", "isTrusted": false}` (Graph refuses to delete a trusted location: 400, error `1177`), then `DELETE …/{id}`; a 1177 on the DELETE unmarks and retries once, and a second 1177 is surfaced as `NamedLocationTrusted`; any other 400 (a policy still references the location) is surfaced as `NamedLocationReferenced`. Graph applies the unmark with a delay, so the engine repeats a delete refused as `NamedLocationTrusted` every 5 s for up to 90 s (`LaggingDeleteRetry`, `deployment delete` and the old object of a recreate), and one refused as `NamedLocationReferenced` likewise when a policy was deleted earlier in the same run |
 
 `@odata.type` selects the kind (`#microsoft.graph.ipNamedLocation`: `ipRanges`, `isTrusted`;
 `#microsoft.graph.countryNamedLocation`: `countriesAndRegions`, `includeUnknownCountriesAndRegions`,
@@ -379,7 +379,7 @@ last `PlanOptions` seen is kept so a direct `CreateAsync`/`UpdateAsync` applies 
 | Read | `GET /identity/conditionalAccess/authenticationContextClassReferences/{id}`; a 404 is "create" |
 | Create | `PATCH …/{id} { displayName, description, isAvailable }` (the response object when Graph returns one, otherwise `GET …/{id}`) |
 | Update | `PATCH …/{id}` (merge body of the changed scalars) → `GET …/{id}` |
-| Delete | `GET …/{id}` (404 = already gone) → `PATCH …/{id} { isAvailable: false }` while the context is still available (Graph refuses to delete an available one) → `DELETE …/{id}`; a 400 (still available, or referenced by a policy's `includeAuthenticationContextClassReferences`) is surfaced as `Referenced` |
+| Delete | `GET …/{id}` (404 = already gone) → `PATCH …/{id} { isAvailable: false }` while the context is still available (Graph refuses to delete an available one) → `DELETE …/{id}`; a 400 (still available, or referenced by a policy's `includeAuthenticationContextClassReferences`) is surfaced as `Referenced` (repeated every 5 s for up to 90 s when a policy was deleted earlier in the same run, like the strength) |
 
 `Plan` requires `displayName` and defaults `isAvailable: true` into the evaluated properties, so a context switched off
 outside EARM shows as drift. The id is immutable by definition: another name is another resource, never a recreate.
@@ -399,7 +399,7 @@ MFA) are read-only: reference them with
 | Read | `GET /policies/authenticationStrengthPolicies` (every page; the displayName match is client-side because `$filter` on this collection is unverified): one custom hit is the object, several are `AmbiguousMatch`, only a built-in hit is the built-in (which `Plan` refuses to manage), nothing is "create" |
 | Create | `POST /policies/authenticationStrengthPolicies { displayName, description, allowedCombinations }` |
 | Update | `PATCH …/{id}` only when `displayName` / `description` changed (never carrying `allowedCombinations`) → `POST …/{id}/updateAllowedCombinations { allowedCombinations }` only when the combination set differs → `GET …/{id}` |
-| Delete | `DELETE …/{id}`; a 400 while a policy references the strength is surfaced as `Referenced` (`deployment delete` deletes policies first: reverse dependency order) |
+| Delete | `DELETE …/{id}`; a 400 while a policy references the strength is surfaced as `Referenced` (`deployment delete` deletes policies first: reverse dependency order; a `Referenced` refusal right after a policy was deleted in the same run is repeated every 5 s for up to 90 s, because the Conditional Access service sees the policy delete late) |
 
 `allowedCombinations` is compared as a set of normalised strings (`AuthenticationStrengthsRules.NormalizeCombination`): when
 the sets are equal the desired array adopts the live spelling before the shared diff runs, so reordered or differently
