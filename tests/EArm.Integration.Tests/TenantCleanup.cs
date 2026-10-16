@@ -15,7 +15,7 @@ namespace EArm.Integration.Tests;
 /// or <c>uniqueName</c>) starts with the run prefix and deletes it in dependency order, then purges the soft-deleted
 /// copies. Objects without the prefix are never listed for deletion, and every delete is re-checked against the prefix
 /// right before it is sent. Failures never throw: they are logged and returned as leftovers. With <c>EARM_IT_ALLOW_PIM=1</c> the PIM schedules of the
-/// prefixed principals are removed first (<see cref="PimCleanup"/>).
+/// prefixed and tracked principals are removed first, before any object is deleted (<see cref="PimCleanup"/>).
 /// </summary>
 internal sealed class TenantCleanup
 {
@@ -51,7 +51,7 @@ internal sealed class TenantCleanup
     /// <param name="graph">The fixture's Graph client.</param>
     /// <param name="prefix">The run prefix; only objects whose name starts with it are touched.</param>
     /// <param name="includePim">
-    /// True (<c>EARM_IT_ALLOW_PIM=1</c>): the PIM schedules of the prefixed principals are removed first (<see cref="PimCleanup"/>); the run consented the
+    /// True (<c>EARM_IT_ALLOW_PIM=1</c>): the PIM schedules of the prefixed and tracked principals are removed first (<see cref="PimCleanup"/>); the run consented the
     /// PIM scopes only then.
     /// </param>
     public TenantCleanup(IGraphClient graph, string prefix, bool includePim = false)
@@ -75,13 +75,30 @@ internal sealed class TenantCleanup
 
     /// <summary>
     /// Runs the whole sweep. <paramref name="trackedPaths"/> are entity paths (<c>/applications/{id}</c>) of objects a
-    /// test created directly; they are removed first, but only when their name still starts with the prefix.
+    /// test created directly; they are removed first (after the PIM schedules, with PIM on), but only when their name still starts with the prefix.
     /// </summary>
     public async Task SweepAsync(IReadOnlyCollection<string> trackedPaths, CancellationToken cancellationToken)
     {
         _leftovers.Clear();
         _deletedIds.Clear();
         _leftoverIds.Clear();
+
+        // The owned principals are listed before anything is deleted: their PIM schedules (adminRemove) go first, also those of tracked principals,
+        // whose schedules cannot be listed once the principal is deleted.
+        var roleDefinitions = (await ListOwnedAsync("role definition", "/roleManagement/directory/roleDefinitions", null, cancellationToken))
+            .Where(r => r["isBuiltIn"] is not JsonValue builtIn || !builtIn.TryGetValue<bool>(out bool isBuiltIn) || !isBuiltIn)
+            .ToList();
+        var administrativeUnits = await ListOwnedAsync("administrative unit", "/directory/administrativeUnits", null, cancellationToken);
+        var groups = await ListOwnedAsync("group", "/groups", "displayName", cancellationToken);
+        var users = await ListOwnedByNameOrUpnAsync(cancellationToken);
+        var applications = await ListOwnedAsync("application", "/applications", "displayName", cancellationToken);
+        var servicePrincipals = await ListOwnedServicePrincipalsAsync(applications, cancellationToken);
+
+        if (_includePim)
+        {
+            await RemovePimSchedulesAsync(trackedPaths, groups, users, servicePrincipals, cancellationToken);
+        }
+
         foreach (string path in trackedPaths)
         {
             await DeleteTrackedAsync(path, cancellationToken);
@@ -116,29 +133,15 @@ internal sealed class TenantCleanup
             await DeleteOwnedAsync("named location", NamedLocationsPath, location, cancellationToken, retryTransientBadRequest: true, trustedLocation: true, alreadyUnmarked: unmarked);
         }
 
+        // The objects deleted as tracked above are not deleted again.
+        roleDefinitions = NotYetDeleted(roleDefinitions);
+        administrativeUnits = NotYetDeleted(administrativeUnits);
+        groups = NotYetDeleted(groups);
+        users = NotYetDeleted(users);
+        applications = NotYetDeleted(applications);
+        servicePrincipals = NotYetDeleted(servicePrincipals);
+
         // Directory roles: assignments of owned principals and of owned custom roles go before the roles and principals.
-        var roleDefinitions = (await ListOwnedAsync("role definition", "/roleManagement/directory/roleDefinitions", null, cancellationToken))
-            .Where(r => r["isBuiltIn"] is not JsonValue builtIn || !builtIn.TryGetValue<bool>(out bool isBuiltIn) || !isBuiltIn)
-            .ToList();
-        var administrativeUnits = await ListOwnedAsync("administrative unit", "/directory/administrativeUnits", null, cancellationToken);
-        var groups = await ListOwnedAsync("group", "/groups", "displayName", cancellationToken);
-        var users = await ListOwnedByNameOrUpnAsync(cancellationToken);
-        var applications = await ListOwnedAsync("application", "/applications", "displayName", cancellationToken);
-        var servicePrincipals = await ListOwnedServicePrincipalsAsync(applications, cancellationToken);
-
-        // PIM schedules of owned principals (adminRemove) before the plain role assignments and the principals themselves. The service principals of
-        // owned applications count as owned, as for the role assignments below.
-        if (_includePim)
-        {
-            var pim = new PimCleanup(_graph);
-            await pim.RemoveAsync(
-                groups.Concat(users).Concat(servicePrincipals).GroupBy(p => p.RequireId(), StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => Describe(g.First()).Trim('\''), StringComparer.OrdinalIgnoreCase),
-                groups.ToDictionary(g => g.RequireId(), g => Describe(g).Trim('\''), StringComparer.OrdinalIgnoreCase),
-                cancellationToken);
-            _log.AddRange(pim.Entries);
-            _leftovers.AddRange(pim.Leftovers);
-        }
-
         var assignmentFilters = new List<string>();
         assignmentFilters.AddRange(roleDefinitions.Select(r => "roleDefinitionId eq '" + r.RequireId() + "'"));
         assignmentFilters.AddRange(groups.Concat(users).Concat(servicePrincipals).Select(p => "principalId eq '" + p.RequireId() + "'"));
@@ -179,6 +182,76 @@ internal sealed class TenantCleanup
 
         await PurgeSoftDeletedAsync(cancellationToken);
         await VerifyAsync(cancellationToken);
+    }
+
+    private List<JsonObject> NotYetDeleted(List<JsonObject> objects)
+    {
+        return objects.Where(o => !_deletedIds.Contains(o.RequireId())).ToList();
+    }
+
+    // ---- PIM ----
+
+    /// <summary>
+    /// Removes the PIM schedules (<see cref="PimCleanup"/>) of the owned principals: the listed groups, users and service principals (those of owned
+    /// applications count as owned, as for the role assignments) and the tracked users, groups and service principals whose name still carries the prefix
+    /// (a principal created moments ago can be missing from a filtered listing). Runs before any deletion.
+    /// </summary>
+    private async Task RemovePimSchedulesAsync(
+        IReadOnlyCollection<string> trackedPaths,
+        IReadOnlyList<JsonObject> groups,
+        IReadOnlyList<JsonObject> users,
+        IReadOnlyList<JsonObject> servicePrincipals,
+        CancellationToken cancellationToken)
+    {
+        var principals = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var ownedGroups = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var principal in groups.Concat(users).Concat(servicePrincipals))
+        {
+            principals.TryAdd(principal.RequireId(), Describe(principal).Trim('\''));
+        }
+
+        foreach (var group in groups)
+        {
+            ownedGroups.TryAdd(group.RequireId(), Describe(group).Trim('\''));
+        }
+
+        foreach (string path in trackedPaths)
+        {
+            string collection = path[..Math.Max(0, path.LastIndexOf('/'))];
+            bool isGroup = string.Equals(collection, "/groups", StringComparison.OrdinalIgnoreCase);
+            if (!isGroup && !string.Equals(collection, "/users", StringComparison.OrdinalIgnoreCase) && !string.Equals(collection, "/servicePrincipals", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            JsonObject? live;
+            try
+            {
+                live = await _graph.GetObjectAsync(new GraphRequest(path), cancellationToken);
+            }
+            catch (GraphException ex)
+            {
+                Log($"pim: tracked {path} could not be read ({ex.Code}); its PIM schedules are covered only if the prefix listing found it");
+                continue;
+            }
+
+            if (live is null || !IsOwned(live))
+            {
+                continue;
+            }
+
+            string name = Describe(live).Trim('\'');
+            principals.TryAdd(live.RequireId(), name);
+            if (isGroup)
+            {
+                ownedGroups.TryAdd(live.RequireId(), name);
+            }
+        }
+
+        var pim = new PimCleanup(_graph);
+        await pim.RemoveAsync(principals, ownedGroups, cancellationToken);
+        _log.AddRange(pim.Entries);
+        _leftovers.AddRange(pim.Leftovers);
     }
 
     // ---- tracked objects ----

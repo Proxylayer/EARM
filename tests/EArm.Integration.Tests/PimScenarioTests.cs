@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using EArm.Engine;
+using EArm.Engine.Execution;
 using EArm.Graph;
 using EArm.Providers;
 using Xunit;
@@ -218,6 +219,11 @@ public sealed class PimScenarioTests : IntegrationTestBase
 
         await AssertNoChangesEventuallyAsync(() => Fixture.Cli.WhatIfAsync(run, Ct, "--exit-code-on-changes"), "rerun after create");
 
+        // PIM replaces a schedule by removing it, so it refuses the adminUpdate (and the adminRemove) of a group's only owner assignment with 400
+        // CannotDeleteLastAdminAssignment (PimLastOwnerAssignment). The signed-in user becomes a second, permanent owner (outside the template, so no
+        // PimAssignmentConflict) before the ownership end date moves.
+        await AddSignedInUserAsOwnerAsync(groupId, userId);
+
         var newEnd = end.AddDays(2);
         var moved = run.WithParameter("activeEnd", PimReads.Iso(newEnd));
         var modify = await Fixture.Cli.WhatIfAsync(moved, Ct, "--exit-code-on-changes");
@@ -316,8 +322,8 @@ public sealed class PimScenarioTests : IntegrationTestBase
         await Fixture.SweepNowAsync(Ct);
 
         string log = string.Join(Environment.NewLine, Fixture.CleanupLog);
-        Assert.True(Fixture.CleanupLog.Any(line => line.StartsWith("pim: adminRemove accepted for role eligibility", StringComparison.Ordinal)), "The sweep did not remove the role eligibility:" + Environment.NewLine + log);
-        Assert.True(Fixture.CleanupLog.Any(line => line.StartsWith("pim: adminRemove accepted for group eligibility", StringComparison.Ordinal)), "The sweep did not remove the group eligibility:" + Environment.NewLine + log);
+        Assert.True(Fixture.CleanupLog.Any(line => line.StartsWith("pim: adminRemove accepted for role eligibility", StringComparison.Ordinal) && line.Contains("pim-sweep-user", StringComparison.Ordinal)), "The sweep did not remove the role eligibility:" + Environment.NewLine + log);
+        Assert.True(Fixture.CleanupLog.Any(line => line.StartsWith("pim: adminRemove accepted for group eligibility", StringComparison.Ordinal) && line.Contains(groupId, StringComparison.OrdinalIgnoreCase)), "The sweep did not remove the group eligibility:" + Environment.NewLine + log);
         Assert.True(Fixture.Leftovers.Count == 0, "The sweep left objects behind:" + Environment.NewLine + string.Join(Environment.NewLine, Fixture.Leftovers));
         Assert.Null(await UserAsync(Fixture.Upn("pim-sweep-user"), "id"));
     }
@@ -341,6 +347,37 @@ public sealed class PimScenarioTests : IntegrationTestBase
         Assert.True(
             end is { } at && (at - expected).Duration() <= TimeSpan.FromSeconds(2),
             $"{what}: expected endDateTime {PimReads.Iso(expected)} but read {PimReads.DescribeSchedule(schedule)}");
+    }
+
+    /// <summary>
+    /// Makes the signed-in user a permanent owner of <paramref name="groupId"/> (<c>POST /groups/{id}/owners/$ref</c>), so the time-bound owner assignment
+    /// of <paramref name="principalId"/> is no longer the group's only owner, and waits until PIM lists the ownership (observed, not asserted).
+    /// </summary>
+    private async Task AddSignedInUserAsOwnerAsync(string groupId, string principalId)
+    {
+        var me = await Graph.GetObjectAsync(new GraphRequest("/me").WithSelect("id"), Ct)
+            ?? throw new InvalidOperationException("GET /me returned nothing.");
+        string meId = me.RequireId();
+        Assert.False(string.Equals(meId, principalId, StringComparison.OrdinalIgnoreCase), "The signed-in user is the assignment's principal.");
+        try
+        {
+            await Graph.PostAsync(
+                new GraphRequest($"/groups/{groupId}/owners/$ref").WithHint(RetryHint.ExpectReplicationLag),
+                new JsonObject { ["@odata.id"] = $"{GraphApiExtensions.Host}/v1.0/directoryObjects/{meId}" },
+                Ct);
+            Observe($"added the signed-in user {meId} as a permanent owner of group {groupId}");
+        }
+        catch (GraphException ex) when (ex.IsAlreadyExists || ex.GraphMessage.Contains("already exist", StringComparison.OrdinalIgnoreCase))
+        {
+            Observe($"the signed-in user {meId} already owns group {groupId}");
+        }
+
+        var listed = await EventuallyAsync(
+            async () => PimReads.OfAccess(await PimReads.ByGroupAsync(Graph, GroupSchedulesLookup.AssignmentSchedulesPath, groupId, Ct), meId, "owner"),
+            found => found.Count > 0,
+            seconds: 60,
+            stepSeconds: 5);
+        Observe($"PIM lists the signed-in user's ownership: {listed.Count > 0}");
     }
 
     /// <summary>A dynamic membership security group whose rule matches nobody and whose processing is paused (never populated).</summary>
