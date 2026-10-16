@@ -280,7 +280,10 @@ public sealed class DeploymentPlanner
             // Instances whose name is still symbolic afterwards (their input does not exist yet) are planned as creates below.
             SymbolicNames.Resolve(plan, batch, _logger);
 
-            await Parallel.ForEachAsync(batch.Instances, parallel, (instance, ct) => new ValueTask(PlanInstanceAsync(plan, instance, reads, ct))).ConfigureAwait(false);
+            // One summary line per batch for the absences the key absence check confirmed (its extra reads log at Debug).
+            var absences = new KeyAbsenceTally();
+            await Parallel.ForEachAsync(batch.Instances, parallel, (instance, ct) => new ValueTask(PlanInstanceAsync(plan, instance, reads, absences, ct))).ConfigureAwait(false);
+            _keyAbsenceCheck.LogBatchSummary(_logger, batch.Index, absences);
 
             // The warnings of the reads, in the order of the batch (the tasks above finish in any order): the what-if output must not depend on timing.
             foreach (var instance in batch.Instances)
@@ -301,12 +304,12 @@ public sealed class DeploymentPlanner
         public ConcurrentDictionary<ResourceInstance, List<Diagnostic>> Diagnostics { get; } = new();
     }
 
-    private async Task PlanInstanceAsync(DeploymentPlan plan, ResourceInstance instance, ReadContext reads, CancellationToken cancellationToken)
+    private async Task PlanInstanceAsync(DeploymentPlan plan, ResourceInstance instance, ReadContext reads, KeyAbsenceTally absences, CancellationToken cancellationToken)
     {
         ResourceChange change;
         try
         {
-            change = await PlanInstanceCoreAsync(plan, instance, reads, cancellationToken).ConfigureAwait(false);
+            change = await PlanInstanceCoreAsync(plan, instance, reads, absences, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -331,7 +334,7 @@ public sealed class DeploymentPlanner
         plan.RecordChange(instance, change);
     }
 
-    private async Task<ResourceChange> PlanInstanceCoreAsync(DeploymentPlan plan, ResourceInstance instance, ReadContext reads, CancellationToken cancellationToken)
+    private async Task<ResourceChange> PlanInstanceCoreAsync(DeploymentPlan plan, ResourceInstance instance, ReadContext reads, KeyAbsenceTally absences, CancellationToken cancellationToken)
     {
         if (instance.Condition is null)
         {
@@ -380,7 +383,7 @@ public sealed class DeploymentPlanner
         // (KeyReadLagsCreate) is repeated before "nothing found" is planned as a create (KeyAbsenceCheck), unless ConfirmKeyAbsence is off (what-if and the
         // planning pass of create: the executor repeats the full check right before every POST, so a false "absent" here never becomes a duplicate).
         var existing = await _keyAbsenceCheck
-            .ReadAsync(provider, key, ct => WithRetryAsync(c => provider.ReadAsync(key, _graph, c), RetryHint.Default, ct), _logger, cancellationToken)
+            .ReadAsync(provider, key, ct => WithRetryAsync(c => provider.ReadAsync(key, _graph, c), RetryHint.Default, ct), _logger, absences, cancellationToken)
             .ConfigureAwait(false);
         var warnings = new List<Diagnostic>();
         if (existing is not null)

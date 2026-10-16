@@ -197,6 +197,58 @@ public sealed class KeyAbsenceCheckTests
         Assert.Equal(1, host.AbsenceDelays.Count - delaysBefore);
     }
 
+    // ---- logging ----
+
+    private static string NamedIpLocation(string name)
+    {
+        return IpLocation().Replace("\"name\": \"Contoso offices\"", "\"name\": \"" + name + "\"", StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Logs_EachExtraReadAtDebug_AndOneInformationSummaryForTheBatch()
+    {
+        var host = new ProviderHost();
+
+        await host.WhatIfAsync(host.Resources(NamedIpLocation("Office A") + ", " + NamedIpLocation("Office B")));
+
+        var lines = host.Logs.Lines;
+        Assert.Equal(2 * Extra, lines.Count(l => l.StartsWith("Debug DeploymentPlanner: Nothing found for", StringComparison.Ordinal)));
+        Assert.DoesNotContain(lines, l => l.Contains("Nothing found for", StringComparison.Ordinal) && !l.StartsWith("Debug ", StringComparison.Ordinal));
+        var summary = Assert.Single(lines, l => l.Contains("absent after", StringComparison.Ordinal));
+        Assert.StartsWith("Information DeploymentPlanner: Batch ", summary, StringComparison.Ordinal);
+        Assert.Contains("confirmed 2 object(s) absent after 3 extra read(s) (12 s)", summary, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Logs_TheExecutorsCheck_AsOneInformationSummaryLine()
+    {
+        var host = new ProviderHost();
+
+        Check.Succeeded(await host.CreateAsync(host.Resources(IpLocation())));
+
+        var lines = host.Logs.Lines;
+        Assert.Equal(Extra, lines.Count(l => l.StartsWith("Debug DeploymentExecutor: Nothing found for", StringComparison.Ordinal)));
+        var summary = Assert.Single(lines, l => l.Contains("absent after", StringComparison.Ordinal));
+        Assert.StartsWith("Information DeploymentExecutor: Confirmed ", summary, StringComparison.Ordinal);
+        Assert.Contains("Contoso offices", summary, StringComparison.Ordinal);
+        Assert.Contains("absent after 3 extra read(s) (12 s)", summary, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Logs_AnObjectFoundOnAnExtraRead_AsAWarning_WithoutAnAbsenceSummary()
+    {
+        var host = await HostWithExistingLocationAsync();
+        int mark = host.Logs.Lines.Count;
+        host.Fake.FlapLists(LocPath, false);
+
+        await host.WhatIfAsync(host.Resources(IpLocation()));
+
+        var lines = host.Logs.Lines.Skip(mark).ToList();
+        var found = Assert.Single(lines, l => l.Contains("on extra read", StringComparison.Ordinal));
+        Assert.StartsWith("Warning DeploymentPlanner: ", found, StringComparison.Ordinal);
+        Assert.DoesNotContain(lines, l => l.Contains("absent after", StringComparison.Ordinal));
+    }
+
     // ---- create (executor) ----
 
     [Fact]

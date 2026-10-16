@@ -50,11 +50,18 @@ public sealed record KeyAbsenceCheck
         init => field = value ?? throw new ArgumentNullException(nameof(Delay));
     } = TaskDelayProvider.Instance;
 
+    /// <summary>The scheduled wait of one confirmed absence: <see cref="ExtraReads"/> x <see cref="Interval"/>.</summary>
+    internal double WaitedSeconds => ExtraReads * Interval.TotalSeconds;
+
     /// <summary>
     /// Reads the object by its key with <paramref name="read"/>; for a provider whose key read lags, an empty result is read again (see the type)
     /// before it is returned as "absent". Failures of a read and the caller's cancellation propagate.
+    /// <para>
+    /// Each extra read is logged at Debug; an object an extra read finds is logged at Warning (the real signal). A confirmed absence is counted in
+    /// <paramref name="batch"/> when the caller summarizes a whole batch (<see cref="LogBatchSummary"/>), and otherwise logged as one Information line here.
+    /// </para>
     /// </summary>
-    internal async Task<ExistingResource?> ReadAsync(IResourceProvider provider, ResourceKey key, Func<CancellationToken, Task<ExistingResource?>> read, ILogger logger, CancellationToken cancellationToken)
+    internal async Task<ExistingResource?> ReadAsync(IResourceProvider provider, ResourceKey key, Func<CancellationToken, Task<ExistingResource?>> read, ILogger logger, KeyAbsenceTally? batch, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(provider);
         ArgumentNullException.ThrowIfNull(key);
@@ -79,6 +86,47 @@ public sealed record KeyAbsenceCheck
             }
         }
 
+        if (ExtraReads > 0)
+        {
+            if (batch is null)
+            {
+                EngineLog.AbsenceConfirmed(logger, key.Describe(), ExtraReads, WaitedSeconds);
+            }
+            else
+            {
+                batch.RecordConfirmedAbsence();
+            }
+        }
+
         return null;
+    }
+
+    /// <summary>One Information line for the absences <paramref name="batch"/> counted in batch <paramref name="batchIndex"/>; nothing when no extra read ran.</summary>
+    internal void LogBatchSummary(ILogger logger, int batchIndex, KeyAbsenceTally batch)
+    {
+        ArgumentNullException.ThrowIfNull(logger);
+        ArgumentNullException.ThrowIfNull(batch);
+        int confirmed = batch.ConfirmedAbsences;
+        if (confirmed > 0)
+        {
+            EngineLog.AbsenceConfirmedInBatch(logger, batchIndex, confirmed, ExtraReads, WaitedSeconds);
+        }
+    }
+}
+
+/// <summary>
+/// Counts the objects a <see cref="KeyAbsenceCheck"/> confirmed absent across the parallel reads of one planner batch, so the batch logs one
+/// summary line instead of a line per object. Thread-safe.
+/// </summary>
+internal sealed class KeyAbsenceTally
+{
+    private int _confirmedAbsences;
+
+    /// <summary>The objects every extra read found absent.</summary>
+    public int ConfirmedAbsences => Volatile.Read(ref _confirmedAbsences);
+
+    public void RecordConfirmedAbsence()
+    {
+        Interlocked.Increment(ref _confirmedAbsences);
     }
 }

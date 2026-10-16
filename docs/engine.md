@@ -153,7 +153,9 @@ load ──► validate ──► expand ──► graph ──► [per batch: r
   alternate key pay nothing; a genuinely new object of these types costs nothing extra in `what-if`, and 3 more reads and 12 s of waiting in `create`
   and in the planner of `deployment delete` (reads of one batch run in parallel, so the wait is per batch, not per object). This is a probability
   reduction, not a guarantee: a list that stays empty through all four reads while the object exists still creates the object again (Graph has no
-  unique key for these types to refuse the duplicate).
+  unique key for these types to refuse the duplicate). Logging: each extra read is a Debug line (event 2082); one Information line summarizes the
+  confirmed absences, per planner batch (event 2084) and per executor check (event 2085), only when extra reads ran; an object found on an extra read
+  is a warning (event 2083).
 - **Stale property values after an out-of-band change.** Graph is eventually consistent on property values too, and EARM cannot tell a stale
   replica from the current state: a `what-if` or `create` run moments after somebody changed an object outside EARM (in the portal, or by a
   direct Graph call) can still read the previous values for a short time, even after another reader already sees the new ones. Such a run reports

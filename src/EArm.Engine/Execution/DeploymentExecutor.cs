@@ -548,7 +548,7 @@ public sealed class DeploymentExecutor
             // becomes a create (KeyAbsenceCheck): its last read is the final look right before the POST, and an object any read finds is adopted
             // (NoChange or Modify) instead of being created a second time.
             var existing = await _owner._keyAbsenceCheck
-                .ReadAsync(provider, key, ct => WithRetryAsync(c => provider.ReadAsync(key, _owner._graph, c), RetryHint.Default, ct), Logger, cancellationToken)
+                .ReadAsync(provider, key, ct => WithRetryAsync(c => provider.ReadAsync(key, _owner._graph, c), RetryHint.Default, ct), Logger, batch: null, cancellationToken)
                 .ConfigureAwait(false);
 
             if (existing is not null && !TryClaim(instance, existing.GraphId, out var other))

@@ -167,6 +167,10 @@ transport to the built-in Microsoft Graph HTTP client.
   per batch in `what-if`. The executor of `create` still confirms the absence with every extra read right before each
   `POST`, so an object a flapping list omitted is adopted, never created twice; `deployment delete` keeps the
   confirmation in its planner, because it deletes what that plan finds.
+- The extra reads that confirm an absence log at Debug instead of Information (one line per object per read). One
+  Information line summarizes them instead: per planner batch (`Batch 0: confirmed 4 object(s) absent after 3 extra
+  read(s) (12 s)`, event 2084) and per executor check (`Confirmed ... absent after 3 extra read(s) (12 s)`, event
+  2085), only when extra reads ran. An object found on an extra read is still logged as a warning (event 2083).
 
 ### Removed
 

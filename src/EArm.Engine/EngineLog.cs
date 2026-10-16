@@ -104,9 +104,15 @@ internal static partial class EngineLog
     [LoggerMessage(EventId = 2081, Level = LogLevel.Information, Message = "Deleting {ResourceId} was refused ({Code}), most likely because an earlier change of this run has not reached Graph yet; deleting again (waited {WaitedSeconds} s of {WindowSeconds} s)")]
     public static partial void RetryingRefusedDelete(ILogger logger, string resourceId, string code, double waitedSeconds, double windowSeconds);
 
-    [LoggerMessage(EventId = 2082, Level = LogLevel.Information, Message = "Nothing found for {Key}; reading it again before planning a create ({Attempt} of {ExtraReads}): the list can omit an existing object for a while")]
+    [LoggerMessage(EventId = 2082, Level = LogLevel.Debug, Message = "Nothing found for {Key}; reading it again before planning a create ({Attempt} of {ExtraReads}): the list can omit an existing object for a while")]
     public static partial void ConfirmingAbsence(ILogger logger, string key, int attempt, int extraReads);
 
     [LoggerMessage(EventId = 2083, Level = LogLevel.Warning, Message = "{Key} was found (Graph id {GraphId}) on extra read {Attempt} after an empty read; it is treated as existing, not created again")]
     public static partial void FoundOnReread(ILogger logger, string key, string graphId, int attempt);
+
+    [LoggerMessage(EventId = 2084, Level = LogLevel.Information, Message = "Batch {Batch}: confirmed {Count} object(s) absent after {ExtraReads} extra read(s) ({WaitedSeconds} s); they are planned as creates")]
+    public static partial void AbsenceConfirmedInBatch(ILogger logger, int batch, int count, int extraReads, double waitedSeconds);
+
+    [LoggerMessage(EventId = 2085, Level = LogLevel.Information, Message = "Confirmed {Key} absent after {ExtraReads} extra read(s) ({WaitedSeconds} s)")]
+    public static partial void AbsenceConfirmed(ILogger logger, string key, int extraReads, double waitedSeconds);
 }
