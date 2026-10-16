@@ -6,6 +6,7 @@ using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using EArm.Graph;
 using EArm.Core;
+using EArm.Engine;
 using EArm.Engine.Execution;
 using EArm.Engine.Planning;
 using EArm.Engine.Providers;
@@ -264,5 +265,84 @@ public sealed class NamedLocationsProviderTests
         await provider.DeleteAsync((entry with { GraphId = "missing" }).ResourceKey, (entry with { GraphId = "missing" }).Live, host.Fake, ProviderHost.Ct);
         var write = Assert.Single(host.Fake.Writes);
         Assert.Equal("DELETE", write.Method);
+    }
+    [Fact]
+    public async Task Delete_TrustedIpLocation_IsUnmarkedWithItsODataType_ThenDeleted()
+    {
+        var host = new ProviderHost();
+        var location = host.Directory.Add(LocPath, new JsonObject { ["@odata.type"] = "#microsoft.graph.ipNamedLocation", ["displayName"] = LocName, ["isTrusted"] = true, ["ipRanges"] = new JsonArray(new JsonObject { ["@odata.type"] = "#microsoft.graph.iPv4CidrRange", ["cidrAddress"] = "10.0.0.0/8" }) });
+        string id = location["id"]!.GetValue<string>();
+        var provider = host.Provider(LocType);
+        var entry = new DeleteTarget { Id = ResourceIdentifier.Create(LocType, LocName), Type = LocType, ApiVersion = ProviderHost.ApiVersion, Key = new Dictionary<string, string> { ["displayName"] = LocName }, GraphId = id, Extra = new JsonObject { ["@odata.type"] = "#microsoft.graph.ipNamedLocation", ["isTrusted"] = true } };
+        host.ClearRequests();
+
+        await provider.DeleteAsync(entry.ResourceKey, entry.Live, host.Fake, ProviderHost.Ct);
+
+        Assert.Collection(
+            host.Fake.Writes,
+            patch =>
+            {
+                Assert.Equal("PATCH", patch.Method);
+                Assert.Equal(LocPath + "/" + id, patch.Path);
+                Assert.Equal("{\"@odata.type\":\"#microsoft.graph.ipNamedLocation\",\"isTrusted\":false}", patch.Body!.ToJsonString());
+            },
+            delete =>
+            {
+                Assert.Equal("DELETE", delete.Method);
+                Assert.Equal(LocPath + "/" + id, delete.Path);
+            });
+        Assert.Equal(0, host.Directory.Count(LocPath));
+    }
+
+    [Fact]
+    public async Task Delete_UntrustedOrCountryLocation_IsDeletedWithoutAPatch()
+    {
+        var host = new ProviderHost();
+        var location = host.Directory.Add(LocPath, new JsonObject { ["@odata.type"] = "#microsoft.graph.countryNamedLocation", ["displayName"] = LocName, ["countriesAndRegions"] = new JsonArray("GB") });
+        string id = location["id"]!.GetValue<string>();
+        var provider = host.Provider(LocType);
+        var entry = new DeleteTarget { Id = ResourceIdentifier.Create(LocType, LocName), Type = LocType, ApiVersion = ProviderHost.ApiVersion, Key = new Dictionary<string, string> { ["displayName"] = LocName }, GraphId = id, Extra = new JsonObject { ["@odata.type"] = "#microsoft.graph.countryNamedLocation" } };
+        host.ClearRequests();
+
+        await provider.DeleteAsync(entry.ResourceKey, entry.Live, host.Fake, ProviderHost.Ct);
+
+        var write = Assert.Single(host.Fake.Writes);
+        Assert.Equal("DELETE", write.Method);
+    }
+
+    [Fact]
+    public async Task Delete_TrustedAfterTheRead_Error1177_UnmarksAndRetriesOnce()
+    {
+        var host = new ProviderHost();
+        var location = host.Directory.Add(LocPath, new JsonObject { ["@odata.type"] = "#microsoft.graph.ipNamedLocation", ["displayName"] = LocName, ["isTrusted"] = true, ["ipRanges"] = new JsonArray(new JsonObject { ["@odata.type"] = "#microsoft.graph.iPv4CidrRange", ["cidrAddress"] = "10.0.0.0/8" }) });
+        string id = location["id"]!.GetValue<string>();
+        var provider = host.Provider(LocType);
+
+        // The live object the caller read does not show isTrusted: the first DELETE meets Graph's 1177.
+        var entry = new DeleteTarget { Id = ResourceIdentifier.Create(LocType, LocName), Type = LocType, ApiVersion = ProviderHost.ApiVersion, Key = new Dictionary<string, string> { ["displayName"] = LocName }, GraphId = id };
+        host.ClearRequests();
+
+        await provider.DeleteAsync(entry.ResourceKey, entry.Live, host.Fake, ProviderHost.Ct);
+
+        Assert.Equal(["DELETE", "PATCH", "DELETE"], host.Fake.Writes.Select(w => w.Method).ToArray());
+        Assert.Equal(0, host.Directory.Count(LocPath));
+    }
+
+    [Fact]
+    public async Task Delete_PersistentError1177_IsNamedLocationTrusted_NotReferencedByPolicy()
+    {
+        var host = new ProviderHost();
+        var location = host.Directory.Add(LocPath, new JsonObject { ["@odata.type"] = "#microsoft.graph.ipNamedLocation", ["displayName"] = LocName });
+        string id = location["id"]!.GetValue<string>();
+        host.Fake.Failures.Add("DELETE", LocPath + "/" + id, r => new GraphException(HttpStatusCode.BadRequest, "1177", "Named location with id " + id + " cannot be deleted because it is marked as a Trusted location. You have to unmark this named location before deletion.", r.Hint), times: -1);
+        var provider = host.Provider(LocType);
+        var entry = new DeleteTarget { Id = ResourceIdentifier.Create(LocType, LocName), Type = LocType, ApiVersion = ProviderHost.ApiVersion, Key = new Dictionary<string, string> { ["displayName"] = LocName }, GraphId = id };
+
+        var ex = await Assert.ThrowsAsync<ProviderException>(() => provider.DeleteAsync(entry.ResourceKey, entry.Live, host.Fake, ProviderHost.Ct));
+
+        Assert.Equal(NamedLocationsProvider.TrustedLocation, ex.Code);
+        Assert.Equal(EngineDiagnosticCodes.NamedLocationTrusted, ex.Code);
+        Assert.Contains("trusted location", ex.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("conditions.locations", ex.Message, StringComparison.Ordinal);
     }
 }

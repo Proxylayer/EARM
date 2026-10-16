@@ -332,7 +332,7 @@ a second one.
 | Read | `GET /identity/conditionalAccess/namedLocations?$filter=displayName eq '…'` |
 | Create | `POST /identity/conditionalAccess/namedLocations` (the response body is the object) |
 | Update | `PATCH …/{id}`, the body **always** carrying `@odata.type` (Graph requires it on this collection) → `GET …/{id}` |
-| Delete | `DELETE …/{id}`; a 400 while a policy references the location is surfaced as `ReferencedByPolicy` |
+| Delete | a trusted IP location (live `isTrusted: true`) is first unmarked with `PATCH …/{id}` `{"@odata.type": "#microsoft.graph.ipNamedLocation", "isTrusted": false}` (Graph refuses to delete a trusted location: 400, error `1177`), then `DELETE …/{id}`; a 1177 on the DELETE unmarks and retries once, and a second 1177 is surfaced as `NamedLocationTrusted`; any other 400 (a policy still references the location) is surfaced as `NamedLocationReferenced` |
 
 `@odata.type` selects the kind (`#microsoft.graph.ipNamedLocation`: `ipRanges`, `isTrusted`;
 `#microsoft.graph.countryNamedLocation`: `countriesAndRegions`, `includeUnknownCountriesAndRegions`,

@@ -235,3 +235,4 @@ warning diagnostic. The others are the `Code` of a provider failure and appear a
 | `AuthenticationStrengthBuiltIn` | Error (resource) | A built-in authentication strength cannot be created, changed or deleted. |
 | `ConditionalAccessPolicyRejected` | Error (resource) | A Conditional Access policy was refused before the write (for example `state: enabled` without `--allow-ca-enforce`, or an invalid shape); the message lists the problems. |
 | `NamedLocationReferenced` | Error (resource) | A named location cannot be deleted while a Conditional Access policy references it. |
+| `NamedLocationTrusted` | Error (resource) | Graph kept refusing to delete a named location because it is marked as a trusted location (Graph error `1177`), even after EARM unmarked it (`isTrusted: false`) and retried. EARM unmarks a trusted IP location before deleting it, so this means the unmark did not take effect; set `isTrusted: false` on the location and delete it again. |

@@ -943,6 +943,8 @@ public sealed class FakeDirectory
 
     private const string ConditionalAccessPoliciesPath = "/identity/conditionalAccess/policies";
 
+    private const string NamedLocationsPath = "/identity/conditionalAccess/namedLocations";
+
     /// <summary>Graph never modifies or deletes a built-in authentication strength (<c>policyType: builtIn</c>).</summary>
     private static void RejectBuiltInStrengthWrite(string collectionPath, JsonObject entity, RetryHint hint)
     {
@@ -955,12 +957,21 @@ public sealed class FakeDirectory
     /// <summary>
     /// The Conditional Access delete rules Graph enforces: an authentication context must be unavailable
     /// (<c>isAvailable: false</c>) and unreferenced by any policy's <c>includeAuthenticationContextClassReferences</c>;
-    /// an authentication strength must be unreferenced by any policy's <c>grantControls.authenticationStrength</c>.
+    /// an authentication strength must be unreferenced by any policy's <c>grantControls.authenticationStrength</c>;
+    /// a named location marked trusted (<c>isTrusted: true</c>) is refused with Graph's error <c>1177</c>.
     /// </summary>
     private void RejectConditionalAccessDelete(string collectionPath, JsonObject entity, RetryHint hint)
     {
         string id = GetString(entity, "id")!;
-        if (collectionPath.Equals(AuthenticationContextsPath, StringComparison.OrdinalIgnoreCase))
+        if (collectionPath.Equals(NamedLocationsPath, StringComparison.OrdinalIgnoreCase))
+        {
+            if (entity["isTrusted"] is JsonValue trusted && trusted.GetValueKind() == JsonValueKind.True)
+            {
+                // The real error: 400, code 1177.
+                throw new GraphException(HttpStatusCode.BadRequest, "1177", $"Named location with id {id} cannot be deleted because it is marked as a Trusted location. You have to unmark this named location before deletion.", hint);
+            }
+        }
+        else if (collectionPath.Equals(AuthenticationContextsPath, StringComparison.OrdinalIgnoreCase))
         {
             if (entity["isAvailable"] is not JsonValue available || available.GetValueKind() != JsonValueKind.False)
             {

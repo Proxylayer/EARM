@@ -158,6 +158,9 @@ public static class EngineDiagnosticCodes
     /// <summary>A named location cannot be deleted while a conditional access policy references it.</summary>
     public const string NamedLocationReferenced = "NamedLocationReferenced";
 
+    /// <summary>Graph kept refusing to delete a named location because it is marked trusted (error 1177), even after EARM unmarked it.</summary>
+    public const string NamedLocationTrusted = "NamedLocationTrusted";
+
     // ---- Edge pass: app-only tokens and forbidden reads ----
 
     /// <summary>A declared relationship cannot be read or changed with an application (app-only) token: <c>ownerOf</c> on a user (Learn: user-list-ownedobjects). The row is reported and skipped.</summary>

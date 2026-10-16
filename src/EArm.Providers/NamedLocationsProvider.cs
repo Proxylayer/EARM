@@ -24,7 +24,10 @@ namespace EArm.Providers;
 /// <item><b>Read</b>: <c>GET /identity/conditionalAccess/namedLocations?$filter=displayName eq '…'</c>: no hit is "create", one hit is the object, several hits are <c>ProviderException(AmbiguousMatch)</c> listing the ids.</item>
 /// <item><b>Create</b>: <c>POST /identity/conditionalAccess/namedLocations</c> (the response body is the object).</item>
 /// <item><b>Update</b>: <c>PATCH /identity/conditionalAccess/namedLocations/{id}</c>, the body always carrying <c>@odata.type</c> (Graph requires it on this collection) → <c>GET …/{id}</c>.</item>
-/// <item><b>Delete</b>: <c>DELETE /identity/conditionalAccess/namedLocations/{id}</c>; a 404 is "already gone"; a 400 (the location is still referenced by a Conditional Access policy) is surfaced as <see cref="ReferencedByPolicy"/>.</item>
+/// <item><b>Delete</b>: a trusted IP location (live <c>isTrusted: true</c>) is first unmarked with <c>PATCH …/{id}</c> <c>{"@odata.type": "#microsoft.graph.ipNamedLocation", "isTrusted": false}</c>
+/// (Graph refuses to delete a trusted location, error <c>1177</c>), then <c>DELETE /identity/conditionalAccess/namedLocations/{id}</c>; a 404 is "already gone"; a 1177 refusal
+/// (the location became trusted after the read) unmarks and retries once, and a second one is surfaced as <see cref="TrustedLocation"/>; any other 400 (the location is still
+/// referenced by a Conditional Access policy) is surfaced as <see cref="ReferencedByPolicy"/>.</item>
 /// </list>
 /// </para>
 /// <para>
@@ -42,6 +45,12 @@ public sealed class NamedLocationsProvider : ProviderBase, IOrphanCandidateSourc
 
     /// <summary><see cref="ProviderException.Code"/> when Graph refuses to delete a location that a policy still references.</summary>
     public const string ReferencedByPolicy = EngineDiagnosticCodes.NamedLocationReferenced;
+
+    /// <summary><see cref="ProviderException.Code"/> when Graph keeps refusing to delete a location because it is marked trusted (Graph error <c>1177</c>).</summary>
+    public const string TrustedLocation = EngineDiagnosticCodes.NamedLocationTrusted;
+
+    /// <summary>The Graph error code (also quoted in the message) for "cannot be deleted because it is marked as a Trusted location".</summary>
+    private const string TrustedLocationErrorCode = "1177";
 
     private const string KeyProperty = "displayName";
 
@@ -173,13 +182,36 @@ public sealed class NamedLocationsProvider : ProviderBase, IOrphanCandidateSourc
         ArgumentNullException.ThrowIfNull(live);
         ArgumentNullException.ThrowIfNull(graph);
         var api = key.Api;
+        string path = EntityPath(live.GraphId);
         try
         {
-            await graph.DeleteAsync(new GraphRequest(EntityPath(live.GraphId), api), cancellationToken).ConfigureAwait(false);
+            if (IsTrusted(live.Raw))
+            {
+                await UnmarkTrustedAsync(path, api, cancellationToken).ConfigureAwait(false);
+            }
+
+            try
+            {
+                await graph.DeleteAsync(new GraphRequest(path, api), cancellationToken).ConfigureAwait(false);
+            }
+            catch (GraphException ex) when (IsTrustedRefusal(ex))
+            {
+                // Marked trusted after the read (or the read did not show it): unmark and try once more.
+                await UnmarkTrustedAsync(path, api, cancellationToken).ConfigureAwait(false);
+                await graph.DeleteAsync(new GraphRequest(path, api), cancellationToken).ConfigureAwait(false);
+            }
         }
         catch (GraphException ex) when (ex.IsNotFound)
         {
             // Already gone (deleted outside EARM): nothing to do.
+        }
+        catch (GraphException ex) when (IsTrustedRefusal(ex))
+        {
+            throw new ProviderException(
+                TrustedLocation,
+                $"{TypeName} {key.Describe()}: Graph refused to delete named location {live.GraphId} because it is marked as a trusted location ({ex.Code}: {ex.GraphMessage}), even after EARM set isTrusted to false. Unmark it (isTrusted: false) and delete it again.",
+                null,
+                ex);
         }
         catch (GraphException ex) when (ex.Status == HttpStatusCode.BadRequest)
         {
@@ -190,6 +222,35 @@ public sealed class NamedLocationsProvider : ProviderBase, IOrphanCandidateSourc
                 null,
                 ex);
         }
+
+        async Task UnmarkTrustedAsync(string entityPath, GraphApi graphApi, CancellationToken ct)
+        {
+            // Only an IP location has isTrusted; Graph requires @odata.type in every PATCH of this collection.
+            var body = new JsonObject
+            {
+                [NamedLocationsRules.ODataTypeProperty] = NamedLocationsRules.IpKind,
+                ["isTrusted"] = false,
+            };
+            await graph.PatchAsync(new GraphRequest(entityPath, graphApi), body, ct).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>The live object is an IP location with <c>isTrusted: true</c>.</summary>
+    private static bool IsTrusted(JsonObject raw)
+    {
+        return NamedLocationsRules.KindOf(raw) is not NamedLocationsRules.CountryKind
+            && JsonObjects.FindKey(raw, "isTrusted") is { } trustedKey
+            && raw[trustedKey] is JsonValue trusted
+            && trusted.TryGetValue<bool>(out bool isTrusted)
+            && isTrusted;
+    }
+
+    /// <summary>Graph error <c>1177</c>: the location cannot be deleted because it is marked as a trusted location.</summary>
+    private static bool IsTrustedRefusal(GraphException ex)
+    {
+        return ex.Status == HttpStatusCode.BadRequest
+            && (string.Equals(ex.Code, TrustedLocationErrorCode, StringComparison.Ordinal)
+                || ex.GraphMessage.Contains("Trusted location", StringComparison.OrdinalIgnoreCase));
     }
 
     // ---- Graph helpers ----
