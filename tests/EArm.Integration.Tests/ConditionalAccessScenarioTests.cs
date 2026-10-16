@@ -51,7 +51,7 @@ public sealed class ConditionalAccessScenarioTests : IntegrationTestBase
         await AssertNoChangesEventuallyAsync(() => Fixture.Cli.WhatIfAsync(run, Ct, "--exit-code-on-changes"), "what-if after create");
 
         // Drift: the trust flag is flipped behind EARM's back.
-        await Graph.PatchAsync(new GraphRequest($"{NamedLocations}/{ip.RequireId()}"), new JsonObject { ["@odata.type"] = "#microsoft.graph.ipNamedLocation", ["isTrusted"] = false }, Ct);
+        await Graph.PatchAsync(new GraphRequest($"{NamedLocations}/{ip.RequireId()}").WithHint(RetryHint.ExpectReplicationLag), new JsonObject { ["@odata.type"] = "#microsoft.graph.ipNamedLocation", ["isTrusted"] = false }, Ct);
 
         // Graph applies the PATCH with a delay: what-if must not run before a read shows the drift, or it sees the old value.
         var drifted = await EventuallyAsync(() => Graph.GetObjectAsync(new GraphRequest($"{NamedLocations}/{ip.RequireId()}"), Ct), found => found is not null && (bool?)found["isTrusted"] == false);
@@ -103,7 +103,7 @@ public sealed class ConditionalAccessScenarioTests : IntegrationTestBase
         await AssertNoChangesEventuallyAsync(() => Fixture.Cli.WhatIfAsync(run, Ct, "--exit-code-on-changes"), "what-if after create");
 
         // Drift: somebody disables the policy.
-        await Graph.PatchAsync(new GraphRequest($"{Policies}/{policy.RequireId()}"), new JsonObject { ["state"] = "disabled" }, Ct);
+        await Graph.PatchAsync(new GraphRequest($"{Policies}/{policy.RequireId()}").WithHint(RetryHint.ExpectReplicationLag), new JsonObject { ["state"] = "disabled" }, Ct);
         AssertChange(await Fixture.Cli.WhatIfAsync(run, Ct, "--exit-code-on-changes"), "/policies/" + policyName, "Modify", "what-if after drift");
         AssertCreated(await Fixture.Cli.CreateAsync(run, Ct), "create after drift");
         Assert.Equal("enabledForReportingButNotEnforced", (await FindOneEventuallyAsync(Policies, "displayName", policyName, found => found?.Text("state") == "enabledForReportingButNotEnforced"))!.Text("state"));

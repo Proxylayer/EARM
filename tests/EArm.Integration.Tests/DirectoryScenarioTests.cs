@@ -54,8 +54,8 @@ public sealed class DirectoryScenarioTests : IntegrationTestBase
         await AssertNoChangesEventuallyAsync(() => Fixture.Cli.WhatIfAsync(run, Ct, "--exit-code-on-changes"), "what-if after create");
 
         // Drift on both sides: an extra member of ga (target side authoritative: removed) and u2 taken out of gc (principal side: added back).
-        await Graph.PostAsync(new GraphRequest($"/groups/{ga}/members/$ref"), new JsonObject { ["@odata.id"] = $"{GraphApiExtensions.Host}/v1.0/directoryObjects/{u2}" }, Ct);
-        await Graph.DeleteAsync(new GraphRequest($"/groups/{gc}/members/{u2}/$ref"), Ct);
+        await Graph.PostAsync(new GraphRequest($"/groups/{ga}/members/$ref").WithHint(RetryHint.ExpectReplicationLag), new JsonObject { ["@odata.id"] = $"{GraphApiExtensions.Host}/v1.0/directoryObjects/{u2}" }, Ct);
+        await Graph.DeleteAsync(new GraphRequest($"/groups/{gc}/members/{u2}/$ref").WithHint(RetryHint.ExpectReplicationLag), Ct);
 
         var drift = await Fixture.Cli.WhatIfAsync(run, Ct, "--exit-code-on-changes");
         AssertExit(5, drift, "what-if after edge drift");
@@ -109,7 +109,7 @@ public sealed class DirectoryScenarioTests : IntegrationTestBase
         await AssertNoChangesEventuallyAsync(() => Fixture.Cli.WhatIfAsync(run, Ct, "--exit-code-on-changes"), "what-if after create");
 
         // Drift of a managed property.
-        await Graph.PatchAsync(new GraphRequest("/users/" + u1.RequireId()), new JsonObject { ["jobTitle"] = "Drifted" }, Ct);
+        await Graph.PatchAsync(new GraphRequest("/users/" + u1.RequireId()).WithHint(RetryHint.ExpectReplicationLag), new JsonObject { ["jobTitle"] = "Drifted" }, Ct);
         AssertChange(await Fixture.Cli.WhatIfAsync(run, Ct, "--exit-code-on-changes"), "/users/" + Fixture.Upn("u1"), "Modify", "what-if after drift");
         AssertCreated(await Fixture.Cli.CreateAsync(run, Ct), "create after drift");
         Assert.Equal("Integration test user", (await UserAsync(Fixture.Upn("u1"), "jobTitle"))!.Text("jobTitle"));

@@ -50,7 +50,7 @@ public sealed class ApplicationScenarioTests : IntegrationTestBase
         Assert.NotNull(servicePrincipal);
         Assert.Equal(servicePrincipal.RequireId(), (string?)created.Json["outputs"]?["servicePrincipalId"]?["value"]);
 
-        var credentials = await Graph.GetObjectAsync(new GraphRequest("/applications/" + appObjectId).WithSelect("id", "passwordCredentials"), Ct);
+        var credentials = await Graph.GetObjectAsync(new GraphRequest("/applications/" + appObjectId).WithHint(RetryHint.ExpectReplicationLag).WithSelect("id", "passwordCredentials"), Ct);
         // The provider writes the rotation tag into the displayName ("ci-secret#v1").
         Assert.Single(
             credentials!["passwordCredentials"]!.AsArray().OfType<JsonObject>(),
@@ -69,7 +69,7 @@ public sealed class ApplicationScenarioTests : IntegrationTestBase
         Assert.Null(rerun.Json["outputs"]?["clientSecret"]?["value"]);
 
         // 4. Drift: change the live application behind EARM's back; what-if reports Modify, create repairs it.
-        await Graph.PatchAsync(new GraphRequest("/applications/" + appObjectId), new JsonObject { ["displayName"] = appName + "-drifted" }, Ct);
+        await Graph.PatchAsync(new GraphRequest("/applications/" + appObjectId).WithHint(RetryHint.ExpectReplicationLag), new JsonObject { ["displayName"] = appName + "-drifted" }, Ct);
         AssertChange(await Fixture.Cli.WhatIfAsync(run, Ct, "--exit-code-on-changes"), appResource, "Modify", "what-if after drift");
         AssertCreated(await Fixture.Cli.CreateAsync(run, Ct), "create after drift");
         await AssertNoChangesEventuallyAsync(() => Fixture.Cli.WhatIfAsync(run, Ct, "--exit-code-on-changes"), "what-if after repair");

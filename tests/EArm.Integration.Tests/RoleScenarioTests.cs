@@ -58,7 +58,7 @@ public sealed class RoleScenarioTests : IntegrationTestBase
 
         // Drift: the tenant-scope assignment is removed behind EARM's back and comes back.
         var tenantScoped = assignments.Single(a => a.Scope == "/" && a.Role == directoryReaders);
-        await Graph.DeleteAsync(new GraphRequest($"{RoleAssignments}/{tenantScoped.Id}"), Ct);
+        await Graph.DeleteAsync(new GraphRequest($"{RoleAssignments}/{tenantScoped.Id}").WithHint(RetryHint.ExpectReplicationLag), Ct);
         var drift = await Fixture.Cli.WhatIfAsync(run, Ct, "--exit-code-on-changes");
         AssertExit(5, drift, "what-if after dropping an assignment");
         Assert.True(EdgeCount(drift, "add") >= 1, "Expected the missing Directory Readers assignment to be an edge to add: " + drift.DescribeChanges());
@@ -97,7 +97,7 @@ public sealed class RoleScenarioTests : IntegrationTestBase
         await AssertNoChangesEventuallyAsync(() => Fixture.Cli.WhatIfAsync(run, Ct, "--exit-code-on-changes"), "what-if after create");
 
         // Drift: the grant's scope changes; the template wins.
-        await Graph.PatchAsync(new GraphRequest("/oauth2PermissionGrants/" + grant.RequireId()), new JsonObject { ["scope"] = "User.Read profile" }, Ct);
+        await Graph.PatchAsync(new GraphRequest("/oauth2PermissionGrants/" + grant.RequireId()).WithHint(RetryHint.ExpectReplicationLag), new JsonObject { ["scope"] = "User.Read profile" }, Ct);
         var drift = await Fixture.Cli.WhatIfAsync(run, Ct, "--exit-code-on-changes");
         AssertExit(5, drift, "what-if after drift");
         Assert.Contains(drift.Changes, c => ((string?)c["resourceId"])?.Contains("/oauth2PermissionGrants/", StringComparison.OrdinalIgnoreCase) == true && (string?)c["changeType"] == "Modify");

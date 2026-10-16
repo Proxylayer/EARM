@@ -39,7 +39,7 @@ public sealed class CleanupScenarioTests : IntegrationTestBase
         // The rest of the guard is exercised by the teardown of every other scenario.
         var group = await TenantObjects.CreateGroupAsync(Fixture, "cleanup-probe", Ct);
         string id = group.RequireId();
-        Assert.NotNull(await Graph.GetObjectAsync(new GraphRequest("/groups/" + id), Ct));
+        Assert.NotNull(await Graph.GetObjectAsync(new GraphRequest("/groups/" + id).WithHint(RetryHint.ExpectReplicationLag), Ct));
 
         await Fixture.SweepNowAsync(Ct);
 
