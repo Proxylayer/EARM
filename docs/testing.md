@@ -109,7 +109,7 @@ only touches that prefix. The main sign-in is your own user (`earm auth login`):
 them once with the `earm auth login --tenant <id> --scopes ...` command a skipped run prints (or set `EARM_IT_INTERACTIVE=1` to be prompted once at the start);
 a service principal in the `AZURE_*` variables is the CI option. `EARM_IT_CONSENT_PROBE=1` runs the interactive consent probes (`Category=Consent`).
 What it creates, what it needs and how to clean up after a crashed run: [tests/EArm.Integration.Tests/README.md](../tests/EArm.Integration.Tests/README.md).
-Until it has been run once against a tenant, the product is **unvalidated against a real Microsoft Graph**.
+It has been run against a development tenant; EARM is still a preview and is not used in production.
 
 ## CI
 

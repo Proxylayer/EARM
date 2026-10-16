@@ -280,7 +280,7 @@ read find nothing and a delete a no-op; the fake directory answers 400 to any na
 (`^[A-Za-z0-9][A-Za-z0-9_-]{2,119}$`: 3-120 letters, digits, `-` or `_`, starting with a letter or digit), a non-https `issuer`, an empty `subject`, `claimsMatchingExpression` on `2026-10-01-preview`
 (Graph v1.0; it needs `2026-10-01-preview.beta`), an `issuer` + `subject` pair already used by another credential of the application (live, or declared
 elsewhere in the same deployment) and a 21st credential. Written literally, a duplicate pair (two declarations, or a `copy` loop with a literal
-subject) and a duplicate `audiences` value are already refused offline by `deployment validate` (`DuplicateFederatedCredentialSubject`,
+subject) and a duplicate `audiences` value are already refused offline by `deployment validate` (`FederatedCredentialChecker`: `DuplicateFederatedCredentialSubject`,
 `DuplicateFederatedCredentialAudience`). A rename is a new resource: the old credential stays (Complete mode
 lists it as undeclared; nothing deletes it), so a rename that keeps issuer and subject is refused until you delete the old
 credential. Permissions follow the parent rule of the password credentials above.
@@ -369,7 +369,10 @@ so reordered or differently spelt ranges are not drift.
 `NormalizeLive` removes read-back noise (`customAuthenticationFactors: []`, `termsOfUse: []`, `platforms: null`). `Plan` refuses
 what Graph would reject or the plan guards against: `state: enabled` without `--allow-ca-enforce`, an empty users or
 applications include, no control at all, `block` combined with another control, `mfa` together with
-`authenticationStrength`, the lockout pattern (all users + all applications + block with no exclusion) and the
+`authenticationStrength`, a `conditions.applications` that combines a non-empty `includeApplications` with a non-empty
+`includeUserActions` or `includeAuthenticationContextClassReferences` (Graph refuses it with error `1012`; written literally it is
+already refused offline by `deployment validate` as `ConflictingApplicationIncludes`, `ConditionalAccessPolicyChecker`, and arrays
+computed by expressions are caught here at plan time), the lockout pattern (all users + all applications + block with no exclusion) and the
 preview-only properties (`templateId`, `partialEnablementStrategy`, `sessionControls.continuousAccessEvaluation`) on
 `2026-10-01-preview` (Graph v1.0; use `2026-10-01-preview.beta` for them). References are by id: users and groups by object id, `includeApplications` by application (client) id,
 locations by named location id (`reference('Contoso offices').id` makes the dependency), roles by role template id. The

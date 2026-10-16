@@ -5,8 +5,8 @@ ARM-style JSON templates for **Microsoft Entra ID**, applied through the **Micro
 EARM is short for "Entra ARM" (ARM-style templates for Entra), pronounced as the letters E-A-R-M or as "earm"; the command line tool is `earm`.
 
 > **Preview.** The template format and `apiVersion` `2026-10-01-preview` are in preview: breaking changes are possible and nothing is released
-> yet. EARM has **not been validated against a real tenant**: the integration suite that would do so is gated (see
-> [Contributing and testing](#contributing-and-testing)) and has not been run against one. Microsoft Graph **v1.0** is used by default
+> yet. The gated integration suite (see [Contributing and testing](#contributing-and-testing)) has been run against a development
+> tenant, but EARM is still a preview and is not used in production. Microsoft Graph **v1.0** is used by default
 > (`apiVersion` `2026-10-01-preview`); the beta endpoint is opt-in per resource with `2026-10-01-preview.beta` (passthrough, no normalisation
 > guarantees). The plain `2026-10-01` label was renamed `2026-10-01-preview` and is rejected with an `UnknownApiVersion` error that says so.
 
@@ -40,9 +40,9 @@ Implemented (a working pre-release, see [Limitations](#limitations-v1) for what 
   `conditionalAccess/policies`, `conditionalAccess/namedLocations`, `conditionalAccess/authenticationStrengths` and
   `conditionalAccess/authenticationContextClassReferences` (all under `Microsoft.Entra/`).
 - The verbs `deployment validate | what-if | create | delete`, `permissions`, `schema print | install` and `auth login | logout | status`.
-- Tests: about 5,750 unit and in-process tests (EArm.Tests, EArm.Providers.Tests, EArm.Graph.Tests; a warm `test.ps1` takes about 1-1.5 minutes), against fakes of Graph (an HTTP handler over an in-memory directory)
+- Tests: about 5,750 unit and in-process tests (EArm.Tests, EArm.Providers.Tests, EArm.Graph.Tests; a full `test.ps1` run, build included, takes about 2-3 minutes), against fakes of Graph (an HTTP handler over an in-memory directory)
   and of the sign-in, with about 95 % line and 89 % branch coverage ([tests/COVERAGE.md](tests/COVERAGE.md); how they are organised and reviewed: [docs/testing.md](docs/testing.md)).
-  The tenant-backed integration suite is gated behind `EARM_IT_TENANT` and has **not been run**: it is not part of those numbers, and a plain `test.ps1` reports it as `GATED`, not as a pass.
+  The tenant-backed integration suite is gated behind `EARM_IT_TENANT` and has been run against a development tenant: it is not part of those numbers, and a plain `test.ps1` reports it as `GATED`, not as a pass.
 
 ## Quick start
 
@@ -54,7 +54,7 @@ git clone https://github.com/Proxylayer/EARM.git
 cd EARM
 
 pwsh -File build.ps1        # build the solution: prints BUILD OK, zero warnings
-pwsh -File test.ps1         # run the whole suite headless (well under a minute)
+pwsh -File test.ps1         # run the whole suite headless (about 2-3 minutes)
 pwsh -File deploy.ps1       # pack the CLI and install it as the global tool `earm`
 
 # offline: no sign-in or tenant needed

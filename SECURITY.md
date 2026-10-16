@@ -3,7 +3,7 @@
 EARM changes a Microsoft Entra tenant: it can create applications and client secrets, assign directory roles, edit Conditional Access policies and delete
 objects. Treat a run of `earm deployment create` with the care you give a privileged administrator session.
 
-> EARM is a **preview** and has not been validated against a real tenant (see the [README](README.md#status)). Do not point it at production.
+> EARM is a **preview**: its gated integration suite has been run against a development tenant, but it is not used in production (see the [README](README.md#status)). Do not point it at production.
 
 ## Reporting a vulnerability
 

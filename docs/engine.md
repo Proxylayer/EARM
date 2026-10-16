@@ -17,7 +17,10 @@ load ──► validate ──► expand ──► graph ──► [per batch: r
 1. **Load** (`TemplateLoader`): parse, flatten nested children to `parent/child` declarations, bind parameters.
 2. **Validate** (`DeploymentPlanner`): the core `TemplateValidator` plus the `ExpressionValidator`. Two findings
    that are warnings offline become errors here: a parameter without a value (`MissingParameterValue`) and, for
-   `create`, a Key Vault parameter reference (`KeyVaultReferenceUnresolved`; not resolvable in this version).
+   `create`, a Key Vault parameter reference that is still unresolved (`KeyVaultReferenceUnresolved`; a warning
+   with a deploy-time placeholder in what-if). The CLI normally resolves every reference from the vault after the
+   preflight and before planning (`KeyVaultSecretResolver`, see [Key Vault parameter references](#key-vault-parameter-references-earmenginekeyvault)),
+   so this only fires when the planner is handed a reference that was not resolved.
    Any error throws `ValidationFailedException` (CLI exit 2).
 3. **Expand** (`ResourceExpander`): one `ResourceInstance` per declaration, or one per `copy` iteration
    (`copy.name/count/mode/batchSize`, concrete `copyIndex()`, name re-evaluated per index). `condition` is

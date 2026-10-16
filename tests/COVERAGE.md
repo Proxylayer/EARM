@@ -67,7 +67,7 @@ Line numbers are of the source at the time of the run; they drift with every edi
   cancellation in the middle of the list; the listing, the guards and the reverse order are covered (`RecreateAndDeleteCommandTests`).
 - **`Providers.GroupsLicensing`** 100-332: licence-assignment error mapping; needs a fake SKU catalogue with partially failing `assignLicense` calls (`FakeGraphClient` has no per-call
   failure script for that action yet).
-- **Not measurable here:** everything that needs a real Microsoft Graph or a real sign-in is covered only by the gated integration project, which has not been run against a tenant.
+- **Not measurable here:** everything that needs a real Microsoft Graph or a real sign-in is covered only by the gated integration project, which has been run against a development tenant but is not part of these numbers.
 - The planner and executor `--parallelism` limit is asserted through the number of concurrent HTTP requests, which `HttpGraphClient`'s own `MaxParallel` also enforces, so a
   mutant that mis-wires only one of the layers is masked by the other (noted in `Review2F_CliWiringTests`).
 
