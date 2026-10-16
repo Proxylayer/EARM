@@ -7,10 +7,10 @@ using EArm.Core;
 using EArm.Core.Types;
 using EArm.Engine.Providers;
 
-namespace EArm.Cli.Commands;
+namespace EArm.Engine.Permissions;
 
 /// <summary>Which credentials the permissions are computed for (<c>permissions --mode</c>).</summary>
-internal enum PermissionMode
+public enum PermissionMode
 {
     /// <summary>A service principal, workload identity or managed identity (<c>AZURE_*</c> environment): Microsoft Graph application permissions (app roles) on the service principal.</summary>
     App,
@@ -20,7 +20,7 @@ internal enum PermissionMode
 }
 
 /// <summary>What kind of grant a <see cref="PermissionEntry"/> is.</summary>
-internal enum PermissionKind
+public enum PermissionKind
 {
     GraphApplication,
     GraphDelegated,
@@ -28,13 +28,13 @@ internal enum PermissionKind
 }
 
 /// <summary>One required permission and the resources (and reasons) that need it.</summary>
-internal sealed record PermissionEntry(string Name, PermissionKind Kind, IReadOnlyList<string> Resources, IReadOnlyList<string> Reasons);
+public sealed record PermissionEntry(string Name, PermissionKind Kind, IReadOnlyList<string> Resources, IReadOnlyList<string> Reasons);
 
 /// <summary>A group of Entra roles of which the signed-in user needs at least one, and the resources that need it.</summary>
-internal sealed record RoleRequirement(IReadOnlyList<string> AnyOf, IReadOnlyList<string> Resources, IReadOnlyList<string> Reasons);
+public sealed record RoleRequirement(IReadOnlyList<string> AnyOf, IReadOnlyList<string> Resources, IReadOnlyList<string> Reasons);
 
 /// <summary>The computed manifest of <c>earm permissions</c>.</summary>
-internal sealed record PermissionReport(
+public sealed record PermissionReport(
     string Template,
     PermissionMode Mode,
     int ResourceCount,
@@ -51,7 +51,7 @@ internal sealed record PermissionReport(
 /// <c>reference(id, apiVersion)</c>) and what the signed-in identity needs for Key Vault parameter references.
 /// No Graph access: the instances are the offline expansion of the template.
 /// </summary>
-internal static class PermissionManifest
+public static class PermissionManifest
 {
     /// <summary>Read permission that <see cref="Preflight"/> needs on every run (<c>GET /organization?$select=id</c>).</summary>
     public const string Preflight = "Organization.Read.All";
@@ -101,6 +101,18 @@ internal static class PermissionManifest
             RelationshipKind.License => ["License Administrator"],
             _ => [],
         };
+    }
+
+    /// <summary>Builds the report from a successful <see cref="OfflineTemplateExpansion"/>.</summary>
+    public static PermissionReport Build(string template, PermissionMode mode, OfflineTemplateExpansion expansion, ProviderRegistry registry)
+    {
+        ArgumentNullException.ThrowIfNull(expansion);
+        if (!expansion.Succeeded)
+        {
+            throw new ArgumentException("The template did not expand offline; its permissions are not meaningful.", nameof(expansion));
+        }
+
+        return Build(template, mode, expansion.Instances, registry, expansion.ExpressionStrings, expansion.KeyVaultReferences, expansion.IgnoredCount);
     }
 
     /// <summary>
@@ -284,7 +296,7 @@ internal static class PermissionManifest
     /// <c>Application.ReadWrite.OwnedBy</c> exists only as an application permission; in delegated mode the scope
     /// is <c>Application.ReadWrite.All</c>. Every other name is the same scope and app role.
     /// </summary>
-    internal static string ForMode(string permission, PermissionMode mode)
+    public static string ForMode(string permission, PermissionMode mode)
     {
         return mode == PermissionMode.Delegated && permission.Equals(OwnedBy, StringComparison.OrdinalIgnoreCase)
             ? "Application.ReadWrite.All"
@@ -292,7 +304,7 @@ internal static class PermissionManifest
     }
 
     /// <summary>The read-level counterpart of a write permission (<c>X.ReadWrite.All</c> → <c>X.Read.All</c>), or the permission itself.</summary>
-    internal static string ReadVariant(string permission)
+    public static string ReadVariant(string permission)
     {
         if (permission.Equals(OwnedBy, StringComparison.OrdinalIgnoreCase))
         {

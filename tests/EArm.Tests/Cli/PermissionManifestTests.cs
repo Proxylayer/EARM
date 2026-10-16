@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using EArm.Cli.Commands;
 using EArm.Core;
 using EArm.Core.Types;
+using EArm.Engine.Permissions;
 using EArm.Providers;
 using Xunit;
 

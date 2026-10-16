@@ -1,0 +1,50 @@
+Permissions required by samples/tenant-security.entra.json (mode: app, 10 resource(s))
+
+Microsoft Graph application permissions
+  AdministrativeUnit.ReadWrite.All
+      /providers/Microsoft.Entra/administrativeUnits/Security AU
+      (provider)
+  Application.Read.All
+      /providers/Microsoft.Entra/conditionalAccess/policies/CA-Admins-PhishingResistant
+      /providers/Microsoft.Entra/conditionalAccess/policies/CA-SensitiveActions-StepUp
+      (provider)
+  Application.ReadWrite.All
+      /providers/Microsoft.Entra/groups/contoso-dev-security-admins
+      (edge: members (when a member is a service principal))
+  AuthenticationContext.ReadWrite.All
+      /providers/Microsoft.Entra/conditionalAccess/authenticationContextClassReferences/c10
+      (provider)
+  Directory.Read.All
+      /providers/Microsoft.Entra/groups/contoso-dev-security-admins
+      (edge: directoryRoles; edge: members)
+  Group.ReadWrite.All
+      /providers/Microsoft.Entra/groups/contoso-dev-break-glass
+      /providers/Microsoft.Entra/groups/contoso-dev-security-admins
+      (provider)
+  GroupMember.ReadWrite.All
+      /providers/Microsoft.Entra/groups/contoso-dev-security-admins
+      (edge: members)
+  Organization.Read.All
+      (every deployment)
+      (preflight: GET /organization)
+  Policy.Read.All
+      /providers/Microsoft.Entra/conditionalAccess/authenticationStrengths/Admin phishing-resistant
+      /providers/Microsoft.Entra/conditionalAccess/namedLocations/Allowed countries
+      /providers/Microsoft.Entra/conditionalAccess/namedLocations/Contoso offices
+      /providers/Microsoft.Entra/conditionalAccess/policies/CA-Admins-PhishingResistant
+      /providers/Microsoft.Entra/conditionalAccess/policies/CA-SensitiveActions-StepUp
+      (provider)
+  Policy.ReadWrite.ConditionalAccess
+      /providers/Microsoft.Entra/conditionalAccess/authenticationStrengths/Admin phishing-resistant
+      /providers/Microsoft.Entra/conditionalAccess/namedLocations/Allowed countries
+      /providers/Microsoft.Entra/conditionalAccess/namedLocations/Contoso offices
+      /providers/Microsoft.Entra/conditionalAccess/policies/CA-Admins-PhishingResistant
+      /providers/Microsoft.Entra/conditionalAccess/policies/CA-SensitiveActions-StepUp
+      (provider)
+  RoleManagement.ReadWrite.Directory
+      /providers/Microsoft.Entra/groups/contoso-dev-security-admins
+      /providers/Microsoft.Entra/roleDefinitions/Security Policy Reviewer
+      (edge: directoryRoles; provider)
+
+note: Application permissions are Microsoft Graph app roles granted (with admin consent) to the service principal EARM signs in with (AZURE_CLIENT_ID, or the managed identity). Application.ReadWrite.OwnedBy replaces Application.ReadWrite.All for applications the service principal owns.
+note: Edge permissions are listed for every relationship property the template declares (including an empty array, which removes edges). Key Vault access is an Azure RBAC / access-policy requirement of the signed-in identity, not a Graph permission.

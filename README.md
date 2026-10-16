@@ -164,7 +164,7 @@ earm schema install                                                         # VS
 | `deployment what-if` | The changes `create` would make, in ARM's vocabulary (`+ ~ - = *`) or ARM-shaped JSON (`-o json`). Never writes. |
 | `deployment create` | Apply in dependency order; `-c` shows the what-if and asks before applying; a plain `create` asks only before it **replaces** objects (an immutable property changed), and `-y` skips both questions. A non-interactive run that would replace objects fails before any write without `-y`. |
 | `deployment delete` | Delete the objects the template declares, found by their live keys, in reverse dependency order, after a confirmation that lists them (`-y` skips it). |
-| `permissions` | Graph permissions and Entra roles a template needs (`--mode app\|delegated`, `-o json`). |
+| `permissions` | Graph permissions and Entra roles a template needs (`--mode app\|delegated`, `--verb whatif\|create\|delete`, `-o json`). |
 | `schema print` / `install` | Emit the JSON Schemas, or install the VS Code mapping. |
 
 Every verb and flag, and the exit codes (0 ok, 1 failure, 2 validation, 3 auth/preflight, 5 changes with `--exit-code-on-changes`; 4 is retired): [docs/cli.md](docs/cli.md).

@@ -230,13 +230,18 @@ The `apiVersion` relabel (`2026-10-01` became `2026-10-01-preview`, and the old 
 
 ## `permissions`
 
-`earm permissions -f <template> [-p …] [--mode app|delegated] [-o table|json]`. Offline. Lists the Graph permissions (and, for
+`earm permissions -f <template> [-p …] [--mode app|delegated] [--verb whatif|create|delete] [-o table|json]`. Offline. Lists the Graph permissions (and, for
 `--mode delegated`, the Entra roles of which the user needs one per group) the template needs, grouped by permission with the resources that
 need it and why. Exit 0; 2 when the template has validation errors; 1 when it cannot be loaded. Details and the manifest tables:
 [permissions.md](permissions.md).
 
 The list covers both deployment modes: Complete mode never deletes, it only reads the declared types for its orphan report, which the permissions
 above already allow. `deployment delete` needs the same permissions as managing the declared types.
+
+`--verb whatif|create|delete` prints instead the delegated scopes one run of that verb requests for a signed-in user (implies `--mode delegated`;
+`--mode app` with `--verb` exits 1): what-if gets only read scopes, create the write scopes, delete write for the declared types and reads for edges
+and lookups; every set includes `Organization.Read.All` (preflight) and `User.Read` (sign-in), and reports whether the run needs a Key Vault token.
+See [permissions.md](permissions.md#delegated-scopes-per-run).
 
 ## `schema`
 

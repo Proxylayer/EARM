@@ -59,6 +59,30 @@ state, so there is no extra permission for reading back what an earlier run crea
 providers' application permissions (`Required permissions:` in the footer, `requiredPermissions` in the JSON); `permissions` is the same
 computation plus the edge, lookup and role detail, without needing a session.
 
+## Delegated scopes per run
+
+`earm permissions … --verb whatif|create|delete` prints the delegated scopes one run of that verb requests for a signed-in user
+(`RunScopes` in `EArm.Engine.Permissions`, computed offline from the template and its parameters, before any sign-in). The source is the
+delegated list above, then:
+
+| Verb | Scopes |
+|---|---|
+| `whatif` | every scope folded to its read variant (`X.ReadWrite.Y` → `X.Read.Y`; `AppRoleAssignment.Read.All` is not a scope, so `Application.Read.All` stands in) |
+| `create` | the delegated list as is |
+| `delete` | write for the permissions a declared type's provider asks for; edge and lookup permissions folded to reads (deleting an object removes its edges) |
+| `validate` | none (offline) |
+
+Every set except `validate` adds `Organization.Read.All` (the preflight reads `GET /organization`) and `User.Read` (sign-in; the edge pass can read
+`GET /me`). A read scope next to its write scope (`Group.Read.All` with `Group.ReadWrite.All`) is folded into the write scope. `needsKeyVault` is true when
+the template has Key Vault parameter references: the run then also needs a `https://vault.azure.net` token. Entra roles are not part of the scope set; they
+are a property of the user, not of the token. The schema overlays' per-type `delegated` lists are not used: the providers' conditional rules are more
+precise, and `Application.ReadWrite.OwnedBy` is the only application permission without a same-named scope.
+
+```json
+{ "template": "…", "verb": "whatif", "graphScopes": ["Application.Read.All", "…", "Organization.Read.All", "User.Read"], "needsKeyVault": true,
+  "scopes": [ { "name": "Application.Read.All", "resources": ["…"], "reasons": ["lookup: appRole()", "provider (read of Application.ReadWrite.All)"] } ] }
+```
+
 ## Manifest by type
 
 Application permissions are the `permissions.application` of the type's overlay; roles are `permissions.roles`.
