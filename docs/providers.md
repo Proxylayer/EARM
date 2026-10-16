@@ -682,14 +682,20 @@ Five providers cover entitlement management ([access-packages.md](access-package
 subject's read-only `description`, which are not drift, while an extra live approver is. All five confirm an empty read with the key absence check
 (`KeyReadLagsCreate`).
 
-**Eligible roles and PIM for Groups onboarding.** `ResourceRoleScopesProvider.PrepareAsync` checks, for an `Eligible Member` / `Eligible Owner` role
-whose package and catalog resource already exist, that the catalog offers the role; when it does not (PIM for Groups has not onboarded the group),
-`Plan` returns an error row `PimGroupNotOnboarded`, or, when `AppliesBefore` saw a `privilegedAccess/group*ScheduleRequests` for the same group
-(referenced or literal id), an Ignore row with a `PimGroupNotOnboarded` warning, exactly as `RoleManagementPoliciesProvider` defers a group policy. The
-executor plans each batch again before applying it, so when the request ran first the role scope is created in the same run. EARM never onboards a
+**Eligible roles and PIM for Groups onboarding.** `GroupScheduleRequestsProvider` (both PIM for Groups request types) implements `IApplyOrderSource`:
+a request is applied before every role scope that grants an eligible (or computed) role of its group (`AccessPackageApplyOrder.EligibleRoleScopesOnboardedBy`).
+`ResourceRoleScopesProvider.PrepareAsync` checks, for an `Eligible Member` / `Eligible Owner` role whose package and catalog resource already exist,
+that the catalog offers the role. When it does not and a same-run request onboards the group, the provider waits while applying (the role scope then
+has a dependency created in this run, so its `RetryHint` is `ExpectReplicationLag`; a what-if never has one): it reads the catalog's roles every
+`ReplicationWait.Interval` up to `ReplicationWait.Window` (`Settle`), and `CreateAsync` does the same when the catalog resource was not listed yet at
+prepare time. `Plan` then returns: a Create row with the wait in its reasons (what-if); an Ignore row with a `PimGroupNotOnboarded` warning when the
+wait timed out (the fallback, the next run creates it); an error row `PimGroupNotOnboarded` when no request onboards the group. EARM never onboards a
 group by itself.
 
-Tests: `AccessPackagesProviderTests` and `AccessPackageRulesTests` over `FakeEntitlementManagement` (routed from `FakeDirectory`), and
+**Delete warning.** `ResourceRoleScopesProvider` implements `IDeleteWarningSource`: `ReadAsync` adds the package's display name and its delivered
+assignment count (`EntitlementManagementGraph.CountDeliveredAssignmentsAsync`, `null` on 400 / 403 / 404) to the live object, and
+`DescribeDeleteRisk` turns them into the warning `deployment delete` shows in its preview and logs before the delete (none when nobody holds the role).
+Tests: `AccessPackagesProviderTests`, `AccessPackageOnboardingTests` and `AccessPackageRulesTests` over `FakeEntitlementManagement` (routed from `FakeDirectory`), and
 `AccessPackageScenarioTests` against a real tenant (`EARM_IT_ALLOW_ACCESS_PACKAGES=1`).
 ## Adding an edge kind
 

@@ -90,11 +90,15 @@ public sealed class AccessPackageScenarioTests : IntegrationTestBase
         var run = Fixture.NewRun("accesspkgelig", "access-packages-eligible.entra.json").WithParameter("domain", Fixture.Domain);
         string packageName = Fixture.Name("package-elig");
 
-        // The first run onboards the group (the PIM request); the role scope is created in that run when the request ran first, else deferred with a
-        // PimGroupNotOnboarded warning and created by the second run.
-        AssertCreated(await Fixture.Cli.CreateAsync(run, Ct), "create (onboards the group)");
-        var second = await EventuallyAsync(() => Fixture.Cli.CreateAsync(run, Ct), result => result.ExitCode == 0, seconds: 120, stepSeconds: 15);
-        AssertCreated(second, "create (the eligible role scope)");
+        // One run: the PIM request onboards the group, the role scope is applied after it and waits for the catalog to offer Eligible Member. The
+        // fallback (a PimGroupNotOnboarded warning, the next run creates it) is observed and allowed, but reported.
+        var first = await Fixture.Cli.CreateAsync(run, Ct);
+        AssertCreated(first, "create (onboards the group and grants the eligible role)");
+        if (first.Diagnostics.Any(d => (string?)d["code"] == "PimGroupNotOnboarded"))
+        {
+            Observe("The eligible role scope was deferred: the catalog did not offer Eligible Member within the wait.");
+            AssertCreated(await Fixture.Cli.CreateAsync(run, Ct), "create (the deferred eligible role scope)");
+        }
 
         var package = await FindOneEventuallyAsync(Root + "/accessPackages", "displayName", packageName, found => found is not null);
         Assert.NotNull(package);

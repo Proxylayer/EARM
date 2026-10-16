@@ -2,7 +2,7 @@
   "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
   "contentVersion": "1.0.0.0",
   "metadata": {
-    "description": "An access package granting Eligible Member (PIM for Groups) of a prefixed group. The group is onboarded in PIM for Groups by the 30-day eligibility of a disabled test user in the same template, so the first run may defer the role scope (PimGroupNotOnboarded warning) and the second run creates it. Verifies on a real tenant that the catalog offers an 'Eligible Member' role for an onboarded group and that EARM picks it by display name (the role's originId format is undocumented). Needs Microsoft Entra ID Governance."
+    "description": "An access package granting Eligible Member (PIM for Groups) of a prefixed group. The group is onboarded in PIM for Groups by the 30-day eligibility of a disabled test user in the same template, so the role scope is applied after that request and waits for the catalog to offer the eligible role (one run; a PimGroupNotOnboarded warning and a second run only when the wait times out). Verifies on a real tenant that the catalog offers an 'Eligible Member' role for an onboarded group and that EARM picks it by display name (the role's originId format is undocumented). Needs Microsoft Entra ID Governance."
   },
   "parameters": {
     "prefix": { "type": "string" },

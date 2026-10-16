@@ -23,8 +23,12 @@ Each subscription has three access groups (`PG <Subscription> Privileged Access`
 (`PG <Subscription> Approvers`). People get **eligible** membership of the privileged and operational groups (PIM for Groups, activated when needed)
 and **standing** membership of the read-only group, through one access package per group, approved by the subscription's approver group. The
 membership granted by a package must not outlive the group's eligibility expiry, so the policy's `expiration.duration` is no longer than the group's
-PIM policy `Expiration_Admin_Eligibility` maximum. The approver group's own package is approved by a person chosen outside EARM. Directory role
-groups get the same shape, approved by `PG Tenant Approvers`.
+PIM policy `Expiration_Admin_Eligibility` maximum. The approver group gets its own package, whose policy (approval by `PG Tenant Approvers`, a short
+expiration) is written in the template too. Directory role groups get the same shape, approved by `PG Tenant Approvers`.
+
+**Every package carries its assignment policy in the template.** People decide the approval settings (who approves, how many stages, how long access
+lasts), but the decision is declared next to the package, so it is reviewed in the what-if and repaired when it drifts; a package without a policy
+cannot be requested at all.
 
 ```text
 catalogs ──► catalogResources (one per group) ──► resourceRoleScopes ◄── accessPackages ◄── accessPackages/assignmentPolicies
@@ -128,8 +132,12 @@ Role scopes have no update ([resource role scope](https://learn.microsoft.com/en
 every property is part of the key, and `deployment delete` uses `DELETE …/accessPackages/{id}/resourceRoleScopes/{id}`
 ([delete](https://learn.microsoft.com/en-us/graph/api/accesspackage-delete-resourcerolescopes?view=graph-rest-1.0)). Graph does **not** refuse that
 delete while the package has assignments: the people assigned lose the role
-([change resource roles](https://learn.microsoft.com/en-us/entra/id-governance/entitlement-management-access-package-resources)). Review a
-`deployment delete` that removes a role scope with that in mind.
+([change resource roles](https://learn.microsoft.com/en-us/entra/id-governance/entitlement-management-access-package-resources)). So the role
+scope's read also counts the package's delivered assignments (`GET …/assignments?$filter=accessPackage/id eq '…' and state eq 'delivered'`,
+[list assignments](https://learn.microsoft.com/en-us/graph/api/entitlementmanagement-list-assignments?view=graph-rest-1.0)), and `deployment delete`
+(its preview included) **warns** before it removes a role scope people hold, like the other delete warnings: "2 active assignments of access package
+'PG Development Privileged Access' (…) hold the 'Eligible Member' role of group …". When the assignments cannot be read (403), the warning says so
+instead; nobody holding it means no warning.
 
 #### Can a package grant eligible PIM for Groups membership?
 
@@ -150,14 +158,16 @@ The caveats:
   assignment in an access package" ([assign eligibility through access packages](https://learn.microsoft.com/en-us/entra/id-governance/entitlement-management-access-package-eligible)),
   and a group cannot be onboarded explicitly: PIM onboards it on its first eligibility or assignment schedule request, or in the portal
   ([PIM for Groups API overview](https://learn.microsoft.com/en-us/graph/api/resources/privilegedidentitymanagement-for-groups-api-overview); see
-  [pim.md](pim.md#group-onboarding)). EARM does not onboard groups for you. Before onboarding the catalog offers only Member and Owner, and a role
-  scope for `Eligible Member` / `Eligible Owner` is **`PimGroupNotOnboarded`**, in the style of the PIM policies' `PimPolicyNotAvailable`:
-  - when the package and the group's catalog resource already exist, the check runs while planning (`what-if` shows it): the row is an error, unless a
-    `privilegedAccess/groupEligibilityScheduleRequests` or `groupAssignmentScheduleRequests` of the **same deployment** names the group, in which case
-    the row is deferred (an Ignore row with a `PimGroupNotOnboarded` warning), the request onboards the group, and the **next run** creates the role
-    scope;
-  - when the package or the catalog resource is created in the same run, the create reports `PimGroupNotOnboarded` (saying whether a request of the
-    deployment onboards the group: then run again).
+  [pim.md](pim.md#group-onboarding)). EARM does not onboard groups by itself. Before onboarding the catalog offers only Member and Owner:
+  - **A same-run request onboards the group: one run.** When a `privilegedAccess/groupEligibilityScheduleRequests` or `groupAssignmentScheduleRequests`
+    of the **same deployment** names the group (the same declared group referenced, or the same literal id), the role scope is **ordered after that
+    request** (the group schedule request providers declare it through `IApplyOrderSource`), and when it is applied it **waits** for the catalog to offer
+    the eligible role, reading the catalog's roles every 5 s for up to 90 s (the replication wait; real tenants list a group's PIM policy 1-2 s after
+    its first eligibility). The what-if shows the role scope as a Create that waits for the onboarding.
+  - **Fallback:** when the role is still not offered after the wait, the row is deferred (an Ignore row with a `PimGroupNotOnboarded` warning) and the
+    **next run** creates the role scope.
+  - **No request onboards the group:** the row is the error **`PimGroupNotOnboarded`** (in the style of the PIM policies' `PimPolicyNotAvailable`).
+    The check runs while planning when the package and the catalog resource already exist; otherwise the create reports it.
   The beta `privilegedAccess` register API is not used (it stops returning data on 28 October 2026).
 - The group's PIM policy caps the eligibility (`Expiration_Admin_Eligibility`): if the package's assignment outlives it, PIM removes the eligibility
   while entitlement management still shows the person as assigned. Keep the policy's `expiration` within the group's eligibility maximum (EARM does
@@ -196,7 +206,7 @@ Graph's, passed through as declared ([assignment policy](https://learn.microsoft
 | Update | `PATCH` for catalogs and packages, the merged `PUT` for policies; catalog resources and role scopes have nothing to update. |
 | Incremental run | Nothing the template does not declare is touched: other catalogs, packages, resources, role scopes and policies stay, and so do every assignment and request. |
 | Complete run | Report-only, as for every type: undeclared catalogs and packages are listed (`orphan: undeclared`); nothing is deleted. |
-| `deployment delete` | Reverse order: policies and role scopes, then packages, then catalog resources (adminRemove), then catalogs. Graph refuses a policy or package with assignments (`AccessPackageAssignmentsExist`) and a catalog that still holds packages (`CatalogNotEmpty`, [create a catalog](https://learn.microsoft.com/en-us/entra/id-governance/entitlement-management-catalog-create)); those objects stay and the delete reports the error. |
+| `deployment delete` | Reverse order: policies and role scopes, then packages, then catalog resources (adminRemove), then catalogs. A role scope that people hold carries a warning (count, package and role) in the preview and before the delete. Graph refuses a policy or package with assignments (`AccessPackageAssignmentsExist`) and a catalog that still holds packages (`CatalogNotEmpty`, [create a catalog](https://learn.microsoft.com/en-us/entra/id-governance/entitlement-management-catalog-create)); those objects stay and the delete reports the error. |
 
 Assignments to people (`assignments`, `assignmentRequests`) are **out of scope**: they are requests made by people (or direct assignments made by an
 administrator as a one-off act), not desired state.
@@ -204,12 +214,14 @@ administrator as a one-off act), not desired state.
 ### Order
 
 The template's references give most of the order (a package references its catalog, a role scope its package and group, a policy is a child of its
-package). Two dependencies are not visible in the references, and the providers declare them through `IApplyOrderSource`
+package). Three dependencies are not visible in the references, and the providers declare them through `IApplyOrderSource`
 ([engine.md](engine.md#pipeline)), as the PIM policies do:
 
 - a **catalog resource** applies before every role scope that grants a role of the same group (`resourceRoleScopes.resourceOriginId` and
   `catalogResources.originId` reference the same declared group, or are the same literal id): the group must be in the catalog first;
-- a **role scope** applies before every policy of the same package: the first assignment a policy allows then already grants the role.
+- a **role scope** applies before every policy of the same package: the first assignment a policy allows then already grants the role;
+- a **PIM for Groups schedule request** applies before every role scope that grants an eligible role (`Eligible Member`, `Eligible Owner`, or a
+  computed role) of the group it names: the request onboards the group, and only then does the catalog offer the eligible roles (see above).
 
 Apply phases (a tie-breaker inside a dependency batch): catalogs with the administrative units (4); catalog resources and packages with the
 assignments (5); role scopes and policies with the Conditional Access policies (6).
