@@ -24,6 +24,16 @@ public sealed class PimPolicyProbes : IntegrationTestBase
     private const Needs PolicyNeeds = Needs.Pim | Needs.PimPolicies;
     private const string AuthenticationContextRule = "AuthenticationContext_EndUser_Assignment";
 
+    // PP7 timings: shorten the first two to iterate faster (the probe then answers only "not within N minutes").
+    private const int PreOnboardingPollMinutes = 15;
+    private const int PreOnboardingPollSeconds = 30;
+    private const int OnboardingWaitSeconds = 180;
+    private const int PersistenceWaitSeconds = 60;
+
+    private const string MemberLookup = "(i) assignments by member role";
+    private const string ScopeLookup = "(ii) assignments by scope";
+    private const string CollectionLookup = "(iii) policies collection";
+
     public PimPolicyProbes(IntegrationFixture fixture)
         : base(fixture)
     {
@@ -75,6 +85,104 @@ public sealed class PimPolicyProbes : IntegrationTestBase
             {
                 report.Observe($"the policy id {(string.Equals(newId, RoleManagementPolicyLookup.PolicyId(before), StringComparison.OrdinalIgnoreCase) ? "did NOT change" : "CHANGED")} on onboarding ({RoleManagementPolicyLookup.PolicyId(before)} -> {newId})");
             }
+        }
+
+        report.Complete();
+    }
+
+    [Fact]
+    public async Task It_Probe_PP7_GroupPolicyAppearsOnlyOnOnboarding()
+    {
+        Fixture.Require(Needs.Domain | PolicyNeeds);
+        var report = new ProbeReport("pp7");
+        string groupId = await NewGroupAsync("probe-ppol-onb7-grp");
+        string userId = await NewUserAsync("probe-ppol-onb7");
+        var scope = PimPolicyRestoreGuard.GroupAccess(groupId, "member");
+        var lookups = OnboardingLookups(scope);
+        var created = DateTime.UtcNow;
+        var duration = TimeSpan.FromMinutes(PreOnboardingPollMinutes);
+        var interval = TimeSpan.FromSeconds(PreOnboardingPollSeconds);
+        report.Observe($"group {scope.ScopeId} created; polling three lookups every {PreOnboardingPollSeconds} s for up to {PreOnboardingPollMinutes} min before any eligibility request: {string.Join(" | ", lookups.Values.Select(l => $"{l.Label} = GET {l.Path}?$filter={l.Filter}"))}");
+
+        // Before onboarding: every lookup every PreOnboardingPollSeconds, until one of them returns a policy or the time is up.
+        Dictionary<string, LookupResult> last;
+        while (true)
+        {
+            last = await RunLookupsAsync(lookups);
+            report.Observe($"t+{(DateTime.UtcNow - created).TotalSeconds:F0} s: {DescribeLookups(last)}");
+            if (last.Values.Any(r => r.PolicyIds.Count > 0) || DateTime.UtcNow - created + interval > duration)
+            {
+                break;
+            }
+
+            await Task.Delay(interval, Ct);
+        }
+
+        var listedBefore = last.Values.Where(r => r.PolicyIds.Count > 0).Select(r => r.Label).ToList();
+        report.Observe(listedBefore.Count == 0
+            ? $"no lookup returned a policy in {(DateTime.UtcNow - created).TotalMinutes:F1} min before any eligibility request: the group's policy is NOT discoverable before onboarding"
+            : $"before any eligibility request, {string.Join(" and ", listedBefore)} returned a policy {(DateTime.UtcNow - created).TotalSeconds:F0} s after the group was created");
+
+        // When the policies collection returns the policy: write one harmless rule back to its own value and watch the member assignment lookup.
+        if (last[CollectionLookup].PolicyIds.FirstOrDefault() is { } collectionPolicyId)
+        {
+            string outcome = await PatchRuleToItselfAsync(collectionPolicyId, PimPolicyScenarioTests.ExpirationRule);
+            report.Observe($"PATCH of {PimPolicyScenarioTests.ExpirationRule} on policy {collectionPolicyId} (from the policies collection) to its current value: {outcome}");
+            var patched = DateTime.UtcNow;
+            var member = await EventuallyAsync(() => LookupAsync(lookups[MemberLookup]), r => r.PolicyIds.Count > 0, seconds: OnboardingWaitSeconds, stepSeconds: 5);
+            report.Observe(member.PolicyIds.Count > 0
+                ? $"after the rule PATCH the member assignment lookup lists policy {string.Join(",", member.PolicyIds)} after about {(DateTime.UtcNow - patched).TotalSeconds:F0} s: a policy PATCH ONBOARDS the group (policy id {(member.PolicyIds.Contains(collectionPolicyId, StringComparer.OrdinalIgnoreCase) ? "unchanged" : "CHANGED from " + collectionPolicyId)})"
+                : $"{OnboardingWaitSeconds} s after the rule PATCH the member assignment lookup still lists no policy ({member.Describe()}): a policy PATCH does NOT onboard the group");
+        }
+        else
+        {
+            report.Observe("the policies collection returned no policy before onboarding, so the rule PATCH route could not be tried");
+        }
+
+        // The first eligibility request (also after a PATCH, so there is an eligibility whose removal tests persistence): how long until the policy is listed.
+        var requested = PimReads.ScheduleInfo(duration: "P7D");
+        await PimReads.SendAsync(Graph, GroupSchedulesLookup.EligibilityRequestsPath, PimReads.GroupRequest(PimScheduleRequests.AdminAssign, groupId, userId, "member", requested), Ct);
+        var assigned = DateTime.UtcNow;
+        TimeSpan? memberAt = null;
+        TimeSpan? collectionAt = null;
+        while (true)
+        {
+            last = await RunLookupsAsync(lookups, MemberLookup, CollectionLookup);
+            memberAt ??= last[MemberLookup].PolicyIds.Count > 0 ? (TimeSpan?)(DateTime.UtcNow - assigned) : null;
+            collectionAt ??= last[CollectionLookup].PolicyIds.Count > 0 ? (TimeSpan?)(DateTime.UtcNow - assigned) : null;
+            if ((memberAt is not null && collectionAt is not null) || (DateTime.UtcNow - assigned).TotalSeconds + 5 > OnboardingWaitSeconds)
+            {
+                break;
+            }
+
+            await Task.Delay(TimeSpan.FromSeconds(5), Ct);
+        }
+
+        report.Observe($"after the adminAssign (P7D): the member assignment lookup lists a policy {(memberAt is { } m ? $"after about {m.TotalSeconds:F0} s" : $"NOT within {OnboardingWaitSeconds} s")}, the policies collection {(collectionAt is { } c ? $"after about {c.TotalSeconds:F0} s" : $"NOT within {OnboardingWaitSeconds} s")}; last answers: {DescribeLookups(last)}");
+        var onboardedIds = last[MemberLookup].PolicyIds;
+
+        // Remove the only eligibility, wait, and check the policy is still listed (onboarding persists).
+        string removal = await RemoveEligibilityAsync(groupId, userId, requested, assigned);
+        report.Observe("adminRemove of the only eligibility: " + removal);
+        if (removal.StartsWith("ACCEPTED", StringComparison.Ordinal))
+        {
+            var remaining = await EventuallyAsync(
+                async () => PimReads.OfAccess(await PimReads.ByGroupAsync(Graph, GroupSchedulesLookup.EligibilitySchedulesPath, groupId, Ct), userId, "member"),
+                found => found.Count == 0,
+                seconds: 120,
+                stepSeconds: 5);
+            report.Observe(remaining.Count == 0 ? "the eligibility schedule is no longer listed" : $"the eligibility schedule is STILL listed 120 s after the adminRemove ({string.Join("; ", remaining.Select(PimReads.DescribeSchedule))})");
+            await Task.Delay(TimeSpan.FromSeconds(PersistenceWaitSeconds), Ct);
+            var afterRemove = await RunLookupsAsync(lookups, MemberLookup, CollectionLookup);
+            var member = afterRemove[MemberLookup];
+            report.Observe($"{PersistenceWaitSeconds} s after the eligibility was removed: {DescribeLookups(afterRemove)}");
+            report.Observe(member.PolicyIds.Count > 0
+                ? $"onboarding PERSISTS without any eligibility: the member assignment lookup still lists policy {string.Join(",", member.PolicyIds)} ({(member.PolicyIds.SequenceEqual(onboardedIds, StringComparer.OrdinalIgnoreCase) ? "the same id as after onboarding" : "after onboarding it listed " + (onboardedIds.Count == 0 ? "none" : string.Join(",", onboardedIds)))})"
+                : $"onboarding does NOT persist: the member assignment lookup lists no policy once the only eligibility is gone ({member.Describe()})");
+        }
+        else
+        {
+            report.Observe("the eligibility was not removed, so whether onboarding persists stays UNVERIFIED; the cleanup guard ends it with the user's deletion");
         }
 
         report.Complete();
@@ -378,6 +486,133 @@ public sealed class PimPolicyProbes : IntegrationTestBase
     }
 
     // ---- helpers ----
+
+    /// <summary>One GET of a PP7 lookup: the collection, its <c>$filter</c>, and whether the items are policies (else policy assignments).</summary>
+    private sealed record OnboardingLookup(string Label, string Path, string Filter, bool ListsPolicies);
+
+    /// <summary>What a PP7 lookup answered: <c>200</c> or the error, the item count and the distinct policy ids.</summary>
+    private sealed record LookupResult(string Label, string Status, int Count, IReadOnlyList<string> PolicyIds)
+    {
+        public string Describe()
+        {
+            return $"{Label}: {Status}, {Count} item(s){(PolicyIds.Count > 0 ? ", policy " + string.Join(",", PolicyIds) : string.Empty)}";
+        }
+    }
+
+    /// <summary>The three lookups of PP7 for a group's member policy, by label.</summary>
+    private static Dictionary<string, OnboardingLookup> OnboardingLookups(PolicyScope scope)
+    {
+        string byScope = "scopeId eq '" + PimScheduleRequests.Quote(scope.ScopeId) + "' and scopeType eq '" + PimScheduleRequests.Quote(scope.ScopeType) + "'";
+        return new Dictionary<string, OnboardingLookup>(StringComparer.Ordinal)
+        {
+            [MemberLookup] = new(MemberLookup, RoleManagementPolicyLookup.AssignmentsPath, RoleManagementPolicyLookup.Filter(scope), ListsPolicies: false),
+            [ScopeLookup] = new(ScopeLookup, RoleManagementPolicyLookup.AssignmentsPath, byScope, ListsPolicies: false),
+            [CollectionLookup] = new(CollectionLookup, RoleManagementPolicyLookup.PoliciesPath, byScope, ListsPolicies: true),
+        };
+    }
+
+    /// <summary>Runs one lookup; an error is the answer (recorded), not a failure.</summary>
+    private async Task<LookupResult> LookupAsync(OnboardingLookup lookup)
+    {
+        try
+        {
+            var items = await Graph.ListAsync(new GraphRequest(lookup.Path).WithFilter(lookup.Filter), Ct);
+            var ids = items
+                .Select(i => lookup.ListsPolicies ? i.Text("id") : RoleManagementPolicyLookup.PolicyId(i))
+                .OfType<string>()
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            return new LookupResult(lookup.Label, "200", items.Count, ids);
+        }
+        catch (GraphException ex)
+        {
+            return new LookupResult(lookup.Label, ProbeReport.Describe(ex), 0, []);
+        }
+    }
+
+    /// <summary>Runs the named lookups (all when none is named), in order.</summary>
+    private async Task<Dictionary<string, LookupResult>> RunLookupsAsync(Dictionary<string, OnboardingLookup> lookups, params string[] only)
+    {
+        var results = new Dictionary<string, LookupResult>(StringComparer.Ordinal);
+        foreach (var (label, lookup) in lookups)
+        {
+            if (only.Length == 0 || only.Contains(label, StringComparer.Ordinal))
+            {
+                results[label] = await LookupAsync(lookup);
+            }
+        }
+
+        return results;
+    }
+
+    private static string DescribeLookups(Dictionary<string, LookupResult> results)
+    {
+        return string.Join(" | ", results.Values.Select(r => r.Describe()));
+    }
+
+    /// <summary>
+    /// Reads the policy with its rules and PATCHes <paramref name="ruleId"/> back to the value it has (the restore guard's body, the provider's body when
+    /// that is refused with 400); returns ACCEPTED, REFUSED or NOT TRIED with the details.
+    /// </summary>
+    private async Task<string> PatchRuleToItselfAsync(string policyId, string ruleId)
+    {
+        try
+        {
+            var policy = await Graph.GetObjectAsync(new GraphRequest(RoleManagementPolicyLookup.PoliciesPath + "/" + GraphPath.Segment(policyId)).WithExpand("rules"), Ct);
+            var rules = policy?["rules"] as JsonArray;
+            var rule = rules?.OfType<JsonObject>().FirstOrDefault(r => string.Equals(r.Text("id"), ruleId, StringComparison.OrdinalIgnoreCase));
+            if (rule is null)
+            {
+                return $"NOT TRIED: the policy read ({(policy is null ? "not found" : (rules?.Count ?? 0) + " rules")}) has no {ruleId} rule";
+            }
+
+            string path = PimPolicyRestoreGuard.RulePath(policyId, ruleId);
+            try
+            {
+                await Graph.PatchAsync(new GraphRequest(path), PimPolicyRestoreGuard.RestoreBody(rule), Ct);
+                return "ACCEPTED (the rule as read: " + rule.ToJsonString() + ")";
+            }
+            catch (GraphException ex) when (ex.Status == System.Net.HttpStatusCode.BadRequest)
+            {
+                await Graph.PatchAsync(new GraphRequest(path), RoleManagementPolicyShape.ToGraph(RoleManagementPolicyShape.ToArm(rule)), Ct);
+                return $"ACCEPTED with the provider's body (the rule as read was refused: {ProbeReport.Describe(ex)})";
+            }
+        }
+        catch (GraphException ex)
+        {
+            return "REFUSED " + ProbeReport.Describe(ex);
+        }
+    }
+
+    /// <summary>
+    /// adminRemove of the group member eligibility with the listed schedule (else the one requested). An ActiveDurationTooShort answer is repeated every
+    /// 30 s until 7 minutes after the adminAssign (PIM refuses removals within 5 minutes); returns ACCEPTED or REFUSED with the details.
+    /// </summary>
+    private async Task<string> RemoveEligibilityAsync(string groupId, string userId, JsonObject requested, DateTime assigned)
+    {
+        var listed = PimReads.OfAccess(await PimReads.ByGroupAsync(Graph, GroupSchedulesLookup.EligibilitySchedulesPath, groupId, Ct), userId, "member");
+        var schedule = listed.Count > 0 ? PimScheduleComparison.ScheduleView(listed[0]) : requested;
+        var body = PimReads.GroupRequest(PimScheduleRequests.AdminRemove, groupId, userId, "member", schedule);
+        string source = listed.Count > 0 ? "the listed schedule" : "the requested schedule (none listed)";
+        int tooNew = 0;
+        while (true)
+        {
+            try
+            {
+                await PimReads.SendAsync(Graph, GroupSchedulesLookup.EligibilityRequestsPath, body, Ct, expectReplicationLag: false);
+                return $"ACCEPTED {(DateTime.UtcNow - assigned).TotalSeconds:F0} s after the adminAssign, after {tooNew} ActiveDurationTooShort answer(s), with {source}";
+            }
+            catch (GraphException ex) when (PimScheduleRequests.IsTooNewToRemove(ex) && DateTime.UtcNow - assigned < TimeSpan.FromMinutes(7))
+            {
+                tooNew++;
+                await Task.Delay(TimeSpan.FromSeconds(30), Ct);
+            }
+            catch (GraphException ex)
+            {
+                return $"REFUSED {(DateTime.UtcNow - assigned).TotalSeconds:F0} s after the adminAssign, after {tooNew} ActiveDurationTooShort answer(s), with {source}: {ProbeReport.Describe(ex)}";
+            }
+        }
+    }
 
     private async Task<string> PolicyIdAsync(PolicyScope scope)
     {

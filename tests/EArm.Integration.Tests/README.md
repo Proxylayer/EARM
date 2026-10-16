@@ -161,7 +161,7 @@ and run sequentially: they share the sign-in and the cleanup guard, and the in-p
 | `It_Probe_GA1` (group adoption) | - |
 | `It_Probe_P1` ... `It_Probe_P5` (PIM) | `DOMAIN`, `ALLOW_PIM` |
 | `It_Probe_AM1` ... `It_Probe_AM4` (authentication methods) | `ALLOW_AUTH_METHODS`; AM3 also skips unless Temporary Access Pass is disabled in the tenant |
-| `It_Probe_PP1` ... `It_Probe_PP6` (PIM policies) | `ALLOW_PIM`, `ALLOW_PIM_POLICIES`; PP1 and PP4 also `DOMAIN`; PP6 only records when the tenant has an available authentication context |
+| `It_Probe_PP1` ... `It_Probe_PP7` (PIM policies) | `ALLOW_PIM`, `ALLOW_PIM_POLICIES`; PP1, PP4 and PP7 also `DOMAIN`; PP6 only records when the tenant has an available authentication context; PP7 takes about 20-25 minutes (it polls 15 minutes before onboarding: shorten `PreOnboardingPollMinutes` in `PimPolicyProbes.cs` to iterate) |
 
 ## Cost and safety
 
@@ -183,7 +183,7 @@ and run sequentially: they share the sign-in and the cleanup guard, and the in-p
 * Authentication methods (`EARM_IT_ALLOW_AUTH_METHODS=1`) are **tenant-wide**: see [the restore guarantee](#authentication-methods-the-restore-guarantee).
 * PIM role management policies (`EARM_IT_ALLOW_PIM_POLICIES=1`) are **tenant-wide and cannot be deleted**: only the Message Center Reader policy
   (activation duration, enabled rules, approval by a prefixed approvers group, and PP2 / PP3 / PP6 rewrites) and the policies of prefixed test groups
-  are changed, always under [the restore guarantee](#pim-policies-the-restore-guarantee). The Global Administrator and Privileged Role Administrator
+  (PP7 writes one rule of its own group's policy back to its current value) are changed, always under [the restore guarantee](#pim-policies-the-restore-guarantee). The Global Administrator and Privileged Role Administrator
   policies are never touched (the guard refuses them, and every other directory role, before any request).
 * Tenant limits to keep in mind: 500 role-assignable groups, soft-deleted objects count against some quotas for 30 days.
 * Run it in a tenant that no one else is changing at the same time: what-if assertions expect NoChange right after a create.
@@ -331,6 +331,7 @@ A probe asserts an assumption the code makes and names the file to change; the o
 | `PP4` target casing | every rule target of the Message Center Reader policy and of a prefixed group's member policy normalises to ARM's casing (`caller`, `level`, `operations`); the live spellings are **recorded** | `RoleManagementPolicyRules.NormalizeRules`, `RoleManagementPolicyShape.ToArm` |
 | `PP5` `$expand` | `GET /policies/roleManagementPolicyAssignments?$filter=…&$expand=policy($expand=rules)` returns the rules; `$expand=policy` alone and `GET /policies/roleManagementPolicies/{id}?$expand=rules` are **recorded** | `RoleManagementPolicyLookup.FindAsync` |
 | `PP6` MFA + authentication context | **recorded only**: whether the Message Center Reader policy accepts `MultiFactorAuthentication` in the enablement rule together with an enabled authentication context rule (an existing, available context of the tenant; never created), the error code when refused, and whether EARM's offline checks accept such a template | `RoleManagementPolicyRuleChecks.cs` (add an offline check when Graph refuses the combination) |
+| `PP7` when a group policy appears (TODO-0093) | **recorded only** (about 20-25 minutes): for a new prefixed group, every 30 s for 15 minutes, the status, item count and policy ids of the member assignment lookup, the scopeId+scopeType assignment lookup and the policies collection (`GET /policies/roleManagementPolicies?$filter=scopeId eq '…' and scopeType eq 'Group'`), stopping early when one returns a policy; if the policies collection returns one, whether writing `Expiration_EndUser_Assignment` back to its own value onboards the group within 180 s; how long after the first eligibility request (P7D) the policy is listed; and whether the member policy is still listed 60 s after that only eligibility is removed | how EARM onboards empty groups: `RoleManagementPoliciesProvider` (`PlanMissing`), `RoleManagementPolicyLookup`, docs/pim.md |
 
 When all probes of a letter are green the matching verification item can be closed; paste the diagnostic output of
 the **recorded** items into the TODO or into [docs/providers.md](../../docs/providers.md).
