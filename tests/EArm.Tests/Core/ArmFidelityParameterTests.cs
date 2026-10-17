@@ -183,6 +183,38 @@ public sealed class ArmFidelityParameterTests
         Assert.Single(diagnostics, d => d.Code == DiagnosticCodes.DefaultValueNotAllowed);
     }
 
+    // ---- type names are case-insensitive (ARM) ----
+
+    [Theory]
+    [InlineData("secureString")]
+    [InlineData("SecureObject")]
+    [InlineData("STRING")]
+    [InlineData("Int")]
+    [InlineData("Bool")]
+    [InlineData("Object")]
+    [InlineData("Array")]
+    public void AParameterAndOutputType_IsAcceptedInAnyCase(string type)
+    {
+        string outputValue = TemplateParameterTypes.TryParse(type, out var parsed) && TemplateParameterTypes.IsSecure(parsed) ? "[parameters('p')]" : "[parameters('p')]";
+        string template = Review1C.Template(
+            "\"parameters\": { \"p\": { \"type\": \"" + type + "\" } }, " +
+            "\"functions\": [ { \"namespace\": \"f\", \"members\": { \"id\": { \"parameters\": [ { \"name\": \"x\", \"type\": \"" + type + "\" } ], \"output\": { \"type\": \"" + type + "\", \"value\": \"[parameters('x')]\" } } } } ], " +
+            "\"resources\": [], \"outputs\": { \"o\": { \"type\": \"" + type + "\", \"value\": \"" + outputValue + "\" } }");
+
+        var diagnostics = Review1C.Validate(template);
+
+        Assert.DoesNotContain(diagnostics, d => d.Code is DiagnosticCodes.InvalidParameterType or DiagnosticCodes.InvalidOutputType or DiagnosticCodes.SchemaViolation);
+        Assert.Equal(type.Contains("secure", StringComparison.OrdinalIgnoreCase), Expr.ParseBody("\"parameters\": { \"p\": { \"type\": \"" + type + "\" } }, \"resources\": []").Parameters["p"].IsSecure);
+    }
+
+    [Fact]
+    public void AnUnknownParameterType_IsStillRefused()
+    {
+        var diagnostics = Review1C.Validate(Template("\"p\": { \"type\": \"strings\" }"));
+
+        Assert.Contains(diagnostics, d => d.Code == DiagnosticCodes.InvalidParameterType);
+    }
+
     // ---- variable copy ----
 
     [Fact]

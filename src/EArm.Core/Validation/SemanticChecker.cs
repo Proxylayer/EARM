@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Text.Json.Nodes;
-using System.Text.RegularExpressions;
 using EArm.Core.Diagnostics;
 using EArm.Core.Json;
 using EArm.Core.Types;
@@ -33,9 +32,6 @@ internal sealed partial class SemanticChecker
         _diagnostics = diagnostics;
     }
 
-    [GeneratedRegex(@"^\d+\.\d+\.\d+\.\d+$")]
-    private static partial Regex ContentVersionPattern();
-
     public void Run()
     {
         CheckEnvelope();
@@ -65,9 +61,10 @@ internal sealed partial class SemanticChecker
         {
             Error(DiagnosticCodes.MissingRequiredProperty, "The template is missing the required 'contentVersion' property.", JsonPath.Of("contentVersion"));
         }
-        else if (_document.ContentVersion is null || !ContentVersionPattern().IsMatch(_document.ContentVersion))
+        else if (_document.ContentVersion is null)
         {
-            Error(DiagnosticCodes.InvalidContentVersion, "'contentVersion' must be a literal of the form 'major.minor.build.revision', for example '1.0.0.0'.", JsonPath.Of("contentVersion"));
+            // ARM accepts any value ("You can provide any value for this element"); EARM only requires it to be a string.
+            Error(DiagnosticCodes.InvalidContentVersion, "'contentVersion' must be a string, for example '1.0.0.0'.", JsonPath.Of("contentVersion"));
         }
 
         if (!root.ContainsKey("resources"))

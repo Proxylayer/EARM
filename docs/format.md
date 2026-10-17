@@ -30,7 +30,7 @@ validation code. Worked templates are in [`samples/`](../samples/README.md).
 | Key | Required | Notes |
 |---|---|---|
 | `$schema` | yes | Exactly `https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#` (the trailing `#` is optional); `UnrecognizedSchema` otherwise. |
-| `contentVersion` | yes | A literal `major.minor.build.revision`, for example `1.0.0.0`. |
+| `contentVersion` | yes | Any string, as in ARM ("You can provide any value for this element", [syntax](https://learn.microsoft.com/azure/azure-resource-manager/templates/syntax#template-format)); `1.0.0.0` by convention. A non-string is `InvalidContentVersion`. |
 | `metadata` | no | Free-form. |
 | `parameters` | no | Inputs: `type`, `defaultValue`, `allowedValues`, `minValue`/`maxValue`, `minLength`/`maxLength`, `metadata.description`. See [Parameters](#parameters-and-parameter-files). |
 | `variables` | no | Named values computed lazily from parameters and other variables; memoised. |
@@ -406,7 +406,7 @@ are named as such instead of failing with a byte-level syntax error. A directory
 
 ## Parameters and parameter files
 
-Parameter types: `string`, `securestring`, `int`, `bool`, `object`, `secureObject`, `array`. An `int` accepts any JSON number whose exact
+Parameter types: `string`, `securestring`, `int`, `bool`, `object`, `secureObject`, `array`, compared case-insensitively as in ARM (`secureString` and `SecureObject` are accepted, in the schema too). An `int` accepts any JSON number whose exact
 value is a whole number in the 64-bit range, however it is spelled (`3`, `3.0`, `1.5e3`, `-0.0`); a fraction (`3.5`) or a number outside
 the range is a `ParameterValueTypeMismatch`, and `copy.count` / `copy.batchSize` follow the same rule. A value is supplied by
 `-p name=value` (inline; converted to the parameter type) or by a parameter file (`-p '@file.json'`, quoted in PowerShell); the `-p` values are applied in

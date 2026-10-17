@@ -63,7 +63,7 @@ diagnostic codes, so they have no table row here; see "Graph batch item codes" i
 | Code | Severity | Meaning |
 |---|---|---|
 | `UnrecognizedSchema` | Error | `$schema` is missing or is not `https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#`. |
-| `InvalidContentVersion` | Error | `contentVersion` is not a literal of the form `major.minor.build.revision`. |
+| `InvalidContentVersion` | Error | `contentVersion` is not a string. Any string is accepted, as in ARM. |
 | `MissingRequiredProperty` | Error | A required key is missing: root `contentVersion`/`resources`, output `type`/`value`, function `namespace`/`members`/`output`, function parameter `name`/`type`. |
 | `UnknownTopLevelProperty` | Warning | A top-level key is not part of the format (`$schema`, `contentVersion`, `metadata`, `parameters`, `variables`, `functions`, `resources`, `outputs`) and is ignored. |
 
