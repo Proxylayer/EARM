@@ -10,21 +10,21 @@ Microsoft Graph delegated permissions
       /providers/Microsoft.Entra/entitlementManagement/accessPackages/PG Development Privileged Access/assignmentPolicies/Approval by PG Development Approvers
       /providers/Microsoft.Entra/entitlementManagement/accessPackages/PG Development Read-Only Access
       /providers/Microsoft.Entra/entitlementManagement/accessPackages/PG Development Read-Only Access/assignmentPolicies/Approval by PG Development Approvers
-      /providers/Microsoft.Entra/entitlementManagement/catalogResources/1d6ddb01-9e70-5a0f-86bd-b55f799fcbf8
-      /providers/Microsoft.Entra/entitlementManagement/catalogResources/93e72866-692b-586e-808e-629107a2b8f1
-      /providers/Microsoft.Entra/entitlementManagement/catalogResources/9d04dccc-c4fc-5b42-87f4-da05d1c0cf48
-      /providers/Microsoft.Entra/entitlementManagement/catalogResources/fbe7f44c-e9ee-5f3d-99b6-c2b92e90efe2
+      /providers/Microsoft.Entra/entitlementManagement/catalogResources/483b04ee-9d33-5047-8997-e46df1ffbe97
+      /providers/Microsoft.Entra/entitlementManagement/catalogResources/63f5563d-f1a0-5d2b-871e-501c889959eb
+      /providers/Microsoft.Entra/entitlementManagement/catalogResources/6fbaed3d-5da3-5aea-92f9-49eef10c231c
+      /providers/Microsoft.Entra/entitlementManagement/catalogResources/7326e0e8-e55e-5c59-95ab-b5894bfd505a
       /providers/Microsoft.Entra/entitlementManagement/catalogs/PG Development Access
-      /providers/Microsoft.Entra/entitlementManagement/resourceRoleScopes/840242e0-70e9-57cd-b64e-61179240e472
-      /providers/Microsoft.Entra/entitlementManagement/resourceRoleScopes/8b79f1d9-6430-50cd-9310-e78c8db738d8
-      /providers/Microsoft.Entra/entitlementManagement/resourceRoleScopes/906909f3-4706-5453-8be4-1429cd3abd53
-      /providers/Microsoft.Entra/entitlementManagement/resourceRoleScopes/b8829513-b67f-5a92-a62b-1f9be36f829b
+      /providers/Microsoft.Entra/entitlementManagement/resourceRoleScopes/000396d3-f0d2-597b-a958-ece3f8e68393
+      /providers/Microsoft.Entra/entitlementManagement/resourceRoleScopes/09155f9e-fdf9-598e-b9f3-7c26c69c43ad
+      /providers/Microsoft.Entra/entitlementManagement/resourceRoleScopes/499daf38-c62d-56ba-a7db-9acc125a2eaf
+      /providers/Microsoft.Entra/entitlementManagement/resourceRoleScopes/c97a2305-2d75-5d7d-b468-9f7535196ae3
       (provider)
   Group.ReadWrite.All
-      /providers/Microsoft.Entra/entitlementManagement/catalogResources/1d6ddb01-9e70-5a0f-86bd-b55f799fcbf8
-      /providers/Microsoft.Entra/entitlementManagement/catalogResources/93e72866-692b-586e-808e-629107a2b8f1
-      /providers/Microsoft.Entra/entitlementManagement/catalogResources/9d04dccc-c4fc-5b42-87f4-da05d1c0cf48
-      /providers/Microsoft.Entra/entitlementManagement/catalogResources/fbe7f44c-e9ee-5f3d-99b6-c2b92e90efe2
+      /providers/Microsoft.Entra/entitlementManagement/catalogResources/483b04ee-9d33-5047-8997-e46df1ffbe97
+      /providers/Microsoft.Entra/entitlementManagement/catalogResources/63f5563d-f1a0-5d2b-871e-501c889959eb
+      /providers/Microsoft.Entra/entitlementManagement/catalogResources/6fbaed3d-5da3-5aea-92f9-49eef10c231c
+      /providers/Microsoft.Entra/entitlementManagement/catalogResources/7326e0e8-e55e-5c59-95ab-b5894bfd505a
       /providers/Microsoft.Entra/groups/pg-dev-approvers
       /providers/Microsoft.Entra/groups/pg-dev-operational-access
       /providers/Microsoft.Entra/groups/pg-dev-privileged-access
@@ -57,16 +57,16 @@ Entra roles (the signed-in user needs at least one role of each group)
       /providers/Microsoft.Entra/entitlementManagement/accessPackages/PG Development Read-Only Access
       /providers/Microsoft.Entra/entitlementManagement/accessPackages/PG Development Read-Only Access/assignmentPolicies/Approval by PG Development Approvers
       /providers/Microsoft.Entra/entitlementManagement/catalogs/PG Development Access
-      /providers/Microsoft.Entra/entitlementManagement/resourceRoleScopes/840242e0-70e9-57cd-b64e-61179240e472
-      /providers/Microsoft.Entra/entitlementManagement/resourceRoleScopes/8b79f1d9-6430-50cd-9310-e78c8db738d8
-      /providers/Microsoft.Entra/entitlementManagement/resourceRoleScopes/906909f3-4706-5453-8be4-1429cd3abd53
-      /providers/Microsoft.Entra/entitlementManagement/resourceRoleScopes/b8829513-b67f-5a92-a62b-1f9be36f829b
+      /providers/Microsoft.Entra/entitlementManagement/resourceRoleScopes/000396d3-f0d2-597b-a958-ece3f8e68393
+      /providers/Microsoft.Entra/entitlementManagement/resourceRoleScopes/09155f9e-fdf9-598e-b9f3-7c26c69c43ad
+      /providers/Microsoft.Entra/entitlementManagement/resourceRoleScopes/499daf38-c62d-56ba-a7db-9acc125a2eaf
+      /providers/Microsoft.Entra/entitlementManagement/resourceRoleScopes/c97a2305-2d75-5d7d-b468-9f7535196ae3
       (provider)
   Identity Governance Administrator | Privileged Role Administrator
-      /providers/Microsoft.Entra/entitlementManagement/catalogResources/1d6ddb01-9e70-5a0f-86bd-b55f799fcbf8
-      /providers/Microsoft.Entra/entitlementManagement/catalogResources/93e72866-692b-586e-808e-629107a2b8f1
-      /providers/Microsoft.Entra/entitlementManagement/catalogResources/9d04dccc-c4fc-5b42-87f4-da05d1c0cf48
-      /providers/Microsoft.Entra/entitlementManagement/catalogResources/fbe7f44c-e9ee-5f3d-99b6-c2b92e90efe2
+      /providers/Microsoft.Entra/entitlementManagement/catalogResources/483b04ee-9d33-5047-8997-e46df1ffbe97
+      /providers/Microsoft.Entra/entitlementManagement/catalogResources/63f5563d-f1a0-5d2b-871e-501c889959eb
+      /providers/Microsoft.Entra/entitlementManagement/catalogResources/6fbaed3d-5da3-5aea-92f9-49eef10c231c
+      /providers/Microsoft.Entra/entitlementManagement/catalogResources/7326e0e8-e55e-5c59-95ab-b5894bfd505a
       (provider)
   Privileged Role Administrator
       /providers/Microsoft.Entra/groups/pg-dev-approvers

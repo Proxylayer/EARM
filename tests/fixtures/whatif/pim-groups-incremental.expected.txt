@@ -11,8 +11,8 @@ Resource and property changes are indicated with these symbols:
 
 The deployment would make the following changes:
 
-  + /providers/Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests/2e14526d-cd20-5077-91c3-77c3951bf9e5 [Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests]
-      name: "2e14526d-cd20-5077-91c3-77c3951bf9e5"
+  + /providers/Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests/19918ccd-a4af-5da9-8b13-ed6c27c4f497 [Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests]
+      name: "19918ccd-a4af-5da9-8b13-ed6c27c4f497"
       type: "Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests"
       apiVersion: "2026-10-01-preview"
       properties:
@@ -25,13 +25,13 @@ The deployment would make the following changes:
         groupId: "44444444-0000-0000-0000-000000000100"
         justification: "Deployed by earm"
 
-  ~ /providers/Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests/9fa1e932-5a10-58f3-a512-8eb1f695caba [Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests]
+  = /providers/Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests/1a0736cf-a2ee-52bf-b637-1bbcce9fb0d3 [Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests]
+
+  ~ /providers/Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests/d5028c5f-5f73-5f9c-b578-113cb33feb27 [Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests]
       ~ properties.scheduleInfo:
           ~ expiration:
               ~ endDateTime: "2028-06-30T00:00:00Z" => "2029-06-30T00:00:00Z"
       (the eligibility is changed in place with a PIM adminUpdate request)
-
-  = /providers/Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests/bb5b151e-8de0-507d-9097-d794b1960a78 [Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests]
 
   * /providers/Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests/44444444-0000-0000-0000-000000000100_member_55555555-0000-0000-0000-000000000003 [Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests] (orphan: retained)
       (retained: no longer declared; still grants access (eligible member: groupId '44444444-0000-0000-0000-000000000100', principalId '44444444-0000-0000-0000-000000000002', accessId 'member'). Assignments are never removed: delete it yourself if the access should end.)

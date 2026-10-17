@@ -2,27 +2,27 @@ Permissions required by samples/pim-active.entra.json (mode: delegated, 7 resour
 
 Microsoft Graph delegated permissions
   Directory.Read.All
-      /providers/Microsoft.Entra/privilegedAccess/groupAssignmentScheduleRequests/df030239-5ef3-5795-a8c4-d62d1c17796f
-      /providers/Microsoft.Entra/privilegedAccess/groupAssignmentScheduleRequests/ec03e90e-2dac-5868-bd47-b8257c4e4728
-      /providers/Microsoft.Entra/roleAssignmentScheduleRequests/77ab2633-a75e-56ac-b28f-9560661ea2ae
-      /providers/Microsoft.Entra/roleAssignmentScheduleRequests/78a2bfef-87e2-59c4-a528-167e9c09a2c5
-      /providers/Microsoft.Entra/roleAssignments/957dbd0e-d03e-5877-8106-6ff4cebc14e9
+      /providers/Microsoft.Entra/privilegedAccess/groupAssignmentScheduleRequests/3066302a-69c6-5647-a198-04a876afffda
+      /providers/Microsoft.Entra/privilegedAccess/groupAssignmentScheduleRequests/de7e1b20-d92d-558c-9b8a-e3e43b4e76e8
+      /providers/Microsoft.Entra/roleAssignmentScheduleRequests/4da537a3-3f19-534c-8f85-315c1d2c8ba5
+      /providers/Microsoft.Entra/roleAssignmentScheduleRequests/98270bec-df77-5d88-a3a7-99e3767ececf
+      /providers/Microsoft.Entra/roleAssignments/8663ec5f-b402-5626-b97b-e74c44c348f6
       (provider)
   Group.ReadWrite.All
       /providers/Microsoft.Entra/groups/pim-incident-responders
       /providers/Microsoft.Entra/groups/pim-ops-oncall
       (provider)
   PrivilegedAssignmentSchedule.ReadWrite.AzureADGroup
-      /providers/Microsoft.Entra/privilegedAccess/groupAssignmentScheduleRequests/df030239-5ef3-5795-a8c4-d62d1c17796f
-      /providers/Microsoft.Entra/privilegedAccess/groupAssignmentScheduleRequests/ec03e90e-2dac-5868-bd47-b8257c4e4728
+      /providers/Microsoft.Entra/privilegedAccess/groupAssignmentScheduleRequests/3066302a-69c6-5647-a198-04a876afffda
+      /providers/Microsoft.Entra/privilegedAccess/groupAssignmentScheduleRequests/de7e1b20-d92d-558c-9b8a-e3e43b4e76e8
       (provider)
   RoleAssignmentSchedule.ReadWrite.Directory
-      /providers/Microsoft.Entra/roleAssignmentScheduleRequests/77ab2633-a75e-56ac-b28f-9560661ea2ae
-      /providers/Microsoft.Entra/roleAssignmentScheduleRequests/78a2bfef-87e2-59c4-a528-167e9c09a2c5
+      /providers/Microsoft.Entra/roleAssignmentScheduleRequests/4da537a3-3f19-534c-8f85-315c1d2c8ba5
+      /providers/Microsoft.Entra/roleAssignmentScheduleRequests/98270bec-df77-5d88-a3a7-99e3767ececf
       (provider)
   RoleManagement.ReadWrite.Directory
       /providers/Microsoft.Entra/groups/pim-incident-responders
-      /providers/Microsoft.Entra/roleAssignments/957dbd0e-d03e-5877-8106-6ff4cebc14e9
+      /providers/Microsoft.Entra/roleAssignments/8663ec5f-b402-5626-b97b-e74c44c348f6
       (provider)
 
 Entra roles (the signed-in user needs at least one role of each group)
@@ -31,14 +31,14 @@ Entra roles (the signed-in user needs at least one role of each group)
       /providers/Microsoft.Entra/groups/pim-ops-oncall
       (provider)
   Groups Administrator | Identity Governance Administrator | Privileged Role Administrator
-      /providers/Microsoft.Entra/privilegedAccess/groupAssignmentScheduleRequests/df030239-5ef3-5795-a8c4-d62d1c17796f
-      /providers/Microsoft.Entra/privilegedAccess/groupAssignmentScheduleRequests/ec03e90e-2dac-5868-bd47-b8257c4e4728
+      /providers/Microsoft.Entra/privilegedAccess/groupAssignmentScheduleRequests/3066302a-69c6-5647-a198-04a876afffda
+      /providers/Microsoft.Entra/privilegedAccess/groupAssignmentScheduleRequests/de7e1b20-d92d-558c-9b8a-e3e43b4e76e8
       (provider)
   Privileged Role Administrator
       /providers/Microsoft.Entra/groups/pim-incident-responders
-      /providers/Microsoft.Entra/roleAssignmentScheduleRequests/77ab2633-a75e-56ac-b28f-9560661ea2ae
-      /providers/Microsoft.Entra/roleAssignmentScheduleRequests/78a2bfef-87e2-59c4-a528-167e9c09a2c5
-      /providers/Microsoft.Entra/roleAssignments/957dbd0e-d03e-5877-8106-6ff4cebc14e9
+      /providers/Microsoft.Entra/roleAssignmentScheduleRequests/4da537a3-3f19-534c-8f85-315c1d2c8ba5
+      /providers/Microsoft.Entra/roleAssignmentScheduleRequests/98270bec-df77-5d88-a3a7-99e3767ececf
+      /providers/Microsoft.Entra/roleAssignments/8663ec5f-b402-5626-b97b-e74c44c348f6
       (condition: isAssignableToRole; provider)
 
 note: Delegated scopes must be present on the token that earm auth login obtains (the app registration of --client-id needs them as delegated permissions); the signed-in user must additionally hold at least one role of every 'Entra roles' group (the roles are alternatives).

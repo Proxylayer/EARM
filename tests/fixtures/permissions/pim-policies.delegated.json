@@ -7,12 +7,12 @@
       "name": "Directory.Read.All",
       "kind": "graphDelegated",
       "resources": [
-        "/providers/Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests/7d7474c0-655e-53aa-85cb-eb67721a9fcf",
-        "/providers/Microsoft.Entra/roleEligibilityScheduleRequests/5c54062d-1ed4-532b-9c4f-25d2d8856dc8",
-        "/providers/Microsoft.Entra/roleEligibilityScheduleRequests/79b1c586-b376-5f88-ae26-e072362062b1",
-        "/providers/Microsoft.Entra/roleManagementPolicies/3e6225bf-09cb-57bc-bb3d-d280f41cc170",
-        "/providers/Microsoft.Entra/roleManagementPolicies/b1df5c9d-046b-5820-bf37-e55dcb837c5b",
-        "/providers/Microsoft.Entra/roleManagementPolicies/f70155af-82d1-5e37-9ad2-51f755cdba8d"
+        "/providers/Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests/460c2c78-3d8e-570a-86a5-9f60311f3d74",
+        "/providers/Microsoft.Entra/roleEligibilityScheduleRequests/46b86400-e1be-5953-8760-26ace24b5b12",
+        "/providers/Microsoft.Entra/roleEligibilityScheduleRequests/ff2eb6ea-a70c-54c9-8135-35426a454c94",
+        "/providers/Microsoft.Entra/roleManagementPolicies/0aae03a2-b173-50d5-a467-9f8373088de0",
+        "/providers/Microsoft.Entra/roleManagementPolicies/d25174d0-da60-5820-8cca-566739778f1f",
+        "/providers/Microsoft.Entra/roleManagementPolicies/f327361a-947e-5620-8f07-7a8cb72a72b0"
       ],
       "reasons": [
         "provider"
@@ -33,7 +33,7 @@
       "name": "PrivilegedEligibilitySchedule.ReadWrite.AzureADGroup",
       "kind": "graphDelegated",
       "resources": [
-        "/providers/Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests/7d7474c0-655e-53aa-85cb-eb67721a9fcf"
+        "/providers/Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests/460c2c78-3d8e-570a-86a5-9f60311f3d74"
       ],
       "reasons": [
         "provider"
@@ -43,8 +43,8 @@
       "name": "RoleEligibilitySchedule.ReadWrite.Directory",
       "kind": "graphDelegated",
       "resources": [
-        "/providers/Microsoft.Entra/roleEligibilityScheduleRequests/5c54062d-1ed4-532b-9c4f-25d2d8856dc8",
-        "/providers/Microsoft.Entra/roleEligibilityScheduleRequests/79b1c586-b376-5f88-ae26-e072362062b1"
+        "/providers/Microsoft.Entra/roleEligibilityScheduleRequests/46b86400-e1be-5953-8760-26ace24b5b12",
+        "/providers/Microsoft.Entra/roleEligibilityScheduleRequests/ff2eb6ea-a70c-54c9-8135-35426a454c94"
       ],
       "reasons": [
         "provider"
@@ -64,7 +64,7 @@
       "name": "RoleManagementPolicy.ReadWrite.AzureADGroup",
       "kind": "graphDelegated",
       "resources": [
-        "/providers/Microsoft.Entra/roleManagementPolicies/f70155af-82d1-5e37-9ad2-51f755cdba8d"
+        "/providers/Microsoft.Entra/roleManagementPolicies/f327361a-947e-5620-8f07-7a8cb72a72b0"
       ],
       "reasons": [
         "provider"
@@ -74,8 +74,8 @@
       "name": "RoleManagementPolicy.ReadWrite.Directory",
       "kind": "graphDelegated",
       "resources": [
-        "/providers/Microsoft.Entra/roleManagementPolicies/3e6225bf-09cb-57bc-bb3d-d280f41cc170",
-        "/providers/Microsoft.Entra/roleManagementPolicies/b1df5c9d-046b-5820-bf37-e55dcb837c5b"
+        "/providers/Microsoft.Entra/roleManagementPolicies/0aae03a2-b173-50d5-a467-9f8373088de0",
+        "/providers/Microsoft.Entra/roleManagementPolicies/d25174d0-da60-5820-8cca-566739778f1f"
       ],
       "reasons": [
         "provider"
@@ -102,7 +102,7 @@
         "Privileged Role Administrator"
       ],
       "resources": [
-        "/providers/Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests/7d7474c0-655e-53aa-85cb-eb67721a9fcf"
+        "/providers/Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests/460c2c78-3d8e-570a-86a5-9f60311f3d74"
       ],
       "reasons": [
         "provider"
@@ -114,11 +114,11 @@
       ],
       "resources": [
         "/providers/Microsoft.Entra/groups/pim-privileged-admins",
-        "/providers/Microsoft.Entra/roleEligibilityScheduleRequests/5c54062d-1ed4-532b-9c4f-25d2d8856dc8",
-        "/providers/Microsoft.Entra/roleEligibilityScheduleRequests/79b1c586-b376-5f88-ae26-e072362062b1",
-        "/providers/Microsoft.Entra/roleManagementPolicies/3e6225bf-09cb-57bc-bb3d-d280f41cc170",
-        "/providers/Microsoft.Entra/roleManagementPolicies/b1df5c9d-046b-5820-bf37-e55dcb837c5b",
-        "/providers/Microsoft.Entra/roleManagementPolicies/f70155af-82d1-5e37-9ad2-51f755cdba8d"
+        "/providers/Microsoft.Entra/roleEligibilityScheduleRequests/46b86400-e1be-5953-8760-26ace24b5b12",
+        "/providers/Microsoft.Entra/roleEligibilityScheduleRequests/ff2eb6ea-a70c-54c9-8135-35426a454c94",
+        "/providers/Microsoft.Entra/roleManagementPolicies/0aae03a2-b173-50d5-a467-9f8373088de0",
+        "/providers/Microsoft.Entra/roleManagementPolicies/d25174d0-da60-5820-8cca-566739778f1f",
+        "/providers/Microsoft.Entra/roleManagementPolicies/f327361a-947e-5620-8f07-7a8cb72a72b0"
       ],
       "reasons": [
         "condition: isAssignableToRole",

@@ -5,10 +5,10 @@
   "mode": "Incremental",
   "changes": [
     {
-      "resourceId": "/providers/Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests/2e14526d-cd20-5077-91c3-77c3951bf9e5",
+      "resourceId": "/providers/Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests/19918ccd-a4af-5da9-8b13-ed6c27c4f497",
       "changeType": "Create",
       "after": {
-        "name": "2e14526d-cd20-5077-91c3-77c3951bf9e5",
+        "name": "19918ccd-a4af-5da9-8b13-ed6c27c4f497",
         "type": "Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests",
         "apiVersion": "2026-10-01-preview",
         "properties": {
@@ -27,10 +27,49 @@
       "unsupportedReason": null
     },
     {
-      "resourceId": "/providers/Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests/9fa1e932-5a10-58f3-a512-8eb1f695caba",
+      "resourceId": "/providers/Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests/1a0736cf-a2ee-52bf-b637-1bbcce9fb0d3",
+      "changeType": "NoChange",
+      "before": {
+        "name": "1a0736cf-a2ee-52bf-b637-1bbcce9fb0d3",
+        "type": "Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests",
+        "apiVersion": "2026-10-01-preview",
+        "properties": {
+          "groupId": "44444444-0000-0000-0000-000000000100",
+          "principalId": "44444444-0000-0000-0000-000000000001",
+          "accessId": "member",
+          "justification": "Quarterly review",
+          "scheduleInfo": {
+            "expiration": {
+              "type": "afterDateTime",
+              "endDateTime": "2030-01-01T00:00:00Z"
+            }
+          }
+        }
+      },
+      "after": {
+        "name": "1a0736cf-a2ee-52bf-b637-1bbcce9fb0d3",
+        "type": "Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests",
+        "apiVersion": "2026-10-01-preview",
+        "properties": {
+          "groupId": "44444444-0000-0000-0000-000000000100",
+          "principalId": "44444444-0000-0000-0000-000000000001",
+          "accessId": "member",
+          "justification": "Quarterly review",
+          "scheduleInfo": {
+            "expiration": {
+              "type": "afterDateTime",
+              "endDateTime": "2030-01-01T00:00:00Z"
+            }
+          }
+        }
+      },
+      "unsupportedReason": null
+    },
+    {
+      "resourceId": "/providers/Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests/d5028c5f-5f73-5f9c-b578-113cb33feb27",
       "changeType": "Modify",
       "before": {
-        "name": "9fa1e932-5a10-58f3-a512-8eb1f695caba",
+        "name": "d5028c5f-5f73-5f9c-b578-113cb33feb27",
         "type": "Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests",
         "apiVersion": "2026-10-01-preview",
         "properties": {
@@ -51,7 +90,7 @@
         }
       },
       "after": {
-        "name": "9fa1e932-5a10-58f3-a512-8eb1f695caba",
+        "name": "d5028c5f-5f73-5f9c-b578-113cb33feb27",
         "type": "Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests",
         "apiVersion": "2026-10-01-preview",
         "properties": {
@@ -115,45 +154,6 @@
       "reasons": [
         "the eligibility is changed in place with a PIM adminUpdate request"
       ]
-    },
-    {
-      "resourceId": "/providers/Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests/bb5b151e-8de0-507d-9097-d794b1960a78",
-      "changeType": "NoChange",
-      "before": {
-        "name": "bb5b151e-8de0-507d-9097-d794b1960a78",
-        "type": "Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests",
-        "apiVersion": "2026-10-01-preview",
-        "properties": {
-          "groupId": "44444444-0000-0000-0000-000000000100",
-          "principalId": "44444444-0000-0000-0000-000000000001",
-          "accessId": "member",
-          "justification": "Quarterly review",
-          "scheduleInfo": {
-            "expiration": {
-              "type": "afterDateTime",
-              "endDateTime": "2030-01-01T00:00:00Z"
-            }
-          }
-        }
-      },
-      "after": {
-        "name": "bb5b151e-8de0-507d-9097-d794b1960a78",
-        "type": "Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests",
-        "apiVersion": "2026-10-01-preview",
-        "properties": {
-          "groupId": "44444444-0000-0000-0000-000000000100",
-          "principalId": "44444444-0000-0000-0000-000000000001",
-          "accessId": "member",
-          "justification": "Quarterly review",
-          "scheduleInfo": {
-            "expiration": {
-              "type": "afterDateTime",
-              "endDateTime": "2030-01-01T00:00:00Z"
-            }
-          }
-        }
-      },
-      "unsupportedReason": null
     },
     {
       "resourceId": "/providers/Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests/44444444-0000-0000-0000-000000000100_member_55555555-0000-0000-0000-000000000003",

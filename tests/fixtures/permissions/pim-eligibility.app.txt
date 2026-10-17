@@ -5,11 +5,11 @@ Microsoft Graph application permissions
       /providers/Microsoft.Entra/administrativeUnits/EMEA Staff
       (provider)
   Directory.Read.All
-      /providers/Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests/7d7474c0-655e-53aa-85cb-eb67721a9fcf
-      /providers/Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests/c55f993b-9e7c-5cfd-93ce-a8de3f2b75c6
-      /providers/Microsoft.Entra/roleEligibilityScheduleRequests/2d6d319f-e90c-52c1-8774-69afcd88a442
-      /providers/Microsoft.Entra/roleEligibilityScheduleRequests/430f359a-c3de-55e6-9a65-5d151de28187
-      /providers/Microsoft.Entra/roleEligibilityScheduleRequests/e605f354-f46a-5598-a195-604d76129450
+      /providers/Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests/460c2c78-3d8e-570a-86a5-9f60311f3d74
+      /providers/Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests/b86139ae-e5db-5733-88a5-7febc874bc01
+      /providers/Microsoft.Entra/roleEligibilityScheduleRequests/50c35af8-2e11-598f-99fe-b17a8a765544
+      /providers/Microsoft.Entra/roleEligibilityScheduleRequests/63bb5daf-46fa-54ed-890f-fb8923d57034
+      /providers/Microsoft.Entra/roleEligibilityScheduleRequests/ad1dd55a-ac83-5c91-99ac-da5fec494dff
       (provider)
   Group.ReadWrite.All
       /providers/Microsoft.Entra/groups/pim-helpdesk-admins
@@ -19,13 +19,13 @@ Microsoft Graph application permissions
       (every deployment)
       (preflight: GET /organization)
   PrivilegedEligibilitySchedule.ReadWrite.AzureADGroup
-      /providers/Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests/7d7474c0-655e-53aa-85cb-eb67721a9fcf
-      /providers/Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests/c55f993b-9e7c-5cfd-93ce-a8de3f2b75c6
+      /providers/Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests/460c2c78-3d8e-570a-86a5-9f60311f3d74
+      /providers/Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests/b86139ae-e5db-5733-88a5-7febc874bc01
       (provider)
   RoleEligibilitySchedule.ReadWrite.Directory
-      /providers/Microsoft.Entra/roleEligibilityScheduleRequests/2d6d319f-e90c-52c1-8774-69afcd88a442
-      /providers/Microsoft.Entra/roleEligibilityScheduleRequests/430f359a-c3de-55e6-9a65-5d151de28187
-      /providers/Microsoft.Entra/roleEligibilityScheduleRequests/e605f354-f46a-5598-a195-604d76129450
+      /providers/Microsoft.Entra/roleEligibilityScheduleRequests/50c35af8-2e11-598f-99fe-b17a8a765544
+      /providers/Microsoft.Entra/roleEligibilityScheduleRequests/63bb5daf-46fa-54ed-890f-fb8923d57034
+      /providers/Microsoft.Entra/roleEligibilityScheduleRequests/ad1dd55a-ac83-5c91-99ac-da5fec494dff
       (provider)
   RoleManagement.ReadWrite.Directory
       /providers/Microsoft.Entra/groups/pim-helpdesk-admins
