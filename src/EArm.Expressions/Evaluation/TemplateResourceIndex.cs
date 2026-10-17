@@ -12,9 +12,11 @@ namespace EArm.Expressions.Evaluation;
 /// resolution. An <see cref="Entry.Id"/> may be symbolic (a name segment that is an
 /// <see cref="Values.UnknownValue.Symbol"/>) when the name is only known at deploy time.
 /// <para>
-/// A <c>copy</c> loop whose iteration names depend on <c>copyIndex()</c> has no ids before expansion; the loop is
-/// still registered by its literal <c>copy.name</c> (<see cref="CopyLoops"/>) so that <c>dependsOn</c> can name it.
-/// The engine adds the concrete iteration ids once the loop is expanded.
+/// A <c>copy</c> loop is registered by its literal <c>copy.name</c> (<see cref="CopyLoops"/>) so that <c>dependsOn</c> can
+/// name it. When its count is computable from parameters and variables the static evaluator also indexes every instance
+/// (the name evaluated with a concrete <c>copyIndex()</c>), so <c>reference()</c> can name one instance from anywhere in
+/// the template, as ARM allows; otherwise the loop is listed in <see cref="PendingCopyLoops"/> and the engine adds the
+/// concrete iteration ids once the loop is expanded.
 /// </para>
 /// </summary>
 public sealed class TemplateResourceIndex
@@ -35,6 +37,25 @@ public sealed class TemplateResourceIndex
 
     /// <summary>One <c>copy</c> loop: its literal name and the declaration that carries it.</summary>
     public sealed record CopyLoop(string Name, ResourceDeclaration Declaration);
+
+    /// <summary>
+    /// A copy loop whose instance ids could not be computed statically because its count depends on a value that is not known
+    /// yet (<see cref="Origins"/>, with the deploy-time value <see cref="Symbol"/>); a name that matches no indexed resource may
+    /// be one of its instances.
+    /// </summary>
+    public sealed record PendingCopyLoop(string Name, ResourceDeclaration Declaration, Values.UnknownOrigins Origins, string Symbol);
+
+    private readonly List<PendingCopyLoop> _pending = [];
+
+    /// <summary>The copy loops whose instances are not indexed (see <see cref="PendingCopyLoop"/>).</summary>
+    public IReadOnlyList<PendingCopyLoop> PendingCopyLoops => _pending;
+
+    /// <summary>Records a copy loop whose instances could not be indexed.</summary>
+    public void AddPendingCopyLoop(PendingCopyLoop loop)
+    {
+        ArgumentNullException.ThrowIfNull(loop);
+        _pending.Add(loop);
+    }
 
     /// <summary>Adds an entry; a second entry with the same id is ignored (duplicates are reported elsewhere).</summary>
     public void Add(Entry entry)

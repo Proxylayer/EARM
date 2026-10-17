@@ -621,9 +621,9 @@ internal sealed partial class SemanticChecker
                 Error(DiagnosticCodes.InvalidOutputType, $"Output '{output.Name}' has unknown type '{output.Type}'; expected one of: {string.Join(", ", TemplateParameterTypes.CanonicalNames)}.", output.Path.Append("type"));
             }
 
-            if (!output.Source.ContainsKey("value"))
+            if (!output.Source.ContainsKey("value") && !output.Source.ContainsKey("copy"))
             {
-                Error(DiagnosticCodes.MissingRequiredProperty, $"Output '{output.Name}' is missing the required 'value' property.", output.Path.Append("value"));
+                Error(DiagnosticCodes.MissingRequiredProperty, $"Output '{output.Name}' is missing the required 'value' property (or a 'copy' loop).", output.Path.Append("value"));
             }
         }
     }

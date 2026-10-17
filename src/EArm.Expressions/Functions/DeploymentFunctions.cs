@@ -232,7 +232,14 @@ internal static class DeploymentFunctions
         else
         {
             string text = call.String(0);
-            id = ResolveTarget(call, text, apiVersion);
+            try
+            {
+                id = ResolveTarget(call, text, apiVersion);
+            }
+            catch (ExpressionEvaluationException ex) when (apiVersion is null && ex.Code == DiagnosticCodes.ReferenceTargetNotFound && context.Resources.PendingCopyLoops.Count > 0)
+            {
+                return PendingCopyLoopTarget(call, ex);
+            }
         }
 
         if (apiVersion is null && context.Resources.Entries.Count > 0 && !context.Resources.Contains(id))
@@ -245,7 +252,13 @@ internal static class DeploymentFunctions
                 return call.Unknown(unknownTarget.Origins | UnknownOrigins.Reference, tainted);
             }
 
-            throw new ExpressionEvaluationException(DiagnosticCodes.ReferenceTargetNotFound, $"reference(): '{call.Redact(0, id.Id)}' is not a resource of this template; to look up an existing resource pass an apiVersion: reference(resourceId(...), '{ResourceTypeCatalog.SchemaVersion}').", call.Offset);
+            var notFound = new ExpressionEvaluationException(DiagnosticCodes.ReferenceTargetNotFound, $"reference(): '{call.Redact(0, id.Id)}' is not a resource of this template; to look up an existing resource pass an apiVersion: reference(resourceId(...), '{ResourceTypeCatalog.SchemaVersion}').", call.Offset);
+            if (context.Resources.PendingCopyLoops.Count > 0)
+            {
+                return PendingCopyLoopTarget(call, notFound);
+            }
+
+            throw notFound;
         }
 
         var result = context.References.Resolve(id, apiVersion);
@@ -261,6 +274,25 @@ internal static class DeploymentFunctions
             default:
                 throw call.Failure($"the reference resolver returned an unexpected result ({result.GetType().Name}).");
         }
+    }
+
+    /// <summary>
+    /// A same-template <c>reference()</c> that names no indexed resource while some copy loop could not be expanded statically
+    /// (its count is not known yet): the target may be one of that loop's instances. When every such loop waits only for a
+    /// parameter value that is missing offline the result is an unknown value of origin <see cref="UnknownOrigins.Parameter"/>
+    /// alone (the static scanner defers it); otherwise the loop's count is only known at deployment, which ARM does not allow
+    /// either, and the reference fails with that explanation.
+    /// </summary>
+    private static JsonNode? PendingCopyLoopTarget(FunctionCall call, ExpressionEvaluationException notFound)
+    {
+        var pending = call.Context.Resources.PendingCopyLoops;
+        if (pending.All(p => p.Origins == UnknownOrigins.Parameter))
+        {
+            return UnknownJson.Create($"ref({call.Render(0)})", UnknownOrigins.Parameter);
+        }
+
+        var loops = string.Join(", ", pending.Where(p => p.Origins != UnknownOrigins.Parameter).Select(p => $"'{p.Name}' (count {p.Symbol})"));
+        throw new ExpressionEvaluationException(notFound.Code, $"{notFound.Message} It may name an instance of copy loop {loops}, but that loop's count is only known at deployment, so its instances cannot be referenced by name; make the count computable from parameters and variables.", notFound.Offset);
     }
 
     /// <summary>The canonical symbol of a placeholder reference: <c>ref(/providers/...)</c> or <c>ref(/providers/..., 'apiVersion')</c>.</summary>

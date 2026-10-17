@@ -304,6 +304,7 @@ public sealed class TemplateLoader : ITemplateLoader
                 Type = TemplateJson.AsString(definition["type"]),
                 Value = definition["value"],
                 Condition = definition["condition"],
+                Copy = definition["copy"] is JsonObject copy ? new OutputCopy { Count = copy["count"], Input = copy["input"], Source = copy, Path = path.Append("copy") } : null,
                 Metadata = definition["metadata"] as JsonObject,
                 Source = definition,
                 Path = path,

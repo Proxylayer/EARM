@@ -117,7 +117,8 @@ internal static class DeclarationConflicts
 
             foreach (var (applies, list, access) in new[] { (member, "members", GroupEligibilityScheduleRules.Member), (owner, "owners", GroupEligibilityScheduleRules.Owner) })
             {
-                if (applies && JsonObjects.TryGetIgnoreCase(groupProperties, list, out var value) && IsDeclared(value))
+                bool declaresList = JsonObjects.TryGetIgnoreCase(groupProperties, list, out var value) ? IsDeclared(value) : PropertyCopyBlock.Declares(groupProperties, list);
+                if (applies && declaresList)
                 {
                     yield return new DeclarationConflict(
                         EngineDiagnosticCodes.PimAssignmentConflict,
@@ -137,7 +138,7 @@ internal static class DeclarationConflicts
 
             foreach (var (applies, property, access) in new[] { (member, "memberOf", GroupEligibilityScheduleRules.Member), (owner, "ownerOf", GroupEligibilityScheduleRules.Owner) })
             {
-                if (!applies || JsonObjects.FindKey(principalProperties, property) is not { } key)
+                if (!applies || PropertyCopyBlock.DeclaredKey(principalProperties, property) is not { } key)
                 {
                     continue;
                 }

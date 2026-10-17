@@ -134,6 +134,19 @@ public sealed class ExpressionValidator : ITemplateValidator
             case JsonObject obj:
                 foreach (var property in obj)
                 {
+                    if (PropertyCopyBlock.IsBlock(property.Key, property.Value))
+                    {
+                        foreach (var entry in PropertyCopyBlock.Entries(obj))
+                        {
+                            var entryPath = path.Append(property.Key).Append(entry.Index);
+                            CheckPropertyReferences(document, entry.Count, entryPath.Append("count"), context, seen, diagnostics);
+                            var loop = context.PushCopy(CopyFrame.Unresolved(entry.Name ?? PropertyCopyBlock.Key, null, requiresName: true));
+                            CheckPropertyReferences(document, entry.Input, entryPath.Append("input"), loop, seen, diagnostics);
+                        }
+
+                        continue;
+                    }
+
                     CheckPropertyReferences(document, property.Value, path.Append(property.Key), context, seen, diagnostics);
                 }
 
@@ -301,11 +314,12 @@ public sealed class ExpressionValidator : ITemplateValidator
         }
 
         /// <summary>Where an expression sits: its path and scope, whether a copy loop encloses it, the lambda parameters in scope and the user-defined function whose body it is.</summary>
-        private sealed record Frame(JsonPath Path, EvaluationScope Scope, bool InCopy, ImmutableList<string> LambdaParameters, UserFunctionDefinition? Function)
+        /// <remarks><see cref="InCopy"/>: a resource or output loop encloses it (<c>copyIndex()</c> without a name is legal); <see cref="PropertyLoops"/>: the enclosing property iterations, addressed only by name.</remarks>
+        private sealed record Frame(JsonPath Path, EvaluationScope Scope, bool InCopy, ImmutableList<string> LambdaParameters, UserFunctionDefinition? Function, ImmutableList<string> PropertyLoops)
         {
             public static Frame At(JsonPath path, EvaluationScope scope, bool inCopy, UserFunctionDefinition? function = null)
             {
-                return new Frame(path, scope, inCopy, ImmutableList<string>.Empty, function);
+                return new Frame(path, scope, inCopy, ImmutableList<string>.Empty, function, ImmutableList<string>.Empty);
             }
 
             public bool InLambda => LambdaParameters.Count > 0;
@@ -371,7 +385,15 @@ public sealed class ExpressionValidator : ITemplateValidator
             foreach (var output in _document.Outputs.Values)
             {
                 WalkTree(output.Condition, Frame.At(output.Path.Append("condition"), EvaluationScope.Output, inCopy: false));
-                WalkTree(output.Value, Frame.At(output.Path.Append("value"), EvaluationScope.Output, inCopy: false));
+                if (output.Copy is { } copy)
+                {
+                    WalkTree(copy.Count, Frame.At(copy.Path.Append("count"), EvaluationScope.Output, inCopy: false));
+                    WalkTree(copy.Input, Frame.At(copy.Path.Append("input"), EvaluationScope.Output, inCopy: true));
+                }
+                else
+                {
+                    WalkTree(output.Value, Frame.At(output.Path.Append("value"), EvaluationScope.Output, inCopy: false));
+                }
             }
         }
 
@@ -382,6 +404,20 @@ public sealed class ExpressionValidator : ITemplateValidator
                 case JsonObject obj:
                     foreach (var property in obj)
                     {
+                        if (frame.Scope == EvaluationScope.Resource && PropertyCopyBlock.IsBlock(property.Key, property.Value))
+                        {
+                            // Property iteration: copyIndex('name') is legal in the input of the entry named 'name'.
+                            foreach (var entry in PropertyCopyBlock.Entries(obj))
+                            {
+                                var entryPath = frame.Path.Append(property.Key).Append(entry.Index);
+                                WalkTree(entry.Count, frame with { Path = entryPath.Append("count") });
+                                var loops = entry.Name is null ? frame.PropertyLoops : frame.PropertyLoops.Add(entry.Name);
+                                WalkTree(entry.Input, frame with { Path = entryPath.Append("input"), PropertyLoops = loops });
+                            }
+
+                            continue;
+                        }
+
                         WalkTree(property.Value, frame with { Path = frame.Path.Append(property.Key) });
                     }
 
@@ -549,9 +585,8 @@ public sealed class ExpressionValidator : ITemplateValidator
                 string where = scope == EvaluationScope.ParameterDefault ? "a parameter default value" : "a user-defined function";
                 Error(DiagnosticCodes.FunctionNotAllowedHere, $"variables() cannot be used in {where}. (at offset {call.Offset})", path);
             }
-            else if (call.Is("copyIndex") && (scope != EvaluationScope.Resource || !frame.InCopy))
+            else if (call.Is("copyIndex") && CopyIndexProblem(call, frame) is { } where)
             {
-                string where = scope == EvaluationScope.Resource ? "this resource has no copy loop" : "copyIndex() is only valid inside a resource with a copy loop";
                 Error(DiagnosticCodes.CopyIndexOutsideCopy, $"copyIndex() cannot be used here: {where}. (at offset {call.Offset})", path);
             }
             else if (call.Is("lambdaVariables"))
@@ -566,6 +601,36 @@ public sealed class ExpressionValidator : ITemplateValidator
             {
                 Error(DiagnosticCodes.FunctionNotAllowedHere, $"{notAllowed} (at offset {call.Offset})", path);
             }
+        }
+
+        /// <summary>
+        /// Why <c>copyIndex()</c> is not legal at <paramref name="frame"/>, or <c>null</c>: without a loop name it needs a resource or output
+        /// loop; with a literal name it needs any enclosing loop, and inside property iterations alone the name must be one of theirs.
+        /// </summary>
+        private static string? CopyIndexProblem(CallExpression call, Frame frame)
+        {
+            string? name = call.Arguments.Count >= 1 && call.Arguments[0] is LiteralExpression { IsString: true } literal ? literal.StringValue : null;
+            if (frame.InCopy)
+            {
+                return null;
+            }
+
+            if (frame.PropertyLoops.Count > 0)
+            {
+                if (name is null)
+                {
+                    return $"inside a property copy loop copyIndex() needs the loop name, for example copyIndex('{frame.PropertyLoops[^1]}')";
+                }
+
+                return frame.PropertyLoops.Contains(name, StringComparer.OrdinalIgnoreCase) ? null : $"there is no enclosing copy loop named '{name}' (property copy loops here: {string.Join(", ", frame.PropertyLoops)})";
+            }
+
+            return frame.Scope switch
+            {
+                EvaluationScope.Resource => "this resource has no copy loop",
+                EvaluationScope.Output => "this output has no copy loop",
+                _ => "copyIndex() is only valid inside a copy loop (a resource, property or output copy)",
+            };
         }
 
         private void CheckReferencePlacement(CallExpression call, JsonPath path, EvaluationScope scope)

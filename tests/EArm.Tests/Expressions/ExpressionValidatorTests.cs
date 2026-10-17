@@ -122,7 +122,9 @@ public sealed class ExpressionValidatorTests
         Assert.Equal(ResolvedNameKind.CopyDependent, resource.NameKind);
         Assert.Equal(2, resource.CopyCount);
         Assert.Equal("loop", resource.CopyName);
-        Assert.Empty(analysis.Static.Index.Entries);
+        // Every instance is indexed by its evaluated name, so reference('g1') resolves from anywhere (ARM).
+        Assert.Equal(["g0", "g1"], analysis.Static.Index.Entries.Select(e => e.Id.Name));
+        Assert.All(analysis.Static.Index.Entries, e => Assert.Equal("loop", e.CopyName));
         Assert.Equal("loop", Assert.Single(analysis.Static.Index.CopyLoops).Name);
     }
 

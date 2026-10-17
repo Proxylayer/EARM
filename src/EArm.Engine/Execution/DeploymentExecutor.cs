@@ -1122,7 +1122,7 @@ public sealed class DeploymentExecutor
             foreach (var output in document.Outputs.Values)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var valuePath = output.Path.Append("value");
+                var valuePath = output.Copy?.Path ?? output.Path.Append("value");
                 trace.Reset();
                 try
                 {
@@ -1141,7 +1141,7 @@ public sealed class DeploymentExecutor
                         }
                     }
 
-                    var value = _plan.Evaluator.EvaluateTree(output.Value, context);
+                    var value = CopyExpansion.EvaluateOutput(_plan.Evaluator, output, context);
                     if (UnknownJson.ContainsUnknown(value))
                     {
                         var leaves = JsonObjects.UnknownLeaves(value, JsonPath.Root);

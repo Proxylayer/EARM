@@ -140,11 +140,38 @@ public static class InstanceEvaluator
 
         var objectRaw = new JsonObject();
         var edgeRaw = new JsonObject();
+        var edgeCopies = new HashSet<string>(StringComparer.Ordinal);
         if (instance.Declaration.Properties is JsonObject declared)
         {
+            var objectCopies = new JsonArray();
             foreach (var property in declared)
             {
+                if (PropertyCopyBlock.IsBlock(property.Key, property.Value))
+                {
+                    continue;
+                }
+
                 (instance.Definition.IsRelationshipProperty(property.Key) ? edgeRaw : objectRaw)[property.Key] = JsonValues.Clone(property.Value);
+            }
+
+            // Property iteration entries go where the property they build goes: an edge property is evaluated on its own
+            // (a one-entry block whose result is that property), an object property stays in a block of the object properties.
+            foreach (var entry in PropertyCopyBlock.Entries(declared))
+            {
+                if (entry.Name is not null && instance.Definition.IsRelationshipProperty(entry.Name))
+                {
+                    edgeRaw[entry.Name] = new JsonObject { [PropertyCopyBlock.Key] = new JsonArray(JsonValues.Clone(entry.Source)) };
+                    edgeCopies.Add(entry.Name);
+                }
+                else
+                {
+                    objectCopies.Add(JsonValues.Clone(entry.Source));
+                }
+            }
+
+            if (objectCopies.Count > 0)
+            {
+                objectRaw[PropertyCopyBlock.Key] = objectCopies;
             }
         }
 
@@ -156,7 +183,9 @@ public static class InstanceEvaluator
             JsonNode? value;
             try
             {
-                value = evaluator.EvaluateTree(property.Value, instance.Context);
+                value = edgeCopies.Contains(property.Key)
+                    ? (evaluator.EvaluateTree(property.Value, instance.Context) as JsonObject)?[property.Key]
+                    : evaluator.EvaluateTree(property.Value, instance.Context);
             }
             catch (ExpressionException ex)
             {
