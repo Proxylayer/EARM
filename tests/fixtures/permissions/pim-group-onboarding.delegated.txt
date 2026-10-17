@@ -1,0 +1,34 @@
+Permissions required by samples/pim-group-onboarding.entra.json (mode: delegated, 3 resource(s))
+
+Microsoft Graph delegated permissions
+  Directory.Read.All
+      /providers/Microsoft.Entra/roleManagementPolicies/27724e29-3e43-5123-a37f-300a338c6792
+      /providers/Microsoft.Entra/roleManagementPolicies/ebdfa042-55c6-511e-946e-f899ef80c54e
+      (provider)
+  Group.ReadWrite.All
+      /providers/Microsoft.Entra/groups/pim-incident-leads
+      (provider)
+  PrivilegedEligibilitySchedule.ReadWrite.AzureADGroup
+      /providers/Microsoft.Entra/roleManagementPolicies/27724e29-3e43-5123-a37f-300a338c6792
+      /providers/Microsoft.Entra/roleManagementPolicies/ebdfa042-55c6-511e-946e-f899ef80c54e
+      (provider)
+  RoleManagementPolicy.ReadWrite.AzureADGroup
+      /providers/Microsoft.Entra/roleManagementPolicies/27724e29-3e43-5123-a37f-300a338c6792
+      /providers/Microsoft.Entra/roleManagementPolicies/ebdfa042-55c6-511e-946e-f899ef80c54e
+      (provider)
+
+Entra roles (the signed-in user needs at least one role of each group)
+  Groups Administrator
+      /providers/Microsoft.Entra/groups/pim-incident-leads
+      (provider)
+  Groups Administrator | Identity Governance Administrator | Privileged Role Administrator
+      /providers/Microsoft.Entra/roleManagementPolicies/27724e29-3e43-5123-a37f-300a338c6792
+      /providers/Microsoft.Entra/roleManagementPolicies/ebdfa042-55c6-511e-946e-f899ef80c54e
+      (condition: onboarding)
+  Privileged Role Administrator
+      /providers/Microsoft.Entra/roleManagementPolicies/27724e29-3e43-5123-a37f-300a338c6792
+      /providers/Microsoft.Entra/roleManagementPolicies/ebdfa042-55c6-511e-946e-f899ef80c54e
+      (provider)
+
+note: Delegated scopes must be present on the token that earm auth login obtains (the app registration of --client-id needs them as delegated permissions); the signed-in user must additionally hold at least one role of every 'Entra roles' group (the roles are alternatives).
+note: Edge permissions are listed for every relationship property the template declares (including an empty array, which removes edges). Key Vault access is an Azure RBAC / access-policy requirement of the signed-in identity, not a Graph permission.

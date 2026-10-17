@@ -1,0 +1,7 @@
+{
+  "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "onboardingPrincipalId": { "value": "6d1a3f2e-0000-4000-8000-000000000003" }
+  }
+}

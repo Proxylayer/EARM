@@ -1,0 +1,24 @@
+Permissions required by samples/pim-group-onboarding.entra.json (mode: app, 3 resource(s))
+
+Microsoft Graph application permissions
+  Directory.Read.All
+      /providers/Microsoft.Entra/roleManagementPolicies/27724e29-3e43-5123-a37f-300a338c6792
+      /providers/Microsoft.Entra/roleManagementPolicies/ebdfa042-55c6-511e-946e-f899ef80c54e
+      (provider)
+  Group.ReadWrite.All
+      /providers/Microsoft.Entra/groups/pim-incident-leads
+      (provider)
+  Organization.Read.All
+      (every deployment)
+      (preflight: GET /organization)
+  PrivilegedEligibilitySchedule.ReadWrite.AzureADGroup
+      /providers/Microsoft.Entra/roleManagementPolicies/27724e29-3e43-5123-a37f-300a338c6792
+      /providers/Microsoft.Entra/roleManagementPolicies/ebdfa042-55c6-511e-946e-f899ef80c54e
+      (provider)
+  RoleManagementPolicy.ReadWrite.AzureADGroup
+      /providers/Microsoft.Entra/roleManagementPolicies/27724e29-3e43-5123-a37f-300a338c6792
+      /providers/Microsoft.Entra/roleManagementPolicies/ebdfa042-55c6-511e-946e-f899ef80c54e
+      (provider)
+
+note: Application permissions are Microsoft Graph app roles granted (with admin consent) to the service principal EARM signs in with (AZURE_CLIENT_ID, or the managed identity). Application.ReadWrite.OwnedBy replaces Application.ReadWrite.All for applications the service principal owns.
+note: Edge permissions are listed for every relationship property the template declares (including an empty array, which removes edges). Key Vault access is an Azure RBAC / access-policy requirement of the signed-in identity, not a Graph permission.

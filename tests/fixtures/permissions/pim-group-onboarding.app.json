@@ -1,0 +1,65 @@
+{
+  "template": "samples/pim-group-onboarding.entra.json",
+  "mode": "app",
+  "resourceCount": 3,
+  "permissions": [
+    {
+      "name": "Directory.Read.All",
+      "kind": "graphApplication",
+      "resources": [
+        "/providers/Microsoft.Entra/roleManagementPolicies/27724e29-3e43-5123-a37f-300a338c6792",
+        "/providers/Microsoft.Entra/roleManagementPolicies/ebdfa042-55c6-511e-946e-f899ef80c54e"
+      ],
+      "reasons": [
+        "provider"
+      ]
+    },
+    {
+      "name": "Group.ReadWrite.All",
+      "kind": "graphApplication",
+      "resources": [
+        "/providers/Microsoft.Entra/groups/pim-incident-leads"
+      ],
+      "reasons": [
+        "provider"
+      ]
+    },
+    {
+      "name": "Organization.Read.All",
+      "kind": "graphApplication",
+      "resources": [
+        "(every deployment)"
+      ],
+      "reasons": [
+        "preflight: GET /organization"
+      ]
+    },
+    {
+      "name": "PrivilegedEligibilitySchedule.ReadWrite.AzureADGroup",
+      "kind": "graphApplication",
+      "resources": [
+        "/providers/Microsoft.Entra/roleManagementPolicies/27724e29-3e43-5123-a37f-300a338c6792",
+        "/providers/Microsoft.Entra/roleManagementPolicies/ebdfa042-55c6-511e-946e-f899ef80c54e"
+      ],
+      "reasons": [
+        "provider"
+      ]
+    },
+    {
+      "name": "RoleManagementPolicy.ReadWrite.AzureADGroup",
+      "kind": "graphApplication",
+      "resources": [
+        "/providers/Microsoft.Entra/roleManagementPolicies/27724e29-3e43-5123-a37f-300a338c6792",
+        "/providers/Microsoft.Entra/roleManagementPolicies/ebdfa042-55c6-511e-946e-f899ef80c54e"
+      ],
+      "reasons": [
+        "provider"
+      ]
+    }
+  ],
+  "entraRoles": [],
+  "notes": [
+    "Application permissions are Microsoft Graph app roles granted (with admin consent) to the service principal EARM signs in with (AZURE_CLIENT_ID, or the managed identity). Application.ReadWrite.OwnedBy replaces Application.ReadWrite.All for applications the service principal owns.",
+    "Edge permissions are listed for every relationship property the template declares (including an empty array, which removes edges). Key Vault access is an Azure RBAC / access-policy requirement of the signed-in identity, not a Graph permission."
+  ]
+}

@@ -29,6 +29,7 @@ public sealed class PermissionsGoldenTests
             ("pim-eligibility", "pim-eligibility"),
             ("pim-active", "pim-active"),
             ("pim-policies", "pim-policies"),
+            ("pim-group-onboarding", "pim-group-onboarding"),
             ("privileged-access", "privileged-access"),
             ("access-packages", "access-packages"),
         ];

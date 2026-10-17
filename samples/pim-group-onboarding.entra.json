@@ -1,0 +1,51 @@
+{
+  "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "PIM for Groups policies of a new incident leads group, applied in the first run although the template declares no eligibility or assignment for the group. PIM onboards a group only on its first eligibility or assignment, and Graph lists no policy for the group before that, so both policies opt in to onboarding: they name an existing onboarding account (a disabled user or a service principal) for a temporary member eligibility of one hour. The first policy requests the eligibility, waits for Graph to list the group's policy, removes the eligibility and applies its rules; the second finds the group onboarded and only applies its rules. What-if shows the onboarding in the policy rows ('group not onboarded: a temporary eligibility for ... will onboard it, then be removed') and writes nothing. Needs Microsoft Entra ID P2 (or ID Governance) and a Privileged Role Administrator, Identity Governance Administrator or Groups Administrator (or RoleManagementPolicy.ReadWrite.AzureADGroup and PrivilegedEligibilitySchedule.ReadWrite.AzureADGroup); see docs/pim.md and docs/permissions.md."
+  },
+  "parameters": {
+    "onboardingPrincipalId": { "type": "string", "metadata": { "description": "Object id of the account made eligible (member, one hour) to onboard the group, then removed again: a disabled user or a service principal that the group's default PIM policy allows to be made eligible." } }
+  },
+  "variables": {
+    "groupName": "pim-incident-leads",
+    "activation": {
+      "expiration": { "id": "Expiration_EndUser_Assignment", "isExpirationRequired": true, "maximumDuration": "PT4H" },
+      "enablement": { "id": "Enablement_EndUser_Assignment", "enabledRules": ["MultiFactorAuthentication", "Justification"] }
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01-preview", "name": "[variables('groupName')]",
+      "properties": { "displayName": "PIM Incident Leads", "mailEnabled": false, "mailNickname": "pim-incident-leads", "securityEnabled": true }
+    },
+    {
+      "type": "Microsoft.Entra/roleManagementPolicies", "apiVersion": "2026-10-01-preview",
+      "name": "[guid('pim-policy', variables('groupName'), 'member')]",
+      "properties": {
+        "group": "[reference(variables('groupName')).id]",
+        "accessId": "member",
+        "onboarding": { "temporaryEligiblePrincipalId": "[parameters('onboardingPrincipalId')]" },
+        "rules": [
+          "[variables('activation').expiration]",
+          "[variables('activation').enablement]"
+        ]
+      },
+      "dependsOn": ["[resourceId('Microsoft.Entra/groups', variables('groupName'))]"]
+    },
+    {
+      "type": "Microsoft.Entra/roleManagementPolicies", "apiVersion": "2026-10-01-preview",
+      "name": "[guid('pim-policy', variables('groupName'), 'owner')]",
+      "properties": {
+        "group": "[reference(variables('groupName')).id]",
+        "accessId": "owner",
+        "onboarding": { "temporaryEligiblePrincipalId": "[parameters('onboardingPrincipalId')]" },
+        "rules": [
+          { "id": "Expiration_EndUser_Assignment", "isExpirationRequired": true, "maximumDuration": "PT2H" },
+          "[variables('activation').enablement]"
+        ]
+      },
+      "dependsOn": ["[resourceId('Microsoft.Entra/groups', variables('groupName'))]"]
+    }
+  ]
+}
