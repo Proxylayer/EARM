@@ -48,7 +48,7 @@ public sealed partial class GraphBehaviourProbes
         var afterEmpty = await Graph.GetObjectAsync(new GraphRequest(path), Ct);
         report.Expect(
             afterEmpty.Nested("conditions.users").IsEmptyOrAbsent("excludeGroups"),
-            "PATCH conditions.users.excludeGroups = [] did not clear the collection. ConditionalAccessPoliciesRules.CoerceNullCollections / FinishPatchBody (src/EArm.Providers/ConditionalAccessPoliciesRules.cs) must send something else.");
+            "PATCH conditions.users.excludeGroups = [] did not clear the collection. ConditionalAccessPoliciesRules.CoerceNullCollections / FinishPatchBody must send something else.");
 
         // 2. What does an explicit null do for a collection? Recorded only: the provider never sends it.
         await Graph.PatchAsync(new GraphRequest(path), new JsonObject { ["conditions"] = Conditions(included.RequireId(), excluded.RequireId()) }, Ct);
@@ -70,7 +70,7 @@ public sealed partial class GraphBehaviourProbes
         var afterObjectNull = await Graph.GetObjectAsync(new GraphRequest(path), Ct);
         report.Expect(
             afterObjectNull.IsNullOrAbsent("sessionControls"),
-            "PATCH sessionControls = null did not remove the session controls. ConditionalAccessPoliciesRules.MarkRemovedControls (src/EArm.Providers/ConditionalAccessPoliciesRules.cs) assumes null removes a control object.");
+            "PATCH sessionControls = null did not remove the session controls. ConditionalAccessPoliciesRules.MarkRemovedControls assumes null removes a control object.");
 
         report.Complete();
     }
@@ -91,7 +91,7 @@ public sealed partial class GraphBehaviourProbes
         report.Observe($"PATCH {path} (upsert of a new context) answered {upsert.Status}; body: {(upsert.Body is null ? "none" : "present with id " + upsert.Body.Text("id"))}.");
         report.Expect(
             upsert.Status is System.Net.HttpStatusCode.Created or System.Net.HttpStatusCode.OK or System.Net.HttpStatusCode.NoContent && (upsert.Body is null || upsert.Body.Text("id") == contextId),
-            "The context upsert answered something other than 201 + object, 200 or 204. Adjust AuthenticationContextClassReferencesProvider.CreateAsync (src/EArm.Providers/AuthenticationContextClassReferencesProvider.cs): it expects an object with the id or no body.");
+            "The context upsert answered something other than 201 + object, 200 or 204. Adjust AuthenticationContextClassReferencesProvider.CreateAsync: it expects an object with the id or no body.");
 
         var read = await Graph.GetObjectAsync(new GraphRequest(path), Ct);
         report.Expect(
@@ -113,7 +113,7 @@ public sealed partial class GraphBehaviourProbes
 
         report.Expect(
             await Graph.GetObjectAsync(new GraphRequest(path), Ct) is null,
-            "The context still exists after isAvailable=false + DELETE. See AuthenticationContextClassReferencesProvider.DeleteAsync (src/EArm.Providers/AuthenticationContextClassReferencesProvider.cs).");
+            "The context still exists after isAvailable=false + DELETE. See AuthenticationContextClassReferencesProvider.DeleteAsync.");
         report.Complete();
     }
 
@@ -133,7 +133,7 @@ public sealed partial class GraphBehaviourProbes
         }
         catch (GraphException ex)
         {
-            report.Expect(false, $"allowedCombinations with mixed casing ('Fido2') is rejected ({ProbeReport.Describe(ex)}). AuthenticationStrengthsProvider should send a normalised spelling: change AuthenticationStrengthsRules.NormalizeCombination usage in src/EArm.Providers/AuthenticationStrengthsProvider.cs (CreateAsync / UpdateAsync) to send the canonical camelCase value and update docs/providers.md.");
+            report.Expect(false, $"allowedCombinations with mixed casing ('Fido2') is rejected ({ProbeReport.Describe(ex)}). AuthenticationStrengthsProvider should send a normalised spelling: change the AuthenticationStrengthsRules.NormalizeCombination usage in AuthenticationStrengthsProvider.CreateAsync / UpdateAsync to send the canonical camelCase value and update docs/providers.md.");
         }
 
         if (strength is not null)
@@ -143,7 +143,7 @@ public sealed partial class GraphBehaviourProbes
             var desired = new JsonObject { ["allowedCombinations"] = new JsonArray("fido2", "windowsHelloForBusiness") };
             report.Expect(
                 live is not null && AuthenticationStrengthsRules.CombinationsEqual(desired, live),
-                "The stored allowedCombinations differ from the template's by more than casing/order, so the provider would report drift on every run. Fix AuthenticationStrengthsRules.NormalizeCombination / CombinationsEqual (src/EArm.Providers/AuthenticationStrengthsRules.cs).");
+                "The stored allowedCombinations differ from the template's by more than casing/order, so the provider would report drift on every run. Fix AuthenticationStrengthsRules.NormalizeCombination / CombinationsEqual.");
 
             // The replace action with another casing.
             await Graph.PostAsync(
@@ -153,7 +153,7 @@ public sealed partial class GraphBehaviourProbes
             var updated = await Graph.GetObjectAsync(new GraphRequest($"{StrengthsPath}/{strength.RequireId()}"), Ct);
             report.Expect(
                 updated is not null && AuthenticationStrengthsRules.CombinationsEqual(new JsonObject { ["allowedCombinations"] = new JsonArray("fido2") }, updated),
-                "updateAllowedCombinations with 'FIDO2' did not leave a set equal to ['fido2'] (case-insensitively). Review AuthenticationStrengthsProvider.UpdateAsync (src/EArm.Providers/AuthenticationStrengthsProvider.cs).");
+                "updateAllowedCombinations with 'FIDO2' did not leave a set equal to ['fido2'] (case-insensitively). Review AuthenticationStrengthsProvider.UpdateAsync.");
 
             // The collection filter the provider avoids (it lists and matches client-side).
             try

@@ -52,7 +52,7 @@ public sealed partial class GraphBehaviourProbes : IntegrationTestBase
             found => found is { Count: > 0 });
         report.Expect(
             exact is { Count: 1 } && exact[0].RequireId() == ids[0],
-            $"'%' or '&' did not survive the query encoding: a $filter on '{names[0]}' returned {exact?.Count ?? 0} object(s). See GraphUrl.BuildQuery in src/EArm.Graph/GraphUrl.cs.");
+            $"'%' or '&' did not survive the query encoding: a $filter on '{names[0]}' returned {exact?.Count ?? 0} object(s). See GraphUrl.BuildQuery.");
 
         // Spaces in a filter value ('startswith(displayName,'<stem> 100% & ')') are accepted by Graph once they are percent-encoded.
         var all = await EventuallyAsync(
@@ -60,20 +60,20 @@ public sealed partial class GraphBehaviourProbes : IntegrationTestBase
             found => found is { Count: >= 3 });
         report.Expect(
             all is { Count: 3 },
-            $"A $filter containing spaces, '%' and '&' returned {all?.Count ?? 0} of 3 groups: the space encoding is wrong or Graph rejects it. See GraphUrl.BuildQuery in src/EArm.Graph/GraphUrl.cs.");
+            $"A $filter containing spaces, '%' and '&' returned {all?.Count ?? 0} of 3 groups: the space encoding is wrong or Graph rejects it. See GraphUrl.BuildQuery.");
 
         // The token is requested for the Graph scope: GET /organization must name the signed-in tenant.
         var organization = await Graph.GetObjectAsync(new GraphRequest("/organization").WithSelect("id"), Ct);
         string? organizationId = (organization?["value"] as JsonArray)?.OfType<JsonObject>().FirstOrDefault()?.Text("id");
         report.Expect(
             string.Equals(organizationId, Fixture.Session?.TenantId, StringComparison.OrdinalIgnoreCase),
-            $"GET /organization returned '{organizationId}' instead of tenant {Fixture.Session?.TenantId}: the token was issued for another tenant or audience. See GraphCloud.GraphScope in src/EArm.Graph/GraphCloud.cs.");
+            $"GET /organization returned '{organizationId}' instead of tenant {Fixture.Session?.TenantId}: the token was issued for another tenant or audience. See GraphCloud.GraphScope.");
 
         // @odata.nextLink: three pages of one item each; the next link is followed as returned (validated to be on the Graph origin).
         var paged = await Graph.ListAsync(new GraphRequest("/groups").WithFilter($"startswith(displayName,'{stem} 100% & ')").WithSelect("id", "displayName").WithTop(1), Ct);
         report.Expect(
             paged.Count == 3 && paged.Select(p => p.RequireId()).Distinct(StringComparer.OrdinalIgnoreCase).Count() == 3,
-            $"Following @odata.nextLink returned {paged.Count} item(s) ({paged.Select(p => p.Text("displayName")).Distinct().Count()} distinct) instead of 3. See the paging loop in src/EArm.Graph/HttpGraphClient.cs (GetAllPagesAsync).");
+            $"Following @odata.nextLink returned {paged.Count} item(s) ({paged.Select(p => p.Text("displayName")).Distinct().Count()} distinct) instead of 3. See the paging loop in HttpGraphClient.GetAllPagesAsync.");
 
         report.Complete();
     }

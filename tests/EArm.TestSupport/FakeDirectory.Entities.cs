@@ -389,8 +389,6 @@ public sealed partial class FakeDirectory
                 entity[key] = property.Value.DeepClone();
             }
         }
-
-        _ = collectionPath;
     }
 
     private static JsonObject Merge(JsonObject target, JsonNode? body)

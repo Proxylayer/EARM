@@ -52,7 +52,7 @@ public sealed partial class PimPolicyProbes
             }
             catch (GraphException ex)
             {
-                report.Expect(false, $"the provider's PATCH body of the live expiration rule is refused ({ProbeReport.Describe(ex)}): every policy update would fail. Fix RoleManagementPolicyShape.ToGraph in src/EArm.Providers/RoleManagementPolicyShape.cs.");
+                report.Expect(false, $"the provider's PATCH body of the live expiration rule is refused ({ProbeReport.Describe(ex)}): every policy update would fail. Fix RoleManagementPolicyShape.ToGraph.");
             }
         }
         finally
@@ -147,11 +147,11 @@ public sealed partial class PimPolicyProbes
                 string have = AuthMethodRestoreGuard.Canonical(echoedArm);
                 report.Expect(
                     string.Equals(want, have, StringComparison.Ordinal),
-                    $"the approval rule read back after the PATCH does not compare equal to the declaration (want {want}, have {have}): every rerun would show a Modify. Fix RoleManagementPolicyShape.Comparable / ApproverToArm (description, isBackup) in src/EArm.Providers/RoleManagementPolicyShape.cs.");
+                    $"the approval rule read back after the PATCH does not compare equal to the declaration (want {want}, have {have}): every rerun would show a Modify. Fix RoleManagementPolicyShape.Comparable / ApproverToArm (description, isBackup).");
             }
             else
             {
-                report.Expect(false, "the approval rule is missing after the PATCH; RoleManagementPolicyLookup.FindAsync / LiveView in src/EArm.Providers/RoleManagementPolicyLookup.cs.");
+                report.Expect(false, "the approval rule is missing after the PATCH; RoleManagementPolicyLookup.FindAsync / LiveView.");
             }
         }
         finally
@@ -181,7 +181,7 @@ public sealed partial class PimPolicyProbes
         {
             if (assignment is null)
             {
-                report.Expect(false, $"the {label} policy is not listed; the casing cannot be checked (RoleManagementPolicyLookup.FindAsync in src/EArm.Providers/RoleManagementPolicyLookup.cs).");
+                report.Expect(false, $"the {label} policy is not listed; the casing cannot be checked (RoleManagementPolicyLookup.FindAsync).");
                 continue;
             }
 
@@ -198,7 +198,7 @@ public sealed partial class PimPolicyProbes
                     && (arm.Text("level") is not { } level || RoleManagementPolicyRules.Levels.Contains(level, StringComparer.Ordinal));
                 report.Expect(
                     canonical,
-                    $"{label} rule {rule.Text("id")}: the target {target?.ToJsonString()} does not normalise to ARM's casing (got {arm?.ToJsonString()}): a declared target would always differ. Fix RoleManagementPolicyRules.NormalizeRules (src/EArm.Core/Validation/RoleManagementPolicyRules.cs) or RoleManagementPolicyShape.ToArm.");
+                    $"{label} rule {rule.Text("id")}: the target {target?.ToJsonString()} does not normalise to ARM's casing (got {arm?.ToJsonString()}): a declared target would always differ. Fix RoleManagementPolicyRules.NormalizeRules or RoleManagementPolicyShape.ToArm.");
             }
 
             report.Observe($"{label}: live target spellings: {string.Join(" | ", raw)}");

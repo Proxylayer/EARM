@@ -31,7 +31,7 @@ public sealed partial class PimPolicyProbes
         }
         catch (GraphException ex)
         {
-            report.Expect(false, $"the policy assignment lookup of a group PIM has not onboarded is refused ({ProbeReport.Describe(ex)}): RoleManagementPolicyLookup.FindAsync would fail instead of reporting PimPolicyNotAvailable. Treat that answer as 'not listed' in src/EArm.Providers/RoleManagementPolicyLookup.cs (FindAsync).");
+            report.Expect(false, $"the policy assignment lookup of a group PIM has not onboarded is refused ({ProbeReport.Describe(ex)}): RoleManagementPolicyLookup.FindAsync would fail instead of reporting PimPolicyNotAvailable. Treat that answer as 'not listed' in RoleManagementPolicyLookup.FindAsync.");
         }
 
         try
@@ -49,7 +49,7 @@ public sealed partial class PimPolicyProbes
         var after = await EventuallyAsync(() => Fixture.PimPolicies.ReadAsync(scope, Ct), found => found is not null, seconds: 180, stepSeconds: 10);
         report.Expect(
             after is not null,
-            "180 s after the first eligibility request of a group its member policy is still not listed: the second run of a template that onboards the group would still report PimPolicyNotAvailable. Revisit PlanMissing in src/EArm.Providers/RoleManagementPoliciesProvider.cs and docs/pim.md (the 'converges in two runs' claim).");
+            "180 s after the first eligibility request of a group its member policy is still not listed: the second run of a template that onboards the group would still report PimPolicyNotAvailable. Revisit RoleManagementPoliciesProvider.PlanMissing and docs/pim.md (the 'converges in two runs' claim).");
         if (after is not null)
         {
             string? newId = RoleManagementPolicyLookup.PolicyId(after);

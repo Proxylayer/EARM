@@ -52,11 +52,11 @@ public sealed partial class PimPolicyProbes : IntegrationTestBase
             report.Observe($"$expand=policy($expand=rules): {expanded.Count} assignment(s), the matching one carries {rules} rules (policy id {(first is null ? null : RoleManagementPolicyLookup.PolicyId(first))})");
             report.Expect(
                 rules > 0,
-                $"$expand=policy($expand=rules) does not return the rules of the Message Center Reader policy ({expanded.Count} assignment(s)); the provider reads no live rule and would report every declared rule as missing. Fix FindAsync in src/EArm.Providers/RoleManagementPolicyLookup.cs (read GET /policies/roleManagementPolicies/{{id}}?$expand=rules after the assignment).");
+                $"$expand=policy($expand=rules) does not return the rules of the Message Center Reader policy ({expanded.Count} assignment(s)); the provider reads no live rule and would report every declared rule as missing. Fix RoleManagementPolicyLookup.FindAsync (read GET /policies/roleManagementPolicies/{{id}}?$expand=rules after the assignment).");
         }
         catch (GraphException ex)
         {
-            report.Expect(false, $"$expand=policy($expand=rules) on the assignment list is refused ({ProbeReport.Describe(ex)}). Fix FindAsync in src/EArm.Providers/RoleManagementPolicyLookup.cs (read the policy with GET /policies/roleManagementPolicies/{{id}}?$expand=rules).");
+            report.Expect(false, $"$expand=policy($expand=rules) on the assignment list is refused ({ProbeReport.Describe(ex)}). Fix RoleManagementPolicyLookup.FindAsync (read the policy with GET /policies/roleManagementPolicies/{{id}}?$expand=rules).");
         }
 
         try

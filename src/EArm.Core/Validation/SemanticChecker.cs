@@ -11,7 +11,7 @@ namespace EArm.Core.Validation;
 /// The semantic checks that need only the parsed document and the type catalog (no expression evaluation).
 /// Appends to the diagnostics list it is given.
 /// </summary>
-internal sealed partial class SemanticChecker
+internal sealed class SemanticChecker
 {
     private static readonly string[] KnownTopLevelKeys = ["$schema", "languageVersion", "contentVersion", "metadata", "definitions", "parameters", "variables", "functions", "resources", "outputs"];
 

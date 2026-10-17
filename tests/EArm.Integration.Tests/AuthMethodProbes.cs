@@ -56,7 +56,7 @@ public sealed class AuthMethodProbes : IntegrationTestBase
 
             report.Expect(
                 live is not null && string.Equals(live.Text("id"), method.GraphId, StringComparison.OrdinalIgnoreCase) && string.Equals(live.Text("@odata.type"), method.ODataType, StringComparison.OrdinalIgnoreCase),
-                $"{method.Name}: GET …/authenticationMethodConfigurations/{method.GraphId} (the PascalCase segment the provider uses) answered id '{live.Text("id")}' and @odata.type '{live.Text("@odata.type")}', expected '{method.GraphId}' and '{method.ODataType}'. Fix the method table (AuthenticationMethodConfigurationRules.Methods) in src/EArm.Core/Validation/AuthenticationMethodConfigurationRules.cs.");
+                $"{method.Name}: GET …/authenticationMethodConfigurations/{method.GraphId} (the PascalCase segment the provider uses) answered id '{live.Text("id")}' and @odata.type '{live.Text("@odata.type")}', expected '{method.GraphId}' and '{method.ODataType}'. Fix the method table AuthenticationMethodConfigurationRules.Methods.");
             if (live is null)
             {
                 continue;
@@ -116,7 +116,7 @@ public sealed class AuthMethodProbes : IntegrationTestBase
             }
             catch (GraphException ex)
             {
-                report.Expect(false, $"PATCH with the derived @odata.type ({method.ODataType}) is refused: {ProbeReport.Describe(ex)}. Fix UpdateAsync in src/EArm.Providers/AuthenticationMethodConfigurationsProvider.cs.");
+                report.Expect(false, $"PATCH with the derived @odata.type ({method.ODataType}) is refused: {ProbeReport.Describe(ex)}. Fix AuthenticationMethodConfigurationsProvider.UpdateAsync.");
             }
 
             // The provider fills undeclared sub-properties of a declared member from the live object (AuthenticationMethodConfigurationsShape), so the live
@@ -132,7 +132,7 @@ public sealed class AuthMethodProbes : IntegrationTestBase
                 }
                 catch (GraphException ex)
                 {
-                    report.Expect(false, $"resending the live includeTargets is refused: {ProbeReport.Describe(ex)}. The provider resends undeclared live sub-properties; strip the server-filled ones (or nested @odata.type) in src/EArm.Providers/AuthenticationMethodConfigurationsShape.cs (FillUndeclared).");
+                    report.Expect(false, $"resending the live includeTargets is refused: {ProbeReport.Describe(ex)}. The provider resends undeclared live sub-properties; strip the server-filled ones (or nested @odata.type) in AuthenticationMethodConfigurationsShape.FillUndeclared.");
                 }
             }
         }
@@ -169,7 +169,7 @@ public sealed class AuthMethodProbes : IntegrationTestBase
             }
             catch (GraphException ex)
             {
-                report.Expect(false, $"DELETE …/TemporaryAccessPass (documented as a reset to the default) is refused: {ProbeReport.Describe(ex)}. Set CanReset false for temporaryAccessPass in src/EArm.Core/Validation/AuthenticationMethodConfigurationRules.cs (and revisit AuthenticationMethodConfigurationsProvider.DeleteAsync).");
+                report.Expect(false, $"DELETE …/TemporaryAccessPass (documented as a reset to the default) is refused: {ProbeReport.Describe(ex)}. Set CanReset false for temporaryAccessPass in AuthenticationMethodConfigurationRules.Methods (and revisit AuthenticationMethodConfigurationsProvider.DeleteAsync).");
             }
 
             var after = await EventuallyAsync(() => Graph.GetObjectAsync(new GraphRequest(path), Ct), found => found is not null);

@@ -31,7 +31,7 @@ public sealed partial class GraphBehaviourProbes
         report.Observe($"addPassword answered {added.Status} with properties: {string.Join(", ", credential?.Select(p => p.Key) ?? [])}.");
         report.Expect(
             credential?.Text("keyId") is not null && !string.IsNullOrEmpty(credential.Text("secretText")) && credential.Text("displayName") == "probe" && credential.Text("endDateTime") is not null,
-            "addPassword did not return keyId, secretText, displayName and endDateTime. Adjust PasswordCredentialsRules.SummaryOf and PasswordCredentialsProvider.AddPasswordAsync (src/EArm.Providers/PasswordCredentialsRules.cs, PasswordCredentialsProvider.cs).");
+            "addPassword did not return keyId, secretText, displayName and endDateTime. Adjust PasswordCredentialsRules.SummaryOf and PasswordCredentialsProvider.AddAsync.");
         string keyId = credential?.Text("keyId") ?? Guid.NewGuid().ToString();
 
         // The read the provider uses: $select=id,passwordCredentials on the alternate key; the secret is never returned again.
@@ -39,10 +39,10 @@ public sealed partial class GraphBehaviourProbes
         var listed = (read?["passwordCredentials"] as JsonArray)?.OfType<JsonObject>().ToList();
         report.Expect(
             read?.Text("id") == id && listed is not null && listed.Any(c => c.Text("keyId") == keyId),
-            "GET /applications(uniqueName='…')?$select=id,passwordCredentials did not return the id and the new credential. PasswordCredentialsProvider.ReadAsync (src/EArm.Providers/PasswordCredentialsProvider.cs) reads this way.");
+            "GET /applications(uniqueName='…')?$select=id,passwordCredentials did not return the id and the new credential. PasswordCredentialsProvider.ReadAsync reads this way.");
         report.Expect(
             listed is null || listed.All(c => string.IsNullOrEmpty(c.Text("secretText"))),
-            "A read of passwordCredentials returned secretText. LiveSecrets (src/EArm.Engine/Providers/LiveSecrets.cs) assumes Graph shows the secret only once; review SecretNotAvailableOnRerun handling.");
+            "A read of passwordCredentials returned secretText. LiveSecrets assumes Graph shows the secret only once; review SecretNotAvailableOnRerun handling.");
 
         // removePassword with an unknown keyId: the text and status IsUnknownKeyId has to recognise.
         try
@@ -55,7 +55,7 @@ public sealed partial class GraphBehaviourProbes
             report.Observe($"removePassword with an unknown keyId failed with {ProbeReport.Describe(ex)}.");
             report.Expect(
                 PasswordCredentialsRules.IsUnknownKeyId(ex),
-                $"removePassword for an unknown keyId failed with '{ProbeReport.Describe(ex)}', which PasswordCredentialsRules.IsUnknownKeyId does not treat as 'already gone'. Extend it (src/EArm.Providers/PasswordCredentialsRules.cs) and the unit tests in tests/EArm.Providers.Tests/PasswordCredentialsRulesTests.cs.");
+                $"removePassword for an unknown keyId failed with '{ProbeReport.Describe(ex)}', which PasswordCredentialsRules.IsUnknownKeyId does not treat as 'already gone'. Extend it and its unit tests (PasswordCredentialsRulesTests).");
         }
 
         // removePassword with the real keyId.
@@ -63,7 +63,7 @@ public sealed partial class GraphBehaviourProbes
         var after = await Graph.GetObjectAsync(new GraphRequest("/applications/" + id).WithSelect("id", "passwordCredentials"), Ct);
         report.Expect(
             after!["passwordCredentials"]!.AsArray().OfType<JsonObject>().All(c => c.Text("keyId") != keyId),
-            "removePassword did not remove the credential. Review PasswordCredentialsProvider.RemoveAsync (src/EArm.Providers/PasswordCredentialsProvider.cs).");
+            "removePassword did not remove the credential. Review PasswordCredentialsProvider.RemoveAsync.");
 
         report.Complete();
     }
@@ -92,14 +92,14 @@ public sealed partial class GraphBehaviourProbes
             report.Observe($"$filter=uniqueName eq on {ApplicationsProvider.DeletedApplicationsPath} is ACCEPTED and returned {hits?.Count ?? 0} object(s).");
             report.Expect(
                 hits is { Count: 1 } && hits[0].RequireId() == id,
-                "The filtered soft-delete probe did not find the deleted application. ApplicationsProvider.FindSoftDeletedAsync (src/EArm.Providers/ApplicationsProvider.cs) would miss a soft-deleted holder of the key and the create would fail with a duplicate; make the list scan the primary path.");
+                "The filtered soft-delete probe did not find the deleted application. ApplicationsProvider.FindSoftDeletedAsync would miss a soft-deleted holder of the key and the create would fail with a duplicate; make the list scan the primary path.");
             report.Expect(
                 hits is { Count: 1 } && string.Equals(hits[0].Text("uniqueName"), name, StringComparison.OrdinalIgnoreCase),
-                "A deleted application is returned without 'uniqueName'; FirstDeletedMatchAsync in ApplicationsProvider.cs matches on it client-side and would never find the holder. Match on displayName or request the property with $select.");
+                "A deleted application is returned without 'uniqueName'; DeletedItemsProbe.FindAsync (behind ApplicationsProvider.FindSoftDeletedAsync) matches on it client-side and would never find the holder. Match on displayName or request the property with $select.");
         }
         catch (GraphException ex)
         {
-            report.Expect(false, $"Graph rejects the filter on uniqueName for {ApplicationsProvider.DeletedApplicationsPath} ({ProbeReport.Describe(ex)}); the list fallback runs on every create. Make the list scan the primary path in ApplicationsProvider.FindSoftDeletedAsync (src/EArm.Providers/ApplicationsProvider.cs) and correct docs/providers.md ('Create' row of the worked example).");
+            report.Expect(false, $"Graph rejects the filter on uniqueName for {ApplicationsProvider.DeletedApplicationsPath} ({ProbeReport.Describe(ex)}); the list fallback runs on every create. Make the list scan the primary path in ApplicationsProvider.FindSoftDeletedAsync and correct docs/providers.md ('Create' row of the worked example).");
         }
 
         await Graph.DeleteAsync(new GraphRequest("/directory/deletedItems/" + id), Ct);
@@ -148,7 +148,7 @@ public sealed partial class GraphBehaviourProbes
             var after = (await Graph.GetObjectAsync(new GraphRequest(path).WithSelect("id", "web"), Ct)).Nested("web");
             report.Expect(
                 after?.Strings("redirectUris").Contains("https://earm-it.example.test/cb") == true,
-                "A PATCH that nulls web.redirectUriSettings dropped the sibling web.redirectUris: nested objects are replaced, not merged. ProviderBase.BuildPatchBody (src/EArm.Engine/Providers/ProviderBase.cs) must send the whole web object.");
+                "A PATCH that nulls web.redirectUriSettings dropped the sibling web.redirectUris: nested objects are replaced, not merged. ProviderBase.BuildPatchBody must send the whole web object.");
         }
 
         report.Complete();
@@ -167,7 +167,7 @@ public sealed partial class GraphBehaviourProbes
         report.Observe($"requestedAccessTokenVersion on a fresh application: {(initial is null ? "null" : initial.ToString())}.");
         report.Expect(
             initial is null or 1,
-            $"A fresh application reports requestedAccessTokenVersion {initial}; ApplicationsRules treats null as 1 (src/EArm.Providers/ApplicationsRules.cs, NormalizeLive) and would report drift for a template that omits api.");
+            $"A fresh application reports requestedAccessTokenVersion {initial}; ApplicationsRules.NormalizeLive treats null as 1 and would report drift for a template that omits api.");
 
         await Graph.PatchAsync(new GraphRequest(path), new JsonObject { ["api"] = new JsonObject { ["requestedAccessTokenVersion"] = 2 } }, Ct);
         report.Expect(
@@ -179,7 +179,7 @@ public sealed partial class GraphBehaviourProbes
         report.Observe($"After PATCH requestedAccessTokenVersion = 1 the live value is {(reset is null ? "null" : reset.ToString())}.");
         report.Expect(
             reset is null or 1,
-            $"Setting requestedAccessTokenVersion = 1 reads back as {reset}; the 'null compares as 1' rule in ApplicationsRules.NormalizeDesired / NormalizeLive (src/EArm.Providers/ApplicationsRules.cs) does not hold.");
+            $"Setting requestedAccessTokenVersion = 1 reads back as {reset}; the 'null compares as 1' rule in ApplicationsRules.NormalizeDesired / NormalizeLive does not hold.");
         report.Complete();
     }
 
@@ -200,7 +200,7 @@ public sealed partial class GraphBehaviourProbes
         }
         catch (GraphException ex)
         {
-            report.Expect(false, $"The second PATCH (re-enable AND change 'value') is rejected ({ProbeReport.Describe(ex)}). ApplicationsRules / ApplicationsProvider.UpdateAsync (src/EArm.Providers/ApplicationsRules.cs, ApplicationsProvider.cs) must use three PATCHes: disable, change the value while disabled, then enable.");
+            report.Expect(false, $"The second PATCH (re-enable AND change 'value') is rejected ({ProbeReport.Describe(ex)}). ApplicationsRules / ApplicationsProvider.UpdateAsync must use three PATCHes: disable, change the value while disabled, then enable.");
         }
 
         var role = ((await Graph.GetObjectAsync(new GraphRequest(path).WithSelect("id", "appRoles"), Ct))?["appRoles"] as JsonArray)?.OfType<JsonObject>().FirstOrDefault(r => r.Text("id") == RoleId);

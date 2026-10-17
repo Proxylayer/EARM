@@ -96,10 +96,10 @@ public sealed class GroupMembershipProbes : IntegrationTestBase
 
             report.Expect(
                 members.ContainsKey(userId),
-                $"{label} group: a user batch-added as a member is not listed by v1.0 GET /groups/{{id}}/members after 90 s ({Describe(members)}). See GroupMembershipEdgeKind.ReadMembersAsync in src/EArm.Engine/Edges/GroupMembershipEdgeKind.cs.");
+                $"{label} group: a user batch-added as a member is not listed by v1.0 GET /groups/{{id}}/members after 90 s ({Describe(members)}). See GroupMembershipEdgeKind.ReadMembersAsync.");
             report.Expect(
                 cast.ContainsKey(spId) && string.Equals(cast[spId], ServicePrincipalType, StringComparison.OrdinalIgnoreCase),
-                $"{label} group: a service principal batch-added as a member is not listed by GET /groups/{{id}}/members/microsoft.graph.servicePrincipal after 90 s ({Describe(cast)}). See GroupMembershipEdgeKind.ReadMembersAsync in src/EArm.Engine/Edges/GroupMembershipEdgeKind.cs.");
+                $"{label} group: a service principal batch-added as a member is not listed by GET /groups/{{id}}/members/microsoft.graph.servicePrincipal after 90 s ({Describe(cast)}). See GroupMembershipEdgeKind.ReadMembersAsync.");
         }
 
         report.Complete();

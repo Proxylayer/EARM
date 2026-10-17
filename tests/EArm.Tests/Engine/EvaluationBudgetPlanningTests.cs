@@ -32,6 +32,7 @@ namespace EArm.Tests.Engine;
 /// with map / filter / flatten over data, copy loops whose names and properties index into them); the CLI's what-if path (offline expansion,
 /// offline validation, then the plan with the preflight's tenant(), deployer() and environment()) used to spend 5,000,000 value nodes on it,
 /// 3,940,000 of them copying <c>packagedGroups</c> (about 1,400 nodes) for each of its 2,768 element reads.
+/// The long tests sit in nested classes: each is its own xUnit collection, so they run in parallel with each other and the rest of the class.
 /// </summary>
 public sealed class EvaluationBudgetPlanningTests
 {
@@ -42,110 +43,122 @@ public sealed class EvaluationBudgetPlanningTests
 
     private static string Fixture(string file) => Path.Combine(TestPaths.RepoRoot, "tests", "fixtures", "budget", file);
 
-    [Theory]
-    [InlineData(PlanMode.WhatIf)]
-    [InlineData(PlanMode.Create)]
-    public async Task PointGuardTemplate_CliPathWithPreflightInfo_StaysWithinTheRunBudget(PlanMode planMode)
+    /// <summary>The PointGuard plan (what-if and create) against the run budget.</summary>
+    public sealed class PointGuardRunBudget
     {
-        using var run = EvaluationBudget.BeginRun(EvaluationLimits.Default);
-
-        var plan = await PlanPointGuardAsync(planMode);
-
-        Assert.False(run.Budget.IsExceeded);
-        Assert.DoesNotContain(plan.Diagnostics, d => d.Code == DiagnosticCodes.EvaluationBudgetExceeded);
-        Assert.True(plan.Instances.Count > 100, $"{plan.Instances.Count} instances planned");
-        Assert.True(run.Budget.Nodes < PointGuardNodeCeiling, $"the run produced {run.Budget.Nodes:N0} value nodes");
-    }
-
-    /// <summary>
-    /// The what-if of the PointGuard template against a tenant holding the break-glass users and the delete-protection and database groups its scripts
-    /// created (display name, no uniqueName). Every group but the emergency group declares its whole <c>properties</c> as one expression
-    /// (<c>"[variables('approverGroups')[copyIndex()].properties]"</c>): each must be planned with the properties of its data, not <c>properties: {}</c>
-    /// (the planner used to evaluate only an object literal and planned 54 of 55 groups empty, "required property displayName missing").
-    /// </summary>
-    [Fact]
-    public async Task PointGuardTemplate_WhatIf_CreatesTheGroupsWithTheirDataAndAdoptsTheScriptGroups()
-    {
-        var plan = await PlanPointGuardAsync(PlanMode.WhatIf, SeedScriptGroups);
-
-        var groups = plan.Instances.Where(i => i.Type == GroupType).ToList();
-        Assert.Equal(55, groups.Count);
-        var adopted = Evaluate(plan, "[variables('adoptedGroups')]")!.AsArray().Select(g => g!["uniqueName"]!.GetValue<string>()).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        Assert.Equal(15, adopted.Count);
-        foreach (var group in groups)
+        [Theory]
+        [InlineData(PlanMode.WhatIf)]
+        [InlineData(PlanMode.Create)]
+        public async Task PointGuardTemplate_CliPathWithPreflightInfo_StaysWithinTheRunBudget(PlanMode planMode)
         {
-            var change = plan.ChangeFor(group);
-            Assert.NotNull(change);
-            Assert.False(change.HasError, $"{group.Name}: {change.UnsupportedReason}");
-            string? displayName = change.After?["properties"]?["displayName"]?.GetValue<string>() ?? change.After?["displayName"]?.GetValue<string>();
-            Assert.False(string.IsNullOrEmpty(displayName), $"{group.Name}: {change.After?.ToJsonString()}");
-            Assert.Equal(group.Properties!["displayName"]!.GetValue<string>(), displayName);
-            Assert.Equal(true, group.Properties["securityEnabled"]?.GetValue<bool>());
-            Assert.Equal(false, group.Properties["mailEnabled"]?.GetValue<bool>());
-            Assert.NotNull(group.Properties["description"]);
-            Assert.NotNull(group.Properties["isAssignableToRole"]);
-            if (adopted.Contains(group.Name))
-            {
-                Assert.Equal(ChangeType.Modify, change.Type);
-                Assert.Contains(change.Deltas, d => d.HasEffect && d.Path.ToString().Contains("uniqueName", StringComparison.Ordinal));
-                Assert.Contains(change.Reasons, r => r.Contains("GroupAdoptedByDisplayName", StringComparison.Ordinal));
-            }
-            else
-            {
-                Assert.Equal(ChangeType.Create, change.Type);
-            }
+            using var run = EvaluationBudget.BeginRun(EvaluationLimits.Default);
+
+            var plan = await PlanPointGuardAsync(planMode);
+
+            Assert.False(run.Budget.IsExceeded);
+            Assert.DoesNotContain(plan.Diagnostics, d => d.Code == DiagnosticCodes.EvaluationBudgetExceeded);
+            Assert.True(plan.Instances.Count > 100, $"{plan.Instances.Count} instances planned");
+            Assert.True(run.Budget.Nodes < PointGuardNodeCeiling, $"the run produced {run.Budget.Nodes:N0} value nodes");
         }
-
-        // The data of each loop, as the template declares it: the approver groups' display names and the database groups' mailNickname.
-        Assert.Equal("Security - Approvers - Dev", Single(groups, "pg-dev-approvers").Properties!["displayName"]!.GetValue<string>());
-        Assert.Equal("Security - Tenant Approvers", Single(groups, "pg-tenant-approvers").Properties!["displayName"]!.GetValue<string>());
-        Assert.Equal("db-sit0-owner", Single(groups, "pg-sit-database-owner").Properties!["mailNickname"]!.GetValue<string>());
-        Assert.Equal("Emergency Access - GA-PRA", Single(groups, "pg-emergency-access-ga-pra").Properties!["displayName"]!.GetValue<string>());
-
-        // A read-only role group holds its role through the directoryRoles edge, which its properties expression declares (shallowMerge): an edge, not an object property.
-        var readOnlyRoleGroup = groups.First(g => g.EdgeProperties?["directoryRoles"] is not null);
-        Assert.Null(readOnlyRoleGroup.Properties!["directoryRoles"]);
-
-        Assert.DoesNotContain(plan.Diagnostics, d => d.IsError);
-        Assert.DoesNotContain(plan.Diagnostics, d => d.Code == EngineDiagnosticCodes.OrphanReportIncomplete && d.Message.Contains("roleEligibilityScheduleRequests", StringComparison.Ordinal));
     }
 
-    /// <summary>
-    /// Values read from variables are never changed through the instances planned from them: after the what-if (providers strip, add and hold back
-    /// properties of the instances they plan) every memoised variable still holds the template's data, and evaluating an instance again gives the same properties.
-    /// </summary>
-    [Fact]
-    public async Task PointGuardTemplate_WhatIf_LeavesTheVariablesUnchanged_AndReevaluatesInstancesIdentically()
+    /// <summary>The PointGuard what-if plans the groups with their data.</summary>
+    public sealed class PointGuardWhatIfGroups
     {
-        var plan = await PlanPointGuardAsync(PlanMode.WhatIf, SeedScriptGroups);
-
-        foreach (string variable in new[] { "approverGroups", "accessGroups", "roleGroups", "adoptedGroups" })
+        /// <summary>
+        /// The what-if of the PointGuard template against a tenant holding the break-glass users and the delete-protection and database groups its scripts
+        /// created (display name, no uniqueName). Every group but the emergency group declares its whole <c>properties</c> as one expression
+        /// (<c>"[variables('approverGroups')[copyIndex()].properties]"</c>): each must be planned with the properties of its data, not <c>properties: {}</c>
+        /// (the planner used to evaluate only an object literal and planned 54 of 55 groups empty, "required property displayName missing").
+        /// </summary>
+        [Fact]
+        public async Task PointGuardTemplate_WhatIf_CreatesTheGroupsWithTheirDataAndAdoptsTheScriptGroups()
         {
-            var data = Evaluate(plan, $"[variables('{variable}')]")!.AsArray();
-            Assert.NotEmpty(data);
-            foreach (var entry in data)
+            var plan = await PlanPointGuardAsync(PlanMode.WhatIf, SeedScriptGroups);
+
+            var groups = plan.Instances.Where(i => i.Type == GroupType).ToList();
+            Assert.Equal(55, groups.Count);
+            var adopted = Evaluate(plan, "[variables('adoptedGroups')]")!.AsArray().Select(g => g!["uniqueName"]!.GetValue<string>()).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            Assert.Equal(15, adopted.Count);
+            foreach (var group in groups)
             {
-                var properties = entry!["properties"]!.AsObject();
-                Assert.False(string.IsNullOrEmpty(properties["displayName"]?.GetValue<string>()), $"{variable}: {entry.ToJsonString()}");
-                Assert.NotNull(properties["description"]);
-                Assert.NotNull(properties["securityEnabled"]);
-                var instance = Single(plan.Instances.Where(i => i.Type == GroupType), entry["uniqueName"]!.GetValue<string>());
-                var declared = JsonValues.Clone(properties)!.AsObject();
-                foreach (var edge in instance.EdgeProperties!)
+                var change = plan.ChangeFor(group);
+                Assert.NotNull(change);
+                Assert.False(change.HasError, $"{group.Name}: {change.UnsupportedReason}");
+                string? displayName = change.After?["properties"]?["displayName"]?.GetValue<string>() ?? change.After?["displayName"]?.GetValue<string>();
+                Assert.False(string.IsNullOrEmpty(displayName), $"{group.Name}: {change.After?.ToJsonString()}");
+                Assert.Equal(group.Properties!["displayName"]!.GetValue<string>(), displayName);
+                Assert.Equal(true, group.Properties["securityEnabled"]?.GetValue<bool>());
+                Assert.Equal(false, group.Properties["mailEnabled"]?.GetValue<bool>());
+                Assert.NotNull(group.Properties["description"]);
+                Assert.NotNull(group.Properties["isAssignableToRole"]);
+                if (adopted.Contains(group.Name))
                 {
-                    declared.Remove(edge.Key);
+                    Assert.Equal(ChangeType.Modify, change.Type);
+                    Assert.Contains(change.Deltas, d => d.HasEffect && d.Path.ToString().Contains("uniqueName", StringComparison.Ordinal));
+                    Assert.Contains(change.Reasons, r => r.Contains("GroupAdoptedByDisplayName", StringComparison.Ordinal));
                 }
-
-                Assert.True(JsonNode.DeepEquals(declared, instance.Properties), $"{instance.Name}: data {declared.ToJsonString()}, planned {instance.Properties!.ToJsonString()}");
+                else
+                {
+                    Assert.Equal(ChangeType.Create, change.Type);
+                }
             }
-        }
 
-        foreach (var instance in plan.Instances.Where(i => i.Type is GroupType or "Microsoft.Entra/roleManagementPolicies" or "Microsoft.Entra/conditionalAccessPolicies" && !i.IsIgnored).Take(80))
+            // The data of each loop, as the template declares it: the approver groups' display names and the database groups' mailNickname.
+            Assert.Equal("Security - Approvers - Dev", Single(groups, "pg-dev-approvers").Properties!["displayName"]!.GetValue<string>());
+            Assert.Equal("Security - Tenant Approvers", Single(groups, "pg-tenant-approvers").Properties!["displayName"]!.GetValue<string>());
+            Assert.Equal("db-sit0-owner", Single(groups, "pg-sit-database-owner").Properties!["mailNickname"]!.GetValue<string>());
+            Assert.Equal("Emergency Access - GA-PRA", Single(groups, "pg-emergency-access-ga-pra").Properties!["displayName"]!.GetValue<string>());
+
+            // A read-only role group holds its role through the directoryRoles edge, which its properties expression declares (shallowMerge): an edge, not an object property.
+            var readOnlyRoleGroup = groups.First(g => g.EdgeProperties?["directoryRoles"] is not null);
+            Assert.Null(readOnlyRoleGroup.Properties!["directoryRoles"]);
+
+            Assert.DoesNotContain(plan.Diagnostics, d => d.IsError);
+            Assert.DoesNotContain(plan.Diagnostics, d => d.Code == EngineDiagnosticCodes.OrphanReportIncomplete && d.Message.Contains("roleEligibilityScheduleRequests", StringComparison.Ordinal));
+        }
+    }
+
+    /// <summary>The PointGuard what-if leaves the variables unchanged.</summary>
+    public sealed class PointGuardWhatIfVariables
+    {
+        /// <summary>
+        /// Values read from variables are never changed through the instances planned from them: after the what-if (providers strip, add and hold back
+        /// properties of the instances they plan) every memoised variable still holds the template's data, and evaluating an instance again gives the same properties.
+        /// </summary>
+        [Fact]
+        public async Task PointGuardTemplate_WhatIf_LeavesTheVariablesUnchanged_AndReevaluatesInstancesIdentically()
         {
-            InstanceEvaluator.EvaluateProperties(plan.Evaluator, instance);
-            string first = instance.Properties!.ToJsonString() + instance.EdgeProperties!.ToJsonString();
-            InstanceEvaluator.EvaluateProperties(plan.Evaluator, instance);
-            Assert.Equal(first, instance.Properties!.ToJsonString() + instance.EdgeProperties!.ToJsonString());
+            var plan = await PlanPointGuardAsync(PlanMode.WhatIf, SeedScriptGroups);
+
+            foreach (string variable in new[] { "approverGroups", "accessGroups", "roleGroups", "adoptedGroups" })
+            {
+                var data = Evaluate(plan, $"[variables('{variable}')]")!.AsArray();
+                Assert.NotEmpty(data);
+                foreach (var entry in data)
+                {
+                    var properties = entry!["properties"]!.AsObject();
+                    Assert.False(string.IsNullOrEmpty(properties["displayName"]?.GetValue<string>()), $"{variable}: {entry.ToJsonString()}");
+                    Assert.NotNull(properties["description"]);
+                    Assert.NotNull(properties["securityEnabled"]);
+                    var instance = Single(plan.Instances.Where(i => i.Type == GroupType), entry["uniqueName"]!.GetValue<string>());
+                    var declared = JsonValues.Clone(properties)!.AsObject();
+                    foreach (var edge in instance.EdgeProperties!)
+                    {
+                        declared.Remove(edge.Key);
+                    }
+
+                    Assert.True(JsonNode.DeepEquals(declared, instance.Properties), $"{instance.Name}: data {declared.ToJsonString()}, planned {instance.Properties!.ToJsonString()}");
+                }
+            }
+
+            foreach (var instance in plan.Instances.Where(i => i.Type is GroupType or "Microsoft.Entra/roleManagementPolicies" or "Microsoft.Entra/conditionalAccessPolicies" && !i.IsIgnored).Take(80))
+            {
+                InstanceEvaluator.EvaluateProperties(plan.Evaluator, instance);
+                string first = instance.Properties!.ToJsonString() + instance.EdgeProperties!.ToJsonString();
+                InstanceEvaluator.EvaluateProperties(plan.Evaluator, instance);
+                Assert.Equal(first, instance.Properties!.ToJsonString() + instance.EdgeProperties!.ToJsonString());
+            }
         }
     }
 
@@ -169,17 +182,21 @@ public sealed class EvaluationBudgetPlanningTests
         Expr.AssertJson("""{ "displayName": "B" }""", expanded[1].Properties);
     }
 
-    [Fact]
-    public async Task PointGuardTemplate_OfflineValidation_StaysWithinTheRunBudget()
+    /// <summary>The PointGuard offline validation against the run budget.</summary>
+    public sealed class PointGuardOfflineValidation
     {
-        using var run = EvaluationBudget.BeginRun(EvaluationLimits.Default);
-        var catalog = ResourceTypeCatalog.Default;
-        var document = await new TemplateLoader(catalog).LoadAsync(Fixture("pointguard.entra.json"), ParameterSet.FromFile(Fixture("pointguard.parameters.json")), TestContext.Current.CancellationToken);
+        [Fact]
+        public async Task PointGuardTemplate_OfflineValidation_StaysWithinTheRunBudget()
+        {
+            using var run = EvaluationBudget.BeginRun(EvaluationLimits.Default);
+            var catalog = ResourceTypeCatalog.Default;
+            var document = await new TemplateLoader(catalog).LoadAsync(Fixture("pointguard.entra.json"), ParameterSet.FromFile(Fixture("pointguard.parameters.json")), TestContext.Current.CancellationToken);
 
-        var diagnostics = new DeploymentPlanner(ProviderDiscovery.CreateRegistry(catalog), new FakeGraphClient(), new PlannerOptions { Catalog = catalog }, NullLogger<DeploymentPlanner>.Instance).Validate(document, PlanMode.WhatIf);
+            var diagnostics = new DeploymentPlanner(ProviderDiscovery.CreateRegistry(catalog), new FakeGraphClient(), new PlannerOptions { Catalog = catalog }, NullLogger<DeploymentPlanner>.Instance).Validate(document, PlanMode.WhatIf);
 
-        Assert.DoesNotContain(diagnostics, d => d.IsError);
-        Assert.True(run.Budget.Nodes < PointGuardNodeCeiling / 4, $"validation produced {run.Budget.Nodes:N0} value nodes");
+            Assert.DoesNotContain(diagnostics, d => d.IsError);
+            Assert.True(run.Budget.Nodes < PointGuardNodeCeiling / 4, $"validation produced {run.Budget.Nodes:N0} value nodes");
+        }
     }
 
     [Fact]
@@ -275,23 +292,27 @@ public sealed class EvaluationBudgetPlanningTests
         Expr.Fails("[variables('v')[1]]", DiagnosticCodes.ExpressionEvaluationFailed, Expr.Context(variables: Expr.Parameters(("v", JsonNode.Parse("[1]")))));
     }
 
-    [Fact]
-    public void WholeVariableCopies_StillCountAgainstTheRunBudget()
+    /// <summary>Whole-variable copies against the run budget.</summary>
+    public sealed class WholeVariableCopies
     {
-        // length(variables('big')) copies the variable for the function: 10,001 nodes per call, so 600 calls pass 5,000,000.
-        using var run = EvaluationBudget.BeginRun(EvaluationLimits.Default);
-        var context = Expr.Context(variables: Expr.Parameters(("big", JsonValue.Create("[range(0, 10000)]"))));
-
-        var exception = Assert.Throws<ExpressionEvaluationException>(() =>
+        [Fact]
+        public void WholeVariableCopies_StillCountAgainstTheRunBudget()
         {
-            for (int i = 0; i < 600; i++)
-            {
-                Expr.Eval("[length(variables('big'))]", context);
-            }
-        });
+            // length(variables('big')) copies the variable for the function: 10,001 nodes per call, so 600 calls pass 5,000,000.
+            using var run = EvaluationBudget.BeginRun(EvaluationLimits.Default);
+            var context = Expr.Context(variables: Expr.Parameters(("big", JsonValue.Create("[range(0, 10000)]"))));
 
-        Assert.Equal(DiagnosticCodes.EvaluationBudgetExceeded, exception.Code);
-        Assert.True(run.Budget.IsExceeded);
+            var exception = Assert.Throws<ExpressionEvaluationException>(() =>
+            {
+                for (int i = 0; i < 600; i++)
+                {
+                    Expr.Eval("[length(variables('big'))]", context);
+                }
+            });
+
+            Assert.Equal(DiagnosticCodes.EvaluationBudgetExceeded, exception.Code);
+            Assert.True(run.Budget.IsExceeded);
+        }
     }
 
     private const string GroupType = "Microsoft.Entra/groups";
