@@ -270,9 +270,9 @@ every name-keyed type) and caches the result. Lookups that cannot be performed (
 unresolvable key) stay placeholders and are listed in `DeploymentPlan.UnresolvedReferences` / the what-if
 diagnostics.
 
-### Entra lookups and `tenant()` / `environment()`
+### Entra lookups and `tenant()` / `deployer()` / `environment()`
 
-`appRole(ref, value)`, `permissionScope(ref, value)` and `roleTemplate(nameOrId)` resolve ids in three steps, in
+`appRole(ref, value)`, `permissionScope(ref, value)`, `roleTemplate(nameOrId)` and `roleDefinitions(name)` resolve ids in three steps, in
 the expression engine (`EntraFunctions`): the live object of a template resource named by `ref` (an application's
 `appRoles` / `api.oauth2PermissionScopes`, a service principal's `appRoles` / `oauth2PermissionScopes`: no request,
 no replication lag), the embedded tables of `EArm.Core.WellKnownIds` (Microsoft Graph permissions, built-in
@@ -291,13 +291,15 @@ target's apply. A `ref` that is an appId GUID carries no dependency and is never
 scan therefore never triggers a tenant request); `reference('app').appId` as `ref` is covered by the nested
 `reference()`.
 
-`tenant()` returns `PlannerOptions.Tenant` and `environment()` `PlannerOptions.Environment`. The CLI fills them
+`tenant()` returns `PlannerOptions.Tenant`, `deployer()` `PlannerOptions.Deployer` and `environment()` `PlannerOptions.Environment`. The CLI fills them
 after preflight with `DeploymentEnvironment.TenantFromOrganization` (the preflight's single
-`GET /organization?$select=id,displayName,verifiedDomains` → `{ tenantId, defaultDomain, displayName }`; when the identity may not read the organization the
-read is logged and `tenant()` stays unknown) and `DeploymentEnvironment.Environment(cloud)` (`{ name, graph, authentication.loginEndpoint }` of the
-selected `EARM_CLOUD`, from the fixed cloud table in `GraphCloud`). The preflight (`GraphPreflight`) also reads the token's `tid` and `oid` claims, so
+`GET /organization?$select=id,displayName,verifiedDomains,countryLetterCode` → `{ countryCode, displayName, id, tenantId, defaultDomain }`; when the identity may not read the organization the
+read is logged and `tenant()` stays unknown), `DeploymentEnvironment.Deployer(preflight)` (`{ objectId, tenantId, userPrincipalName }` from the token claims)
+and `DeploymentEnvironment.Environment(cloud)` (`{ name, graph, portal, resourceManager, authentication, suffixes.keyvaultDns }` of the
+selected `EARM_CLOUD`, from the fixed cloud table in `GraphCloud`). `deployment().properties.parameters` is built by the planner from the bound
+parameter values (`DeploymentInfo.SuppliedParameters`: supplied, non-secure values only). The preflight (`GraphPreflight`) also reads the token's `tid` and `oid` claims, so
 `PlannerOptions.SignedInPrincipalId` is known without `GET /me` (an app-only token has no `/me`).
-Planner tests that construct `PlannerOptions` directly leave both `null`, which keeps the functions unknown.
+Planner tests that construct `PlannerOptions` directly leave them `null`, which keeps the functions unknown.
 
 ## Edge pass (`EArm.Engine.Edges`)
 
