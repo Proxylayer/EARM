@@ -73,7 +73,7 @@ internal static class TemplateRunScopes
             return new TemplateExpansionResult(null, [ex.ToDiagnostic()], ExitCodes.Failure, parameterFile);
         }
 
-        var expansion = OfflineTemplateExpansion.Run(document, catalog);
+        var expansion = OfflineTemplateExpansion.Run(document, catalog, LinkedTemplateDownloads.Reader);
         return expansion.Succeeded
             ? new TemplateExpansionResult(expansion, [], ExitCodes.Ok, parameterFile)
             : new TemplateExpansionResult(null, expansion.Errors, ExitCodes.ValidationFailed, parameterFile);
@@ -83,7 +83,7 @@ internal static class TemplateRunScopes
     public static RunScopeSet? Compute(TemplateDocument document, RunVerb verb)
     {
         ArgumentNullException.ThrowIfNull(document);
-        var expansion = OfflineTemplateExpansion.Run(document, ResourceTypeCatalog.Default);
+        var expansion = OfflineTemplateExpansion.Run(document, ResourceTypeCatalog.Default, LinkedTemplateDownloads.Reader);
         return expansion.Succeeded ? Compute(expansion, verb) : null;
     }
 

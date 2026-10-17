@@ -169,7 +169,7 @@ internal sealed class PlannedDeployment : IDisposable
         // A user sign-in never falls back to .default: without the run's scopes (the template did not expand offline) it stops here, before any sign-in.
         if (services.UsesDelegatedSignIn && !services.HasRunScopes)
         {
-            var expansion = OfflineTemplateExpansion.Run(document, catalog);
+            var expansion = OfflineTemplateExpansion.Run(document, catalog, LinkedTemplateDownloads.Reader);
             return (FailValidation(invocation, expansion.Errors, stdout, stderr, ExitCodes.ValidationFailed), null, null);
         }
 

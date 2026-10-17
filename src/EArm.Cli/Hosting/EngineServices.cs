@@ -149,6 +149,7 @@ internal sealed class EngineServices : IDisposable
         {
             EdgeKinds = options.EdgeKinds ?? EdgeKinds,
             KeyAbsenceCheck = options.KeyAbsenceCheck ?? _keyAbsenceCheck,
+            LinkedTemplates = options.LinkedTemplates ?? Commands.LinkedTemplateDownloads.Reader,
         };
         return new DeploymentPlanner(Providers, Graph, effective, LoggerFactory.CreateLogger<DeploymentPlanner>());
     }

@@ -93,7 +93,12 @@ public sealed class NestedDeploymentTests
 
         var ex = await ExpandFailsAsync(document);
 
-        Assert.Contains(ex.Diagnostics, d => d.IsError && d.Code == DiagnosticCodes.UndefinedParameter);
+        var error = ex.Diagnostics.First(d => d.IsError && d.Code == DiagnosticCodes.UndefinedParameter);
+
+        // The finding points at the place in the parent file that holds the inline template.
+        Assert.Equal("resources[0].properties.template.resources[0].name", error.Path?.ToString());
+        Assert.Equal("inline.entra.json", error.Source);
+        Assert.NotNull(error.Location);
     }
 
     [Fact]

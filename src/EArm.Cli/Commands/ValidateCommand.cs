@@ -14,6 +14,7 @@ using EArm.Core.Validation;
 using EArm.Engine;
 using EArm.Engine.Permissions;
 using EArm.Engine.Planning;
+using EArm.Engine.Planning.Nested;
 using EArm.Expressions.Validation;
 
 namespace EArm.Cli.Commands;
@@ -129,6 +130,14 @@ internal static class ValidateCommand
         var diagnostics = new List<Diagnostic>(new TemplateValidator(catalog).Validate(document));
         var analysis = new ExpressionValidator(catalog).Analyze(document);
         diagnostics.AddRange(analysis.Diagnostics);
+
+        // Nested and linked deployments: their templates are validated too, offline. Local linked templates are read; https ones are not downloaded
+        // (LinkedTemplateNotFetched): validate stays offline, what-if and create check them.
+        if (!diagnostics.Any(d => d.IsError) && document.Resources.Any(r => DeploymentResourceType.Is(r.Type)))
+        {
+            var expansion = OfflineTemplateExpansion.Run(document, catalog, LinkedTemplateReader.LocalOnly);
+            diagnostics.AddRange(expansion.Succeeded ? expansion.Warnings : expansion.Errors);
+        }
 
         foreach (var resource in document.Resources)
         {

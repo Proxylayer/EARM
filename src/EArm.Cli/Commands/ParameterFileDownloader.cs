@@ -94,9 +94,19 @@ internal sealed class ParameterFileDownloader
     }
 
     /// <summary>Downloads <paramref name="uri"/> (already <see cref="Validate">validated</see>); throws <see cref="TemplateLoadException"/> when it cannot.</summary>
-    public async Task<byte[]> DownloadAsync(Uri uri, CancellationToken cancellationToken)
+    public Task<byte[]> DownloadAsync(Uri uri, CancellationToken cancellationToken)
+    {
+        return DownloadAsync(uri, "parameter file", cancellationToken);
+    }
+
+    /// <summary>
+    /// Downloads <paramref name="uri"/> with the same rules for another kind of file (<paramref name="what"/> names it in messages: a linked template of a
+    /// nested deployment); throws <see cref="TemplateLoadException"/> when it cannot.
+    /// </summary>
+    public async Task<byte[]> DownloadAsync(Uri uri, string what, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(uri);
+        ArgumentException.ThrowIfNullOrWhiteSpace(what);
         string shown = Display(uri.OriginalString);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(Timeout);
@@ -109,32 +119,32 @@ internal sealed class ParameterFileDownloader
             int status = (int)response.StatusCode;
             if (status is >= 300 and < 400)
             {
-                throw Failed(shown, string.Create(CultureInfo.InvariantCulture, $"the server answered with a redirect ({status}); redirects are never followed. Use the final https URL."));
+                throw Failed(what, shown, string.Create(CultureInfo.InvariantCulture, $"the server answered with a redirect ({status}); redirects are never followed. Use the final https URL."));
             }
 
             if (status is < 200 or >= 300)
             {
-                throw Failed(shown, string.Create(CultureInfo.InvariantCulture, $"the server answered {status} ({response.ReasonPhrase})."));
+                throw Failed(what, shown, string.Create(CultureInfo.InvariantCulture, $"the server answered {status} ({response.ReasonPhrase})."));
             }
 
-            return await ReadBoundedAsync(response.Content, shown, timeout.Token).ConfigureAwait(false);
+            return await ReadBoundedAsync(response.Content, what, shown, timeout.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            throw Failed(shown, string.Create(CultureInfo.InvariantCulture, $"no answer within {Timeout.TotalSeconds:F0} s."));
+            throw Failed(what, shown, string.Create(CultureInfo.InvariantCulture, $"no answer within {Timeout.TotalSeconds:F0} s."));
         }
         catch (Exception ex) when (ex is HttpRequestException or IOException)
         {
-            throw Failed(shown, $"the server could not be reached ({ex.InnerException?.Message ?? ex.Message}).");
+            throw Failed(what, shown, $"the server could not be reached ({ex.InnerException?.Message ?? ex.Message}).");
         }
     }
 
-    private static async Task<byte[]> ReadBoundedAsync(HttpContent content, string shown, CancellationToken cancellationToken)
+    private static async Task<byte[]> ReadBoundedAsync(HttpContent content, string what, string shown, CancellationToken cancellationToken)
     {
         long max = KeyVaultClient.MaxResponseBytes;
         if (content.Headers.ContentLength is { } declared && declared > max)
         {
-            throw TooLarge(shown, max);
+            throw TooLarge(what, shown, max);
         }
 
         var stream = await content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
@@ -152,7 +162,7 @@ internal sealed class ParameterFileDownloader
 
                 if (buffer.Length + read > max)
                 {
-                    throw TooLarge(shown, max);
+                    throw TooLarge(what, shown, max);
                 }
 
                 buffer.Write(chunk, 0, read);
@@ -160,13 +170,13 @@ internal sealed class ParameterFileDownloader
         }
     }
 
-    private static TemplateLoadException Failed(string shown, string why)
+    private static TemplateLoadException Failed(string what, string shown, string why)
     {
-        return new TemplateLoadException(DownloadFailedCode, $"The parameter file {shown} could not be downloaded: {why}", shown);
+        return new TemplateLoadException(DownloadFailedCode, $"The {what} {shown} could not be downloaded: {why}", shown);
     }
 
-    private static TemplateLoadException TooLarge(string shown, long max)
+    private static TemplateLoadException TooLarge(string what, string shown, long max)
     {
-        return new TemplateLoadException(DiagnosticCodes.InputTooLarge, string.Create(CultureInfo.InvariantCulture, $"The parameter file {shown} is larger than {max:N0} bytes (the download limit); the answer was discarded."), shown);
+        return new TemplateLoadException(DiagnosticCodes.InputTooLarge, string.Create(CultureInfo.InvariantCulture, $"The {what} {shown} is larger than {max:N0} bytes (the download limit); the answer was discarded."), shown);
     }
 }
