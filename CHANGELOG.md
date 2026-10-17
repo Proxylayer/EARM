@@ -6,7 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-No version has been released yet. Everything below describes the changes since the switch from the Azure CLI / PowerShell
+## [0.2.0] - 2026-10-17
+
+This is the first release. Everything below describes the changes since the switch from the Azure CLI / PowerShell
 transport to the built-in Microsoft Graph HTTP client.
 
 **Breaking changes**
