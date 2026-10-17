@@ -36,6 +36,7 @@ internal sealed class OrphanReport
 {
     private readonly DeploymentPlan _plan;
     private readonly IGraphClient _graph;
+    private readonly GraphCallRetry _retry;
 
     public OrphanReport(DeploymentPlan plan, IGraphClient graph)
     {
@@ -43,6 +44,7 @@ internal sealed class OrphanReport
         ArgumentNullException.ThrowIfNull(graph);
         _plan = plan;
         _graph = graph;
+        _retry = new GraphCallRetry(plan.RetryPolicy);
     }
 
     /// <param name="isSettled">True when the live identity of a declared (not ignored, concretely named) instance is known: its Graph id is published, or its key is resolved and nothing exists under it.</param>
@@ -100,7 +102,7 @@ internal sealed class OrphanReport
             IReadOnlyList<OrphanCandidate> candidates;
             try
             {
-                candidates = await WithRetryAsync(ct => source.ListOrphanCandidatesAsync(query, _graph, ct), cancellationToken).ConfigureAwait(false);
+                candidates = await _retry.WithRetryAsync(ct => source.ListOrphanCandidatesAsync(query, _graph, ct), RetryHint.Default, cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -284,12 +286,5 @@ internal sealed class OrphanReport
     private static string Describe(OrphanCandidate candidate)
     {
         return string.IsNullOrWhiteSpace(candidate.Description) ? string.Empty : $" ({candidate.Description})";
-    }
-
-    private Task<T> WithRetryAsync<T>(Func<CancellationToken, Task<T>> operation, CancellationToken cancellationToken)
-    {
-        return _plan.RetryPolicy is null
-            ? operation(cancellationToken)
-            : _plan.RetryPolicy.ExecuteAsync(operation, RetryHint.Default, null, cancellationToken);
     }
 }

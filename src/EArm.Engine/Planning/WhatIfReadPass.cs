@@ -23,6 +23,7 @@ internal sealed class WhatIfReadPass
 {
     private readonly IGraphClient _graph;
     private readonly RetryPolicy? _retryPolicy;
+    private readonly GraphCallRetry _retry;
     private readonly ILogger _logger;
     private readonly KeyAbsenceCheck _keyAbsenceCheck;
 
@@ -30,6 +31,7 @@ internal sealed class WhatIfReadPass
     {
         _graph = graph;
         _retryPolicy = retryPolicy;
+        _retry = new GraphCallRetry(retryPolicy);
         _logger = logger;
         _keyAbsenceCheck = keyAbsenceCheck;
     }
@@ -184,7 +186,7 @@ internal sealed class WhatIfReadPass
         }
 
         // Name sugar and live-data validation (resourceAppId → resourceId, appRole → appRoleId, scopes → scope...) before the key is derived.
-        await WithRetryAsync(async ct => { await provider.PrepareAsync(instance, _graph, ct).ConfigureAwait(false); return true; }, RetryHint.Default, cancellationToken).ConfigureAwait(false);
+        await _retry.WithRetryAsync(async ct => { await provider.PrepareAsync(instance, _graph, ct).ConfigureAwait(false); return true; }, RetryHint.Default, cancellationToken).ConfigureAwait(false);
 
         var key = provider.ResolveKey(instance);
         if (!key.IsResolved)
@@ -201,7 +203,7 @@ internal sealed class WhatIfReadPass
         // (KeyReadLagsCreate) is repeated before "nothing found" is planned as a create (KeyAbsenceCheck), unless ConfirmKeyAbsence is off (what-if and the
         // planning pass of create: the executor repeats the full check right before every POST, so a false "absent" here never becomes a duplicate).
         var existing = await _keyAbsenceCheck
-            .ReadAsync(provider, key, ct => WithRetryAsync(c => provider.ReadAsync(key, _graph, c), RetryHint.Default, ct), _logger, absences, cancellationToken)
+            .ReadAsync(provider, key, ct => _retry.WithRetryAsync(c => provider.ReadAsync(key, _graph, c), RetryHint.Default, ct), _logger, absences, cancellationToken)
             .ConfigureAwait(false);
         var warnings = new List<Diagnostic>();
         if (existing is not null)
@@ -247,7 +249,7 @@ internal sealed class WhatIfReadPass
             return ResourceChange.Unsupported(instance.Id, instance.Type, ChangeType.NoChange, $"{instance.Describe()}: the Graph key of the existing resource cannot be resolved ({key.Describe()}).") with { UnsupportedCode = EngineDiagnosticCodes.ResourceKeyUnresolved };
         }
 
-        var live = await WithRetryAsync(ct => provider.ReadAsync(key, _graph, ct), RetryHint.Default, cancellationToken).ConfigureAwait(false);
+        var live = await _retry.WithRetryAsync(ct => provider.ReadAsync(key, _graph, ct), RetryHint.Default, cancellationToken).ConfigureAwait(false);
         if (live is null)
         {
             return ResourceChange.Unsupported(instance.Id, instance.Type, ChangeType.NoChange, DeploymentPlanner.ExistingNotFound(instance)) with { UnsupportedCode = EngineDiagnosticCodes.ExistingResourceNotFound };
@@ -369,12 +371,5 @@ internal sealed class WhatIfReadPass
         // A Create whose key waits on objects this run creates (an eligibility of a group created in the same run) has no live object to hide.
         return change.Type == ChangeType.Create && instance.IsEvaluated
             && (plan.Registry.Get(instance.Type).ResolveKey(instance).IsResolved || OrphanReport.KeyWaitsOnlyOnObjectsCreatedThisRun(plan, instance));
-    }
-
-    private Task<T> WithRetryAsync<T>(Func<CancellationToken, Task<T>> operation, RetryHint hint, CancellationToken cancellationToken)
-    {
-        return _retryPolicy is null
-            ? operation(cancellationToken)
-            : _retryPolicy.ExecuteAsync(operation, hint, null, cancellationToken);
     }
 }

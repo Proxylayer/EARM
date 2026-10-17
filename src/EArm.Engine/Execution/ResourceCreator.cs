@@ -16,12 +16,12 @@ internal sealed class ResourceCreator
 {
     private readonly IGraphClient _graph;
     private readonly ReplicationWait _replicationWait;
-    private readonly ExecutionRetry _retry;
+    private readonly GraphCallRetry _retry;
     private readonly RunDiagnostics _diagnostics;
     private readonly PlanOptions _planOptions;
     private readonly ILogger _logger;
 
-    public ResourceCreator(IGraphClient graph, ReplicationWait replicationWait, ExecutionRetry retry, RunDiagnostics diagnostics, PlanOptions planOptions, ILogger logger)
+    public ResourceCreator(IGraphClient graph, ReplicationWait replicationWait, GraphCallRetry retry, RunDiagnostics diagnostics, PlanOptions planOptions, ILogger logger)
     {
         _graph = graph;
         _replicationWait = replicationWait;

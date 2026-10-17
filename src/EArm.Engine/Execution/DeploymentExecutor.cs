@@ -72,7 +72,7 @@ public sealed partial class DeploymentExecutor
         private readonly ConcurrentDictionary<string, ResourceInstance> _graphClaims = new(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<ResourceInstance, string> _skipped = [];
         private readonly RunDiagnostics _diagnostics = new();
-        private readonly ExecutionRetry _retry;
+        private readonly GraphCallRetry _retry;
         private readonly ResourceCreator _creator;
         private readonly ResourceReplacer _replacer;
         private readonly SecureOutputsRecorder _secureOutputs;
@@ -86,7 +86,7 @@ public sealed partial class DeploymentExecutor
             _plan = plan;
             _options = options;
             _planOptions = plan.Options with { PlanMode = PlanMode.Create };
-            _retry = new ExecutionRetry(plan.RetryPolicy);
+            _retry = new GraphCallRetry(plan.RetryPolicy);
             _creator = new ResourceCreator(owner._graph, owner._replicationWait, _retry, _diagnostics, _planOptions, owner._logger);
             var laggingDeletes = new LaggingDeleteRetry(owner._replicationWait, owner._logger);
             _replacer = new ResourceReplacer(plan, options, owner._graph, _creator, laggingDeletes, _retry, _diagnostics, owner._logger);

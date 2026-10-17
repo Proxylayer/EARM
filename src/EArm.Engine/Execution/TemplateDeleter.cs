@@ -234,7 +234,8 @@ public sealed class TemplateDeleter
             // The delete in flight is never cancelled (its outcome must be known); the caller's token is checked between objects.
             var provider = _registry.Get(instance.Type);
             var key = provider.ResolveKey(instance);
-            var live = await WithRetryAsync(plan, ct => provider.ReadAsync(key, _graph, ct), CancellationToken.None).ConfigureAwait(false);
+            var retry = new GraphCallRetry(plan.RetryPolicy);
+            var live = await retry.WithRetryAsync(ct => provider.ReadAsync(key, _graph, ct), RetryHint.Default, CancellationToken.None).ConfigureAwait(false);
             if (live is null)
             {
                 return new DeclaredObjectDeletion(target, DeletionStatus.AlreadyGone, null, null, stopwatch.Elapsed);
@@ -252,11 +253,11 @@ public sealed class TemplateDeleter
 
             EngineLog.Deleting(_logger, instance.Id.Id, live.GraphId);
             // The caller's token only cuts a wait between two attempts short (see LaggingDeleteRetry), never an attempt.
-            await lagging.RunAsync(instance.Id.Id, () => WithRetryAsync(plan, async ct =>
+            await lagging.RunAsync(instance.Id.Id, () => retry.WithRetryAsync(async ct =>
             {
                 await provider.DeleteAsync(key, live, _graph, ct).ConfigureAwait(false);
                 return true;
-            }, CancellationToken.None), cancellationToken).ConfigureAwait(false);
+            }, RetryHint.Default, CancellationToken.None), cancellationToken).ConfigureAwait(false);
             return new DeclaredObjectDeletion(target, DeletionStatus.Deleted, null, null, stopwatch.Elapsed);
         }
         catch (GraphException ex) when (ex.IsNotFound)
@@ -297,12 +298,5 @@ public sealed class TemplateDeleter
         }
 
         return (null, EngineDiagnosticCodes.ProtectedObject);
-    }
-
-    private static Task<T> WithRetryAsync<T>(DeploymentPlan plan, Func<CancellationToken, Task<T>> operation, CancellationToken cancellationToken)
-    {
-        return plan.RetryPolicy is null
-            ? operation(cancellationToken)
-            : plan.RetryPolicy.ExecuteAsync(operation, RetryHint.Default, null, cancellationToken);
     }
 }
