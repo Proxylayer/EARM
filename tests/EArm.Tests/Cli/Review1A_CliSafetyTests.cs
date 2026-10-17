@@ -19,7 +19,6 @@ namespace EArm.Tests.Cli;
 /// The command-line side of the review-1A findings: the Complete-mode blast radius (I-06), the secure outputs file check (E-03a) and secure
 /// values in console errors (S-02), driven in-process against the scripted Graph.
 /// </summary>
-[Collection(CliCollection.Name)]
 public sealed class Review1A_CliSafetyTests
 {
     private static string[] Args(CliSandbox sandbox, params string[] args)

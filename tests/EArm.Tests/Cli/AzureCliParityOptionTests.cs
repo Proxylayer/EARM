@@ -18,7 +18,6 @@ namespace EArm.Tests.Cli;
 /// <c>--what-if-result-format</c>, <c>-w</c>, <c>--proceed-if-no-change</c>, <c>--no-prompt</c> (with <see cref="ParameterPrompt"/>) and
 /// <c>validate --validation-level</c>.
 /// </summary>
-[Collection(CliCollection.Name)]
 public sealed class AzureCliParityOptionTests
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;

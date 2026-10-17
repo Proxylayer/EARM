@@ -5,7 +5,6 @@ using Xunit;
 namespace EArm.Tests.Cli;
 
 /// <summary>The four samples through <c>deployment validate</c>: schema, semantic and expression validation together report nothing.</summary>
-[Collection(CliCollection.Name)]
 public sealed class SampleValidationCliTests
 {
     [Theory]

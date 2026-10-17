@@ -35,15 +35,13 @@ public sealed class CleanupScenarioTests : IntegrationTestBase
     {
         Fixture.Require();
 
-        // The direct-created path: a tracked entity path with a prefixed name is deleted (and purged) by the sweep.
-        // The rest of the guard is exercised by the teardown of every other scenario.
+        // The direct-created path: a tracked entity path with a prefixed name is deleted (and purged) by the sweep. The proof is made by the
+        // teardown sweep that runs anyway (a sweep here cost a full prefix sweep in the middle of the run): the fixture reads the group again after it
+        // and fails the teardown when the group is still there. The rest of the guard is exercised by the teardown of every other scenario.
         var group = await TenantObjects.CreateGroupAsync(Fixture, "cleanup-probe", Ct);
-        string id = group.RequireId();
-        Assert.NotNull(await Graph.GetObjectAsync(new GraphRequest("/groups/" + id).WithHint(RetryHint.ExpectReplicationLag), Ct));
+        string path = "/groups/" + group.RequireId();
+        Assert.NotNull(await Graph.GetObjectAsync(new GraphRequest(path).WithHint(RetryHint.ExpectReplicationLag), Ct));
 
-        await Fixture.SweepNowAsync(Ct);
-
-        Assert.Null(await Graph.GetObjectAsync(new GraphRequest("/groups/" + id), Ct));
-        Assert.Empty(Fixture.Leftovers);
+        Fixture.ExpectRemovedByTeardown(path);
     }
 }

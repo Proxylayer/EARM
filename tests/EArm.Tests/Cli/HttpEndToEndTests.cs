@@ -13,7 +13,6 @@ namespace EArm.Tests.Cli;
 /// executor and <c>HttpGraphClient</c>; only the network (an in-memory directory behind an <see cref="System.Net.Http.HttpMessageHandler"/>) and the
 /// sign-in (a fake token provider) are replaced. The recorded HTTP requests are asserted, which is what a real tenant would have seen.
 /// </summary>
-[Collection(CliCollection.Name)]
 public sealed class HttpEndToEndTests
 {
     private const string Sample = "app-with-sp-and-secret";

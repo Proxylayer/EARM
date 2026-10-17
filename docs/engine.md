@@ -133,8 +133,10 @@ load ──► validate ──► expand ──► graph ──► [per batch: r
 - A `create` that comes back "already exists" also applies the declared properties **in the same run** (one extra PATCH where the provider supports it and the difference can be patched in place; otherwise an `ImmutablePropertyChanged` warning says the object differs and a rerun or the what-if shows how).
 - A `create` with an **ambiguous outcome** (a timeout, a transport error, any 5xx: the write may have been committed) is not repeated and not
   simply failed: the object is looked up by key, and because Graph replicates a new object with some delay the **executor itself waits out
-  replication** (`ReplicationWait`, a constructor argument of `DeploymentExecutor`: the read is repeated every 5 s until the object is found or
-  90 s of waiting were scheduled, the defaults of `RetryOptions.ReplicationInterval` / `ReplicationWindow`). "Not found yet" covers a `null` from
+  replication** (`ReplicationWait`, a constructor argument of `DeploymentExecutor`: the read is repeated on an adaptive schedule, 1, 2 and 4 s and
+  then every 5 s (`ReplicationWait.IntervalAfter`: `InitialInterval` doubled up to `Interval`), until the object is found or 90 s of waiting were
+  scheduled, the defaults of `RetryOptions.ReplicationInterval` / `ReplicationWindow`; most objects show up within a second or two, so a fixed 5 s
+  step only added slack). "Not found yet" covers a `null` from
   the provider - an empty `$filter` result answers 200, never 404 - as well as a 404 or a replication-lag 400. The executor owns this wait whether
   or not the plan carries a retry policy (the CLI's never does: `HttpGraphClient` retries each call itself); with a policy each read goes through
   it with `RetryHint.Default`, so throttling and transient failures are still waited out but the replication window is never waited twice. The
@@ -151,8 +153,8 @@ load ──► validate ──► expand ──► graph ──► [per batch: r
   (`IResourceProvider.KeyReadLagsCreate`, true in `ProviderBase` for the `displayName`-keyed types: Conditional Access policies, named locations,
   authentication strengths, administrative units, custom role definitions) the executor reads the key again after every successful create (including
   the create half of a replacement) until it has returned the created id **twice in a row** (`ReplicationWait.ConsecutiveVisibleReads`, 2 s apart:
-  `StableGap`), on the same `ReplicationWait` schedule (every 5 s after a miss, up to 90 s of scheduled waiting; tests pass a delay provider that does not
-  sleep). One hit is not enough because the list **flaps**: in a real-tenant run the create saw its object, and a `what-if` started moments later got an
+  `StableGap`), on the same adaptive `ReplicationWait` schedule (1, 2, 4 s, then every 5 s after a miss, up to 90 s of scheduled waiting; tests pass a
+  delay provider that does not sleep). One hit is not enough because the list **flaps**: in a real-tenant run the create saw its object, and a `what-if` started moments later got an
   empty list again. A miss after a hit starts the count again. A create the list shows at once costs two extra reads and one 2 s gap. The wait never fails the create:
   when the object does not show up in time, or the read itself fails, the create is reported done with the `CreatedObjectNotVisible` warning. While
   waiting, a 404, a replication-lag 400 or an `AmbiguousMatch` (the deleted object of a replacement still listed next to the new one) counts as
@@ -170,11 +172,21 @@ load ──► validate ──► expand ──► graph ──► [per batch: r
   consequence: an object that turns out to need a replacement was not shown as one, so the run refuses it with `RecreateNotConfirmed` unless `-y`; and a
   Complete-mode what-if can list such an object as an orphan). `create -y` plans no reads at all. Cost: objects that exist and types keyed by an id or an
   alternate key pay nothing; a genuinely new object of these types costs nothing extra in `what-if`, and 3 more reads and 12 s of waiting in `create`
-  and in the planner of `deployment delete` (reads of one batch run in parallel, so the wait is per batch, not per object). This is a probability
+  and in the planner of `deployment delete` (reads of one batch run in parallel, so the wait is per batch, not per object). **The waits of later batches
+  overlap the earlier ones** when `create` runs a plan the what-if pass read (without `-y`, or with `-c`): that pass already resolved the key of every
+  planned create, so at the start of the run the executor starts the extra reads of each planned create of a lagging type in a later batch, in the
+  background (`KeyAbsencePrefetch`, at most `--parallelism` early reads in flight). When the instance's turn comes, the executor resolves its key again;
+  only when it is the same key and every early read was empty does it skip its own extra reads, and it still reads the key once more right before the
+  `POST` (that read is now the final look, and an object it finds is adopted). A changed key, an early read that found the object or failed, or an
+  instance that was not prefetched gets the full check, so the duplicate protection is the same. `create -y` plans without reads, so the keys of later
+  batches are not known before the run (they would need a speculative evaluation, which would also run the live `reference()` lookups early) and every
+  batch still waits its own check. This is a probability
   reduction, not a guarantee: a list that stays empty through all four reads while the object exists still creates the object again (Graph has no
   unique key for these types to refuse the duplicate). Logging: each extra read is a Debug line (event 2082); one Information line summarizes the
-  confirmed absences, per planner batch (event 2084) and per executor check (event 2085), only when extra reads ran; an object found on an extra read
-  is a warning (event 2083).
+  confirmed absences, per planner batch (event 2084) and per executor check (event 2085, or 2086 when the extra reads ran early), only when extra reads
+  ran; the start of the early reads is a Debug line (event 2087); an object found on an extra read is a warning (event 2083) that names the attempt
+  (`extra read 1 of 3`): that number is the data for tuning `ExtraReads`. Every find recorded on a real tenant so far was on extra read 1; the default
+  stays at 3 because the overlap hides most of the wait and the reads after the first are the margin against a longer flap.
 - **Stale property values after an out-of-band change.** Graph is eventually consistent on property values too, and EARM cannot tell a stale
   replica from the current state: a `what-if` or `create` run moments after somebody changed an object outside EARM (in the portal, or by a
   direct Graph call) can still read the previous values for a short time, even after another reader already sees the new ones. Such a run reports
@@ -538,7 +550,7 @@ default), and the provider's `IDeleteRefusalSource` refusal (`NotDeletable`: the
 permanent assignment under the tuple of a time-bound PIM active assignment), which keeps the object as `Refused` without failing the command. After the confirmation `DeleteAsync` re-reads each object by key (it must be the listed one), deletes it through the provider inside
 the retry policy (a 404 counts as gone) and stops at the first failure unless `continueOnError`; a delete in flight is never cancelled, a Ctrl+C skips the rest.
 A refusal that clears once an earlier change of the run reaches the Conditional Access service is repeated first (`LaggingDeleteRetry`, on the executor's
-`ReplicationWait` schedule: every 5 s, up to 90 s of scheduled waiting, then the refusal is reported): `NamedLocationTrusted` always (the provider unmarked
+adaptive `ReplicationWait` schedule: 1, 2, 4 s, then every 5 s, up to 90 s of scheduled waiting, then the refusal is reported): `NamedLocationTrusted` always (the provider unmarked
 the location a moment earlier; Graph answers 1177 until the unmark is applied), and `NamedLocationReferenced` / `AuthenticationStrengthReferenced` /
 `AuthenticationContextReferenced` only when a Conditional Access policy was deleted earlier in the same run (otherwise the reference is real and fails at
 once). The executor uses the same retry for the old object of a recreate. Each repeat is logged (event 2081).

@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Text.Json.Nodes;
+using System.Threading;
 using EArm.Core;
 using EArm.Core.Secrets;
 using EArm.Engine.Execution;
@@ -138,6 +139,37 @@ public sealed class Review4K_SecretsTests
         return Path.Combine(folder, name);
     }
 
+    /// <summary>
+    /// Removes a test folder without failing the test. The merge's <c>&lt;file&gt;.lock</c> is deleted on close; when a scanner or indexer still has it open at that
+    /// moment the delete stays pending, and Windows refuses to delete the folder ("access denied" on the lock) until the scanner lets go. A plain
+    /// <c>Directory.Delete</c> at the end of a test turned that moment into a flaky failure in a busy full run, so this waits it out briefly and then leaves the
+    /// folder to the next clean build.
+    /// </summary>
+    private static void DeleteFolder(string folder)
+    {
+        for (int attempt = 1; ; attempt++)
+        {
+            try
+            {
+                if (Directory.Exists(folder))
+                {
+                    Directory.Delete(folder, recursive: true);
+                }
+
+                return;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                if (attempt >= 40)
+                {
+                    return;
+                }
+
+                Thread.Sleep(50);
+            }
+        }
+    }
+
     [Fact]
     public void APathWithATrailingSeparator_IsADirectoryError_EvenWhenNoSuchFolderExists()
     {
@@ -147,7 +179,7 @@ public sealed class Review4K_SecretsTests
 
         Assert.NotNull(problem);
         Assert.Contains("is a directory", problem, StringComparison.Ordinal);
-        Directory.Delete(folder, recursive: true);
+        DeleteFolder(folder);
     }
 
     [Fact]
@@ -158,7 +190,7 @@ public sealed class Review4K_SecretsTests
         Assert.Contains("is a directory", SecureOutputsFile.Validate(folder), StringComparison.Ordinal);
         Assert.Contains("does not exist", SecureOutputsFile.Validate(Path.Combine(folder, "missing", "file.json")), StringComparison.Ordinal);
         Assert.Null(SecureOutputsFile.Validate(Path.Combine(folder, "ok.json")));
-        Directory.Delete(folder, recursive: true);
+        DeleteFolder(folder);
     }
 
     [Fact]
@@ -179,7 +211,7 @@ public sealed class Review4K_SecretsTests
         Assert.DoesNotContain("attacker-controlled", File.ReadAllText(path), StringComparison.Ordinal);
         Assert.Equal("kept", document["other"]!["value"]!.GetValue<string>());
         Assert.Equal(SecureOutputsFile.OneTimeSecretsKey, document.Select(p => p.Key).Last());
-        Directory.Delete(folder, recursive: true);
+        DeleteFolder(folder);
     }
 
     [Fact]
@@ -192,7 +224,7 @@ public sealed class Review4K_SecretsTests
         Assert.True(written);
         var document = (JsonObject)JsonNode.Parse(File.ReadAllText(path))!;
         Assert.False(document.ContainsKey(SecureOutputsFile.OneTimeSecretsKey));
-        Directory.Delete(folder, recursive: true);
+        DeleteFolder(folder);
     }
 
     [Fact]
@@ -206,7 +238,7 @@ public sealed class Review4K_SecretsTests
         Assert.Equal("[ \"precious\" ]", File.ReadAllText(path + ".previous"));
         var document = (JsonObject)JsonNode.Parse(File.ReadAllText(path))!;
         Assert.Equal("pw-1", document[SecureOutputsFile.OneTimeSecretsKey]!["/providers/Microsoft.Entra/users/u"]!["generatedPassword"]!.GetValue<string>());
-        Directory.Delete(folder, recursive: true);
+        DeleteFolder(folder);
     }
 
     [Fact]
@@ -218,7 +250,7 @@ public sealed class Review4K_SecretsTests
         SecureOutputsFile.MergeOneTimeSecret(path, "/providers/Microsoft.Entra/users/u", new JsonObject { ["generatedPassword"] = "pw-1" });
 
         Assert.Equal("this is {{ not json", File.ReadAllText(path + ".previous"));
-        Directory.Delete(folder, recursive: true);
+        DeleteFolder(folder);
     }
 
     [Theory]
@@ -233,7 +265,7 @@ public sealed class Review4K_SecretsTests
 
         Assert.False(File.Exists(path + ".previous"));
         Assert.True(File.Exists(path));
-        Directory.Delete(folder, recursive: true);
+        DeleteFolder(folder);
     }
 
     [Fact]
@@ -248,7 +280,7 @@ public sealed class Review4K_SecretsTests
         var document = (JsonObject)JsonNode.Parse(File.ReadAllText(path))!;
         Assert.Equal("old", document["earlier"]!["value"]!.GetValue<string>());
         Assert.NotNull(document[SecureOutputsFile.OneTimeSecretsKey]);
-        Directory.Delete(folder, recursive: true);
+        DeleteFolder(folder);
     }
 
     [Theory]
@@ -264,7 +296,7 @@ public sealed class Review4K_SecretsTests
         Assert.Throws<ArgumentNullException>(() => SecureOutputsFile.MergeOneTimeSecret(path, "/providers/Microsoft.Entra/users/u", null!));
 
         Assert.False(File.Exists(path));
-        Directory.Delete(folder, recursive: true);
+        DeleteFolder(folder);
     }
 
     [Fact]
@@ -275,6 +307,6 @@ public sealed class Review4K_SecretsTests
         Assert.False(SecureOutputsFile.MergeOutputs(path, new JsonObject()));
 
         Assert.False(File.Exists(path));
-        Directory.Delete(folder, recursive: true);
+        DeleteFolder(folder);
     }
 }

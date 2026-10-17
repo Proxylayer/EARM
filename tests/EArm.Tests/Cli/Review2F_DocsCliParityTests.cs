@@ -15,7 +15,6 @@ namespace EArm.Tests.Cli;
 /// option of a command is documented FOR THAT COMMAND (an option documented only under another verb, or only in prose of a different section, fails),
 /// that no <c>--flag</c> the document names is a flag nothing defines (a removed option left behind), and that the tables put each option on the verbs it belongs to.
 /// </summary>
-[Collection(CliCollection.Name)]
 public sealed class Review2F_DocsCliParityTests
 {
     private static readonly Regex FlagToken = new(@"(?<![\w<\-])(--[A-Za-z][\w\-]*|-[A-Za-z])(?![\w\-])", RegexOptions.CultureInvariant, TimeSpan.FromSeconds(2));

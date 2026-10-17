@@ -21,7 +21,7 @@ namespace EArm.Tests.Cli;
 /// not parse printed plain text under <c>-o json</c>; a multi-line sign-in failure was flattened with literal <c>\r\n</c>; <c>-p @file -n x</c> was
 /// swallowed into <c>-p</c>; <c>auth login</c> waited forever for a browser nobody could use.
 /// </summary>
-[Collection(CliCollection.Name)]
+[Collection(ProcessStateCollection.Name)]
 public sealed class Review3J_CliTests
 {
     private static async Task<string> TemplateFileAsync(string testName)

@@ -16,7 +16,6 @@ namespace EArm.Tests.Cli;
 /// The confirmation of replacements (an immutable property changed: delete, then create again) and the template-based <c>deployment delete</c>,
 /// driven in-process against an in-memory directory (docs/cli.md).
 /// </summary>
-[Collection(CliCollection.Name)]
 public sealed class RecreateAndDeleteCommandTests
 {
     private const string LocType = "Microsoft.Entra/conditionalAccess/namedLocations";

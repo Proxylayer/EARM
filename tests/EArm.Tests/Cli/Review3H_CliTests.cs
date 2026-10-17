@@ -15,7 +15,6 @@ namespace EArm.Tests.Cli;
 /// <summary>
 /// Review round 2 through the command line: one JSON document from every verb (S2-20), the options (S2-21) and no blind retry of a create (S2-07).
 /// </summary>
-[Collection(CliCollection.Name)]
 public sealed class Review3H_CliTests
 {
     private const string Api = "2026-10-01-preview";

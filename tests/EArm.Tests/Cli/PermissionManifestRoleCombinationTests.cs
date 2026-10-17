@@ -13,7 +13,6 @@ namespace EArm.Tests.Cli;
 /// permissions of languageVersion 2.0 <c>"existing": true</c> resources, and the PIM for Groups role alternatives (Learn:
 /// privilegedaccessgroup-post-eligibilityschedulerequests, entitlement-management-delegate).
 /// </summary>
-[Collection(CliCollection.Name)]
 public sealed class PermissionManifestRoleCombinationTests
 {
     private const string GroupId = "22222222-2222-2222-2222-222222222222";

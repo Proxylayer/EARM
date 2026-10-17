@@ -4,17 +4,28 @@ Everything runs headless through `test.ps1`. The unit and in-process suites need
 (`EArm.Integration.Tests`) is gated and is never part of a plain run.
 
 ```powershell
-pwsh -File test.ps1                                    # every project except the gated integration one, then the Timing tests serially (see below); about 95 seconds warm (the build is included)
-pwsh -File test.ps1 -SkipTiming                        # skip the serial Timing pass (45-60 seconds warm, 57 s measured): the quick loop while iterating
+pwsh -File test.ps1                                    # every project except the gated integration one, then the Timing tests serially (see below); the build is included
+pwsh -File test.ps1 -SkipTiming                        # skip the serial Timing pass: the quick loop while iterating
 pwsh -File test.ps1 -Target EArm.Tests                 # one project (name or .csproj path)
 pwsh -File test.ps1 -Filter "FullyQualifiedName~CliSmokeTests"   # a VSTest-syntax filter, passed to every selected project (one pass; see "Filtering")
+pwsh -File test.ps1 -NoBuild                           # run the binaries already built (after build.ps1 or a previous run, same -Configuration)
 pwsh -File test.ps1 -Detailed                          # full dotnet test output; only after a plain run shows a failure
 pwsh -File test.ps1 -Coverage                          # + Cobertura XML per project in artifacts/test-results (slower: instrumented)
 pwsh -File tools/Get-CoverageReport.ps1 -Top 15        # merge the XML: per-assembly table + weakest classes (see tests/COVERAGE.md)
 ```
 
+**Iterating on one area.** Build once, then run only what you are working on, without the build and without the serial pass:
+
+```powershell
+pwsh -File build.ps1 -Target EArm.Tests
+pwsh -File test.ps1 -NoBuild -SkipTiming -Target EArm.Tests -Filter "FullyQualifiedName~Review4K_SecretsTests"
+```
+
+`-Filter` already implies one pass (no serial Timing pass), so `-SkipTiming` matters only without a filter; `-NoBuild` runs whatever was built last, so
+rebuild (or drop `-NoBuild`) after an edit. Finish with a plain `pwsh -File test.ps1` before you commit.
+
 Results are TRX files in `artifacts/test-results/`. The runner is Microsoft.Testing.Platform (opted in through `global.json`), xUnit v3. Simple mode prints one
-line per project:
+line per project, ending with the wall-clock seconds of that pass, a `BUILD OK` line with the build time, and a closing `TIME` line with the total:
 
 | Line | Meaning |
 |---|---|
@@ -23,7 +34,8 @@ line per project:
 | `NO TESTS` | The project has no tests. |
 | `GATED` | The project was **not run**: `EArm.Integration.Tests` without `EARM_IT_TENANT`. Not a pass. |
 | `SKIPPED` | The project ran but every test skipped (for example the integration project named with `-Target` and no tenant). Not a pass. |
-| `<project> [timing, serial]` | The second pass of the same project: only the `Category=Timing` tests, one at a time (`PASS` / `FAIL` as above; absent for a project without Timing tests). |
+| `<project> [timing, serial]` | The second pass of the same project: only the `Category=Timing` tests, one at a time (`PASS` / `FAIL` as above). A project whose sources tag no test `[Trait("Category", "Timing")]` gets no second pass at all (it would only pay for another process start). |
+| `NO BUILD` | `-NoBuild`: the build step was skipped and the binaries of the last build ran. |
 | `NO TESTS MATCHED` | Exit code **3**: a `-Filter` that selects no test in any selected project (a typo, or a namespace filter, see "Filtering"). A silent green run for a filter that ran nothing would hide the mistake. |
 
 ## Timing tests
@@ -58,7 +70,10 @@ in, search for the class name: `grep -rl "class Review1C_BudgetTests" tests`.
 | `EArm.Integration.Tests` | The real thing against a dev tenant: scenarios through the real CLI, plus probes that verify Graph behaviours the fakes assume | gated, see below |
 
 Golden files: `tests/fixtures/whatif/*` pin the what-if text and JSON byte for byte; regenerate them with `tools/Update-WhatIfGoldens.ps1` after an intentional
-rendering change and review the diff ([whatif.md](whatif.md#golden-fixtures)). `tests/fixtures/templates` holds valid and invalid templates for the loader and validator.
+rendering change and review the diff ([whatif.md](whatif.md#golden-fixtures)). `tests/fixtures/permissions/*` pin the table and JSON output of `earm permissions` for
+every sample in both modes (`PermissionsGoldenTests`); regenerate them with `tools/Update-PermissionsGoldens.ps1` after an intentional change to the manifest or its
+rendering (the same `EARM_UPDATE_GOLDENS=1` switch, refused on CI; a new sample needs its row in `PermissionsGoldenTests.Cases()` first). `tests/fixtures/templates`
+holds valid and invalid templates for the loader and validator.
 
 ## Conventions
 
@@ -73,6 +88,12 @@ rendering change and review the diff ([whatif.md](whatif.md#golden-fixtures)). `
   there a test does read the clock or sleep. Those tests carry `[Trait("Category", "Timing")]` (see "Timing tests"); a test that waits for something to happen
   polls or awaits it with a generous limit instead of sleeping a guessed time, and an upper bound is a hang guard, not a benchmark. The remaining fixed
   `Task.Delay` calls only hold something open and assert a negative that a loaded machine cannot turn into a failure (a waiter is still waiting, a lock is still held).
+- Test classes run in parallel, including the ones that drive the command line in-process (`CliRunner`): every run builds its own root command and options
+  (`GlobalOptions.CreateAll`), and the per-run state (secret registry, evaluation budget, service overrides) is ambient per async flow. A class that changes
+  process-wide state the CLI reads (an environment variable such as `EARM_DEBUG`, `EARM_AUTH`, `EARM_CLOUD` or `EARM_EVALUATION_TIMEOUT`, or the current
+  directory) belongs in `[Collection(ProcessStateCollection.Name)]`, which runs alone after the parallel collections, so no other test sees the temporary value.
+  Each test writes its files under a folder of its own (a GUID in the name); cleanup that can meet a scanner holding a file (the delete-on-close `.lock` of the
+  secure outputs file stays delete-pending, and Windows refuses to remove the folder for a moment) retries briefly and never fails the test.
 - Secrets in fixtures are obvious strings (`hunter2...`) so a leak assertion (`DoesNotContain`) is meaningful.
 - Logic that is hard to reach through the CLI is extracted into a pure helper and tested directly; the CLI tests then only prove the wiring.
 

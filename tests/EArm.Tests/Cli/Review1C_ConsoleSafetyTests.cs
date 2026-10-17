@@ -23,7 +23,6 @@ namespace EArm.Tests.Cli;
 /// are created, and the writers of the run are wrapped in <see cref="ConsoleSanitizer"/>, which escapes control characters and neutralises
 /// lines that start like a log command.
 /// </summary>
-[Collection(CliCollection.Name)]
 public sealed class Review1C_ConsoleSafetyTests
 {
     private static readonly string Esc = ((char)0x1b).ToString();

@@ -32,6 +32,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Access package resource role scopes no longer count the package's delivered assignments on every read (one call per role scope in
   every what-if and create): the count is read only when a delete is planned (`deployment delete` and its preview, the delete half of a
   replacement), through the new `IDeleteWarningSource.DescribeDeleteRiskAsync` and `TemplateDeleter.FindDeclaredObjectsAsync`.
+- The executor's replication waits are adaptive: the read after a create with an uncertain outcome, the read-your-write after a create of a
+  display-name-keyed type, and the repeat of a delete refused while an earlier change propagates now wait 1, 2 and 4 s, then every 5 s (was a fixed
+  5 s), still up to 90 s. Most objects show up within a second or two, so a run spends less time waiting; the window is unchanged.
+- `create` without `-y` (or with `-c`) confirms the absence of the display-name-keyed objects it will create in later dependency batches while the
+  earlier batches deploy, instead of one batch after the other. The protection against duplicates is the same: the executor still reads the key once
+  more right before the `POST`, and an object any read finds is adopted. New log events 2086 (absence confirmed by the early reads) and 2087 (early
+  reads started, Debug).
+- The warning for an object found on an extra read (event 2083) names the attempt out of the total (`extra read 1 of 3`).
 
 ### Fixed
 

@@ -52,11 +52,14 @@ internal static class CliRunner
 }
 
 /// <summary>
-/// Test classes that build the root command share one collection so they run sequentially: the global
-/// <c>-o</c> option instance is static and is added to every root command that is built.
+/// Test classes that change process-wide state the CLI reads (environment variables such as <c>EARM_DEBUG</c>, <c>EARM_AUTH</c>,
+/// <c>EARM_CLOUD</c> or <c>EARM_EVALUATION_TIMEOUT</c>, or the current directory). The collection runs on its own, after the parallel ones,
+/// so no other test observes the temporary values. Everything else that drives the command line runs in parallel: each run builds its own
+/// root command and options (<see cref="GlobalOptions.CreateAll"/>), and the per-run state (secret registry, evaluation budget, service
+/// overrides) is ambient per async flow.
 /// </summary>
-[CollectionDefinition(Name)]
-public sealed class CliCollection
+[CollectionDefinition(Name, DisableParallelization = true)]
+public sealed class ProcessStateCollection
 {
-    public const string Name = "Cli";
+    public const string Name = "ProcessState";
 }

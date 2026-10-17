@@ -17,7 +17,6 @@ namespace EArm.Tests.Cli;
 /// tests (<see cref="Review2F_DocsCliParityTests"/>, <see cref="DocsConsistencyTests"/>) compare the two sides with each other, so removing an option together
 /// with its documentation (or renaming both) keeps them green; these tests fail when one of the flags or codes below disappears from either side.
 /// </summary>
-[Collection(CliCollection.Name)]
 public sealed class Review4L_NewSurfaceDocsTests
 {
     private static readonly Regex CodeSpan = new("`([^`]+)`", RegexOptions.CultureInvariant, TimeSpan.FromSeconds(2));

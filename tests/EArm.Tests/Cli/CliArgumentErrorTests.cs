@@ -11,7 +11,6 @@ namespace EArm.Tests.Cli;
 /// (<c>-o none</c>, <c>-o json</c>, a bad <c>-o</c>): the exit code (1 for anything the user can fix on the command line, 2 for an
 /// invalid template), where the message goes, and that nothing is written when it fails.
 /// </summary>
-[Collection(CliCollection.Name)]
 public sealed class CliArgumentErrorTests
 {
     // ---- permissions ----

@@ -17,7 +17,6 @@ namespace EArm.Tests.Cli;
 /// default schema directory are never used: <see cref="SchemaInstallRequest.UserSettingsFile"/> and an explicit schema directory
 /// stand in for them, and <see cref="SchemaInstallRequest.SearchFrom"/> decides whether the checkout or the embedded schemas are the source.
 /// </summary>
-[Collection(CliCollection.Name)]
 public sealed class SchemaInstallerTests
 {
     private static readonly UTF8Encoding Utf8NoBom = new(encoderShouldEmitUTF8Identifier: false);

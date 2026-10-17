@@ -19,7 +19,6 @@ namespace EArm.Tests.Cli;
 /// provider, the Key Vault consent is a second request as the same account), the china and <c>--auth default</c> refusals, <c>auth status</c> with the client
 /// and the missing scopes of a template, and the consent-prompt decision of <see cref="ConsentPrompting"/>.
 /// </summary>
-[Collection(CliCollection.Name)]
 public sealed class AuthConsentCommandTests
 {
     private const string RecordJson = "{\"username\":\"alice@contoso.example\",\"authority\":\"login.microsoftonline.com\",\"homeAccountId\":\"oid.tid\",\"tenantId\":\"11111111-1111-1111-1111-111111111111\",\"clientId\":\"CLIENT\",\"version\":\"1.0\"}";

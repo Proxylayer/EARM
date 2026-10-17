@@ -58,7 +58,8 @@ public sealed class ReplicationWaitAfterCreateTests
         Assert.Equal(ChangeType.Create, op.ChangeType);
         Assert.Contains(result.Diagnostics, d => d.Code == EngineDiagnosticCodes.CreateOutcomeUncertain);
         Assert.Equal(IdOf(host.Directory.Objects(Collection).Single()), op.GraphId);
-        Assert.Equal([TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5)], host.ReplicationDelays.Delays);
+        // The adaptive schedule: 1, 2 and 4 s before the object turns up (a fixed 5 s step waited 15 s).
+        Assert.Equal([TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(4)], host.ReplicationDelays.Delays);
     }
 
     [Fact]
@@ -95,8 +96,9 @@ public sealed class ReplicationWaitAfterCreateTests
         Assert.False(result.Succeeded);
         Assert.Contains("timed out", Assert.Single(result.Operations).Error, StringComparison.Ordinal);
         Assert.Equal(0, host.Directory.Count(Collection));
-        var window = ReplicationWait.Default;
-        Assert.Equal((int)(window.Window / window.Interval), host.ReplicationDelays.Delays.Count);
+        // 1 + 2 + 4 s, then sixteen 5 s waits: 87 s scheduled, the next 5 s would pass the 90 s window.
+        Assert.Equal(19, host.ReplicationDelays.Delays.Count);
+        Assert.Equal(TimeSpan.FromSeconds(87), host.ReplicationDelays.Delays.Aggregate(TimeSpan.Zero, (sum, d) => sum + d));
         Assert.Single(host.Fake.Writes, w => w.Method == "POST" && w.Path == Collection);
     }
 
@@ -105,6 +107,27 @@ public sealed class ReplicationWaitAfterCreateTests
     {
         Assert.Throws<ArgumentOutOfRangeException>(() => new ReplicationWait { Interval = TimeSpan.Zero });
         Assert.Throws<ArgumentOutOfRangeException>(() => new ReplicationWait { Window = TimeSpan.FromSeconds(-1) });
+        Assert.Throws<ArgumentOutOfRangeException>(() => new ReplicationWait { InitialInterval = TimeSpan.Zero });
+        Assert.Throws<ArgumentOutOfRangeException>(() => ReplicationWait.Default.IntervalAfter(0));
+    }
+
+    [Fact]
+    public void TheAdaptiveSchedule_DoublesFromOneSecond_UpToTheInterval()
+    {
+        var wait = ReplicationWait.Default;
+
+        Assert.Equal([1, 2, 4, 5, 5, 5], Enumerable.Range(1, 6).Select(attempt => wait.IntervalAfter(attempt).TotalSeconds));
+        Assert.Equal(TimeSpan.FromSeconds(5), wait.Interval);
+        Assert.Equal(TimeSpan.FromSeconds(90), wait.Window);
+    }
+
+    [Fact]
+    public void TheAdaptiveSchedule_NeverExceedsTheInterval_EvenWhenTheFirstStepIsLonger()
+    {
+        var wait = new ReplicationWait { Interval = TimeSpan.FromSeconds(3), InitialInterval = TimeSpan.FromSeconds(10) };
+
+        Assert.Equal([3, 3, 3], Enumerable.Range(1, 3).Select(attempt => wait.IntervalAfter(attempt).TotalSeconds));
+        Assert.Equal(TimeSpan.FromSeconds(5), ReplicationWait.Default.IntervalAfter(int.MaxValue));
     }
 
     /// <summary>

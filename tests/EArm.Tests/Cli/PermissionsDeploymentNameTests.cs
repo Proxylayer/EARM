@@ -11,7 +11,6 @@ namespace EArm.Tests.Cli;
 /// The offline expansion behind <c>earm permissions</c> and the run scopes evaluates <c>deployment().name</c> as the run's deployment name (the template
 /// file stem without <c>-n</c>), not <c>DeploymentInfo.Offline</c>'s <c>validate</c>, so resource ids built from it match what a deployment uses.
 /// </summary>
-[Collection(CliCollection.Name)]
 public sealed class PermissionsDeploymentNameTests
 {
     private const string Body = "\"resources\": [ { \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"[format('{0}-grp', deployment().name)]\", "

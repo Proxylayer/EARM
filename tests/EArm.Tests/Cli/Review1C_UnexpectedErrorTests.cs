@@ -19,7 +19,7 @@ namespace EArm.Tests.Cli;
 /// <c>-o json</c> output could not be parsed; <c>auth status -o json</c> printed plain text on failure. The process now has one catch-all
 /// (<see cref="Program.InvokeAsync"/>) and these streams are separated.
 /// </summary>
-[Collection(CliCollection.Name)]
+[Collection(ProcessStateCollection.Name)]
 public sealed class Review1C_UnexpectedErrorTests
 {
     private static async Task<(int Exit, string Out, string Err)> RunThrowingAsync(Func<Exception> make, params string[] extraArgs)
@@ -35,7 +35,7 @@ public sealed class Review1C_UnexpectedErrorTests
             () =>
             {
                 var root = new RootCommand("test");
-                root.Options.Add(GlobalOptions.Debug);
+                root.Options.Add(GlobalOptions.CreateDebugOption());
                 var boom = new Command("boom");
                 boom.SetAction((Func<ParseResult, int>)(_ => throw make()));
                 root.Subcommands.Add(boom);

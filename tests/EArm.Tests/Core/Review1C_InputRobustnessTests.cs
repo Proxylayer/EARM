@@ -25,7 +25,6 @@ namespace EArm.Tests;
 /// library throw <see cref="FormatException"/>; a syntax error in a variable reached through another variable made the reference scanner throw
 /// <c>ExpressionParseException</c>; and a value nested 64 levels broke the JSON writer. Each is now a diagnostic.
 /// </summary>
-[Collection(CliCollection.Name)]
 public sealed class Review1C_InputRobustnessTests
 {
     // ---- repeated JSON keys ----
