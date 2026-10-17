@@ -1,7 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Azure.Core;
@@ -33,7 +31,7 @@ public sealed record GraphLogoutResult(bool RecordDeleted, int CacheFilesDeleted
 /// warning recommending <c>earm auth login</c>.
 /// The methods are virtual so tests can substitute fake credentials without a browser.
 /// </summary>
-public class GraphAuthFactory
+public partial class GraphAuthFactory
 {
     /// <summary>Name of the persistent MSAL token cache (<see cref="TokenCachePersistenceOptions.Name"/>).</summary>
     public const string CacheName = "earm";
@@ -316,166 +314,6 @@ public class GraphAuthFactory
             return null;
         }
     }
-    internal static InteractiveBrowserCredentialOptions BuildBrowserLoginOptions(GraphAuthOptions options)
-    {
-        var browser = new InteractiveBrowserCredentialOptions
-        {
-            TokenCachePersistenceOptions = new TokenCachePersistenceOptions { Name = CacheName },
-            AuthorityHost = options.Cloud.AuthorityHost,
-            ClientId = LoginClientId(options),
-        };
-
-        if (!string.IsNullOrEmpty(options.TenantId))
-        {
-            browser.TenantId = options.TenantId;
-        }
-
-        return browser;
-    }
-
-    internal static DeviceCodeCredentialOptions BuildDeviceCodeLoginOptions(GraphAuthOptions options, Func<DeviceCodeInfo, CancellationToken, Task>? deviceCodeCallback)
-    {
-        var device = new DeviceCodeCredentialOptions
-        {
-            TokenCachePersistenceOptions = new TokenCachePersistenceOptions { Name = CacheName },
-            AuthorityHost = options.Cloud.AuthorityHost,
-            DeviceCodeCallback = deviceCodeCallback ?? PrintDeviceCode,
-            ClientId = LoginClientId(options),
-        };
-
-        if (!string.IsNullOrEmpty(options.TenantId))
-        {
-            device.TenantId = options.TenantId;
-        }
-
-        return device;
-    }
-
-    /// <summary>An interactive request as the account of <paramref name="record"/> (incremental consent): its client and tenant, the same <c>earm</c> cache, the account as login hint.</summary>
-    internal static InteractiveBrowserCredentialOptions BuildBrowserConsentOptions(GraphAuthOptions options, AuthenticationRecord record)
-    {
-        var browser = BuildInteractiveOptions(options, record);
-        browser.DisableAutomaticAuthentication = false;
-        browser.LoginHint = record.Username;
-        return browser;
-    }
-
-    /// <inheritdoc cref="BuildBrowserConsentOptions"/>
-    internal static DeviceCodeCredentialOptions BuildDeviceCodeConsentOptions(GraphAuthOptions options, AuthenticationRecord record, Func<DeviceCodeInfo, CancellationToken, Task>? deviceCodeCallback)
-    {
-        var device = new DeviceCodeCredentialOptions
-        {
-            TokenCachePersistenceOptions = new TokenCachePersistenceOptions { Name = CacheName },
-            AuthorityHost = options.Cloud.AuthorityHost,
-            DeviceCodeCallback = deviceCodeCallback ?? PrintDeviceCode,
-            AuthenticationRecord = record,
-        };
-        var clientId = InteractiveClientId(options, record);
-        if (!string.IsNullOrEmpty(clientId))
-        {
-            device.ClientId = clientId;
-        }
-
-        var tenantId = !string.IsNullOrEmpty(options.TenantId) ? options.TenantId : RecordTenantId(record);
-        if (!string.IsNullOrEmpty(tenantId))
-        {
-            device.TenantId = tenantId;
-        }
-
-        return device;
-    }
-
-    /// <summary>
-    /// Interactive sign-in (browser, or device code) against the persistent encrypted cache named <see cref="CacheName"/>, then stores the
-    /// resulting <see cref="AuthenticationRecord"/>. Unencrypted token storage is never enabled: when the platform cannot protect the cache
-    /// the sign-in fails with a message that says so.
-    /// <para>
-    /// <paramref name="scopes"/> are the consents to obtain, one token request per resource: the first is the sign-in itself (a Microsoft Graph set such as
-    /// <see cref="GraphCloud.SignInScopes"/>); each further set (for example <see cref="GraphCloud.KeyVaultConsentScopes"/>) is a second interactive request
-    /// as the same account. The client is <c>--client-id</c>, else the cloud's default (<see cref="LoginClientId"/>); the record always names it, so a new
-    /// sign-in replaces a record of another client.
-    /// </para>
-    /// </summary>
-    /// <param name="options">The authentication options (cloud, tenant, client).</param>
-    /// <param name="scopes">The consents to obtain; at least one.</param>
-    /// <param name="deviceCode">Use the device-code flow instead of a browser.</param>
-    /// <param name="deviceCodeCallback">Shows the device-code instructions; null prints them to standard error.</param>
-    /// <param name="cancellationToken">Cancels the sign-in.</param>
-    /// <exception cref="GraphConfigurationException">No <c>--client-id</c> in a cloud without a default client (china).</exception>
-    /// <exception cref="GraphTransportException">The sign-in or a consent failed (<see cref="GraphTransportFailure.NotAuthenticated"/>).</exception>
-    public virtual async Task<AuthenticationRecord> LoginAsync(GraphAuthOptions options, IReadOnlyList<TokenScopes> scopes, bool deviceCode, Func<DeviceCodeInfo, CancellationToken, Task>? deviceCodeCallback, CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(options);
-        ArgumentNullException.ThrowIfNull(scopes);
-        if (scopes.Count == 0)
-        {
-            throw new ArgumentException("At least one scope set is required.", nameof(scopes));
-        }
-
-        var login = options with { ClientId = LoginClientId(options) };
-        AuthenticationRecord record;
-        try
-        {
-            record = await AuthenticateAsync(login, scopes[0], account: null, deviceCode, deviceCodeCallback, cancellationToken).ConfigureAwait(false);
-            for (var i = 1; i < scopes.Count; i++)
-            {
-                var granted = await AuthenticateAsync(login, scopes[i], record, deviceCode, deviceCodeCallback, cancellationToken).ConfigureAwait(false);
-                EnsureSameAccount(record, granted);
-            }
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            throw new GraphTransportException(GraphTransportFailure.NotAuthenticated, DescribeLoginFailure(ex), ex);
-        }
-
-        await RecordStore.SaveAsync(record, cancellationToken).ConfigureAwait(false);
-        return record;
-    }
-
-    /// <summary>
-    /// The seam that actually talks to the identity provider (browser or device code): one interactive request for <paramref name="scopes"/>. Without
-    /// <paramref name="account"/> it is a new sign-in (the client of <see cref="LoginClientId"/>); with it, an incremental consent as that account (its client
-    /// and tenant, the account as login hint). Tests override it so no browser or network is involved.
-    /// </summary>
-    internal virtual async Task<AuthenticationRecord> AuthenticateAsync(GraphAuthOptions options, TokenScopes scopes, AuthenticationRecord? account, bool deviceCode, Func<DeviceCodeInfo, CancellationToken, Task>? deviceCodeCallback, CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(scopes);
-        var context = new TokenRequestContext([.. scopes.Scopes]);
-        if (deviceCode)
-        {
-            var deviceOptions = account is null ? BuildDeviceCodeLoginOptions(options, deviceCodeCallback) : BuildDeviceCodeConsentOptions(options, account, deviceCodeCallback);
-            return await new DeviceCodeCredential(deviceOptions).AuthenticateAsync(context, cancellationToken).ConfigureAwait(false);
-        }
-
-        var browserOptions = account is null ? BuildBrowserLoginOptions(options) : BuildBrowserConsentOptions(options, account);
-        return await new InteractiveBrowserCredential(browserOptions).AuthenticateAsync(context, cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <summary>A consent prompt must be answered by the account of the sign-in: a different account would leave the stored sign-in without the grant.</summary>
-    /// <exception cref="InvalidOperationException">The prompt was completed as another account.</exception>
-    internal static void EnsureSameAccount(AuthenticationRecord expected, AuthenticationRecord actual)
-    {
-        if (!string.Equals(HomeAccountIdOf(expected), HomeAccountIdOf(actual), StringComparison.OrdinalIgnoreCase))
-        {
-            throw new InvalidOperationException($"The consent prompt was completed as {actual.Username}, not as the signed-in account {expected.Username}; nothing was consented for {expected.Username}. Run it again and choose {expected.Username}.");
-        }
-    }
-
-    private static string? HomeAccountIdOf(AuthenticationRecord record)
-    {
-        try
-        {
-            return record.HomeAccountId;
-        }
-        catch (NullReferenceException)
-        {
-            return null;
-        }
-    }
 
     /// <summary>
     /// Forgets the interactive sign-in: deletes the record and the files of the persistent <c>earm</c> token cache. The cache is private to EARM
@@ -485,7 +323,7 @@ public class GraphAuthFactory
     public virtual GraphLogoutResult Logout()
     {
         var recordDeleted = RecordStore.Delete();
-        return new GraphLogoutResult(recordDeleted, DeleteCacheFiles(_cacheDirectories));
+        return new GraphLogoutResult(recordDeleted, TokenCacheFiles.Delete(_cacheDirectories));
     }
 
     private static bool MatchesCloud(AuthenticationRecord record, GraphCloud cloud)
@@ -505,165 +343,6 @@ public class GraphAuthFactory
         if (!string.IsNullOrWhiteSpace(value) && !SafeTokenCredentialValues.Contains(value.Trim()))
         {
             throw new InvalidOperationException($"AZURE_TOKEN_CREDENTIALS is set to '{value.Trim()}', which could enable a credential that starts an external process (Azure CLI, azd, Azure PowerShell, Visual Studio). EARM never starts external processes: unset it, or use 'prod', 'EnvironmentCredential', 'WorkloadIdentityCredential' or 'ManagedIdentityCredential'.");
-        }
-    }
-
-    private static Task PrintDeviceCode(DeviceCodeInfo info, CancellationToken cancellationToken)
-    {
-        Console.Error.WriteLine(info.Message);
-        return Task.CompletedTask;
-    }
-
-    private static string DescribeLoginFailure(Exception ex)
-    {
-        var detail = GraphAuthGuidance.CredentialLines(ex);
-        var text = detail.Count > 0 ? detail[0] : ex.GetType().Name;
-        var lowered = (ex.ToString()).ToLowerInvariant();
-        if (lowered.Contains("persist", StringComparison.Ordinal) || lowered.Contains("keychain", StringComparison.Ordinal) || lowered.Contains("libsecret", StringComparison.Ordinal) || lowered.Contains("dpapi", StringComparison.Ordinal) || lowered.Contains("encrypt", StringComparison.Ordinal))
-        {
-            return "Sign-in failed: this machine cannot provide secure (encrypted) token storage, and EARM never stores tokens unencrypted. "
-                + "Use a service principal (AZURE_TENANT_ID / AZURE_CLIENT_ID / AZURE_CLIENT_SECRET) or a managed identity instead. Detail: " + text;
-        }
-
-        return "Sign-in failed: " + text;
-    }
-
-    private static int DeleteCacheFiles(IReadOnlyList<string>? explicitDirectories)
-    {
-        var deleted = 0;
-        var directories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        if (explicitDirectories is not null)
-        {
-            directories.UnionWith(explicitDirectories);
-        }
-
-        var platformDirectories = PlatformCacheDirectories();
-        if (explicitDirectories is null)
-        {
-            directories.UnionWith(platformDirectories);
-        }
-
-        if (AppContext.TryGetSwitch(ForbidPlatformCacheSwitch, out var forbidden) && forbidden)
-        {
-            var platform = new HashSet<string>(platformDirectories.Select(NormalizeDirectory), StringComparer.OrdinalIgnoreCase);
-            var hit = directories.FirstOrDefault(d => platform.Contains(NormalizeDirectory(d)));
-            if (hit is not null)
-            {
-                throw new InvalidOperationException($"Logout would delete the real '{CacheName}' token cache in '{hit}', and the switch '{ForbidPlatformCacheSwitch}' forbids that (test runs set it). Pass a temp directory as the cache directory.");
-            }
-        }
-
-        foreach (var directory in directories)
-        {
-            if (!Directory.Exists(directory))
-            {
-                continue;
-            }
-
-            foreach (var file in Directory.EnumerateFiles(directory, CacheName + "*"))
-            {
-                var name = Path.GetFileName(file);
-                if (!string.Equals(name, CacheName, StringComparison.OrdinalIgnoreCase) && !name.StartsWith(CacheName + ".", StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-
-                try
-                {
-                    File.Delete(file);
-                    deleted++;
-                }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                {
-                    // Best effort: the record is gone, so EARM no longer uses the account.
-                }
-            }
-        }
-
-        return deleted;
-    }
-
-    /// <summary>Where Azure.Identity persists the token cache on this platform: <c>.IdentityService</c> under the local application data and the user profile.</summary>
-    private static List<string> PlatformCacheDirectories()
-    {
-        var result = new List<string>();
-        foreach (var folder in new[] { Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolder.UserProfile })
-        {
-            var root = Environment.GetFolderPath(folder, Environment.SpecialFolderOption.DoNotVerify);
-            if (!string.IsNullOrEmpty(root))
-            {
-                result.Add(Path.Combine(root, ".IdentityService"));
-            }
-        }
-
-        return result;
-    }
-
-    private static string NormalizeDirectory(string directory)
-    {
-        return Path.TrimEndingDirectorySeparator(Path.GetFullPath(directory));
-    }
-
-    /// <summary>
-    /// The interactive credential of <c>auto</c> mode, with the no-fallback rule: any failure to obtain a token silently becomes an
-    /// <see cref="InteractiveSignInExpiredException"/> (which <see cref="GraphAuthGuidance.NotSignedIn"/> turns into "run 'earm auth login' or pass
-    /// '--auth default'"). Nothing else is tried. A consent failure (<see cref="ConsentRequiredException.IsConsentFailure"/>) passes through unchanged:
-    /// the sign-in is fine, it lacks consent, which the token provider reports (or prompts for).
-    /// </summary>
-    private sealed class InteractiveOnlyCredential : TokenCredential
-    {
-        private readonly TokenCredential _inner;
-        private readonly string? _account;
-
-        public InteractiveOnlyCredential(TokenCredential inner, string? account)
-        {
-            _inner = inner;
-            _account = account;
-        }
-
-        public override AccessToken GetToken(TokenRequestContext requestContext, CancellationToken cancellationToken)
-        {
-            try
-            {
-                return _inner.GetToken(requestContext, cancellationToken);
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException && !ConsentRequiredException.IsConsentFailure(ex))
-            {
-                throw new InteractiveSignInExpiredException(_account, ex);
-            }
-        }
-
-        public override async ValueTask<AccessToken> GetTokenAsync(TokenRequestContext requestContext, CancellationToken cancellationToken)
-        {
-            try
-            {
-                return await _inner.GetTokenAsync(requestContext, cancellationToken).ConfigureAwait(false);
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException && !ConsentRequiredException.IsConsentFailure(ex))
-            {
-                throw new InteractiveSignInExpiredException(_account, ex);
-            }
-        }
-    }
-
-    /// <summary>A credential that is never available; its message ends up in the "credentials tried" list.</summary>
-    private sealed class UnavailableCredential : TokenCredential
-    {
-        private readonly string _message;
-
-        public UnavailableCredential(string message)
-        {
-            _message = message;
-        }
-
-        public override AccessToken GetToken(TokenRequestContext requestContext, CancellationToken cancellationToken)
-        {
-            throw new CredentialUnavailableException(_message);
-        }
-
-        public override ValueTask<AccessToken> GetTokenAsync(TokenRequestContext requestContext, CancellationToken cancellationToken)
-        {
-            throw new CredentialUnavailableException(_message);
         }
     }
 }

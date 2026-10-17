@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Text.Json.Nodes;
 using EArm.Core;
 using EArm.Core.Diagnostics;
@@ -60,6 +59,7 @@ public sealed class StaticEvaluator
         private readonly List<Diagnostic> _diagnostics = [];
         private readonly LazyParameters _parameters;
         private readonly LazyVariables _variables;
+        private readonly ResourceKeyEvaluator _keys;
         private EvaluationContext _context;
 
         public Run(StaticEvaluator owner, TemplateDocument document)
@@ -68,6 +68,7 @@ public sealed class StaticEvaluator
             _document = document;
             _parameters = new LazyParameters(document.ParameterValues);
             _variables = new LazyVariables(document.Variables, document.VariableIterations);
+            _keys = new ResourceKeyEvaluator(owner._evaluator, document, _diagnostics);
             _context = new EvaluationContext
             {
                 Parameters = _parameters,
@@ -261,7 +262,7 @@ public sealed class StaticEvaluator
             {
                 var iteration = context.PushCopy(new CopyFrame(copyName, i, count.Value));
                 var start = new ResolvedResource { Declaration = declaration, NameKind = ResolvedNameKind.Invalid, CopyName = copyName };
-                var resolved = EvaluateName(declaration, definition, iteration, namePath, strict: false, start);
+                var resolved = _keys.EvaluateName(declaration, definition, iteration, namePath, strict: false, start);
                 if (resolved.Id is { } id)
                 {
                     index.Add(new TemplateResourceIndex.Entry(id, resolved.NameKind == ResolvedNameKind.Symbolic, declaration, copyName, i));
@@ -286,190 +287,16 @@ public sealed class StaticEvaluator
             var definition = _owner._catalog.Find(declaration.Type);
             if (declaration.Name is not null && definition is not null)
             {
-                result = EvaluateName(declaration, definition, context, namePath, strict, result);
+                result = _keys.EvaluateName(declaration, definition, context, namePath, strict, result);
             }
 
             if (strict)
             {
-                result = EvaluateCondition(declaration, context, result);
-                result = EvaluateCopy(declaration, context, result);
+                result = _keys.EvaluateCondition(declaration, context, result);
+                result = _keys.EvaluateCopy(declaration, context, result);
             }
 
             return result;
-        }
-
-        private ResolvedResource EvaluateName(ResourceDeclaration declaration, ResourceTypeDefinition definition, EvaluationContext context, JsonPath namePath, bool strict, ResolvedResource result)
-        {
-            JsonNode? value;
-            try
-            {
-                value = _owner._evaluator.EvaluateString(declaration.Name!, context);
-            }
-            catch (ExpressionException ex)
-            {
-                if (strict)
-                {
-                    Report(ex, namePath);
-                }
-
-                return result;
-            }
-
-            if (UnknownJson.ContainsTaint(value))
-            {
-                if (strict)
-                {
-                    Error(DiagnosticCodes.SecureValueInResourceKey, "A secure value flows into the resource name; names are written to output and logs and cannot be secret.", namePath);
-                }
-
-                return result with { NameValue = value };
-            }
-
-            if (UnknownJson.IsUnknown(value, out var unknown))
-            {
-                if ((unknown.Origins & UnknownOrigins.Copy) != 0)
-                {
-                    return result with { NameKind = ResolvedNameKind.CopyDependent, NameValue = value };
-                }
-
-                var symbolic = new ResourceIdentifier(definition.Type, [unknown.Symbol]);
-                return result with { NameKind = ResolvedNameKind.Symbolic, Id = symbolic, NameValue = value };
-            }
-
-            if (!JsonValues.TryGetString(value, out var name))
-            {
-                if (strict)
-                {
-                    Error(DiagnosticCodes.ResourceNameNotString, $"The resource name must evaluate to a string, got {JsonValues.Describe(value)}.", namePath);
-                }
-
-                return result with { NameValue = value };
-            }
-
-            var segments = name.Split('/');
-            if (segments.Length != definition.Depth || segments.Any(string.IsNullOrEmpty))
-            {
-                if (strict)
-                {
-                    string expected = definition.Depth == 1 ? "a single segment without '/'" : $"{definition.Depth} segments ('parent/child')";
-                    Error(DiagnosticCodes.InvalidResourceName, $"Name '{name}' (evaluated) is not valid for type '{definition.Type}': expected {expected}.", namePath);
-                }
-
-                return result with { NameValue = value };
-            }
-
-            // A literal name was checked by the core validator; a computed one is checked here, with the same rules.
-            if (ExpressionSyntax.IsExpression(declaration.Name!) && ResourceNameRules.Validate(definition, name) is { } nameProblem)
-            {
-                if (strict)
-                {
-                    Error(DiagnosticCodes.InvalidResourceName, nameProblem, namePath);
-                }
-
-                return result with { NameValue = value };
-            }
-
-            return result with
-            {
-                NameKind = ResolvedNameKind.Static,
-                Id = new ResourceIdentifier(definition.Type, segments),
-                Name = name,
-                NameValue = value,
-            };
-        }
-
-        private ResolvedResource EvaluateCondition(ResourceDeclaration declaration, EvaluationContext context, ResolvedResource result)
-        {
-            if (declaration.Condition is null)
-            {
-                return result;
-            }
-
-            var path = declaration.Path.Append("condition");
-            JsonNode? value;
-            try
-            {
-                value = _owner._evaluator.EvaluateTree(declaration.Condition, context);
-            }
-            catch (ExpressionException ex)
-            {
-                Report(ex, path);
-                return result;
-            }
-
-            if (UnknownJson.ContainsTaint(value))
-            {
-                Error(DiagnosticCodes.SecureValueInResourceKey, "A secure value flows into the resource condition; conditions are logged and cannot be secret.", path);
-                return result;
-            }
-
-            if (UnknownJson.IsUnknown(value))
-            {
-                return result with { ConditionIsDeployTime = true };
-            }
-
-            if (JsonValues.TryGetBool(value, out bool condition))
-            {
-                return result with { Condition = condition };
-            }
-
-            Error(DiagnosticCodes.ConditionNotBoolean, $"condition must evaluate to a boolean, got {JsonValues.Describe(value)}.", path);
-            return result;
-        }
-
-        private ResolvedResource EvaluateCopy(ResourceDeclaration declaration, EvaluationContext context, ResolvedResource result)
-        {
-            if (declaration.Copy is not { } copy)
-            {
-                return result;
-            }
-
-            var path = copy.Path.Append("count");
-            if (copy.Count is null)
-            {
-                return result;
-            }
-
-            JsonNode? value;
-            try
-            {
-                value = _owner._evaluator.EvaluateTree(copy.Count, context);
-            }
-            catch (ExpressionException ex)
-            {
-                Report(ex, path);
-                return result;
-            }
-
-            if (UnknownJson.ContainsTaint(value))
-            {
-                Error(DiagnosticCodes.SecureValueInResourceKey, "A secure value flows into copy.count; the loop count is logged and cannot be secret.", path);
-                return result;
-            }
-
-            if (UnknownJson.IsUnknown(value, out var unknown))
-            {
-                if ((unknown.Origins & UnknownOrigins.Copy) != 0)
-                {
-                    Error(DiagnosticCodes.InvalidCopy, "copy.count cannot depend on copyIndex().", path);
-                }
-
-                return result;
-            }
-
-            if (!JsonValues.TryGetWholeNumber(value, out long count) || count < 0)
-            {
-                Error(DiagnosticCodes.InvalidCopy, $"copy.count must evaluate to a non-negative integer, got {JsonValues.Render(value)}.", path);
-                return result;
-            }
-
-            if (count > EvaluationLimits.MaxCopyCount)
-            {
-                Error(DiagnosticCodes.ExpansionLimitExceeded, $"copy.count is {count}, more than the limit of {EvaluationLimits.MaxCopyCount} iterations per resource (the ARM limit); nothing is expanded.", path);
-                return result;
-            }
-
-            return result with { CopyCount = count };
         }
 
         /// <summary>The expansion of the whole template may not exceed <see cref="EvaluationLimits.MaxInstances"/> instances; reported before anything is expanded.</summary>
