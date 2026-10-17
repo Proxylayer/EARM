@@ -48,8 +48,16 @@ public sealed class MultiLineStringTests
         Assert.Empty(none);
         Assert.Equal(strict, same.ToArray());
 
-        var escaped = MultiLineStrings.Escape(Encoding.UTF8.GetBytes("{ \"a\": \"x\r\ny\" }"), out var insertions);
-        Assert.Equal("{ \"a\": \"x\\r\\ny\" }", Encoding.UTF8.GetString(escaped.Span));
-        Assert.Equal(2, insertions.Count);
+        var escaped = MultiLineStrings.Escape(Encoding.UTF8.GetBytes("{ \"a\": \"x\r\n\ty\", \"b\": \"p\tq\" }"), out var insertions);
+        Assert.Equal("{ \"a\": \"x\\r\\n\\ty\", \"b\": \"p\tq\" }", Encoding.UTF8.GetString(escaped.Span));
+        Assert.Equal(3, insertions.Count);
+    }
+
+    [Fact]
+    public void ARawTab_InASingleLineString_IsStillInvalidJson()
+    {
+        var ex = Assert.Throws<EArm.Core.Loading.TemplateLoadException>(() => Expr.Parse("{ \"$schema\": \"" + Review1C.SchemaUri + "\", \"contentVersion\": \"1.0.0.0\", \"resources\": [], \"metadata\": { \"a\": \"p\tq\" } }"));
+
+        Assert.Equal(DiagnosticCodes.InvalidJson, ex.Code);
     }
 }

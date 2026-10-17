@@ -4,18 +4,19 @@ using System.Collections.Generic;
 namespace EArm.Core.Json;
 
 /// <summary>
-/// Multi-line strings in a template: a raw line break (or tab) inside a string literal, which strict JSON forbids. Azure CLI and Azure PowerShell
+/// Multi-line strings in a template: a raw line break inside a string literal, which strict JSON forbids. Azure CLI and Azure PowerShell
 /// accept them in ARM templates ("You can break a string into multiple lines",
 /// https://learn.microsoft.com/azure/azure-resource-manager/templates/syntax#multi-line-strings), typically to spread a long expression over
-/// several lines; EARM, a command-line tool like them, accepts them too. Before parsing, each raw CR, LF or TAB inside a string becomes its JSON
-/// escape (<c>\r</c>, <c>\n</c>, <c>\t</c>), so the value keeps the characters as written (whitespace, for an expression). Comments are skipped.
-/// The positions of the inserted bytes are returned so locations can be mapped back to the original text.
+/// several lines; EARM, a command-line tool like them, accepts them too. Before parsing, each raw CR or LF inside a string becomes its JSON
+/// escape (<c>\r</c>, <c>\n</c>), and so does a raw TAB in a string that spans lines (indentation), so the value keeps the characters as
+/// written (whitespace, for an expression). A raw TAB in a single-line string stays invalid JSON. Comments are skipped. The positions of the
+/// inserted bytes are returned so locations can be mapped back to the original text.
 /// </summary>
 public static class MultiLineStrings
 {
     /// <summary>
-    /// The text with every raw line break and tab inside a string escaped, and the positions (in the returned text, ascending) of the bytes that
-    /// were added; the input itself, with no positions, when nothing needed escaping. The input must not start with a byte-order mark.
+    /// The text with the raw line breaks of every string escaped, and the positions (in the returned text, ascending) of the bytes that were
+    /// added; the input itself, with no positions, when no string spans lines. The input must not start with a byte-order mark.
     /// </summary>
     public static ReadOnlyMemory<byte> Escape(ReadOnlyMemory<byte> utf8, out IReadOnlyList<int> insertions)
     {
@@ -28,93 +29,96 @@ public static class MultiLineStrings
 
         var output = new List<byte>(span.Length + 64);
         var added = new List<int>();
-        bool inString = false;
-        for (int i = 0; i < span.Length; i++)
+        int i = 0;
+        while (i < span.Length)
         {
             byte b = span[i];
-            if (inString)
-            {
-                switch (b)
-                {
-                    case (byte)'\\':
-                        output.Add(b);
-                        if (i + 1 < span.Length)
-                        {
-                            output.Add(span[++i]);
-                        }
-
-                        continue;
-                    case (byte)'"':
-                        inString = false;
-                        output.Add(b);
-                        continue;
-                    case (byte)'\n' or (byte)'\r' or (byte)'\t':
-                        output.Add((byte)'\\');
-                        added.Add(output.Count);
-                        output.Add(b switch { (byte)'\n' => (byte)'n', (byte)'\r' => (byte)'r', _ => (byte)'t' });
-                        continue;
-                    default:
-                        output.Add(b);
-                        continue;
-                }
-            }
-
             if (b == (byte)'"')
             {
-                inString = true;
-            }
-            else if (b == (byte)'/' && i + 1 < span.Length && (span[i + 1] == (byte)'/' || span[i + 1] == (byte)'*'))
-            {
-                int end = CommentEnd(span, i);
-                for (; i < end; i++)
+                int end = StringEnd(span, i, out bool spansLines);
+                for (int k = i; k < end; k++)
                 {
-                    output.Add(span[i]);
+                    byte c = span[k];
+                    if (c == (byte)'\\' && k + 1 < end)
+                    {
+                        output.Add(c);
+                        output.Add(span[++k]);
+                    }
+                    else if (spansLines && c is (byte)'\n' or (byte)'\r' or (byte)'\t')
+                    {
+                        output.Add((byte)'\\');
+                        added.Add(output.Count);
+                        output.Add(c switch { (byte)'\n' => (byte)'n', (byte)'\r' => (byte)'r', _ => (byte)'t' });
+                    }
+                    else
+                    {
+                        output.Add(c);
+                    }
                 }
 
-                i--;
+                i = end;
                 continue;
             }
 
-            output.Add(b);
+            int next = b == (byte)'/' && i + 1 < span.Length && (span[i + 1] == (byte)'/' || span[i + 1] == (byte)'*') ? CommentEnd(span, i) : i + 1;
+            for (; i < next; i++)
+            {
+                output.Add(span[i]);
+            }
         }
 
         insertions = added;
         return output.ToArray();
     }
 
-    /// <summary>True when some string literal holds a raw CR, LF or TAB (a quick scan that allocates nothing).</summary>
+    /// <summary>True when some string literal holds a raw CR or LF (a quick scan that allocates nothing).</summary>
     private static bool NeedsEscaping(ReadOnlySpan<byte> span)
     {
-        bool inString = false;
-        for (int i = 0; i < span.Length; i++)
+        int i = 0;
+        while (i < span.Length)
         {
             byte b = span[i];
-            if (inString)
+            if (b == (byte)'"')
             {
-                if (b == (byte)'\\')
-                {
-                    i++;
-                }
-                else if (b == (byte)'"')
-                {
-                    inString = false;
-                }
-                else if (b is (byte)'\n' or (byte)'\r' or (byte)'\t')
+                i = StringEnd(span, i, out bool spansLines);
+                if (spansLines)
                 {
                     return true;
                 }
             }
-            else if (b == (byte)'"')
-            {
-                inString = true;
-            }
             else if (b == (byte)'/' && i + 1 < span.Length && (span[i + 1] == (byte)'/' || span[i + 1] == (byte)'*'))
             {
-                i = CommentEnd(span, i) - 1;
+                i = CommentEnd(span, i);
+            }
+            else
+            {
+                i++;
             }
         }
 
         return false;
+    }
+
+    /// <summary>The index just past the string literal that opens at <paramref name="start"/> (or the end of the text), and whether it holds a raw CR or LF.</summary>
+    private static int StringEnd(ReadOnlySpan<byte> span, int start, out bool spansLines)
+    {
+        spansLines = false;
+        for (int i = start + 1; i < span.Length; i++)
+        {
+            switch (span[i])
+            {
+                case (byte)'\\':
+                    i++;
+                    break;
+                case (byte)'"':
+                    return i + 1;
+                case (byte)'\n' or (byte)'\r':
+                    spansLines = true;
+                    break;
+            }
+        }
+
+        return span.Length;
     }
 
     /// <summary>The index just past the comment that starts at <paramref name="start"/> (<c>//</c> to the end of the line, <c>/* */</c> to its close).</summary>
