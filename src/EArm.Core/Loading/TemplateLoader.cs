@@ -63,11 +63,16 @@ public sealed class TemplateLoader : ITemplateLoader
         // (same length, so positions hold) and reported as an error below, once the load context exists.
         utf8 = LoneSurrogates.Replace(utf8, out var loneSurrogates);
 
+        // Multi-line strings (a raw line break inside a string), which Azure CLI and PowerShell accept in ARM templates, are escaped before parsing;
+        // locations are mapped back to the text as written.
+        var original = TemplateJson.StripBom(utf8);
+        var parsed = MultiLineStrings.Escape(original, out var insertions);
+
         JsonElement element;
         JsonNode? node;
         try
         {
-            (element, node) = TemplateJson.Parse(utf8, DuplicateKeys.TemplateNameMaps);
+            (element, node) = TemplateJson.Parse(parsed, DuplicateKeys.TemplateNameMaps);
         }
         catch (DuplicateJsonKeyException ex)
         {
@@ -87,7 +92,7 @@ public sealed class TemplateLoader : ITemplateLoader
             throw new TemplateLoadException(DiagnosticCodes.TemplateRootNotObject, "The template root must be a JSON object.", sourcePath, path: JsonPath.Root);
         }
 
-        var context = new LoadContext(sourcePath, SourceMap.Build(utf8));
+        var context = new LoadContext(sourcePath, insertions.Count == 0 ? SourceMap.Build(utf8) : SourceMap.Build(parsed, original, insertions));
         foreach (var escape in loneSurrogates)
         {
             context.Diagnostics.Add(Diagnostic.Error(
