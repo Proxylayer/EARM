@@ -104,7 +104,13 @@ public static class UnknownJson
 
     internal static void Visit(JsonNode? node, Action<JsonNode?> leaf)
     {
-        ValueGuard.EnsureStack();
+        // Only a container recurses, so only a container asks for stack. A scalar argument walked on the way down a deep evaluation (the taint and
+        // unknown checks of every call) must not be where the stack limit is detected: that is the evaluator's ExpressionTooDeep, not ValueTooDeep.
+        if (node is JsonObject or JsonArray)
+        {
+            ValueGuard.EnsureStack();
+        }
+
         switch (node)
         {
             case JsonObject obj:
