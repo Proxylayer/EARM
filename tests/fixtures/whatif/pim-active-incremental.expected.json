@@ -192,14 +192,17 @@
     "RoleAssignmentSchedule.ReadWrite.Directory"
   ],
   "unresolvedReferences": [],
+  "skipped": [],
   "summary": {
     "create": 1,
     "modify": 1,
     "delete": 0,
     "noChange": 1,
+    "deploy": 0,
     "ignore": 0,
     "unsupported": 0,
     "orphans": 2,
+    "skipped": 0,
     "edges": {
       "add": 0,
       "remove": 0

@@ -75,14 +75,17 @@
     "RoleManagement.ReadWrite.Directory"
   ],
   "unresolvedReferences": [],
+  "skipped": [],
   "summary": {
     "create": 2,
     "modify": 0,
     "delete": 0,
     "noChange": 0,
+    "deploy": 0,
     "ignore": 0,
     "unsupported": 0,
     "orphans": 2,
+    "skipped": 0,
     "edges": {
       "add": 0,
       "remove": 0

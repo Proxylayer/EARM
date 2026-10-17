@@ -65,7 +65,7 @@ knobs are command-line flags. Unknown top-level keys are a warning (`UnknownTopL
 | `name` | yes | The ARM-style key of the resource (see below). May be an expression, but must be computable before deployment from literals, parameters and variables (or be the same deploy-time computation as another resource: a symbolic name). |
 | `properties` | no | The Graph properties to apply, plus the relationship properties of [edges.md](edges.md). An expression string for the whole object is accepted. |
 | `dependsOn` | no | Resource ids, `type/name`, unique bare names or copy-loop names. Implicit dependencies come from `reference()` and `resourceId()` of template resources (outside relationship properties) and from nesting. |
-| `condition` | no | Boolean or expression; `false` makes the instance an `Ignore` row. |
+| `condition` | no | Boolean or expression; `false` leaves the instance out of the deployment (what-if lists it only as skipped, see [whatif.md](whatif.md#change-types)). |
 | `copy` | no | `name` (literal), `count`, `mode` (`serial`/`parallel`), `batchSize`; `copyIndex([name][, offset])` inside the resource. See [Copy loops](#copy-loops), which also covers property and output iteration. |
 | `resources` | no | Nested child resources (short `type`, short `name`, same `apiVersion` rule); two levels (parent and child) only. |
 | `comments`, `metadata` | no | Ignored. |

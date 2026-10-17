@@ -14,13 +14,40 @@ resource right before writing it (docs/engine.md, pipeline step 6), so a confirm
 ```
 DeploymentPlan (PlanMode.WhatIf)
    └─ WhatIfReport.From(plan)        rows in batch order (ties by resource id), then the orphan report rows (by type, then id);
-        │                            ARM-shaped before/after payloads; secure values masked; edge counts; summary
-        ├─ WhatIfText.Render(...)    -o table   (default)
-        └─ WhatIfJson.Build(...)     -o json
+        │                            ARM-shaped before/after payloads; secure values masked; edge counts; summary;
+        │                            the resources whose condition is false apart (Skipped)
+        └─ WhatIfView.Of(report, --result-format, --exclude-change-types)
+             ├─ WhatIfText.Render(...)    -o table   (default)
+             └─ WhatIfJson.Build(...)     -o json (and jsonc / yaml / yamlc / tsv, rendered from it)
 ```
 
 `WhatIfReport` is the single model both renderers read, so the two outputs always agree on ordering, masking and
-counts. Tests can build it from any plan and assert on `Rows`, `Summary`, `Edges` and `HasChanges`.
+counts. Tests can build it from any plan and assert on `Rows`, `Skipped`, `Summary`, `Edges` and `HasChanges`. `WhatIfView` is what one run shows: the
+report in a result format, minus the excluded change types, with the summary and edge counts of the rows shown.
+
+## Change types
+
+The `changeType` values, with ARM's meaning (Learn, "Template deployment what-if", change types) and how EARM uses each:
+
+| Change type | ARM | EARM |
+|---|---|---|
+| `Create` | The resource doesn't exist but is defined in the template. | Same. |
+| `Delete` | Complete mode: the resource exists but isn't defined in the template, and is deleted. | Never emitted: Complete mode reports such objects as orphans and never deletes them (an `Ignore` row, see below). |
+| `Modify` | The resource exists, is defined, and its properties change. | Same (`FullResourcePayloads`). |
+| `NoChange` | The resource exists, is defined, and its properties don't change. | Same (`FullResourcePayloads`). |
+| `Deploy` | The resource exists and is defined; returned with `ResourceIdOnly`, when what-if does not determine whether properties change. | Same: with `--result-format ResourceIdOnly` every existing declared resource (`Modify` or `NoChange`) is `Deploy`, symbol `!`. |
+| `Ignore` | The resource exists but isn't defined in the template (or what-if hit its limits); it is not deployed or modified. | The orphan report rows (live objects not declared, or retained assignments; never written), a resource whose condition is only known at deployment time (`?`), and a resource a provider defers to the next run (PIM not onboarded yet). |
+| `Unsupported` | The change cannot be determined or applied. | A change that cannot be applied as planned (`unsupportedReason`; the text keeps the planned symbol and adds `!`). |
+
+**A resource whose condition is false** is not part of the deployment: ARM's what-if does not list it, and neither does EARM (it used to be an `Ignore`
+row). It is kept apart as **skipped**: the text lists it only with `--verbose`, under `Skipped (condition false; not part of the deployment, nothing is read
+or written):`, and the JSON carries it in the EARM extension `skipped[]` (`{ "resourceId", "reason" }`) and in `summary.skipped`, never in `changes[]`.
+
+**`--exclude-change-types` / `-x`** (`--what-if-exclude-change-types` on `create`) hides the rows of the named change types from both formats, as the
+Azure CLI does. The filter applies to the reported change type, so `Unsupported` hides the rows that cannot be applied as planned and `Modify` does not,
+and `Deploy` matters only with `ResourceIdOnly`. The summary and the edge counts describe the rows shown; the text adds `Not shown: n row(s) of the
+excluded change types (...); they are still deployed.` Nothing about the deployment changes: `--exit-code-on-changes` and the replacement confirmation
+of `create` still see every row.
 
 ## Symbols
 
@@ -30,14 +57,15 @@ counts. Tests can build it from any plan and assert on `Rows`, `Summary`, `Edges
 | `~` | Modify: the object exists and differs (property deltas shown). Includes relationship-only changes (edge adds / removes under the declaring resource). |
 | `-` | Delete: reserved by the ARM shape. A deployment never deletes an undeclared object (Complete mode only reports it), so no row carries it; the old object of a recreate is part of its `~` row (reason "the existing object (...) is DELETED and created again"). |
 | `=` | NoChange: the object matches the template (id only; `--verbose` also prints the payload). |
-| `*` | Ignore: nothing is done. Reasons: `condition evaluated to false`, a condition that depends on a deploy-time value, or a row of the **orphan report**: `(orphan: undeclared)` / `(orphan: retained)` after the type, see [Orphan report](#orphan-report). |
+| `*` | Ignore: nothing is done. Reasons: a condition that depends on a deploy-time value, a resource a provider defers to the next run, or a row of the **orphan report**: `(orphan: undeclared)` / `(orphan: retained)` after the type, see [Orphan report](#orphan-report). A resource whose condition is false is not a row at all (see [Change types](#change-types)). |
+| `!` | Deploy (`--result-format ResourceIdOnly` only): an existing declared resource that is redeployed; property changes are not computed for the output. |
 
 A second character qualifies the row:
 
 | Suffix | Meaning |
 |---|---|
 | `?` | A deploy-time value is involved: the resource id is still symbolic (its name depends on a resource that does not exist yet), a property is only known at deployment time, or an edge target is a placeholder. Such values render as `(deploy-time)`. |
-| `!` | The change cannot be applied as planned (`unsupportedReason`): an immutable property differs on a type that cannot be recreated, a required property is missing, a read failed, a relationship could not be validated. The reason is printed on a `!` line under the row and counted in the footer. `!` wins over `?`. |
+| `!` (after the symbol) | The change cannot be applied as planned (`unsupportedReason`): an immutable property differs on a type that cannot be recreated, a required property is missing, a read failed, a relationship could not be validated. The reason is printed on a `!` line under the row and counted in the footer. `!` wins over `?`. |
 
 Secure values (`securestring` / `secureObject` parameters, tainted expression results, the type's `secure` overlay
 paths such as `passwordProfile.password`, one-time secrets such as `secretText`) are always `***`, in payloads and on
@@ -104,13 +132,10 @@ The deployment would make the following changes:
 
   = /providers/Microsoft.Entra/groups/contoso-dev-orders-ops [Microsoft.Entra/groups]
 
-  * /providers/Microsoft.Entra/conditionalAccess/namedLocations/Contoso offices [Microsoft.Entra/conditionalAccess/namedLocations]
-      (condition evaluated to false)
-
   * /providers/Microsoft.Entra/roleAssignments/22222222-0000-0000-0000-000000000060 [Microsoft.Entra/roleAssignments] (orphan: retained)
       (retained: no longer declared; still grants access (principalId '...', roleDefinitionId '...', directoryScopeId '/'). Assignments are never removed: delete it yourself if the access should end.)
 
-Resource changes: 1 to create, 3 to modify, 0 to delete, 1 unchanged, 1 ignored.
+Resource changes: 1 to create, 3 to modify, 0 to delete, 1 unchanged, 0 ignored.
 Edges: 2 to add, 0 to remove.
 Orphans: 1 live object(s) not declared in the template (reported only; never deleted).
 Required permissions: Application.ReadWrite.All, Group.ReadWrite.All, GroupMember.ReadWrite.All, User.ReadWrite.All.
@@ -152,10 +177,15 @@ Rules:
   deleted).` (only when there are orphan rows), `Required permissions: …` (sorted union of the providers' application permissions; `none.` when empty), then the
   unsupported count when non-zero, then a blank line and the diagnostics (warnings; `warning <Code>: <message>`)
   and the unresolved existing-resource lookups.
-- **`--result-format ResourceIdOnly`** prints the rows (marker, id, type), the reasons and the footer only.
+- **`--result-format ResourceIdOnly`** prints the rows (marker, id, type), the reasons and the footer only. As ARM, an existing declared resource is
+  `Deploy` (`!`, blue) instead of `Modify` / `NoChange`; the legend lists `! Deploy` and marks `?` and `!` as qualifiers written after the symbol
+  (`!!` is a Deploy row that cannot be applied as planned, `!?` one with deploy-time values), and the footer reads
+  `Resource changes: n to create, n to deploy, n to delete, n ignored.`
+- **`--exclude-change-types`** leaves out the rows of the excluded change types and adds the `Not shown: ...` line after the edge counts.
+- **`--verbose`** adds the `Skipped (condition false; ...)` section after the rows and `Skipped: n resource(s) whose condition is false.` after the footer.
 - **Colours**: ANSI only when standard output is a terminal (not redirected, not captured in-process) and neither
   `NO_COLOR` (any non-empty value) nor `AZURE_CORE_NO_COLOR` (`true` / `1` / `yes` / `on`) is set. Green `+`,
-  magenta `~`, red `-`, grey `=` / `*`, cyan `?`, bold red `!`. No column padding, so lines wrap the same at any
+  magenta `~`, red `-`, grey `=` / `*`, cyan `?`, bold red `!` (a change that cannot be applied), blue `!` (Deploy). No column padding, so lines wrap the same at any
   width.
 
 ## JSON shape (`-o json`)
@@ -201,7 +231,6 @@ Rules:
       "unsupportedReason": null
     },
     { "resourceId": "/providers/Microsoft.Entra/groups/contoso-dev-orders-ops", "changeType": "NoChange", "before": { "...": "..." }, "after": { "...": "..." }, "unsupportedReason": null },
-    { "resourceId": "/providers/Microsoft.Entra/conditionalAccess/namedLocations/Contoso offices", "changeType": "Ignore", "unsupportedReason": null, "reasons": [ "condition evaluated to false" ] },
     { "resourceId": "/providers/Microsoft.Entra/roleAssignments/22222222-0000-0000-0000-000000000060", "changeType": "Ignore",
       "orphan": "retained", "graphId": "22222222-0000-0000-0000-000000000060", "unsupportedReason": null,
       "reasons": [ "retained: no longer declared; still grants access (...). Assignments are never removed: delete it yourself if the access should end." ] }
@@ -209,7 +238,8 @@ Rules:
   "diagnostics": [ { "level": "Warning", "code": "AssignmentRetained", "target": null, "message": "..." } ],
   "requiredPermissions": [ "Application.ReadWrite.All", "Group.ReadWrite.All" ],
   "unresolvedReferences": [ { "resourceId": "/providers/Microsoft.Entra/users/cio@contoso.com", "apiVersion": "2026-10-01-preview", "reason": "..." } ],
-  "summary": { "create": 1, "modify": 2, "delete": 0, "noChange": 1, "ignore": 1, "unsupported": 0, "orphans": 1, "edges": { "add": 1, "remove": 1 } }
+  "skipped": [ { "resourceId": "/providers/Microsoft.Entra/conditionalAccess/namedLocations/Contoso offices", "reason": "condition evaluated to false" } ],
+  "summary": { "create": 1, "modify": 2, "delete": 0, "noChange": 1, "deploy": 0, "ignore": 0, "unsupported": 0, "orphans": 1, "skipped": 1, "edges": { "add": 1, "remove": 1 } }
 }
 ```
 
@@ -217,7 +247,7 @@ Rules:
 |---|---|
 | `status` | Always `Succeeded` (a failed plan exits before any what-if is rendered, see exit codes). |
 | `deploymentName`, `tenantId`, `mode` | `-n` (or the template stem), the signed-in tenant (`null` offline), `Incremental` / `Complete`. |
-| `changes[]` | Same order as the text. `resourceId` is the ARM-style id; `changeType` one of `Create`, `Modify`, `Delete`, `NoChange`, `Ignore`, or ARM's `Unsupported` for a row that cannot be applied as planned (it carries an `unsupportedReason`; the text marks it `!`). An `Unsupported` row keeps the `before` / `after` / `delta` of its planned change type (the text symbol shows that type) and is counted in `summary` under that type and under `unsupported`. |
+| `changes[]` | Same order as the text. `resourceId` is the ARM-style id; `changeType` one of `Create`, `Modify`, `Delete`, `NoChange`, `Ignore`, `Deploy` (`ResourceIdOnly` only, for an existing declared resource), or ARM's `Unsupported` for a row that cannot be applied as planned (it carries an `unsupportedReason`; the text marks it `!`). An `Unsupported` row keeps the `before` / `after` / `delta` of its planned change type (the text symbol shows that type) and is counted in `summary` under that type and under `unsupported`. |
 | `before` / `after` | `{ name, type, apiVersion, properties }`. ARM semantics: Create has `after`, Delete has `before`, Modify and NoChange have both, Ignore (orphan rows included) has neither. `after.properties` includes the relationship properties; `before.properties` is the live object as the provider reads it (server-managed properties stripped). Absent with `--result-format ResourceIdOnly`. |
 | `delta[]` | Modify rows only (ARM: Create / Delete carry only the payload). Each entry: `path`, `propertyChangeType` (`Create`, `Delete`, `Modify`, `Array`, `NoEffect`), `before` / `after` (omitted when null), `children[]`, `note` (EARM: why a declared value is held back, for example a Conditional Access `state: enabled` without `--allow-ca-enforce`; a `NoChange` row carries a `delta[]` holding only such noted deltas). Top-level paths are rooted at the resource (`properties.web.redirectUris`); child paths are relative to their parent (`[0]`, `['<memberKey>']`, `isEnabled`), as in ARM's what-if output. Absent with `ResourceIdOnly`. |
 | `orphan`, `graphId` | **Extension.** Present on the rows of the [orphan report](#orphan-report) only (always `changeType: Ignore`): `orphan` is `undeclared` (a live object of a declared type no declared resource matches, Complete mode) or `retained` (a live assignment / grant of a declared principal that is not declared, both modes); `graphId` is the live object's id. Present with `ResourceIdOnly` too. |
@@ -226,7 +256,8 @@ Rules:
 | `diagnostics[]` | `level` (`Info` / `Warning` / `Error`), `code`, `target` (template path or `null`), `message`. Planning warnings (recreates, retained assignments, an incomplete orphan report, edge warnings) plus one `UnresolvedReference` warning per unresolved existing-resource lookup. |
 | `requiredPermissions[]` | **Extension.** Sorted union of the Graph application permissions the plan needs. |
 | `unresolvedReferences[]` | **Extension.** `reference(resourceId(...), apiVersion)` lookups that could not be performed: `resourceId`, `apiVersion`, `reason`. |
-| `summary` | **Extension.** Counts per change type plus `unsupported` (rows carrying an `unsupportedReason`, `changeType: Unsupported`, already counted in their planned change type), `orphans` (orphan report rows; not counted in `ignore`) and `edges` (`add` / `remove`). |
+| `skipped[]` | **Extension.** The resources whose condition evaluated to false, in row order: `resourceId`, `reason`. ARM's what-if does not list them; they are not in `changes[]`. |
+| `summary` | **Extension.** Counts per change type of the rows shown (after `--exclude-change-types`; with `ResourceIdOnly` the existing declared resources count under `deploy`, not `modify` / `noChange`) plus `unsupported` (rows carrying an `unsupportedReason`, `changeType: Unsupported`, already counted in their planned change type), `orphans` (orphan report rows; not counted in `ignore`), `skipped` (condition false; never a row) and `edges` (`add` / `remove`). |
 
 ## Orphan report
 
@@ -265,12 +296,14 @@ with `--exit-code-on-changes`).
 | Flag | Verb | Effect |
 |---|---|---|
 | `--exit-code-on-changes` | `what-if`, `create` | `what-if` / `create --what-if`: exit `5` when the what-if contains any `Create`, `Modify` or `Delete` row, or any edge add / remove (`WhatIfReport.HasChanges`). `NoChange` and `Ignore` rows (orphan report rows included) do not count. `create` (with or without `-c`): exit `5` when the deployment succeeded and applied such a change (`DeploymentResult.HasChanges`); a failure exits `1`. |
-| `--result-format FullResourcePayloads\|ResourceIdOnly` | `what-if`, `create` | Default `FullResourcePayloads`. `ResourceIdOnly` drops payloads and deltas from both formats. |
+| `-r`, `--result-format FullResourcePayloads\|ResourceIdOnly` | `what-if`, `create` | Default `FullResourcePayloads`. `ResourceIdOnly` drops payloads and deltas from both formats and reports existing declared resources as `Deploy`. `create` also takes the Azure CLI's `--what-if-result-format`. |
+| `-x`, `--exclude-change-types <type> ...` | `what-if`, `create` | Hides the named change types (`Create`, `Delete`, `Deploy`, `Ignore`, `Modify`, `NoChange`, `Unsupported`; case-insensitive) from the output; never changes what is deployed or the exit code. `create` also takes the Azure CLI's `--what-if-exclude-change-types`. |
+| `--proceed-if-no-change` | `create` | With `-c`: no prompt when the rows shown are all `NoChange` / `Ignore` and no edge changes (the Azure CLI's test, on the filtered what-if); a replacement hidden by `-x` is still confirmed. |
 | `--no-pretty-print` | `what-if`, `create` | Compact JSON (`-o json`). |
-| `--what-if` | `create` | Alias of `deployment what-if`: same output and exit codes, never writes. |
+| `-w`, `--what-if` | `create` | Alias of `deployment what-if`: same output and exit codes, never writes. |
 | `-c` / `--confirm-with-what-if` | `create` | Prints the what-if in the selected `-o` format, asks `Are you sure you want to execute the deployment? (y/n):` and applies the same plan on `y` / `yes`. With `-o json` standard output carries one document: the what-if is embedded in the deployment result as `whatIf` (or, when the prompt is declined, in a `Failed` document with code `NotConfirmed`), and the prompt shows the what-if as text on standard error. |
 | `-y` / `--yes` | `create` | Skips the confirmation prompts: the one `-c` asks (the deployment is applied right after the what-if) and the one a plain `create` asks before it replaces objects (`Replace them? (y/n):`, after listing them on standard error). A plain `create` without replacements never prompts. Without `-y`, standard input must be interactive: without it the CLI prints `Standard input is not interactive; pass --yes to confirm.` and `Deployment not started.` to standard error and exits `1` without writing anything (`RecreateNotConfirmed` for a replacement). Answering anything but `y` / `yes` exits `1` the same way. |
-| `--verbose` | global | Also prints the payload of `NoChange` rows and the `NoEffect` deltas (and the usual debug logging on standard error). |
+| `--verbose` | global | Also prints the payload of `NoChange` rows, the `NoEffect` deltas and the skipped (condition-false) resources (and the usual debug logging on standard error). |
 
 Exit codes of the what-if path: `0` no changes or changes without `--exit-code-on-changes`,
 `5` changes with it, `2` validation failure (before anything is rendered), `3` auth / preflight / Key Vault reference,
@@ -288,9 +321,9 @@ result format; `tests/fixtures/whatif/README.md` has the seed format.
 
 | Scenario | Covers |
 |---|---|
-| `create-incremental` | Create rows (application with nested object, arrays, keyed array), symbolic service principal id (`+?` + reason), securestring password (`***`), deploy-time edge targets, `manager` to an existing user, condition-false `Ignore` row, edge adds. |
+| `create-incremental` | Create rows (application with nested object, arrays, keyed array), symbolic service principal id (`+?` + reason), securestring password (`***`), deploy-time edge targets, `manager` to an existing user, a condition-false resource (not a row: `skipped[]`), edge adds. |
 | `modify-incremental` | Scalar, keyed-member (`['id']`) modify and create, nested object + array (`web.redirectUris`), group `members` add / remove, `manager` replaced, deploy-time `memberOf` (`~?`), an in-place `mailNickname` change next to an immutable `mailEnabled` change (`~!`, JSON `changeType: Unsupported`), a `NoChange` group, a Create group. |
-| `modify-resource-id-only` | The same inputs rendered with `--result-format ResourceIdOnly`. |
+| `modify-resource-id-only` | The same inputs rendered with `--result-format ResourceIdOnly`: the existing resources as `Deploy` (`!`, `!!`, `!?`). |
 | `orphans-complete` | `--mode Complete` orphan report: a named location the template does not declare (`orphan: undeclared`), a role assignment of the declared principal whose tuple the template no longer declares (`orphan: retained`, `AssignmentRetained` warning), the `Orphans:` footer line; two Create rows; no Delete row. |
 | `retained-incremental` | The same inputs in Incremental mode: only the retained assignment is listed. |
 | `pim-eligibility-incremental` | PIM eligibility (`roleEligibilityScheduleRequests`): a `NoChange` row whose live end differs by 400 ms (1 s tolerance) and whose justification is metadata, an endDateTime `Modify` (adminUpdate, in place), an AfterDuration `Create` with the `role` sugar resolved offline and the default justification, and an undeclared eligibility of a declared principal reported as `orphan: retained` with its `AssignmentRetained` warning. |

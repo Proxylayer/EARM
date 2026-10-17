@@ -514,7 +514,7 @@ public sealed class DeploymentExecutor
 
             if (instance.IsIgnored)
             {
-                _changes[instance] = ResourceChange.Ignore(instance.Id, instance.Type, "condition evaluated to false");
+                _changes[instance] = ResourceChange.ConditionFalse(instance.Id, instance.Type);
                 _operations[instance] = new ResourceOperation(instance.Id, instance.Type, batchIndex, OperationStatus.Ignored, ChangeType.Ignore, ChangeMode.None, null, null, null, stopwatch.Elapsed);
                 return;
             }

@@ -172,7 +172,7 @@ public sealed class WhatIfGoldenTests
     }
 
     [Theory]
-    [InlineData("create-incremental", true, 4, 0, 0, 0, 1)]
+    [InlineData("create-incremental", true, 4, 0, 0, 0, 0)]
     [InlineData("modify-incremental", true, 1, 4, 0, 1, 0)]
     [InlineData("modify-resource-id-only", true, 1, 4, 0, 1, 0)]
     [InlineData("orphans-complete", true, 2, 0, 0, 0, 0)]
@@ -226,7 +226,69 @@ public sealed class WhatIfGoldenTests
         Assert.Equal("+?", sp.Marker);
         Assert.True(sp.Change.IsSymbolicId);
         Assert.Contains(sp.Reasons, r => r.Contains("the name is only known once", StringComparison.Ordinal));
-        Assert.Contains(run.Report.Rows, r => r.Type == ChangeType.Ignore && r.Reasons.Contains("condition evaluated to false"));
+
+        // A resource whose condition is false is not a what-if row (ARM does not list it): it is kept apart as skipped.
+        Assert.DoesNotContain(run.Report.Rows, r => r.IsSkipped);
+        var skipped = Assert.Single(run.Report.Skipped);
+        Assert.Equal("Microsoft.Entra/conditionalAccess/namedLocations", skipped.ResourceType);
+        Assert.True(skipped.Change.IsConditionFalse);
+        Assert.Equal(ChangeType.Ignore, skipped.Type);
+    }
+
+    [Fact]
+    public async Task ResourceIdOnly_ReportsExistingDeclaredResourcesAsDeploy_WithTheArmSymbol()
+    {
+        var run = await WhatIfScenario.Find("modify-incremental").PlanAsync();
+        var view = WhatIfView.Of(run.Report, ResultFormat.ResourceIdOnly);
+
+        Assert.Equal(["!", "!", "+", "!", "!!", "!?"], view.Rows.Select(r => r.MarkerFor(ResultFormat.ResourceIdOnly)).ToList());
+        Assert.Equal(
+            [WhatIfChangeType.Deploy, WhatIfChangeType.Deploy, WhatIfChangeType.Create, WhatIfChangeType.Deploy, WhatIfChangeType.Unsupported, WhatIfChangeType.Deploy],
+            view.Rows.Select(r => r.DisplayType(ResultFormat.ResourceIdOnly)).ToList());
+        Assert.Equal((1, 0, 0, 5, 1), (view.Summary.Create, view.Summary.Modify, view.Summary.NoChange, view.Summary.Deploy, view.Summary.Unsupported));
+
+        // FullResourcePayloads keeps Modify / NoChange.
+        Assert.Equal(WhatIfChangeType.Modify, view.Rows[0].DisplayType(ResultFormat.FullResourcePayloads));
+        Assert.Equal(WhatIfChangeType.NoChange, view.Rows[3].DisplayType(ResultFormat.FullResourcePayloads));
+    }
+
+    [Fact]
+    public async Task ExcludeChangeTypes_HidesRows_AndTheSummaryCountsWhatIsShown_ButTheExitCodeSeesEverything()
+    {
+        var run = await WhatIfScenario.Find("modify-incremental").PlanAsync();
+
+        var view = WhatIfView.Of(run.Report, ResultFormat.FullResourcePayloads, [WhatIfChangeType.Modify, WhatIfChangeType.NoChange]);
+
+        // The unsupported Modify row is reported as Unsupported, so excluding Modify keeps it (ARM filters on the reported change type).
+        Assert.Equal(["+", "~!"], view.Rows.Select(r => r.Marker).ToList());
+        Assert.True(view.IsFiltered);
+        Assert.Equal((1, 1, 0), (view.Summary.Create, view.Summary.Modify, view.Summary.NoChange));
+        Assert.True(view.ShowsChanges);
+        Assert.True(run.Report.HasChanges);
+
+        var onlyNoChange = WhatIfView.Of(run.Report, ResultFormat.FullResourcePayloads, [WhatIfChangeType.Create, WhatIfChangeType.Modify, WhatIfChangeType.Unsupported]);
+        Assert.Equal(["="], onlyNoChange.Rows.Select(r => r.Marker).ToList());
+        Assert.False(onlyNoChange.ShowsChanges);
+
+        var json = WhatIfJson.Build(view);
+        Assert.Equal(2, json["changes"]!.AsArray().Count);
+        Assert.Equal(1, json["summary"]!["create"]!.GetValue<int>());
+
+        var text = new System.IO.StringWriter();
+        WhatIfText.Render(view, text);
+        Assert.Contains("Not shown: 4 row(s) of the excluded change types (Modify, NoChange); they are still deployed.", text.ToString(), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("nochange", WhatIfChangeType.NoChange)]
+    [InlineData("Deploy", WhatIfChangeType.Deploy)]
+    [InlineData("UNSUPPORTED", WhatIfChangeType.Unsupported)]
+    public void ChangeTypeNames_ParseCaseInsensitively(string text, WhatIfChangeType expected)
+    {
+        Assert.True(WhatIfView.TryParseChangeType(text, out var type));
+        Assert.Equal(expected, type);
+        Assert.False(WhatIfView.TryParseChangeType("3", out _));
+        Assert.False(WhatIfView.TryParseChangeType("Recreate", out _));
     }
 
     [Fact]

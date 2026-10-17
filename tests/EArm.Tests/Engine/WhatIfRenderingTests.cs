@@ -57,10 +57,12 @@ public sealed class WhatIfRenderingTests
         var run = await WhatIfScenario.Find("create-incremental").PlanAsync();
 
         var ids = run.Report.Rows.Select(r => r.ResourceId).ToList();
-        var batchOrder = run.Plan.Batches.SelectMany(b => b.Instances.OrderBy(i => i.PlannedId.Id, StringComparer.Ordinal)).Select(i => i.PlannedId.Id).ToList();
+        var skipped = run.Report.Skipped.Select(r => r.ResourceId).ToHashSet(StringComparer.Ordinal);
+        var batchOrder = run.Plan.Batches.SelectMany(b => b.Instances.OrderBy(i => i.PlannedId.Id, StringComparer.Ordinal)).Select(i => i.PlannedId.Id).Where(id => !skipped.Contains(id)).ToList();
         Assert.Equal(batchOrder, ids);
         Assert.All(run.Report.Rows, r => Assert.False(r.IsOrphan));
-        Assert.Equal(run.Plan.Changes.Count, run.Report.Rows.Count);
+        Assert.Equal(run.Plan.Changes.Count, run.Report.Rows.Count + run.Report.Skipped.Count);
+        Assert.Single(skipped);
 
         var orphans = await WhatIfScenario.Find("orphans-complete").PlanAsync();
         var rows = orphans.Report.Rows;
@@ -142,10 +144,14 @@ public sealed class WhatIfRenderingTests
         Assert.DoesNotContain("~ properties.", idOnly, StringComparison.Ordinal);
         Assert.DoesNotContain("name:", idOnly, StringComparison.Ordinal);
         Assert.DoesNotContain("apiVersion:", idOnly, StringComparison.Ordinal);
-        Assert.Contains("  ~! /providers/Microsoft.Entra/groups/contoso-legacy [Microsoft.Entra/groups]", idOnly);
+        // ARM's ResourceIdOnly: an existing declared resource is "Deploy" ('!'); a change that cannot be applied adds '!' after the symbol.
+        Assert.Contains("  ! Deploy", idOnly);
+        Assert.DoesNotContain("  ~ Modify", idOnly, StringComparison.Ordinal);
+        Assert.Contains("  ! /providers/Microsoft.Entra/applications/contoso-dev-api [Microsoft.Entra/applications]", idOnly);
+        Assert.Contains("  !! /providers/Microsoft.Entra/groups/contoso-legacy [Microsoft.Entra/groups]", idOnly);
         Assert.Contains("! Immutable property", idOnly);
-        Assert.Contains("Resource changes: 1 to create, 4 to modify, 0 to delete, 1 unchanged, 0 ignored.", idOnly);
-        Assert.Contains("1 change(s) cannot be applied as planned; see the rows marked '!'.", idOnly);
+        Assert.Contains("Resource changes: 1 to create, 5 to deploy, 0 to delete, 0 ignored.", idOnly);
+        Assert.Contains("1 change(s) cannot be applied as planned; see the rows marked '!' after the symbol.", idOnly);
     }
 
     [Fact]
@@ -233,7 +239,7 @@ public sealed class WhatIfRenderingTests
 
         var json = WhatIfJson.Build(run.Report);
 
-        Assert.Equal(["status", "deploymentName", "tenantId", "mode", "changes", "diagnostics", "requiredPermissions", "unresolvedReferences", "summary"], json.Select(p => p.Key).ToList());
+        Assert.Equal(["status", "deploymentName", "tenantId", "mode", "changes", "diagnostics", "requiredPermissions", "unresolvedReferences", "skipped", "summary"], json.Select(p => p.Key).ToList());
         var summary = json["summary"]!.AsObject();
         Assert.Equal(1, summary["create"]!.GetValue<int>());
         Assert.Equal(4, summary["modify"]!.GetValue<int>());
@@ -281,11 +287,8 @@ public sealed class WhatIfRenderingTests
         Assert.Equal("retained", orphans.Single(r => r["resourceId"]!.GetValue<string>().Contains("roleAssignments", StringComparison.Ordinal) && r["orphan"] is not null)["orphan"]!.GetValue<string>());
         Assert.All(orphans.Where(r => r["orphan"] is null), r => Assert.False(r.ContainsKey("graphId")));
 
-        var ignored = Of(create, "Ignore");
-        Assert.Null(ignored["before"]);
-        Assert.Null(ignored["after"]);
-        Assert.Null(ignored["delta"]);
-        Assert.Contains("condition evaluated to false", ignored["reasons"]!.AsArray().Select(r => r!.GetValue<string>()));
+        // A resource whose condition is false is not a change: ARM's what-if does not list it.
+        Assert.DoesNotContain(create, r => r["changeType"]!.GetValue<string>() == "Ignore");
 
         var unsupported = modify.Single(c => c["unsupportedReason"] is not null);
         Assert.Equal("/providers/Microsoft.Entra/groups/contoso-legacy", unsupported["resourceId"]!.GetValue<string>());
