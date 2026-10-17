@@ -96,8 +96,33 @@ public sealed class TemplateDeleter
     }
 
     /// <summary>
+    /// <see cref="FindDeclaredObjects"/> with each delete warning computed by <see cref="IDeleteWarningSource.DescribeDeleteRiskAsync"/>, so a provider reads
+    /// what only the warning needs (an access package's delivered assignments) once, here, instead of on every key read of every run.
+    /// </summary>
+    public async Task<IReadOnlyList<DeclaredObject>> FindDeclaredObjectsAsync(DeploymentPlan plan, CancellationToken cancellationToken)
+    {
+        var found = FindDeclaredObjects(plan);
+        var result = new List<DeclaredObject>(found.Count);
+        foreach (var target in found)
+        {
+            if (target.Live is { } live && target.Instance.IsEvaluated && plan.Registry.Get(target.Instance.Type) is IDeleteWarningSource warnings and IResourceProvider provider)
+            {
+                string? risk = await warnings.DescribeDeleteRiskAsync(provider.ResolveKey(target.Instance), live, _graph, cancellationToken).ConfigureAwait(false);
+                result.Add(target with { Risk = risk });
+                continue;
+            }
+
+            result.Add(target);
+        }
+
+        return result;
+    }
+
+    /// <summary>
     /// The declared resources that exist (or could not be checked), in delete order, from a plan computed in <see cref="PlanMode.WhatIf"/>. Resources whose
-    /// condition is false, whose name is still deploy-time, or that do not exist are left out: there is nothing to delete for them.
+    /// condition is false, whose name is still deploy-time, or that do not exist are left out: there is nothing to delete for them. The delete warnings come
+    /// from what the plan's key reads returned (<see cref="IDeleteWarningSource.DescribeDeleteRisk"/>); <see cref="FindDeclaredObjectsAsync"/> lets a provider
+    /// read more for them.
     /// </summary>
     public static IReadOnlyList<DeclaredObject> FindDeclaredObjects(DeploymentPlan plan)
     {
@@ -114,7 +139,8 @@ public sealed class TemplateDeleter
             {
                 // An "existing": true resource is only read by the template, never owned by it: deleting the template leaves it alone.
                 // A nested deployment owns nothing itself: the resources of its template are in the plan and are deleted as declared objects.
-                if (instance.IsSymbolic || instance.IsIgnored || instance.Declaration.IsExisting || instance.IsDeployment)
+                // An adopt-only resource ("x-earm": { "adoptOnly": true }) was never created by the template: it is managed, but not deleted with it.
+                if (instance.IsSymbolic || instance.IsIgnored || instance.Declaration.IsExisting || instance.Declaration.AdoptOnly is not null || instance.IsDeployment)
                 {
                     continue;
                 }

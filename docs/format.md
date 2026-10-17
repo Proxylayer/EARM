@@ -74,6 +74,7 @@ There is no `apiProfile` and no deployment-settings block: deployment knobs are 
 | `copy` | no | `name` (literal), `count`, `mode` (`serial`/`parallel`), `batchSize`; `copyIndex([name][, offset])` inside the resource. See [Copy loops](#copy-loops), which also covers property and output iteration. |
 | `resources` | no | Nested child resources (short `type`, short `name`, same `apiVersion` rule); two levels (parent and child) only. |
 | `existing` | no | languageVersion 2.0: `true` reads the resource instead of deploying it (see [languageVersion 2.0](#languageversion-20)). |
+| `x-earm` | no | EARM's resource-level extension (not ARM's): `{ "adoptOnly": true, "objectId": "<object id>" }` adopts an object that must already exist and never creates it. See [Adopt-only resources](#adopt-only-resources). |
 | `comments`, `metadata` | no | Ignored. |
 
 ### Names and resource ids
@@ -147,6 +148,36 @@ deterministic, and what the what-if output and the deployment result print. `res
 | Other ARM functions | Not available (an unknown-function error): `parseCidr`, `cidrSubnet`, `cidrHost`, `listAccountSas` and the other `list*` functions. |
 | Bicep-only operators | Expressions are ARM JSON syntax: the Bicep safe-dereference `.?` and non-null assertion `!` operators do not exist. Use `tryGet(obj, 'key')`, `tryIndexFromEnd(array, n)` or `coalesce()`. |
 | Parameter constraints | As in ARM, only `defaultValue` may be an expression; an expression in `minValue`, `maxValue`, `minLength` or `maxLength` is an `InvalidParameterConstraint` error. An expression default is checked against the type and the constraints once it is evaluated. For an `array` parameter, `allowedValues` lists the values its **elements** may take (every element must be one of them). |
+
+### Adopt-only resources
+
+A resource that must already exist, and that the template adopts and manages but never creates, declares EARM's resource-level extension
+`x-earm`:
+
+```json
+{
+  "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01-preview", "name": "pg-delete-protection",
+  "properties": { "displayName": "PointGuard Delete Protection", "description": "Managed by EARM" },
+  "x-earm": { "adoptOnly": true, "objectId": "[parameters('deleteProtectionGroupId')]" }
+}
+```
+
+- `adoptOnly: true`: the object is found by the resource's key as always (for a group also by the `displayName` fallback) and updated like any
+  other resource, but a missing object is the error `AdoptOnlyNotFound` (an unsupported Create row in what-if; the deployment fails the resource
+  and creates nothing) instead of a create. `deployment delete` leaves it alone: the template never created it.
+- `objectId` (optional; a GUID, or an expression known before deployment: a parameter or variable) pins the Graph object id the key must lead to
+  and implies `adoptOnly`. Another object under the key is `AdoptedObjectMismatch`, and nothing is written to it. This turns an adoption by name
+  (a group adopted by `displayName`, a user by `userPrincipalName`) into a hard check instead of a what-if review.
+- A user that is adopt-only needs none of the create-only properties (`displayName`, `passwordProfile`…): edges-only adoption of an existing
+  account (`memberOf`, `directoryRoles`) is `{ "x-earm": { "adoptOnly": true } }` with only the properties to manage.
+
+It applies to every type (groups and users are the common cases). It differs from languageVersion 2.0 `"existing": true`, which only **reads** an
+object (no property may be declared, nothing is written); the two cannot be combined (`InvalidAdoptOnly`).
+
+**Why `x-earm` and not a plain resource key.** ARM's resource declaration has no adopt-only notion, and ARM refuses unknown resource keys, so any
+shape is an EARM extension; the `x-` prefix (the convention of vendor extensions in JSON Schema and OpenAPI, and of EARM's own type overlays)
+says so and cannot collide with a key ARM adds later. `"existing"` keeps ARM's boolean meaning (read only); `metadata` is free-form and never
+evaluated by ARM, so a pinned id from a parameter would not fit; and a key inside `properties` would be mistaken for a Graph property.
 
 ## languageVersion 2.0
 
@@ -699,6 +730,9 @@ Conventions of the per-type schemas:
   `defaults`, `immutable`, `createOnly`, `secure`, `relationships`, `memberKey`, `stripOnRead`, `nullable`, `ignoreLiveOnly`, `permissions`) drives the executor.
   `ignoreLiveOnly` lists dotted paths (`web`, `api`, `sessionControls.signInFrequency`) under which sub-properties that exist only on the live object (server-defaulted
   children) are not drift and are not nulled in a PATCH.
+  `permissions` holds `application`, `delegated`, `roles` (Entra roles that are alternatives), `rolesAllOf` (Entra roles needed together: an array of
+  parts, each an array of alternatives, for example a catalog resource's `[["Identity Governance Administrator"], ["Groups Administrator", …]]`),
+  `conditional` (per declared property) and `notes`; [permissions.md](permissions.md) describes how `earm permissions` reads them.
   The property schemas are generated from one table by `tools/New-TypeSchemas.ps1`, which keeps the overlay text untouched.
 
 `earm schema install` writes copies to `%LOCALAPPDATA%\EArm\schemas\2026-10-01\` (with the cross-file references rewritten to

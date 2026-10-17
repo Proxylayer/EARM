@@ -40,6 +40,12 @@ public sealed class ResourceRoleScopesProvider : ProviderBase, IApplyOrderSource
     /// <summary>The code when an eligible role is not offered because PIM for Groups has not onboarded the group.</summary>
     public const string NotOnboarded = EngineDiagnosticCodes.PimGroupNotOnboarded;
 
+    /// <summary>The code when Graph refuses an eligible role because the tenant has no Entra ID Governance licence (400 <c>NoGovernanceSku</c>).</summary>
+    public const string GovernanceLicenseRequired = EngineDiagnosticCodes.GovernanceLicenseRequired;
+
+    /// <summary>Graph's error code for an eligible access package role in a tenant without an Entra ID Governance licence.</summary>
+    internal const string NoGovernanceSku = "NoGovernanceSku";
+
     private const string PackageProperty = "accessPackageId";
 
     private const string OriginIdProperty = "resourceOriginId";
@@ -49,9 +55,6 @@ public sealed class ResourceRoleScopesProvider : ProviderBase, IApplyOrderSource
     private const string OriginSystemProperty = "originSystem";
 
     private const string ScopesExpand = "resourceRoleScopes($expand=role,scope)";
-
-    /// <summary>Synthesized on the live object by <see cref="ReadAsync"/>: the delivered assignments of the package (absent when they could not be read).</summary>
-    internal const string ActiveAssignmentsProperty = "activeAssignmentCount";
 
     private const string PackageNameProperty = "accessPackageDisplayName";
 
@@ -250,11 +253,6 @@ public sealed class ResourceRoleScopesProvider : ProviderBase, IApplyOrderSource
             {
                 var view = View(roleScope, packageId, groupId, JsonObjects.GetString((JsonObject)roleScope["role"]!, "displayName") ?? role);
                 view[PackageNameProperty] = JsonObjects.GetString(package, "displayName");
-                if (await EntitlementManagementGraph.CountDeliveredAssignmentsAsync(graph, packageId, key.Api, cancellationToken).ConfigureAwait(false) is { } count)
-                {
-                    view[ActiveAssignmentsProperty] = count;
-                }
-
                 return KeyView(view);
             }
         }
@@ -325,7 +323,20 @@ public sealed class ResourceRoleScopesProvider : ProviderBase, IApplyOrderSource
             ["scope"] = new JsonObject { ["originId"] = groupId, ["originSystem"] = originSystem, ["isRootScope"] = true },
         };
 
-        var response = await graph.PostAsync(new GraphRequest(ScopesPath(packageId), desired.Api, hint: desired.RetryHint), body, cancellationToken).ConfigureAwait(false);
+        GraphResponse response;
+        try
+        {
+            response = await graph.PostAsync(new GraphRequest(ScopesPath(packageId), desired.Api, hint: desired.RetryHint), body, cancellationToken).ConfigureAwait(false);
+        }
+        catch (GraphException ex) when (IsNoGovernanceSku(ex))
+        {
+            throw new ProviderException(
+                GovernanceLicenseRequired,
+                $"{desired.Describe()}: Graph refused the '{role}' role of group {groupId} ({ex.Code}: {ex.GraphMessage}). Eligible group roles in an access package need a Microsoft Entra ID Governance licence in the tenant (Learn: entitlement-management-access-package-eligible, licensing-fundamentals). Assign the licence, or grant 'Member' / 'Owner' instead of the eligible role.",
+                desired.Id,
+                ex);
+        }
+
         var live = response.Body as JsonObject
             ?? throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{desired.Describe()}: Graph returned no object for the created resource role scope.", desired.Id);
         string id = JsonObjects.GetId(live)
@@ -349,19 +360,36 @@ public sealed class ResourceRoleScopesProvider : ProviderBase, IApplyOrderSource
 
     /// <summary>
     /// The people who lose the role: Graph does not refuse the delete of a role scope while the package has assignments, it removes the role from every
-    /// assignee (Learn: entitlement-management-access-package-resources). The count is the package's delivered assignments read with the role scope.
+    /// assignee (Learn: entitlement-management-access-package-resources). Without a delete planned the assignments are not read (the key read does not
+    /// list them), so this warns that they were not counted; <see cref="DescribeDeleteRiskAsync"/> counts them.
     /// </summary>
     public string? DescribeDeleteRisk(ResourceKey key, ExistingResource live)
     {
         ArgumentNullException.ThrowIfNull(key);
         ArgumentNullException.ThrowIfNull(live);
+        return DeleteRisk(live, null, "were not counted");
+    }
+
+    /// <summary>The warning of <see cref="DescribeDeleteRisk"/> with the package's delivered assignments counted now: only when a delete is planned.</summary>
+    public async Task<string?> DescribeDeleteRiskAsync(ResourceKey key, ExistingResource live, IGraphClient graph, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        ArgumentNullException.ThrowIfNull(live);
+        ArgumentNullException.ThrowIfNull(graph);
+        string? packageId = JsonObjects.GetString(live.Raw, PackageProperty) ?? (key.TryGet(PackageProperty, out var fromKey) ? fromKey : null);
+        int? count = packageId is null ? null : await EntitlementManagementGraph.CountDeliveredAssignmentsAsync(graph, packageId, key.Api, cancellationToken).ConfigureAwait(false);
+        return DeleteRisk(live, count, "could not be read");
+    }
+
+    private static string? DeleteRisk(ExistingResource live, int? delivered, string unknown)
+    {
         string package = JsonObjects.GetString(live.Raw, PackageNameProperty) is { Length: > 0 } name
             ? $"access package '{name}' ({JsonObjects.GetString(live.Raw, PackageProperty)})"
             : $"access package {JsonObjects.GetString(live.Raw, PackageProperty)}";
         string grant = $"the '{JsonObjects.GetString(live.Raw, RoleProperty)}' role of group {JsonObjects.GetString(live.Raw, OriginIdProperty)}";
-        if (!JsonObjects.TryGetIgnoreCase(live.Raw, ActiveAssignmentsProperty, out var node) || node is not JsonValue value || !value.TryGetValue<int>(out int count))
+        if (delivered is not { } count)
         {
-            return $"The active assignments of {package} could not be read: everyone assigned the package loses {grant} when this role scope is deleted (Graph does not refuse it).";
+            return $"The active assignments of {package} {unknown}: everyone assigned the package loses {grant} when this role scope is deleted (Graph does not refuse it).";
         }
 
         return count == 0
@@ -386,6 +414,13 @@ public sealed class ResourceRoleScopesProvider : ProviderBase, IApplyOrderSource
     }
 
     // ---- helpers ----
+
+    /// <summary>Graph's 400 <c>NoGovernanceSku</c> (matched on the code, any casing; the message as a fallback when the code is generic).</summary>
+    internal static bool IsNoGovernanceSku(GraphException ex)
+    {
+        return ex.Code.Equals(NoGovernanceSku, StringComparison.OrdinalIgnoreCase)
+            || (ex.Status == System.Net.HttpStatusCode.BadRequest && ex.GraphMessage.Contains(NoGovernanceSku, StringComparison.OrdinalIgnoreCase));
+    }
 
     private static string ScopesPath(string packageId)
     {

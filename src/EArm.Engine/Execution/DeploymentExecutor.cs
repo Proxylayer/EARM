@@ -617,7 +617,7 @@ public sealed class DeploymentExecutor
                 return;
             }
 
-            var change = provider.Plan(instance, existing, _planOptions);
+            var change = AdoptOnlyCheck.Apply(_plan.Evaluator, instance, existing, provider.Plan(instance, existing, _planOptions));
             _changes[instance] = change;
             foreach (var reasonWarning in ProviderWarningReasons.DiagnosticsOf(instance, change))
             {
@@ -1035,7 +1035,7 @@ public sealed class DeploymentExecutor
                 return new RecreateOutcome(null, $"{instance.Describe()}: an immutable property changed, so the object ({existing.GraphId}) must be deleted and created again, but that replacement was not confirmed. Confirm it at the prompt or pass -y. Nothing was changed.", EngineDiagnosticCodes.RecreateNotConfirmed);
             }
 
-            if (provider is IDeleteWarningSource warnings && warnings.DescribeDeleteRisk(key, existing) is { } risk)
+            if (provider is IDeleteWarningSource warnings && await warnings.DescribeDeleteRiskAsync(key, existing, _owner._graph, cancellationToken).ConfigureAwait(false) is { } risk)
             {
                 EngineLog.DeleteWarning(Logger, instance.Id.Id, risk);
                 AddInstanceDiagnostic(instance, Diagnostic.Warning(EngineDiagnosticCodes.DestructiveDelete, $"'{instance.Id.Id}': {risk}"));

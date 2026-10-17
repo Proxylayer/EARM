@@ -102,9 +102,14 @@
       ]
     },
     {
-      "anyOf": [
-        "Identity Governance Administrator",
-        "Privileged Role Administrator"
+      "anyOf": [],
+      "allOf": [
+        [
+          "Identity Governance Administrator"
+        ],
+        [
+          "Privileged Role Administrator"
+        ]
       ],
       "resources": [
         "/providers/Microsoft.Entra/entitlementManagement/catalogResources/483b04ee-9d33-5047-8997-e46df1ffbe97",
@@ -113,7 +118,7 @@
         "/providers/Microsoft.Entra/entitlementManagement/catalogResources/7326e0e8-e55e-5c59-95ab-b5894bfd505a"
       ],
       "reasons": [
-        "provider"
+        "provider: the group is role-assignable"
       ]
     },
     {
@@ -134,6 +139,7 @@
   ],
   "notes": [
     "Delegated scopes must be present on the token that earm auth login obtains (the app registration of --client-id needs them as delegated permissions); the signed-in user must additionally hold at least one role of every 'Entra roles' group (the roles are alternatives).",
+    "An Entra roles group marked 'together' needs one role of each of its parts at the same time (for example a catalog owner role AND a role that may change the group); a part in parentheses lists alternatives.",
     "Edge permissions are listed for every relationship property the template declares (including an empty array, which removes edges). Key Vault access is an Azure RBAC / access-policy requirement of the signed-in identity, not a Graph permission."
   ]
 }

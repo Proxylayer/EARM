@@ -50,20 +50,11 @@
   "entraRoles": [
     {
       "anyOf": [
-        "Groups Administrator"
-      ],
-      "resources": [
-        "/providers/Microsoft.Entra/groups/pim-incident-leads"
-      ],
-      "reasons": [
-        "provider"
-      ]
-    },
-    {
-      "anyOf": [
+        "Directory Writers",
         "Groups Administrator",
         "Identity Governance Administrator",
-        "Privileged Role Administrator"
+        "Privileged Role Administrator",
+        "User Administrator"
       ],
       "resources": [
         "/providers/Microsoft.Entra/roleManagementPolicies/05d04bfd-8f36-52b9-977f-5aaefcec171b",
@@ -71,6 +62,17 @@
       ],
       "reasons": [
         "condition: onboarding"
+      ]
+    },
+    {
+      "anyOf": [
+        "Groups Administrator"
+      ],
+      "resources": [
+        "/providers/Microsoft.Entra/groups/pim-incident-leads"
+      ],
+      "reasons": [
+        "provider"
       ]
     },
     {

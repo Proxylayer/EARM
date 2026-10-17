@@ -608,7 +608,9 @@ listing (`DeclaredPrincipals` for roles, `DeclaredTargetGroups` for groups) repo
 `active owner:`); permanent ones are reported by `roleAssignments` or belong to the group's lists.
 
 **Template conflicts** (`IDeclarationConflictSource`, `DeclarationConflicts`): the planner asks these providers once the instances are expanded and the
-dependency graph built, before any Graph call, in what-if and deployment alike. An error `PimAssignmentConflict` is raised when
+dependency graph built, before any Graph call, in what-if and deployment alike. A `DeclarationConflict` is an error unless its `Severity` is
+`Warning`: `AssignmentPoliciesProvider` reports `AccessPackageExpirationExceedsEligibility` that way (`AccessPackageExpirationCheck`, which evaluates the
+declarations' own expressions in each instance's context; see [access-packages.md](access-packages.md)). An error `PimAssignmentConflict` is raised when
 
 - a `roleAssignmentScheduleRequests` and a `roleAssignments` resource, or an entry of the principal's `directoryRoles`, name the same principal, role and
   scope: Graph holds one assignment for both, so one type makes it time-bound and the other permanent (and re-creates it when it expires);
@@ -715,9 +717,9 @@ prepare time. `Plan` then returns: a Create row with the wait in its reasons (wh
 wait timed out (the fallback, the next run creates it); an error row `PimGroupNotOnboarded` when no request onboards the group. A role scope never
 onboards a group by itself (only a `roleManagementPolicies` onboarding opt-in does, see above).
 
-**Delete warning.** `ResourceRoleScopesProvider` implements `IDeleteWarningSource`: `ReadAsync` adds the package's display name and its delivered
-assignment count (`EntitlementManagementGraph.CountDeliveredAssignmentsAsync`, `null` on 400 / 403 / 404) to the live object, and
-`DescribeDeleteRisk` turns them into the warning `deployment delete` shows in its preview and logs before the delete (none when nobody holds the role).
+**Delete warning.** `ResourceRoleScopesProvider` implements `IDeleteWarningSource`: `ReadAsync` adds the package's display name to the live object;
+`DescribeDeleteRiskAsync` (the engine calls it only when a delete is planned: `TemplateDeleter.FindDeclaredObjectsAsync` and a replacement's delete) counts the
+delivered assignments (`EntitlementManagementGraph.CountDeliveredAssignmentsAsync`, `null` on 400 / 403 / 404) and turns them into the warning `deployment delete` shows in its preview and logs before the delete (none when nobody holds the role).
 Tests: `AccessPackagesProviderTests`, `AccessPackageOnboardingTests` and `AccessPackageRulesTests` over `FakeEntitlementManagement` (routed from `FakeDirectory`), and
 `AccessPackageScenarioTests` against a real tenant (`EARM_IT_ALLOW_ACCESS_PACKAGES=1`).
 ## Adding an edge kind

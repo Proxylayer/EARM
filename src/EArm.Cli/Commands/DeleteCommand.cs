@@ -73,7 +73,8 @@ internal static class DeleteCommand
         var plan = deployment.Plan;
         var preflight = deployment.Preflight;
         string name = invocation.EffectiveName;
-        var targets = TemplateDeleter.FindDeclaredObjects(plan);
+        var deleter = deployment.Services.CreateTemplateDeleter();
+        var targets = await deleter.FindDeclaredObjectsAsync(plan, cancellationToken).ConfigureAwait(false);
         if (targets.Count == 0)
         {
             return VerbOutput.Succeed(invocation.Output, stdout, $"Nothing to delete: none of the objects template '{invocation.TemplateFile}' declares exists in tenant {preflight.TenantId}.", json =>
@@ -88,7 +89,7 @@ internal static class DeleteCommand
             return VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.Failure, "NotConfirmed", "Nothing deleted.");
         }
 
-        var result = await deployment.Services.CreateTemplateDeleter().DeleteAsync(plan, targets, invocation.ContinueOnError, cancellationToken).ConfigureAwait(false);
+        var result = await deleter.DeleteAsync(plan, targets, invocation.ContinueOnError, cancellationToken).ConfigureAwait(false);
         return Report(invocation, name, result, stdout, stderr);
     }
 

@@ -212,12 +212,20 @@ internal static class PermissionsCommand
         var roles = new JsonArray();
         foreach (var role in report.Roles)
         {
-            roles.Add(new JsonObject
+            var entry = new JsonObject
             {
                 ["anyOf"] = new JsonArray(role.AnyOf.Select(r => (JsonNode?)JsonValue.Create(r)).ToArray()),
-                ["resources"] = new JsonArray(role.Resources.Select(r => (JsonNode?)JsonValue.Create(r)).ToArray()),
-                ["reasons"] = new JsonArray(role.Reasons.Select(r => (JsonNode?)JsonValue.Create(r)).ToArray()),
-            });
+            };
+
+            // Roles needed together: anyOf is empty and allOf lists the parts (each part an array of alternatives); plain groups carry no allOf.
+            if (role.IsTogether)
+            {
+                entry["allOf"] = new JsonArray(role.AllOf.Select(p => (JsonNode?)new JsonArray(p.Select(r => (JsonNode?)JsonValue.Create(r)).ToArray())).ToArray());
+            }
+
+            entry["resources"] = new JsonArray(role.Resources.Select(r => (JsonNode?)JsonValue.Create(r)).ToArray());
+            entry["reasons"] = new JsonArray(role.Reasons.Select(r => (JsonNode?)JsonValue.Create(r)).ToArray());
+            roles.Add(entry);
         }
 
         return new JsonObject
@@ -260,7 +268,7 @@ internal static class PermissionsCommand
 
             foreach (var role in report.Roles)
             {
-                writer.WriteLine("  " + string.Join(" | ", role.AnyOf));
+                writer.WriteLine("  " + RoleLine(role));
                 WriteResources(writer, role.Resources, role.Reasons);
             }
         }
@@ -276,6 +284,14 @@ internal static class PermissionsCommand
         {
             writer.WriteLine("note: " + note);
         }
+    }
+
+    /// <summary><c>A | B</c> for alternatives; <c>together: A + (B | C)</c> for roles needed together.</summary>
+    internal static string RoleLine(RoleRequirement role)
+    {
+        return role.IsTogether
+            ? "together: " + string.Join(" + ", role.AllOf.Select(p => p.Count == 1 ? p[0] : "(" + string.Join(" | ", p) + ")"))
+            : string.Join(" | ", role.AnyOf);
     }
 
     private static void WriteGroup(TextWriter writer, IReadOnlyList<PermissionEntry> entries, string title)

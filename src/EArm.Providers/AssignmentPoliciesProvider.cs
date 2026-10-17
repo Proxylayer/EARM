@@ -28,7 +28,7 @@ namespace EArm.Providers;
 /// </list>
 /// </summary>
 [EntraProvider(ResourceType)]
-public sealed class AssignmentPoliciesProvider : ProviderBase, IOrphanCandidateSource
+public sealed class AssignmentPoliciesProvider : ProviderBase, IOrphanCandidateSource, IDeclarationConflictSource
 {
     public const string ResourceType = "Microsoft.Entra/entitlementManagement/accessPackages/assignmentPolicies";
 
@@ -41,6 +41,12 @@ public sealed class AssignmentPoliciesProvider : ProviderBase, IOrphanCandidateS
         {
             throw new ArgumentException($"{nameof(AssignmentPoliciesProvider)} implements '{ResourceType}', not '{definition.Type}'.", nameof(definition));
         }
+    }
+
+    /// <summary>A warning when the policy's assignments outlive the PIM for Groups eligibility maximum of a group the package grants eligibly (<see cref="AccessPackageExpirationCheck"/>).</summary>
+    public IEnumerable<DeclarationConflict> DescribeConflicts(ResourceInstance instance, IReadOnlyList<ResourceInstance> declared)
+    {
+        return AccessPackageExpirationCheck.Describe(instance, declared);
     }
 
     /// <summary>The policy list of a package can miss a new policy for a moment.</summary>

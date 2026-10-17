@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- `earm permissions` expresses Entra roles needed together: a `together: A + (B | C)` line in the table, an entry with an empty
+  `anyOf` and an `allOf` array of parts in the JSON (the overlay key `rolesAllOf`). A catalog resource now needs Identity Governance
+  Administrator together with Privileged Role Administrator (role-assignable template group) or with Groups Administrator, Intune
+  Administrator or User Administrator (any other template group); an application adding a role-assignable group also needs
+  `RoleManagement.ReadWrite.Directory`.
+- `GovernanceLicenseRequired`: Graph's 400 `NoGovernanceSku` on an eligible access package role (Eligible Member / Eligible Owner) is
+  reported with the licence it needs and what to do instead. Apply-time only: the what-if does not read `subscribedSkus`.
+- `AccessPackageExpirationExceedsEligibility` (warning, before planning): an access package assignment policy whose assignments outlive
+  (or never end, `noExpiration`) the `Expiration_Admin_Eligibility` maximum the template's `roleManagementPolicies` requires for a group
+  the package grants as Eligible Member / Eligible Owner. `DeclarationConflict` gains a `Severity` so a conflict source can warn.
+- Adopt-only resources: `"x-earm": { "adoptOnly": true, "objectId": "…" }` on any resource (groups and users in particular) adopts and
+  manages an object that must already exist and never creates it (`AdoptOnlyNotFound` instead of a create; a user needs none of the
+  create-only properties); `objectId` pins the Graph object id the key must lead to (`AdoptedObjectMismatch`), which makes an adoption
+  by `displayName` a hard check. `deployment delete` leaves adopt-only objects alone. Malformed declarations are `InvalidAdoptOnly`.
+
+### Changed
+
+- `earm permissions`: a languageVersion 2.0 `"existing": true` resource needs only the read variant of its type's permissions and no
+  Entra role.
+- `earm permissions`: PIM for Groups requests (and a group policy that onboards its group) list User Administrator and Directory
+  Writers as alternatives besides Privileged Role Administrator, Identity Governance Administrator and Groups Administrator.
+- Access package resource role scopes no longer count the package's delivered assignments on every read (one call per role scope in
+  every what-if and create): the count is read only when a delete is planned (`deployment delete` and its preview, the delete half of a
+  replacement), through the new `IDeleteWarningSource.DescribeDeleteRiskAsync` and `TemplateDeleter.FindDeclaredObjectsAsync`.
+
 ### Fixed
 
 - docs/engine.md no longer says a resource whose condition is false is kept as an `Ignore` row: it is left out of the
@@ -20,7 +47,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `EvaluationBudgetExceeded`.
 - A resource whose name is built from `deployment().name` got a wrong planned id in `what-if`, `create` and `delete`
   (`g-validate` instead of `g-<deployment name>`): the static evaluation of names, ids and `dependsOn` used the offline name `validate`. It now uses the deployment
-  name (`-n` or its default); an outer-scope nested template sees the parent's deployment.
+  name (`-n` or its default); an outer-scope nested template sees the parent's deployment. `earm permissions`, the run scopes and the offline
+  expansion of nested templates evaluate `deployment().name` the same way.
 - A secure value now updates an existing object when Graph reads the property back: a conditional access policy whose
   `state` comes from a `securestring` parameter is switched to `enabled` with `--allow-ca-enforce` (it kept its live state,
   because every secure value was create-only). Such a value is compared like any other and shown as `*** => ***` when it

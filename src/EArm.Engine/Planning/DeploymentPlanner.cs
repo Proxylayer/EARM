@@ -64,7 +64,7 @@ public sealed class DeploymentPlanner
         // The templates of nested and linked deployments are checked here too (offline expansion), so a broken nested template is reported before any sign-in.
         if (document.Resources.Any(r => Core.Types.DeploymentResourceType.Is(r.Type)))
         {
-            var expansion = Permissions.OfflineTemplateExpansion.Run(document, _options.Catalog, _options.LinkedTemplates);
+            var expansion = Permissions.OfflineTemplateExpansion.Run(document, _options.Catalog, _options.LinkedTemplates, _options.DeploymentName);
             diagnostics.AddRange(expansion.Succeeded ? expansion.Warnings : expansion.Errors);
             ThrowIfErrors(diagnostics);
         }
@@ -262,7 +262,7 @@ public sealed class DeploymentPlanner
         return !instance.IsDeployment && _registry.Get(instance.Type) is IApplyOrderSource source ? source.AppliesBefore(instance, declared) : [];
     }
 
-    /// <summary>The conflicts the providers that implement <see cref="IDeclarationConflictSource"/> find among the expanded instances, as errors.</summary>
+    /// <summary>The conflicts the providers that implement <see cref="IDeclarationConflictSource"/> find among the expanded instances, as errors (or warnings, by the conflict's severity).</summary>
     private void AddDeclarationConflicts(TemplateDocument document, IReadOnlyList<ResourceInstance> instances, List<Diagnostic> diagnostics)
     {
         foreach (var instance in instances)
@@ -275,9 +275,14 @@ public sealed class DeploymentPlanner
             foreach (var conflict in source.DescribeConflicts(instance, instances))
             {
                 // A conflict found in a nested template points into that template (its file, or its place in the parent's file).
-                diagnostics.Add(instance.Scope is { IsRoot: false } scope
-                    ? scope.Error(conflict.Code, conflict.Message, conflict.Path)
-                    : Diagnostic.Error(conflict.Code, conflict.Message, conflict.Path, document.LocationOf(conflict.Path), document.SourcePath));
+                bool warning = conflict.Severity == DiagnosticSeverity.Warning;
+                diagnostics.Add((instance.Scope, warning) switch
+                {
+                    ({ IsRoot: false } scope, true) => scope.Warning(conflict.Code, conflict.Message, conflict.Path),
+                    ({ IsRoot: false } scope, false) => scope.Error(conflict.Code, conflict.Message, conflict.Path),
+                    (_, true) => Diagnostic.Warning(conflict.Code, conflict.Message, conflict.Path, document.LocationOf(conflict.Path), document.SourcePath),
+                    _ => Diagnostic.Error(conflict.Code, conflict.Message, conflict.Path, document.LocationOf(conflict.Path), document.SourcePath),
+                });
             }
         }
     }
@@ -462,7 +467,7 @@ public sealed class DeploymentPlanner
             plan.Resolver.Publish(instance.Id, existing.Raw, existing.GraphId, instance.PlannedId);
         }
 
-        var plannedChange = provider.Plan(instance, existing, plan.Options);
+        var plannedChange = AdoptOnlyCheck.Apply(plan.Evaluator, instance, existing, provider.Plan(instance, existing, plan.Options));
         if (existing is not null && plannedChange is { Type: ChangeType.Modify, Mode: ChangeMode.Recreate, HasError: false })
         {
             plannedChange = GuardRecreate(plan, instance, existing, plannedChange, warnings);

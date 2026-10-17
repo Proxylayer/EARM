@@ -1,0 +1,32 @@
+{
+  "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "One adopt-only security group: it must already exist (found by uniqueName, or adopted by displayName), is never created, and objectId pins the object id the key must lead to."
+  },
+  "parameters": {
+    "prefix":            { "type": "string" },
+    "uniqueNameSuffix":  { "type": "string", "defaultValue": "adopt-only-u" },
+    "displayNameSuffix": { "type": "string", "defaultValue": "adopt-only" },
+    "objectId":          { "type": "string" }
+  },
+  "variables": {
+    "uniqueName":  "[format('{0}-{1}', parameters('prefix'), parameters('uniqueNameSuffix'))]",
+    "displayName": "[format('{0}-{1}', parameters('prefix'), parameters('displayNameSuffix'))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Entra/groups",
+      "apiVersion": "2026-10-01-preview",
+      "name": "[variables('uniqueName')]",
+      "properties": {
+        "displayName": "[variables('displayName')]",
+        "description": "Adopted (adopt-only) by the EARM integration tests",
+        "mailEnabled": false,
+        "mailNickname": "[variables('displayName')]",
+        "securityEnabled": true
+      },
+      "x-earm": { "objectId": "[parameters('objectId')]" }
+    }
+  ]
+}

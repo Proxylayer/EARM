@@ -132,8 +132,9 @@ Role scopes have no update ([resource role scope](https://learn.microsoft.com/en
 every property is part of the key, and `deployment delete` uses `DELETE …/accessPackages/{id}/resourceRoleScopes/{id}`
 ([delete](https://learn.microsoft.com/en-us/graph/api/accesspackage-delete-resourcerolescopes?view=graph-rest-1.0)). Graph does **not** refuse that
 delete while the package has assignments: the people assigned lose the role
-([change resource roles](https://learn.microsoft.com/en-us/entra/id-governance/entitlement-management-access-package-resources)). So the role
-scope's read also counts the package's delivered assignments (`GET …/assignments?$filter=accessPackage/id eq '…' and state eq 'delivered'`,
+([change resource roles](https://learn.microsoft.com/en-us/entra/id-governance/entitlement-management-access-package-resources)). So when a delete is
+planned (`deployment delete` and its preview, or the delete half of a replacement) EARM counts the package's delivered assignments, once, instead of on every
+read of the role scope (`GET …/assignments?$filter=accessPackage/id eq '…' and state eq 'delivered'`,
 [list assignments](https://learn.microsoft.com/en-us/graph/api/entitlementmanagement-list-assignments?view=graph-rest-1.0)), and `deployment delete`
 (its preview included) **warns** before it removes a role scope people hold, like the other delete warnings: "2 active assignments of access package
 'PG Development Privileged Access' (…) hold the 'Eligible Member' role of group …". When the assignments cannot be read (403), the warning says so
@@ -148,7 +149,10 @@ The caveats:
 
 - The PIM integration is labelled **Preview** on the reference page
   ([PIM and access packages](https://learn.microsoft.com/en-us/entra/id-governance/entitlement-management-access-package-pim-reference)) and needs
-  Microsoft Entra ID Governance (or the Entra Suite).
+  Microsoft Entra ID Governance (or the Entra Suite). Without the licence Graph refuses the role scope's create with 400 `NoGovernanceSku`, which EARM
+  reports as **`GovernanceLicenseRequired`** (assign the licence, or grant Member / Owner instead). The what-if does not predict it: telling a
+  Governance SKU apart in `GET /subscribedSkus` needs a list of service plan ids Learn does not publish for this feature, and the read would add
+  `LicenseAssignment.Read.All` (or `Organization.Read.All`) to every template that grants an eligible role, so the check is apply-time only.
 - Graph v1.0 has no flag for it: `accessPackageResourceRole.type` (`active` / `eligible`) only applies to Azure resources
   ([resource role](https://learn.microsoft.com/en-us/graph/api/resources/accesspackageresourcerole?view=graph-rest-1.0)). The eligible group roles are
   separate roles in the catalog's role list, and their `originId` format is **not documented**. That is why EARM discovers the role by its display
@@ -170,8 +174,12 @@ The caveats:
     The check runs while planning when the package and the catalog resource already exist; otherwise the create reports it.
   The beta `privilegedAccess` register API is not used (it stops returning data on 28 October 2026).
 - The group's PIM policy caps the eligibility (`Expiration_Admin_Eligibility`): if the package's assignment outlives it, PIM removes the eligibility
-  while entitlement management still shows the person as assigned. Keep the policy's `expiration` within the group's eligibility maximum (EARM does
-  not compare the two yet).
+  while entitlement management still shows the person as assigned. Keep the policy's `expiration` within the group's eligibility maximum. When the template declares
+  the group's PIM policy (a `roleManagementPolicies` with `group` / `scopeId` and the same `accessId`) and its `Expiration_Admin_Eligibility` rule
+  requires an expiration, EARM compares the two before planning: a policy whose `expiration.duration` is longer than the rule's `maximumDuration`, or
+  that never expires (`noExpiration`), is the **warning** `AccessPackageExpirationExceedsEligibility` (what-if and create alike). A warning, not an
+  error: the deployment itself succeeds and the loss happens later, to the people assigned. A group policy the template does not declare is not read,
+  an `afterDateTime` end is not compared, and values only known at deployment are skipped.
 
 ### Assignment policies
 

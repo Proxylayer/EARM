@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using EArm.Engine;
 using EArm.Engine.Execution;
 using EArm.Engine.Providers;
+using EArm.Graph;
 using EArm.Providers.Tests.Infrastructure;
 using Xunit;
 using static EArm.Providers.Tests.AccessPackagesProviderTests;
@@ -46,6 +47,24 @@ public sealed class AccessPackageOnboardingTests
         int scopeBatch = run.OpOfType(ResourceRoleScopesProvider.ResourceType).Batch;
         Assert.True(requestBatch < scopeBatch, $"request batch {requestBatch}, role scope batch {scopeBatch}");
         Assert.Equal("Eligible Member", t.Host.Directory.EntitlementManagement.RoleScopes.Single()["role"]!["displayName"]!.GetValue<string>());
+    }
+
+    // Needs the correctness branch, which splits a whole-properties expression into literal values per key (AccessPackageApplyOrder matches literals).
+    // Remove the Skip when that branch is merged.
+    [Fact(Skip = "Pending the whole-properties literal split of the engine-correctness branch; enable after merging it.")]
+    public async Task ARoleScopeWhosePropertiesAreOneExpression_IsStillOrderedAfterTheRequestThatOnboardsItsGroup()
+    {
+        var t = NewTenant();
+        string alice = t.Host.Directory.AddUser("alice@contoso.com", "Alice")["id"]!.GetValue<string>();
+        string scope = Templates.Resource(ResourceRoleScopesProvider.ResourceType, Guid(2), "\"[variables('grant')]\"");
+        string grant = "\"grant\": { \"accessPackageId\": \"" + Guid(9) + "\", \"resourceOriginId\": \"" + t.GroupId + "\", \"role\": \"Eligible Member\" }";
+        var document = t.Host.Parse(Templates.Envelope(scope + ", " + Eligibility(t, alice)).Replace("\"resources\":", "\"variables\": { " + grant + " }, \"resources\":", StringComparison.Ordinal));
+
+        var plan = await t.Host.ExpandAsync(document);
+
+        var scopeInstance = plan.Instances.Single(i => i.Type == ResourceRoleScopesProvider.ResourceType);
+        var requestInstance = plan.Instances.Single(i => i.Type == GroupEligibilityScheduleRequestsProvider.ResourceType);
+        Assert.Contains(requestInstance.PlannedId, scopeInstance.Dependencies);
     }
 
     [Fact]
@@ -123,7 +142,7 @@ public sealed class AccessPackageOnboardingTests
         em.AddAssignment(packageId);
         em.AddAssignment(packageId);
 
-        var preview = TemplateDeleter.FindDeclaredObjects(await t.Host.Planner().PlanAsync(document, Engine.Planning.DeploymentMode.Incremental, Engine.Planning.PlanMode.WhatIf, ProviderHost.Ct));
+        var preview = await t.Host.Deleter().FindDeclaredObjectsAsync(await t.Host.Planner().PlanAsync(document, Engine.Planning.DeploymentMode.Incremental, Engine.Planning.PlanMode.WhatIf, ProviderHost.Ct), ProviderHost.Ct);
         string? risk = preview.Single(o => o.Instance.Type == ResourceRoleScopesProvider.ResourceType).Risk;
 
         Assert.NotNull(risk);
@@ -143,10 +162,58 @@ public sealed class AccessPackageOnboardingTests
         Check.Succeeded(await t.Host.CreateAsync(document));
 
         var plan = await t.Host.Planner().PlanAsync(document, Engine.Planning.DeploymentMode.Incremental, Engine.Planning.PlanMode.WhatIf, ProviderHost.Ct);
-        Assert.Null(TemplateDeleter.FindDeclaredObjects(plan).Single(o => o.Instance.Type == ResourceRoleScopesProvider.ResourceType).Risk);
+        Assert.Null((await t.Host.Deleter().FindDeclaredObjectsAsync(plan, ProviderHost.Ct)).Single(o => o.Instance.Type == ResourceRoleScopesProvider.ResourceType).Risk);
 
         t.Host.Directory.EntitlementManagement.AssignmentsForbidden = true;
         plan = await t.Host.Planner().PlanAsync(document, Engine.Planning.DeploymentMode.Incremental, Engine.Planning.PlanMode.WhatIf, ProviderHost.Ct);
-        Assert.Contains("could not be read", TemplateDeleter.FindDeclaredObjects(plan).Single(o => o.Instance.Type == ResourceRoleScopesProvider.ResourceType).Risk, StringComparison.Ordinal);
+        Assert.Contains("could not be read", (await t.Host.Deleter().FindDeclaredObjectsAsync(plan, ProviderHost.Ct)).Single(o => o.Instance.Type == ResourceRoleScopesProvider.ResourceType).Risk, StringComparison.Ordinal);
+    }
+
+    // ---- licence ----
+
+    [Fact]
+    public async Task NoGovernanceSku_OnAnEligibleRole_IsGovernanceLicenseRequired_WithWhatToDo()
+    {
+        var (t, template) = Onboarding();
+        t.Host.Fake.Failures.Add("POST", "/resourceRoleScopes", request => new GraphException(
+            System.Net.HttpStatusCode.BadRequest, "NoGovernanceSku", "The tenant does not have a valid governance SKU.", request.Hint));
+
+        var run = await t.Host.CreateAsync(t.Host.Resources(template), continueOnError: true);
+
+        var op = run.OpOfType(ResourceRoleScopesProvider.ResourceType);
+        Assert.Equal(EngineDiagnosticCodes.GovernanceLicenseRequired, op.ErrorCode);
+        Assert.Contains("Microsoft Entra ID Governance licence", op.Error, StringComparison.Ordinal);
+        Assert.Contains("'Eligible Member'", op.Error, StringComparison.Ordinal);
+        Assert.Empty(t.Host.Directory.EntitlementManagement.RoleScopes);
+    }
+
+    [Theory]
+    [InlineData("NoGovernanceSku", "anything", true)]
+    [InlineData("nogovernancesku", "anything", true)]
+    [InlineData("BadRequest", "Error code: NoGovernanceSku", true)]
+    [InlineData("BadRequest", "Some other problem", false)]
+    public void IsNoGovernanceSku_MatchesTheCode_OrTheMessageOfAGeneric400(string code, string message, bool expected)
+    {
+        Assert.Equal(expected, ResourceRoleScopesProvider.IsNoGovernanceSku(new GraphException(System.Net.HttpStatusCode.BadRequest, code, message)));
+    }
+
+    [Fact]
+    public async Task AWhatIf_DoesNotReadThePackagesAssignments_OnlyAPlannedDeleteDoes()
+    {
+        var t = NewTenant();
+        var document = t.Host.Resources(All(t));
+        Check.Succeeded(await t.Host.CreateAsync(document));
+        t.Host.Directory.EntitlementManagement.AddAssignment(t.Host.Directory.EntitlementManagement.Packages.Single()["id"]!.GetValue<string>());
+
+        var whatIf = await t.Host.WhatIfAsync(document);
+        Assert.DoesNotContain(whatIf.Requests, r => r.Path.EndsWith("/assignments", StringComparison.Ordinal));
+
+        // The synchronous listing has only the key reads: it says the assignments were not counted.
+        Assert.Contains("were not counted", TemplateDeleter.FindDeclaredObjects(whatIf.Plan).Single(o => o.Instance.Type == ResourceRoleScopesProvider.ResourceType).Risk, StringComparison.Ordinal);
+
+        int before = t.Host.Fake.Requests.Count;
+        var listed = await t.Host.Deleter().FindDeclaredObjectsAsync(whatIf.Plan, ProviderHost.Ct);
+        Assert.Contains("1 active assignment of", listed.Single(o => o.Instance.Type == ResourceRoleScopesProvider.ResourceType).Risk, StringComparison.Ordinal);
+        Assert.Single(t.Host.RequestsSince(before), r => r.Path.EndsWith("/assignments", StringComparison.Ordinal));
     }
 }

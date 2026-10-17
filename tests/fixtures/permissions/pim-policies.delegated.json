@@ -85,11 +85,14 @@
   "entraRoles": [
     {
       "anyOf": [
-        "Groups Administrator"
+        "Directory Writers",
+        "Groups Administrator",
+        "Identity Governance Administrator",
+        "Privileged Role Administrator",
+        "User Administrator"
       ],
       "resources": [
-        "/providers/Microsoft.Entra/groups/pim-ops-responders",
-        "/providers/Microsoft.Entra/groups/pim-privileged-admins"
+        "/providers/Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests/460c2c78-3d8e-570a-86a5-9f60311f3d74"
       ],
       "reasons": [
         "provider"
@@ -97,12 +100,11 @@
     },
     {
       "anyOf": [
-        "Groups Administrator",
-        "Identity Governance Administrator",
-        "Privileged Role Administrator"
+        "Groups Administrator"
       ],
       "resources": [
-        "/providers/Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests/460c2c78-3d8e-570a-86a5-9f60311f3d74"
+        "/providers/Microsoft.Entra/groups/pim-ops-responders",
+        "/providers/Microsoft.Entra/groups/pim-privileged-admins"
       ],
       "reasons": [
         "provider"

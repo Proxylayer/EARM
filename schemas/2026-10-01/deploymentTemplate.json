@@ -303,6 +303,7 @@
         "copy": { "$ref": "#/$defs/copy" },
         "comments": { "type": "string" },
         "metadata": { "type": "object" },
+        "x-earm": { "$ref": "#/$defs/earmResourceExtension" },
         "existing": { "type": "boolean", "description": "languageVersion 2.0: true reads an existing resource instead of deploying it; only type, apiVersion and name are needed." },
         "resources": {
           "type": "array",
@@ -368,6 +369,15 @@
           "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/entitlementManagement.accessPackages.assignmentPolicies.json" }, { "$ref": "#/$defs/expression" } ] } } } }
       ]
     },
+    "earmResourceExtension": {
+      "type": "object",
+      "description": "EARM's resource-level extension (not ARM's). adoptOnly: true adopts and manages an object that must already exist and is never created (nor deleted by deployment delete); objectId pins the Graph object id the resource's key must lead to (implies adoptOnly).",
+      "properties": {
+        "adoptOnly": { "type": "boolean" },
+        "objectId": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
     "childResource": {
       "type": "object",
       "required": ["type", "apiVersion", "name"],
@@ -393,6 +403,7 @@
         "copy": { "$ref": "#/$defs/copy" },
         "comments": { "type": "string" },
         "metadata": { "type": "object" },
+        "x-earm": { "$ref": "#/$defs/earmResourceExtension" },
         "resources": {
           "type": "array",
           "maxItems": 0,

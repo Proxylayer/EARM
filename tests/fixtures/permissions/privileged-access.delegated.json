@@ -224,6 +224,21 @@
     },
     {
       "anyOf": [
+        "Directory Writers",
+        "Groups Administrator",
+        "Identity Governance Administrator",
+        "Privileged Role Administrator",
+        "User Administrator"
+      ],
+      "resources": [
+        "/providers/Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests/3d0dacff-5b4b-5e4f-976d-92145919a68f"
+      ],
+      "reasons": [
+        "provider"
+      ]
+    },
+    {
+      "anyOf": [
         "Groups Administrator"
       ],
       "resources": [
@@ -233,19 +248,6 @@
       ],
       "reasons": [
         "edge: members",
-        "provider"
-      ]
-    },
-    {
-      "anyOf": [
-        "Groups Administrator",
-        "Identity Governance Administrator",
-        "Privileged Role Administrator"
-      ],
-      "resources": [
-        "/providers/Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests/3d0dacff-5b4b-5e4f-976d-92145919a68f"
-      ],
-      "reasons": [
         "provider"
       ]
     },

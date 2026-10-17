@@ -61,6 +61,10 @@
       "name": "RoleManagement.ReadWrite.Directory",
       "kind": "graphApplication",
       "resources": [
+        "/providers/Microsoft.Entra/entitlementManagement/catalogResources/483b04ee-9d33-5047-8997-e46df1ffbe97",
+        "/providers/Microsoft.Entra/entitlementManagement/catalogResources/63f5563d-f1a0-5d2b-871e-501c889959eb",
+        "/providers/Microsoft.Entra/entitlementManagement/catalogResources/6fbaed3d-5da3-5aea-92f9-49eef10c231c",
+        "/providers/Microsoft.Entra/entitlementManagement/catalogResources/7326e0e8-e55e-5c59-95ab-b5894bfd505a",
         "/providers/Microsoft.Entra/groups/pg-dev-approvers",
         "/providers/Microsoft.Entra/groups/pg-dev-operational-access",
         "/providers/Microsoft.Entra/groups/pg-dev-privileged-access",
@@ -68,7 +72,8 @@
         "/providers/Microsoft.Entra/groups/pg-tenant-approvers"
       ],
       "reasons": [
-        "provider"
+        "provider",
+        "provider: the group is role-assignable"
       ]
     }
   ],

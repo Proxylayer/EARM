@@ -107,7 +107,7 @@ internal sealed class PlannedDeployment : IDisposable
 
         // The delegated scopes of this run, computed offline from the loaded template before the services (and their token provider) exist. Null when the
         // template does not expand offline: the validation below then reports why.
-        var runScopes = TemplateRunScopes.Compute(document, verb);
+        var runScopes = TemplateRunScopes.Compute(document, verb, name);
 
         ILoggerFactory? loggerFactory = GlobalOptions.CreateLoggerFactory(invocation.LogLevel);
         EngineServices? services = null;
@@ -169,7 +169,7 @@ internal sealed class PlannedDeployment : IDisposable
         // A user sign-in never falls back to .default: without the run's scopes (the template did not expand offline) it stops here, before any sign-in.
         if (services.UsesDelegatedSignIn && !services.HasRunScopes)
         {
-            var expansion = OfflineTemplateExpansion.Run(document, catalog, LinkedTemplateDownloads.Reader);
+            var expansion = OfflineTemplateExpansion.Run(document, catalog, LinkedTemplateDownloads.Reader, name);
             return (FailValidation(invocation, expansion.Errors, stdout, stderr, ExitCodes.ValidationFailed), null, null);
         }
 

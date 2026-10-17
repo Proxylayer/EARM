@@ -72,14 +72,15 @@ internal sealed record DeploymentInvocation
     {
         get
         {
-            if (!string.IsNullOrWhiteSpace(Name))
-            {
-                return Name;
-            }
-
-            string stem = Path.GetFileNameWithoutExtension(TemplateFile);
-            return stem.EndsWith(".entra", StringComparison.OrdinalIgnoreCase) ? stem[..^".entra".Length] : stem;
+            return !string.IsNullOrWhiteSpace(Name) ? Name : DefaultName(TemplateFile);
         }
+    }
+
+    /// <summary>The deployment name a run of <paramref name="templateFile"/> has without <c>-n</c>: the file stem without <c>.entra</c>.</summary>
+    public static string DefaultName(string templateFile)
+    {
+        string stem = Path.GetFileNameWithoutExtension(templateFile);
+        return stem.EndsWith(".entra", StringComparison.OrdinalIgnoreCase) ? stem[..^".entra".Length] : stem;
     }
 }
 
