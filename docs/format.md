@@ -391,7 +391,8 @@ strings as ARM does, by culture-aware comparison rather than character code: a l
 `greater('A', 'a')` is true. `like(text, pattern)` ignores case and knows one wildcard, `*` (any run of characters, possibly empty); every
 other character, `?` included, matches only itself. `and`, `or`, `union` and `intersection` take at least two arguments. `union()` of objects merges nested objects
 recursively (arrays are replaced, the last one wins) and, like `intersection()`, matches property names case-insensitively (the first
-spelling is kept); `shallowMerge()` replaces nested objects whole. `array()` returns an array argument unchanged and wraps anything else.
+spelling is kept); `shallowMerge()` replaces nested objects whole. `items()` returns the entries sorted alphabetically by key, as ARM does,
+whatever order the object declares them in (case is ignored; keys that differ only in case keep a fixed ordinal order). `array()` returns an array argument unchanged and wraps anything else.
 `range(start, count)` needs `count` between 0 and 10,000 and `start + count` at most 2,147,483,647, as in ARM. `guid()` and
 `uniqueString()` compute the same values as ARM: `guid()` is the RFC 4122 version 5 UUID in ARM's namespace
 `11fb06fb-712d-4ddd-98c7-e71bbd588830` of the arguments joined with `-` (UTF-8), `uniqueString()` ARM's 13-character hash of the same

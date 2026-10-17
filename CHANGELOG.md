@@ -12,6 +12,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   deployment and the what-if lists it only as skipped (`skipped[]`).
 - `union()` and `intersection()` with a single argument are rejected (`InvalidFunctionArguments`), as ARM requires at
   least two.
+- docs/format.md now states the order of `items()`: sorted alphabetically by key, ignoring case, as ARM returns it (the
+  behaviour was already this; it is now pinned by tests).
 
 ## [0.2.0] - 2026-10-17
 
