@@ -36,7 +36,7 @@ validation code. Worked templates are in [`samples/`](../samples/README.md).
 | `variables` | no | Named values computed lazily from parameters and other variables; memoised. |
 | `functions` | no | User-defined functions: `[{ "namespace": "c", "members": { "slug": { "parameters": [...], "output": { "type": "string", "value": "[...]" } } } }]`, called as `c.slug(...)`. They may not call `reference()` or other user functions. |
 | `resources` | yes | An **array** of resources. |
-| `outputs` | no | `{ "name": { "type", "value", "condition" } }`, evaluated after everything is applied. |
+| `outputs` | no | `{ "name": { "type", "value", "condition" } }` (or `copy` instead of `value`), evaluated after everything is applied. |
 
 There is no `languageVersion`, no symbolic names, no `existing` keyword and no deployment-settings block: deployment
 knobs are command-line flags. Unknown top-level keys are a warning (`UnknownTopLevelProperty`) and are ignored.
@@ -66,7 +66,7 @@ knobs are command-line flags. Unknown top-level keys are a warning (`UnknownTopL
 | `properties` | no | The Graph properties to apply, plus the relationship properties of [edges.md](edges.md). An expression string for the whole object is accepted. |
 | `dependsOn` | no | Resource ids, `type/name`, unique bare names or copy-loop names. Implicit dependencies come from `reference()` and `resourceId()` of template resources (outside relationship properties) and from nesting. |
 | `condition` | no | Boolean or expression; `false` makes the instance an `Ignore` row. |
-| `copy` | no | `name` (literal), `count`, `mode` (`serial`/`parallel`), `batchSize`; `copyIndex([name][, offset])` inside the resource. Property-level `copy` is not supported. |
+| `copy` | no | `name` (literal), `count`, `mode` (`serial`/`parallel`), `batchSize`; `copyIndex([name][, offset])` inside the resource. See [Copy loops](#copy-loops), which also covers property and output iteration. |
 | `resources` | no | Nested child resources (short `type`, short `name`, same `apiVersion` rule); two levels (parent and child) only. |
 | `comments`, `metadata` | no | Ignored. |
 
@@ -125,7 +125,8 @@ deterministic, and what the what-if output and the deployment result print. `res
 | `existing` resources; `reference(id, apiVersion)` reads any resource | `reference(resourceId('Microsoft.Entra/…', 'name'), '2026-10-01-preview')` (the form **with** an `apiVersion`) always means an object that is **not** in the template: no dependency, an error when not found. Reference a template resource without the `apiVersion`. |
 | Relationships live in separate resources | Arrays inside `properties`, declarable from either side; see [edges.md](edges.md). |
 | Nested and linked deployments (`Microsoft.Resources/deployments`, `templateLink`) | Not supported: a template is deployed on its own. Split the work into several templates and pass values between them through parameter files. |
-| `copy` in `variables` (variable iteration) and property-level `copy` | Not supported. A `copy` block in `variables` is an `InvalidCopy` error (it is never read as a variable named `copy`); build arrays with `map(range(0, n), lambda('i', ...))` instead. |
+| `copy` in `variables` (variable iteration) | Not supported. A `copy` block in `variables` is an `InvalidCopy` error (it is never read as a variable named `copy`); build arrays with `map(range(0, n), lambda('i', ...))` instead (a variable cannot reference template resources in either form). Resource, property and output iteration are supported as in ARM ([Copy loops](#copy-loops)). |
+| Property iteration only in top-level resources | Also accepted in nested child resources (the loader flattens them to top-level declarations). |
 | `uniqueString()` and `guid()` | Deterministic and stable in EARM, but **not** the same values ARM computes for the same inputs (different hash). Do not rely on them to reproduce names or ids created by an ARM or Bicep deployment. |
 | `reference(resourceIdOrName, apiVersion, 'Full')` | `reference()` takes at most two arguments; there is no `'Full'` form (the result is always the Graph object itself). |
 | Other ARM functions | Not available (an unknown-function error): `references`, `deployer`, `dataUri`, `dataUriToString`, `parseCidr`, `cidrSubnet`, `cidrHost`, `listAccountSas` and the other `list*` functions. |
@@ -273,6 +274,79 @@ only as parameter defaults.
 - A bare `reference('name')` needs the name to be unique in the template, else `AmbiguousReference`.
 - A resource whose `name` is `[reference('app').appId]` gets a *symbolic id* during static evaluation, so everything that refers
   to it computes the same id before anything exists ([engine.md](engine.md#symbolic-names)).
+- An instance of a `copy` loop is referenced by its **evaluated name**, from anywhere in the template (a single resource, another loop,
+  a property copy, an output): `reference(format('pg-{0}-approvers', parameters('scopes')[1]))`. The name only has to be computable
+  before deployment from literals, parameters, variables and `copyIndex()`; the dependency is on that one instance, not on the loop
+  ([Copy loops](#copy-loops)).
+- The target must be computable before deployment: a target built from another resource's live values is
+  `ReferenceNotStaticallyResolvable`, and so is one built from a lambda variable (ARM does not support lambda variables inside
+  `reference()`); build such lists with a property or output copy loop instead.
+
+### Copy loops
+
+ARM's four iterations, three of which EARM supports ([Learn: resource iteration](https://learn.microsoft.com/azure/azure-resource-manager/templates/copy-resources),
+[property iteration](https://learn.microsoft.com/azure/azure-resource-manager/templates/copy-properties),
+[output iteration](https://learn.microsoft.com/azure/azure-resource-manager/templates/copy-outputs)). Every count is at most 800, may be 0,
+and must be computable before deployment from literals, parameters and variables (an error otherwise).
+
+| Iteration | Where | Shape | `copyIndex()` |
+|---|---|---|---|
+| Resource | a resource | `"copy": { "name", "count", "mode", "batchSize" }` | `copyIndex()` or `copyIndex('name')`, optional offset |
+| Property | any object inside a resource's `properties` | `"copy": [ { "name": "<property>", "count", "input" } ]`: one array property per entry, `input` evaluated once per element | `copyIndex('<property>')` only (the name is required: `copyIndex()` without one still means the resource loop) |
+| Output | an output, instead of `value` | `"copy": { "count", "input" }`: the output is the array of `input` evaluated once per element | `copyIndex()` |
+| Variable | `variables` | not supported (`InvalidCopy`); use `map(range(0, n), lambda('i', ...))` | |
+
+**References.** During static evaluation every instance of a resource loop whose count is computable is indexed under its evaluated name,
+so `reference()` and `resourceId()` find one instance exactly as they find a single resource. A reference to instance *k* creates a
+dependency on instance *k* only; `dependsOn: ["<loop name>"]` waits for every instance. Inside a property or output loop each element
+is evaluated with its own `copyIndex()`, so a list of references built by property iteration depends on exactly the instances it names.
+When a loop's count is only known at deployment (it uses a `reference()`), its instances cannot be referenced by name
+(`ReferenceTargetNotFound`, naming the loop); when it waits only for a parameter that has no value offline, `deployment validate`
+defers the reference with `ReferenceDependsOnMissingParameter`.
+
+```json
+"properties": {
+  "copy": [ {
+    "name": "memberOf",
+    "count": "[length(parameters('scopes'))]",
+    "input": "[reference(format('pg-{0}-approvers', parameters('scopes')[copyIndex('memberOf')].key)).id]"
+  } ]
+}
+```
+
+```json
+"outputs": {
+  "approverGroups": {
+    "type": "array",
+    "copy": {
+      "count": "[length(parameters('scopes'))]",
+      "input": { "scope": "[parameters('scopes')[copyIndex()].key]", "id": "[reference(format('pg-{0}-approvers', parameters('scopes')[copyIndex()].key)).id]" }
+    }
+  }
+}
+```
+
+**Nested loops.** ARM has no nested resource loops; a loop over two dimensions (scopes x tiers) is **one** loop over the flattened
+cartesian product. Either build the product as a variable and index it:
+
+```json
+"variables": {
+  "scopeTiers": "[flatten(map(parameters('scopes'), lambda('s', map(variables('tiers'), lambda('t', createObject('scope', lambdaVariables('s').key, 'tier', lambdaVariables('t'), 'uniqueName', format('pg-{0}-{1}-access', lambdaVariables('s').key, lambdaVariables('t'))))))))]"
+},
+"resources": [ {
+  "copy": { "name": "accessGroups", "count": "[length(variables('scopeTiers'))]" },
+  "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01-preview",
+  "name": "[variables('scopeTiers')[copyIndex()].uniqueName]",
+  "properties": { "displayName": "[variables('scopeTiers')[copyIndex()].uniqueName]" }
+} ]
+```
+
+or compute both indexes from `copyIndex()` with `div` and `mod`:
+`count` = `[mul(length(parameters('scopes')), length(variables('tiers')))]`, scope = `parameters('scopes')[div(copyIndex(), length(variables('tiers')))]`,
+tier = `variables('tiers')[mod(copyIndex(), length(variables('tiers')))]`. The instances, their references, their dependencies and output
+loops over the same array then work like any other loop. A property copy inside a resource loop is the other legitimate nesting:
+each resource instance builds its own array (`copyIndex()` for the resource, `copyIndex('<property>')` for the element).
+[`samples/scoped-access-groups.entra.json`](../samples/scoped-access-groups.entra.json) puts all of it together.
 
 ### Evaluation phases and secure values
 
@@ -378,6 +452,9 @@ Secrets User` or the `get` secret permission of an access policy); that is an Az
   "ciSecret":  { "type": "securestring", "value": "[reference(resourceId('Microsoft.Entra/applications/passwordCredentials', variables('appName'), 'ci-secret')).secretText]" }
 }
 ```
+
+An output may declare `"copy": { "count", "input" }` instead of `value`: its value is then the array of `input` evaluated once per
+element, with `copyIndex()` bound to the position ([Copy loops](#copy-loops)).
 
 Outputs are evaluated after the edge pass. A `securestring` / `secureObject` output (or any tainted value) prints as `***` unless
 `--reveal-secure-outputs`; `--secure-outputs-file <path>` writes the revealed values to a file with owner-only permissions.

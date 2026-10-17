@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using EArm.Core;
+using EArm.Core.Json;
 using EArm.Core.Types;
 using EArm.Engine.Providers;
 
@@ -342,7 +343,7 @@ public static class PermissionManifest
     /// <summary>True when the instance's declaration carries <paramref name="property"/> (an empty array and an explicit null still act: they remove edges).</summary>
     private static bool Declares(ResourceInstance instance, string property)
     {
-        return instance.Declaration.Properties is JsonObject declared && JsonObjects.FindKey(declared, property) is not null;
+        return instance.Declaration.Properties is JsonObject declared && PropertyCopyBlock.Declares(declared, property);
     }
 
     private static void AddRoles(ResourceInstance instance, string resource, Accumulator roles)

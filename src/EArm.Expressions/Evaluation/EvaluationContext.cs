@@ -31,15 +31,17 @@ public enum EvaluationScope
 
 /// <summary>
 /// One active <c>copy</c> loop. <see cref="Index"/> is <c>-1</c> while the loop is known but the iteration is not
-/// (static evaluation), in which case <c>copyIndex()</c> yields an unknown value.
+/// (static evaluation), in which case <c>copyIndex()</c> yields an unknown value. <see cref="RequiresName"/> marks a
+/// property iteration: ARM addresses it only by name (<c>copyIndex('name')</c>), so <c>copyIndex()</c> without a name
+/// still means the resource (or output) loop around it.
 /// </summary>
-public sealed record CopyFrame(string Name, long Index, long? Count = null)
+public sealed record CopyFrame(string Name, long Index, long? Count = null, bool RequiresName = false)
 {
     public bool IsConcrete => Index >= 0;
 
-    public static CopyFrame Unresolved(string name, long? count = null)
+    public static CopyFrame Unresolved(string name, long? count = null, bool requiresName = false)
     {
-        return new CopyFrame(name, -1, count);
+        return new CopyFrame(name, -1, count, requiresName);
     }
 }
 
@@ -99,8 +101,22 @@ public sealed record EvaluationContext
     /// <summary><c>utcNow()</c> and <c>newGuid()</c> are only legal in parameter defaults.</summary>
     public bool AllowNonDeterministic => Scope == EvaluationScope.ParameterDefault;
 
-    /// <summary>The innermost copy loop, or <c>null</c>.</summary>
-    public CopyFrame? CurrentCopy => CopyStack.IsEmpty ? null : CopyStack.Peek();
+    /// <summary>The innermost copy loop <c>copyIndex()</c> without a name refers to (property iterations are skipped), or <c>null</c>.</summary>
+    public CopyFrame? CurrentCopy
+    {
+        get
+        {
+            foreach (var frame in CopyStack)
+            {
+                if (!frame.RequiresName)
+                {
+                    return frame;
+                }
+            }
+
+            return null;
+        }
+    }
 
     public EvaluationContext ForScope(EvaluationScope scope)
     {

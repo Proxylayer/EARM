@@ -71,7 +71,7 @@ public sealed class EdgePlanner
         {
             foreach (var spec in instance.Definition.Relationships)
             {
-                if (EdgeKinds.TryFromRelationship(spec.Kind, out _) && JsonObjects.TryGetIgnoreCase(properties, spec.Property, out _))
+                if (EdgeKinds.TryFromRelationship(spec.Kind, out _) && PropertyCopyBlock.Declares(properties, spec.Property))
                 {
                     return true;
                 }
@@ -145,7 +145,7 @@ public sealed class EdgePlanner
             return null;
         }
 
-        bool declaresAny = instance.Declaration.Properties is JsonObject raw && specs.Any(s => JsonObjects.TryGetIgnoreCase(raw, s.Property, out _));
+        bool declaresAny = instance.Declaration.Properties is JsonObject raw && specs.Any(s => PropertyCopyBlock.Declares(raw, s.Property));
         if (!declaresAny)
         {
             return null;
@@ -484,7 +484,7 @@ public sealed class EdgePlanner
 
             foreach (var spec in instance.Definition.Relationships)
             {
-                if (spec.Side == RelationshipSide.Principal && EdgeKinds.TryFromRelationship(spec.Kind, out var kind) && kind == set.Handler.Kind && JsonObjects.TryGetIgnoreCase(declared, spec.Property, out _))
+                if (spec.Side == RelationshipSide.Principal && EdgeKinds.TryFromRelationship(spec.Kind, out var kind) && kind == set.Handler.Kind && PropertyCopyBlock.Declares(declared, spec.Property))
                 {
                     return instance.Describe();
                 }

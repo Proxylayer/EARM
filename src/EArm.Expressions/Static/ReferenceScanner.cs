@@ -56,11 +56,17 @@ public sealed record ReferenceScanResult(IReadOnlyList<ReferenceOccurrence> Occu
 /// <c>ReferenceNotStaticallyResolvable</c> (copy-dependent targets are deferred instead).
 /// <para>
 /// Calls inside a lambda body are evaluated with the lambda's parameters bound to unknown placeholders
-/// (<c>lambdaVariables('x')</c>, origin <see cref="UnknownOrigins.Reference"/>): a target that does not depend on
-/// the element resolves as usual, one that does is not statically resolvable.
+/// (<c>lambdaVariables('x')</c>, origin <see cref="UnknownOrigins.Reference"/>): a target that does not use a lambda
+/// variable resolves as usual; a <c>reference()</c> whose arguments use one is refused, as ARM refuses it.
+/// </para>
+/// <para>
+/// In resource properties a property iteration block (<c>"copy": [ { name, count, input } ]</c>) is walked once per element
+/// with a concrete <see cref="CopyFrame"/> when its count is known, so <c>reference()</c> of a copy-loop instance computed
+/// from <c>copyIndex('name')</c> resolves to that one instance; its occurrences carry the path of the element they build
+/// (<c>properties.memberOf[2]</c>). <see cref="ScanOutputCopy"/> does the same for an output loop.
 /// </para>
 /// </summary>
-public static class ReferenceScanner
+public static partial class ReferenceScanner
 {
     public static ReferenceScanResult Scan(ExpressionEvaluator evaluator, JsonNode? node, StaticContext context, EvaluationContext evaluationContext, JsonPath basePath)
     {
@@ -71,50 +77,43 @@ public static class ReferenceScanner
 
         var occurrences = new List<ReferenceOccurrence>();
         var diagnostics = new List<Diagnostic>();
-        Walk(evaluator, node, context, evaluationContext, basePath, occurrences, diagnostics);
+        new TreeScan(evaluator, context, occurrences, diagnostics).Walk(node, evaluationContext, basePath, basePath);
         return new ReferenceScanResult(occurrences, diagnostics);
     }
 
-    private static void Walk(ExpressionEvaluator evaluator, JsonNode? node, StaticContext context, EvaluationContext evaluationContext, JsonPath path, List<ReferenceOccurrence> occurrences, List<Diagnostic> diagnostics)
+    /// <summary>
+    /// Scans the <c>input</c> of an output loop (<c>"copy": { count, input }</c>): once per element with <c>copyIndex()</c> bound when the
+    /// count is known, otherwise once with the iteration unresolved. Count errors are reported at <c>copy.count</c>.
+    /// </summary>
+    public static ReferenceScanResult ScanOutputCopy(ExpressionEvaluator evaluator, OutputCopy copy, string outputName, StaticContext context, EvaluationContext evaluationContext)
     {
-        switch (node)
-        {
-            case JsonObject obj:
-                foreach (var property in obj)
-                {
-                    Walk(evaluator, property.Value, context, evaluationContext, path.Append(property.Key), occurrences, diagnostics);
-                }
+        ArgumentNullException.ThrowIfNull(evaluator);
+        ArgumentNullException.ThrowIfNull(copy);
+        ArgumentNullException.ThrowIfNull(outputName);
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(evaluationContext);
 
-                break;
-            case JsonArray array:
-                for (int i = 0; i < array.Count; i++)
-                {
-                    Walk(evaluator, array[i], context, evaluationContext, path.Append(i), occurrences, diagnostics);
-                }
-
-                break;
-            default:
-                {
-                    string? text = TemplateJson.AsString(node);
-                    if (text is null || !ExpressionSyntax.IsExpression(text))
-                    {
-                        return;
-                    }
-
-                    ScanExpression(evaluator, text, context, evaluationContext, path, occurrences, diagnostics);
-                    break;
-                }
-        }
+        var occurrences = new List<ReferenceOccurrence>();
+        var diagnostics = new List<Diagnostic>();
+        var inputPath = copy.Path.Append("input");
+        new TreeScan(evaluator, context, occurrences, diagnostics).WalkLoop(outputName, copy.Count, copy.Input, requiresName: false, evaluationContext, copy.Path.Append("count"), _ => inputPath, inputPath, $"output '{outputName}' copy");
+        return new ReferenceScanResult(occurrences, diagnostics);
     }
 
     /// <summary>Scans one expression string.</summary>
     public static void ScanExpression(ExpressionEvaluator evaluator, string text, StaticContext context, EvaluationContext evaluationContext, JsonPath path, List<ReferenceOccurrence> occurrences, List<Diagnostic> diagnostics)
+    {
+        ScanExpression(evaluator, text, context, evaluationContext, path, path, occurrences, diagnostics);
+    }
+
+    private static void ScanExpression(ExpressionEvaluator evaluator, string text, StaticContext context, EvaluationContext evaluationContext, JsonPath path, JsonPath sourcePath, List<ReferenceOccurrence> occurrences, List<Diagnostic> diagnostics)
     {
         ArgumentNullException.ThrowIfNull(evaluator);
         ArgumentNullException.ThrowIfNull(text);
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(evaluationContext);
         ArgumentNullException.ThrowIfNull(path);
+        ArgumentNullException.ThrowIfNull(sourcePath);
         ArgumentNullException.ThrowIfNull(occurrences);
         ArgumentNullException.ThrowIfNull(diagnostics);
 
@@ -125,22 +124,22 @@ public static class ReferenceScanner
         }
         catch (ExpressionParseException ex)
         {
-            diagnostics.Add(Diagnostic.Error(ex.Code, ex.MessageWithOffset, path, context.Document.LocationOf(path), context.Document.SourcePath));
+            diagnostics.Add(Diagnostic.Error(ex.Code, ex.MessageWithOffset, sourcePath, context.Document.LocationOf(sourcePath), context.Document.SourcePath));
             return;
         }
 
-        var scan = new ExpressionScan(evaluator, context, evaluationContext, path, occurrences, diagnostics);
+        var scan = new ExpressionScan(evaluator, context, evaluationContext, path, sourcePath, occurrences, diagnostics);
         try
         {
             scan.Visit(root, evaluationContext.LambdaScope);
         }
         catch (ExpressionException ex)
         {
-            diagnostics.Add(Diagnostic.Error(ex.Code, ex.MessageWithOffset, path, context.Document.LocationOf(path), context.Document.SourcePath));
+            diagnostics.Add(Diagnostic.Error(ex.Code, ex.MessageWithOffset, sourcePath, context.Document.LocationOf(sourcePath), context.Document.SourcePath));
         }
     }
 
-    private sealed class ExpressionScan(ExpressionEvaluator evaluator, StaticContext context, EvaluationContext evaluationContext, JsonPath path, List<ReferenceOccurrence> occurrences, List<Diagnostic> diagnostics)
+    private sealed class ExpressionScan(ExpressionEvaluator evaluator, StaticContext context, EvaluationContext evaluationContext, JsonPath path, JsonPath sourcePath, List<ReferenceOccurrence> occurrences, List<Diagnostic> diagnostics)
     {
         public void Visit(Expression node, ImmutableDictionary<string, JsonNode?> lambdaScope)
         {
@@ -184,6 +183,16 @@ public static class ReferenceScanner
         {
             string callText = call.ToExpressionText();
             bool existing = call.Arguments.Count >= 2;
+            if (!scoped.LambdaScope.IsEmpty && call.Arguments.Any(UsesLambdaVariable))
+            {
+                // ARM: "Using lambda variables inside the reference function isn't currently supported." The loops that build
+                // a list of references instead are property and output iteration (copy), which bind copyIndex() per element.
+                Error(
+                    DiagnosticCodes.ReferenceNotStaticallyResolvable,
+                    $"The target of {callText} depends on a lambda variable; ARM does not support lambda variables inside reference(). Build the list with a property copy loop (\"copy\": [ {{ \"name\", \"count\", \"input\" }} ] in the resource properties) or an output copy loop (\"copy\": {{ \"count\", \"input\" }}), using copyIndex() where the lambda used its variable. (at offset {call.Offset})");
+                return;
+            }
+
             JsonNode? result;
             try
             {
@@ -191,7 +200,7 @@ public static class ReferenceScanner
             }
             catch (ExpressionException ex)
             {
-                Report(Diagnostic.Error(ex.Code, ex.MessageWithOffset, path, context.Document.LocationOf(path), context.Document.SourcePath));
+                Error(ex.Code, ex.MessageWithOffset);
                 return;
             }
 
@@ -213,27 +222,39 @@ public static class ReferenceScanner
                 return;
             }
 
+            if (unknown.Origins == UnknownOrigins.Parameter)
+            {
+                // reference() found no resource by this name, but a copy loop whose instance names depend on a parameter
+                // without a value offline could produce it (see TemplateResourceIndex.PendingCopyLoops).
+                occurrences.Add(new ReferenceOccurrence(ReferenceOccurrenceKind.Deferred, null, path, call.Offset, callText));
+                Info(DiagnosticCodes.ReferenceDependsOnMissingParameter, $"The target of {callText} may be an instance of a copy loop whose instances depend on a parameter that has no value offline; it is resolved once the value is supplied. (at offset {call.Offset})");
+                return;
+            }
+
             if (ArgumentsDependOnlyOnParameters(call, scoped))
             {
                 // The target depends only on a parameter that has no value offline (not supplied, or a pending Key Vault
                 // reference): an artefact of validating without values, not an authoring error. Deferred like a
                 // copy-dependent target; the engine never sees this state because deployment requires every value.
                 occurrences.Add(new ReferenceOccurrence(ReferenceOccurrenceKind.Deferred, null, path, call.Offset, callText));
-                Report(Diagnostic.Info(
-                    DiagnosticCodes.ReferenceDependsOnMissingParameter,
-                    $"The target of {callText} depends on a parameter that has no value offline; it is resolved once the value is supplied. Deploy-time value: {unknown.Symbol}. (at offset {call.Offset})",
-                    path,
-                    context.Document.LocationOf(path),
-                    context.Document.SourcePath));
+                Info(DiagnosticCodes.ReferenceDependsOnMissingParameter, $"The target of {callText} depends on a parameter that has no value offline; it is resolved once the value is supplied. Deploy-time value: {unknown.Symbol}. (at offset {call.Offset})");
                 return;
             }
 
-            Report(Diagnostic.Error(
+            Error(
                 DiagnosticCodes.ReferenceNotStaticallyResolvable,
-                $"The target of {callText} cannot be determined before deployment: a reference() argument must be computable from literals, parameters and variables (plus references to resources whose name is computable). Offending value: {unknown.Symbol}. (at offset {call.Offset})",
-                path,
-                context.Document.LocationOf(path),
-                context.Document.SourcePath));
+                $"The target of {callText} cannot be determined before deployment: a reference() argument must be computable from literals, parameters, variables and copyIndex() (plus references to resources whose name is computable). Offending value: {unknown.Symbol}. (at offset {call.Offset})");
+        }
+
+        /// <summary>True when <paramref name="expression"/> calls <c>lambdaVariables()</c> anywhere inside it.</summary>
+        private static bool UsesLambdaVariable(Expression expression)
+        {
+            if (expression is CallExpression call && !call.IsUserFunction && call.Is("lambdaVariables"))
+            {
+                return true;
+            }
+
+            return expression.Children.Any(UsesLambdaVariable);
         }
 
         /// <summary>
@@ -328,7 +349,7 @@ public static class ReferenceScanner
             }
             catch (ExpressionException ex)
             {
-                Report(Diagnostic.Error(ex.Code, ex.MessageWithOffset, path, context.Document.LocationOf(path), context.Document.SourcePath));
+                Error(ex.Code, ex.MessageWithOffset);
                 return;
             }
 
@@ -356,8 +377,27 @@ public static class ReferenceScanner
             }
         }
 
+        private void Error(string code, string message)
+        {
+            Report(Diagnostic.Error(code, message, sourcePath, context.Document.LocationOf(sourcePath), context.Document.SourcePath));
+        }
+
+        private void Info(string code, string message)
+        {
+            Report(Diagnostic.Info(code, message, sourcePath, context.Document.LocationOf(sourcePath), context.Document.SourcePath));
+        }
+
+        /// <summary>Adds a diagnostic unless the same one is already there: a loop walks the same expression once per element.</summary>
         private void Report(Diagnostic diagnostic)
         {
+            foreach (var existing in diagnostics)
+            {
+                if (existing.Code == diagnostic.Code && existing.Path == diagnostic.Path && existing.Message == diagnostic.Message)
+                {
+                    return;
+                }
+            }
+
             diagnostics.Add(diagnostic);
         }
     }

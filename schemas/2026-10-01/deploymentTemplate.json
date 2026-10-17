@@ -79,12 +79,24 @@
     },
     "output": {
       "type": "object",
-      "required": ["type", "value"],
+      "required": ["type"],
+      "description": "Declares 'value', or 'copy' (an output loop) instead of it.",
       "properties": {
         "type": { "$ref": "#/$defs/parameterType" },
-        "value": { "description": "The output value; usually an expression." },
+        "value": { "description": "The output value; usually an expression. Not with 'copy'." },
+        "copy": { "$ref": "#/$defs/outputCopy" },
         "condition": { "$ref": "#/$defs/boolOrExpression" },
         "metadata": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
+    "outputCopy": {
+      "type": "object",
+      "description": "Output iteration: the value is an array of 'count' elements, each built from 'input' with copyIndex() bound to its position.",
+      "required": ["count", "input"],
+      "properties": {
+        "count": { "$ref": "#/$defs/intOrExpression" },
+        "input": { "description": "The value of each element; copyIndex() is its position." }
       },
       "additionalProperties": false
     },

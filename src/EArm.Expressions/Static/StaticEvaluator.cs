@@ -174,6 +174,7 @@ public sealed class StaticEvaluator
             for (int pass = 0; pass < maxPasses; pass++)
             {
                 var next = new TemplateResourceIndex();
+                long expanded = 0;
                 foreach (var declaration in _document.Resources)
                 {
                     AddCopyLoop(next, declaration);
@@ -181,6 +182,10 @@ public sealed class StaticEvaluator
                     if (resolved.Id is { } id)
                     {
                         next.Add(new TemplateResourceIndex.Entry(id, resolved.NameKind == ResolvedNameKind.Symbolic, declaration, CopyName(declaration)));
+                    }
+                    else if (resolved.NameKind == ResolvedNameKind.CopyDependent)
+                    {
+                        expanded += AddCopyInstances(next, declaration, expanded);
                     }
                 }
 
@@ -211,6 +216,59 @@ public sealed class StaticEvaluator
             {
                 index.AddCopyLoop(new TemplateResourceIndex.CopyLoop(copyName, declaration));
             }
+        }
+
+        /// <summary>
+        /// Indexes every instance of a copy loop whose names depend on <c>copyIndex()</c>: the count is evaluated from parameters and
+        /// variables and the name once per index with a concrete frame, which is what lets <c>reference()</c> name one instance from
+        /// anywhere in the template (ARM: a resource in a loop is referenced by its evaluated name). A count that is not known yet
+        /// leaves the loop pending (<see cref="TemplateResourceIndex.PendingCopyLoops"/>); failures are reported by the strict pass
+        /// and by expansion. Returns the number of instances indexed; nothing is indexed past <see cref="EvaluationLimits.MaxInstances"/>.
+        /// </summary>
+        private long AddCopyInstances(TemplateResourceIndex index, ResourceDeclaration declaration, long alreadyExpanded)
+        {
+            var definition = _owner._catalog.Find(declaration.Type);
+            if (CopyName(declaration) is not { } copyName || declaration.Copy?.Count is null || definition is null || declaration.Name is null)
+            {
+                return 0;
+            }
+
+            var context = _context.ForScope(EvaluationScope.Resource);
+            long? count;
+            UnknownValue? unknown;
+            try
+            {
+                count = CopyExpansion.EvaluateCount(_owner._evaluator, declaration.Copy.Count, context, $"copy '{copyName}'", out unknown);
+            }
+            catch (ExpressionException)
+            {
+                return 0;
+            }
+
+            if (count is null)
+            {
+                index.AddPendingCopyLoop(new TemplateResourceIndex.PendingCopyLoop(copyName, declaration, unknown!.Origins, unknown.Symbol));
+                return 0;
+            }
+
+            if (alreadyExpanded + count.Value > EvaluationLimits.MaxInstances)
+            {
+                return 0;
+            }
+
+            var namePath = declaration.Path.Append("name");
+            for (long i = 0; i < count.Value; i++)
+            {
+                var iteration = context.PushCopy(new CopyFrame(copyName, i, count.Value));
+                var start = new ResolvedResource { Declaration = declaration, NameKind = ResolvedNameKind.Invalid, CopyName = copyName };
+                var resolved = EvaluateName(declaration, definition, iteration, namePath, strict: false, start);
+                if (resolved.Id is { } id)
+                {
+                    index.Add(new TemplateResourceIndex.Entry(id, resolved.NameKind == ResolvedNameKind.Symbolic, declaration, copyName));
+                }
+            }
+
+            return count.Value;
         }
 
         /// <summary>Evaluates name, apiVersion, condition and copy.count; in strict mode failures are reported.</summary>
@@ -633,7 +691,15 @@ public sealed class StaticEvaluator
                 var valuePath = output.Path.Append("value");
                 try
                 {
-                    value = _owner._evaluator.EvaluateTree(output.Value, context);
+                    if (output.Copy is { } outputCopy)
+                    {
+                        // The count first, so its failure is located at copy.count and the input's at copy.input.
+                        valuePath = outputCopy.Path.Append("count");
+                        CopyExpansion.EvaluateCount(_owner._evaluator, outputCopy.Count, context, $"output '{output.Name}' copy", out _);
+                        valuePath = outputCopy.Path.Append("input");
+                    }
+
+                    value = CopyExpansion.EvaluateOutput(_owner._evaluator, output, context);
                 }
                 catch (ExpressionException ex)
                 {
@@ -646,8 +712,18 @@ public sealed class StaticEvaluator
                     Error(DiagnosticCodes.SecureValueInPlainOutput, $"Output '{output.Name}' receives a secure value but is declared as '{output.Type}'; declare it as securestring or secureObject.", valuePath);
                 }
 
-                var scan = ReferenceScanner.Scan(_owner._evaluator, output.Value, new StaticContext(_document, _context, _parameters, _variables, _context.Resources, [], new Dictionary<string, ResolvedOutput>(), []), context, valuePath);
-                _diagnostics.AddRange(scan.Diagnostics);
+                var scanContext = new StaticContext(_document, _context, _parameters, _variables, _context.Resources, [], new Dictionary<string, ResolvedOutput>(), []);
+                var scan = output.Copy is { } copy
+                    ? ReferenceScanner.ScanOutputCopy(_owner._evaluator, copy, output.Name, scanContext, context)
+                    : ReferenceScanner.Scan(_owner._evaluator, output.Value, scanContext, context, valuePath);
+                foreach (var diagnostic in scan.Diagnostics)
+                {
+                    // What the evaluation above already reported for this output (an invalid loop count, say) is not repeated.
+                    if (!_diagnostics.Exists(d => d.Code == diagnostic.Code && d.Path is { } reported && reported.StartsWith(output.Path) && diagnostic.Path is { } found && found.StartsWith(reported)))
+                    {
+                        _diagnostics.Add(diagnostic);
+                    }
+                }
 
                 outputs[output.Name] = new ResolvedOutput(output, value, condition, tainted);
             }
