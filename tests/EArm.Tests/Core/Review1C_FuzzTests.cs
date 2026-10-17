@@ -23,11 +23,19 @@ namespace EArm.Tests;
 /// regression tests: each iteration takes one of the repository samples, applies a few seeded mutations (type swaps, huge numbers, deep nesting,
 /// control characters, repeated keys, lone surrogates, hostile expressions, truncation) and runs load, schema and expression validation in-process.
 /// The only exception allowed out is <see cref="TemplateLoadException"/> (a document that cannot be loaded at all).
+/// The 5,000 mutations (seeds <see cref="BaseSeed"/> to <see cref="BaseSeed"/> + 4,999) run as ten ranges of 500 (<see cref="MutateAndValidate"/>),
+/// two per nested test class (<see cref="Mutations0To999"/> to <see cref="Mutations4000To4999"/>): xUnit runs the tests of one class one after
+/// another, so separate classes let the ranges run in parallel with each other and with the rest of the suite.
 /// </summary>
 public sealed class Review1C_FuzzTests
 {
     private const int Mutations = 5_000;
+
+    /// <summary>The mutations each test row runs: ten rows cover <see cref="Mutations"/>.</summary>
+    private const int RangeSize = 500;
+
     private const int BaseSeed = 20_261_014;
+    private const string RangeTestName = "SeededMutations_OfTheSamples_NeverEscapeLoadAndValidateWithAnUnhandledException";
 
     private static readonly string[] Expressions =
     [
@@ -52,9 +60,15 @@ public sealed class Review1C_FuzzTests
         return Directory.GetFiles(TestPaths.SamplesDirectory, "*.entra.json").OrderBy(f => f, StringComparer.Ordinal).Select(f => File.ReadAllText(f, Encoding.UTF8)).ToList();
     }
 
-    [Fact]
-    public void FiveThousandSeededMutations_OfTheSamples_NeverEscapeLoadAndValidateWithAnUnhandledException()
+    /// <summary>
+    /// Runs mutations <paramref name="firstMutation"/> to <paramref name="firstMutation"/> + <see cref="RangeSize"/> - 1 (seed <see cref="BaseSeed"/> + i,
+    /// sample i modulo the sample count). The proportions asserted at the end are a tenth of the whole run's (a range is a tenth of it), so every range
+    /// still breaks loading, loads and produces validation errors.
+    /// </summary>
+    private static void MutateAndValidate(int firstMutation)
     {
+        Assert.InRange(firstMutation, 0, Mutations - RangeSize);
+        Assert.Equal(0, firstMutation % RangeSize);
         var samples = Samples();
         Assert.NotEmpty(samples);
         var failures = new ConcurrentBag<Failure>();
@@ -63,7 +77,7 @@ public sealed class Review1C_FuzzTests
         int withErrors = 0;
         var catalog = ResourceTypeCatalog.Default;
 
-        Parallel.For(0, Mutations, new ParallelOptions { MaxDegreeOfParallelism = Math.Clamp(Environment.ProcessorCount, 2, 8) }, i =>
+        Parallel.For(firstMutation, firstMutation + RangeSize, new ParallelOptions { MaxDegreeOfParallelism = Math.Clamp(Environment.ProcessorCount, 2, 8) }, i =>
         {
             int seed = BaseSeed + i;
             var random = new Random(seed);
@@ -100,9 +114,23 @@ public sealed class Review1C_FuzzTests
         });
 
         Assert.True(failures.IsEmpty, "Unhandled exceptions:\n" + string.Join("\n", failures.OrderBy(f => f.Seed).Take(5).Select(f => $"  seed {f.Seed} ({f.Description}): {f.ExceptionType}: {f.Message}\n    {f.Text}")));
-        Assert.True(loadFailures > 100, "the mutations should break loading sometimes, saw " + loadFailures);
-        Assert.True(validated > 1_000, "the mutations should mostly load, saw " + validated);
-        Assert.True(withErrors > 100, "the mutations should produce validation errors, saw " + withErrors);
+        Assert.True(loadFailures > 10, "the mutations should break loading sometimes, saw " + loadFailures);
+        Assert.True(validated > 100, "the mutations should mostly load, saw " + validated);
+        Assert.True(withErrors > 10, "the mutations should produce validation errors, saw " + withErrors);
+    }
+
+    [Fact]
+    public void TheMutationRanges_CoverEveryMutationExactlyOnce()
+    {
+        var firstMutations = typeof(Review1C_FuzzTests).Assembly.GetTypes()
+            .Select(t => t.GetMethod(RangeTestName))
+            .Where(m => m is not null)
+            .SelectMany(m => m!.GetCustomAttributes(typeof(InlineDataAttribute), inherit: false).Cast<InlineDataAttribute>())
+            .Select(row => (int)row.Data.Single()!)
+            .Order()
+            .ToList();
+
+        Assert.Equal(Enumerable.Range(0, Mutations / RangeSize).Select(i => i * RangeSize), firstMutations);
     }
 
     [Fact]
@@ -324,6 +352,68 @@ public sealed class Review1C_FuzzTests
             default:
                 text = ((char)0xFEFF).ToString() + text.Replace("\"resources\"", "\"resources\" /* c */", StringComparison.Ordinal);
                 return "bomAndComment";
+        }
+    }
+
+    // ---- the mutation ranges: one nested class (one xUnit collection) per thousand, so the ranges run in parallel ----
+
+    /// <summary>Mutations 0 to 999.</summary>
+    public sealed class Mutations0To999
+    {
+        [Theory]
+        [InlineData(0)]
+        [InlineData(500)]
+        public void SeededMutations_OfTheSamples_NeverEscapeLoadAndValidateWithAnUnhandledException(int firstMutation)
+        {
+            MutateAndValidate(firstMutation);
+        }
+    }
+
+    /// <summary>Mutations 1000 to 1999.</summary>
+    public sealed class Mutations1000To1999
+    {
+        [Theory]
+        [InlineData(1000)]
+        [InlineData(1500)]
+        public void SeededMutations_OfTheSamples_NeverEscapeLoadAndValidateWithAnUnhandledException(int firstMutation)
+        {
+            MutateAndValidate(firstMutation);
+        }
+    }
+
+    /// <summary>Mutations 2000 to 2999.</summary>
+    public sealed class Mutations2000To2999
+    {
+        [Theory]
+        [InlineData(2000)]
+        [InlineData(2500)]
+        public void SeededMutations_OfTheSamples_NeverEscapeLoadAndValidateWithAnUnhandledException(int firstMutation)
+        {
+            MutateAndValidate(firstMutation);
+        }
+    }
+
+    /// <summary>Mutations 3000 to 3999.</summary>
+    public sealed class Mutations3000To3999
+    {
+        [Theory]
+        [InlineData(3000)]
+        [InlineData(3500)]
+        public void SeededMutations_OfTheSamples_NeverEscapeLoadAndValidateWithAnUnhandledException(int firstMutation)
+        {
+            MutateAndValidate(firstMutation);
+        }
+    }
+
+    /// <summary>Mutations 4000 to 4999.</summary>
+    public sealed class Mutations4000To4999
+    {
+        [Theory]
+        [InlineData(4000)]
+        [InlineData(4500)]
+        public void SeededMutations_OfTheSamples_NeverEscapeLoadAndValidateWithAnUnhandledException(int firstMutation)
+        {
+            MutateAndValidate(firstMutation);
         }
     }
 }
