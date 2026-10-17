@@ -78,6 +78,30 @@ public sealed class GroupsAdoptionByDisplayNameTests
         Assert.DoesNotContain(rerun.Executed.Diagnostics, d => d.Code == EngineDiagnosticCodes.GroupAdoptedByDisplayName);
     }
 
+    /// <summary>Graph reads isAssignableToRole: null back for a group created without it; a declared false is no change of the immutable property.</summary>
+    [Fact]
+    public async Task AGroupReadingIsAssignableToRoleNull_IsAdopted_WhenTheTemplateDeclaresFalse()
+    {
+        var host = new ProviderHost();
+        string id = host.Directory.Add("/groups", new JsonObject
+        {
+            ["displayName"] = "db-dev-reader",
+            ["mailEnabled"] = false,
+            ["mailNickname"] = "db-dev-reader",
+            ["securityEnabled"] = true,
+            ["isAssignableToRole"] = null,
+            ["groupTypes"] = new JsonArray(),
+        })["id"]!.GetValue<string>();
+        string template = Group("pg-dev-database-reader", """{ "displayName": "db-dev-reader", "mailNickname": "db-dev-reader", "mailEnabled": false, "securityEnabled": true, "isAssignableToRole": false }""");
+
+        var run = await host.CreateAsync(host.Resources(template));
+
+        Check.Succeeded(run);
+        Assert.Equal(ChangeType.Modify, run.OpOfType(Type).ChangeType);
+        Assert.DoesNotContain(run.ChangeOfType(Type).Deltas, d => d.HasEffect && d.Path.ToString().Contains("isAssignableToRole", StringComparison.Ordinal));
+        Assert.Equal(id, host.IdOf("/groups", "uniqueName", "pg-dev-database-reader"));
+    }
+
     [Fact]
     public async Task TheDisplayNameMatch_IsCaseInsensitive_AndAnAdoptionWithoutOtherChanges_StillSetsTheUniqueName()
     {

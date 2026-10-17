@@ -192,7 +192,7 @@ public sealed class GroupsProvider : ProviderBase, IDeleteWarningSource, IDelete
         // A live group without a uniqueName was found by display name (ReadAsync): it is diffed as if it already held the key, and the
         // adoption (setting uniqueName) is added below as its own delta.
         bool adopting = !desired.IsIgnored && existing is not null && string.IsNullOrEmpty(JsonObjects.GetString(existing.Raw, "uniqueName"));
-        var change = base.Plan(desired, adopting ? WithUniqueName(existing!, desired.Id.NameLeaf) : existing, options);
+        var change = base.Plan(desired, WithRoleAssignableDefault(adopting ? WithUniqueName(existing!, desired.Id.NameLeaf) : existing, desired.Properties), options);
         if (change.Type == ChangeType.Ignore || desired.Properties is not { } properties)
         {
             return change;
@@ -248,6 +248,32 @@ public sealed class GroupsProvider : ProviderBase, IDeleteWarningSource, IDelete
         }
 
         return WithLicenseDelta(change, desired, existing);
+    }
+
+    /// <summary>
+    /// Graph reads <c>isAssignableToRole: null</c> back for a group created without it (a group a script or the portal made as a plain security group),
+    /// and null means not role-assignable (Learn, group resource: "Default is false"). When the template declares <c>isAssignableToRole: false</c>, a
+    /// live null (or absent) value is compared as <c>false</c>: no change, rather than a change of an immutable property.
+    /// </summary>
+    private static ExistingResource? WithRoleAssignableDefault(ExistingResource? existing, JsonObject? desired)
+    {
+        if (existing is null
+            || !JsonObjects.TryGetIgnoreCase(desired, "isAssignableToRole", out var declared)
+            || !JsonValues.TryGetBool(declared, out bool assignable)
+            || assignable)
+        {
+            return existing;
+        }
+
+        string key = JsonObjects.FindKey(existing.Properties, "isAssignableToRole") ?? "isAssignableToRole";
+        if (existing.Properties is { } live && !JsonObjects.IsAbsent(live[key]))
+        {
+            return existing;
+        }
+
+        var properties = (JsonObject?)JsonValues.Clone(existing.Properties) ?? new JsonObject();
+        properties[key] = false;
+        return existing with { Properties = properties };
     }
 
     /// <summary>The live view of a group adopted by display name, with the uniqueName it is about to receive.</summary>
