@@ -646,7 +646,7 @@ The policy is named by its **assignment**: `scopeType` (`DirectoryRole`, or Grap
 | Operation | Graph |
 |---|---|
 | Read | `GET /policies/roleManagementPolicyAssignments?$filter=scopeId eq '…' and scopeType eq '…' and roleDefinitionId eq '…'&$expand=policy($expand=rules)` (the scope filter is required; Learn: policyroot-list-rolemanagementpolicyassignments), re-matched client-side; the policy id is the Graph id |
-| Create | never: a missing policy is `PimPolicyNotAvailable` (see below) |
+| Create | never creates a policy: a missing policy is `PimPolicyNotAvailable` (see below); the one Create row is a group policy that opts in to onboarding, whose create onboards the group and then updates its policy |
 | Update | `PATCH /policies/roleManagementPolicies/{policyId}/rules/{ruleId}` once per **changed** declared rule, `@odata.type` first |
 | Delete | never: kept as `NotDeletable` (`IDeleteRefusalSource`); revert a setting by declaring the value to restore |
 
@@ -669,7 +669,21 @@ and is sent once more (the previous PATCH onboarded the group). When Graph lists
 - a `privilegedAccess/groupEligibilityScheduleRequests` or `groupAssignmentScheduleRequests` of the same deployment names the group and access: the
   policy row is deferred (an `Ignore` row with a `PimPolicyNotAvailable` warning), the requests go ahead under the group's default policy and onboard
   the group, and the next run applies the policy;
-- otherwise the row fails with `PimPolicyNotAvailable` (declare a group request or onboard the group in the portal).
+- otherwise, when the policy declares `onboarding.temporaryEligiblePrincipalId`, the row is a `Create` with the note `group not onboarded: a temporary
+  eligibility for <principal> will onboard it, then be removed`, and `CreateAsync` onboards the group (`GroupPolicyOnboarding`, below);
+- otherwise the row fails with `PimPolicyNotAvailable` (declare a group request, opt in to onboarding, or onboard the group in the portal).
+
+`Plan` takes `onboarding` out of the properties (it is never compared or sent) and remembers it per instance for the create
+(`ConditionalWeakTable`, like the same-run deferral). `GroupPolicyOnboarding` (one responsibility: the temporary eligibility) runs the steps of
+[pim.md](pim.md#onboarding-opt-in): `POST …/group/eligibilityScheduleRequests` `adminAssign` (member, `PT1H`, justification
+`EARM onboarding of <group> for policy management`; 403 → `PimGroupAccessDenied`, any other refusal → `PimGroupOnboardingFailed` with Graph's answer;
+"already exists" → an eligibility that is not EARM's, never removed; an ambiguous failure looks the schedule up before deciding); then
+`RoleManagementPolicyLookup.FindAsync` every `Settle.Interval` up to 3 minutes; then `adminRemove`, repeated every 30 s for up to 7 minutes on
+`ActiveDurationTooShort` (POSTs not cancellable). The create re-reads the policy first (the group's other access may have onboarded it meanwhile), applies
+the rules to the policy listed after onboarding (the same code as `UpdateAsync`), and, when the removal failed, throws
+`PimOnboardingEligibilityNotRemoved` with the applied policy as the partial result plus a warning of that code, so the resource fails and names the
+eligibility. A policy id read before onboarding is never cached or patched: real tenants list a different, pre-onboarding id through the plain
+member-role lookup (probe PP7), and `FakeRoleManagementPolicies` models that when `PoliciesBeforeOnboarding` is false.
 
 A directory role without a policy (an unknown role id) is `PimPolicyNotAvailable` too. Complete mode lists no orphans (policies always exist).
 
@@ -698,8 +712,8 @@ that the catalog offers the role. When it does not and a same-run request onboar
 has a dependency created in this run, so its `RetryHint` is `ExpectReplicationLag`; a what-if never has one): it reads the catalog's roles every
 `ReplicationWait.Interval` up to `ReplicationWait.Window` (`Settle`), and `CreateAsync` does the same when the catalog resource was not listed yet at
 prepare time. `Plan` then returns: a Create row with the wait in its reasons (what-if); an Ignore row with a `PimGroupNotOnboarded` warning when the
-wait timed out (the fallback, the next run creates it); an error row `PimGroupNotOnboarded` when no request onboards the group. EARM never onboards a
-group by itself.
+wait timed out (the fallback, the next run creates it); an error row `PimGroupNotOnboarded` when no request onboards the group. A role scope never
+onboards a group by itself (only a `roleManagementPolicies` onboarding opt-in does, see above).
 
 **Delete warning.** `ResourceRoleScopesProvider` implements `IDeleteWarningSource`: `ReadAsync` adds the package's display name and its delivered
 assignment count (`EntitlementManagementGraph.CountDeliveredAssignmentsAsync`, `null` on 400 / 403 / 404) to the live object, and

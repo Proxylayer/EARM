@@ -97,6 +97,15 @@ transport to the built-in Microsoft Graph HTTP client.
   schedule requests of the same role or group. A group that PIM for Groups has not onboarded yet is reported as
   `PimPolicyNotAvailable`; when a schedule request in the same deployment onboards it, the policy is deferred to the
   next run (two runs). Approver `isBackup: true` is refused offline because Graph never returns it.
+- `roleManagementPolicies`: a group policy can opt in to onboarding its group in PIM for Groups with
+  `onboarding: { temporaryEligiblePrincipalId }`. When Graph lists no policy for the group and no schedule request of the
+  deployment onboards it, the policy row is a Create noted `group not onboarded: a temporary eligibility for
+  <principal> will onboard it, then be removed` (what-if writes nothing); the create requests a one-hour member
+  eligibility for the principal, waits for the group's policy, removes the eligibility (repeating
+  `ActiveDurationTooShort` for up to 7 minutes) and applies the rules, all in one run. A refused eligibility is
+  `PimGroupOnboardingFailed`; an eligibility that cannot be removed fails the resource with
+  `PimOnboardingEligibilityNotRemoved`, naming it. The opt-in adds `PrivilegedEligibilitySchedule.ReadWrite.AzureADGroup`
+  to the permission manifest of that policy only. New sample `pim-group-onboarding`.
 - A combined privileged-access sample (emergency access, tiered groups under PIM policies, PIM for Groups eligibility,
   a report-only Conditional Access policy on the PIM authentication context and authentication method
   configurations), plus a sample for each new type.

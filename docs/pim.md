@@ -67,8 +67,62 @@ policies once it is onboarded, and their ids change at onboarding, so EARM never
 
 When a template declares both a group's policy and a schedule request for that group and access, and the group is not onboarded yet, the first run
 **defers** the policy (an `Ignore` row with a `PimPolicyNotAvailable` warning), lets the request onboard the group under the default policy, and the
-**second run** applies the policy. Without a same-run request the policy row fails with `PimPolicyNotAvailable` (onboard the group first). The default
-group policy often forbids permanent eligibility, so give the first group request an expiration.
+**second run** applies the policy. Without a same-run request the policy row fails with `PimPolicyNotAvailable` (onboard the group first), unless the
+policy opts in to onboarding (below). The default group policy often forbids permanent eligibility, so give the first group request an expiration.
+
+### Onboarding opt-in
+
+PIM has no "onboard this group" call ("You can't explicitly onboard a group"; Learn: privilegedidentitymanagement-for-groups-api-overview), and in a
+real tenant Graph lists no policy for the group before its first eligibility or assignment (probe PP7). A group policy can therefore **opt in** to
+onboarding its group itself, by naming the principal of a short-lived eligibility:
+
+```json
+{
+  "type": "Microsoft.Entra/roleManagementPolicies",
+  "apiVersion": "2026-10-01-preview",
+  "name": "[guid('pim-policy', 'pim-ops', 'member')]",
+  "properties": {
+    "group": "[reference('pim-ops').id]",
+    "accessId": "member",
+    "onboarding": {
+      "temporaryEligiblePrincipalId": "[reference('pim-onboarding@contoso.com').id]"
+    },
+    "rules": [
+      { "id": "Expiration_EndUser_Assignment", "maximumDuration": "PT4H" }
+    ]
+  }
+}
+```
+
+When Graph lists no policy for the group, `onboarding` is present, and no schedule request of the same deployment onboards the group, the policy row is
+a `Create` whose reasons read `group not onboarded: a temporary eligibility for <principal> will onboard it, then be removed`. What-if writes nothing.
+The create then, in the same run:
+
+1. requests an `adminAssign` **member** eligibility for the principal, expiring after **PT1H**, with the justification
+   `EARM onboarding of <group id> for policy management`;
+2. reads the group's policy assignment until Graph lists the post-onboarding policy (every 5 s, up to 3 minutes; about one second in PP7). A policy id
+   read before onboarding is never used: the member-role lookup can show a **pre-onboarding id** that differs from the policy's id afterwards, and only
+   the policy read after onboarding is patched;
+3. removes the eligibility (`adminRemove`), repeating an `ActiveDurationTooShort` answer every 30 s for up to 7 minutes (PP7: accepted five seconds
+   after the assignment; onboarding persists once the only eligibility is gone);
+4. applies the declared rules to the onboarded policy (the usual one `PATCH` per changed rule).
+
+A removal that still fails does not go unnoticed: the policy is applied, then the resource **fails** with `PimOnboardingEligibilityNotRemoved`, naming the
+principal, the group, the request, when the eligibility expires on its own, and how to remove it. A refused eligibility (the principal does not exist, or
+the group's default policy does not allow it) is `PimGroupOnboardingFailed` with Graph's answer, and nothing is left behind. An eligibility the principal
+already held is never removed (it is not EARM's).
+
+`onboarding` is ignored when the group is onboarded already (the row is a plain `Modify` or `NoChange`) and when a same-run schedule request onboards the
+group (the policy is deferred as above). It is never sent to Graph and never compared. It is valid only on a group policy, needs exactly
+`temporaryEligiblePrincipalId`, a GUID or an expression (checked offline), and the principal must be a **user or service principal** that the group's
+default policy allows to be made eligible (a disabled user created for this purpose works well). It needs
+`PrivilegedEligibilitySchedule.ReadWrite.AzureADGroup` and a role that may write the group's eligibilities ([permissions.md](permissions.md)); the
+manifest adds them only for policies that opt in.
+
+Why a property of the policy resource rather than a deployment setting: ARM keeps a resource's behaviour in its own `properties` (the template says
+what happens to that resource, and nothing outside the template changes it), the onboarding concerns exactly one group, and naming the principal
+belongs next to the group it onboards. A deployment-wide switch would hide a privileged write (an eligibility) behind a command-line flag and apply it
+to every group at once. EARM's other sugar (`role`, `group`, `accessId`) lives in `properties` the same way.
 
 Dynamic-membership and on-premises synced groups are refused (PIM for Groups governs neither), and objects in a **restricted management administrative
 unit** cannot be governed by PIM at all: keep PIM-governed groups out of such units.
