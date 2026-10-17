@@ -58,7 +58,10 @@ in, search for the class name: `grep -rl "class Review1C_BudgetTests" tests`.
 | `EArm.Integration.Tests` | The real thing against a dev tenant: scenarios through the real CLI, plus probes that verify Graph behaviours the fakes assume | gated, see below |
 
 Golden files: `tests/fixtures/whatif/*` pin the what-if text and JSON byte for byte; regenerate them with `tools/Update-WhatIfGoldens.ps1` after an intentional
-rendering change and review the diff ([whatif.md](whatif.md#golden-fixtures)). `tests/fixtures/templates` holds valid and invalid templates for the loader and validator.
+rendering change and review the diff ([whatif.md](whatif.md#golden-fixtures)). `tests/fixtures/permissions/*` pin the table and JSON output of `earm permissions` for
+every sample in both modes (`PermissionsGoldenTests`); regenerate them with `tools/Update-PermissionsGoldens.ps1` after an intentional change to the manifest or its
+rendering (the same `EARM_UPDATE_GOLDENS=1` switch, refused on CI; a new sample needs its row in `PermissionsGoldenTests.Cases()` first). `tests/fixtures/templates`
+holds valid and invalid templates for the loader and validator.
 
 ## Conventions
 

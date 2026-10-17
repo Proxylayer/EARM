@@ -1,7 +1,9 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Threading.Tasks;
+using EArm.Tests.Engine;
 using Xunit;
 
 namespace EArm.Tests.Cli;
@@ -9,7 +11,10 @@ namespace EArm.Tests.Cli;
 /// <summary>
 /// Golden-file tests over tests/fixtures/permissions: the table and JSON output of <c>earm permissions</c> for every sample in both modes,
 /// byte for byte (line endings normalised). The goldens were captured before the offline pipeline moved into
-/// <c>EArm.Engine.Permissions</c>, so they pin the command's output across that refactoring. Regenerate deliberately only when the output is meant to change.
+/// <c>EArm.Engine.Permissions</c>, so they pin the command's output across that refactoring. Regenerate deliberately only when the output is meant to change:
+/// <c>tools/Update-PermissionsGoldens.ps1</c> sets <c>EARM_UPDATE_GOLDENS=1</c>, and in that mode each case rewrites its golden file (UTF-8 without BOM, LF,
+/// trailing blanks trimmed, as the comparison normalises) instead of comparing; review the diff before committing it. CI refuses the variable
+/// (<see cref="WhatIfGoldenTests.IsUpdateRequested"/>).
 /// </summary>
 public sealed class PermissionsGoldenTests
 {
@@ -60,7 +65,14 @@ public sealed class PermissionsGoldenTests
         string actual = result.StandardOutput
             .Replace(template.Replace("\\", "\\\\", StringComparison.Ordinal), relative, StringComparison.Ordinal)
             .Replace(template, relative, StringComparison.Ordinal);
-        string expected = File.ReadAllText(Path.Combine(GoldenDirectory, $"{sample}.{mode}.{(format == "json" ? "json" : "txt")}"));
+        string golden = Path.Combine(GoldenDirectory, $"{sample}.{mode}.{(format == "json" ? "json" : "txt")}");
+        if (WhatIfGoldenTests.IsUpdateRequested(Environment.GetEnvironmentVariable(WhatIfGoldenTests.UpdateVariable), Environment.GetEnvironmentVariable("CI")))
+        {
+            File.WriteAllText(golden, Normalize(actual) + "\n", new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            return;
+        }
+
+        string expected = File.ReadAllText(golden);
 
         Assert.Equal(Normalize(expected), Normalize(actual));
     }
