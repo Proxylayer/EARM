@@ -1,0 +1,7 @@
+{
+  "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "breakGlassUserPrincipalNames": { "value": ["breakglass1@contoso.onmicrosoft.com", "breakglass2@contoso.onmicrosoft.com"] }
+  }
+}

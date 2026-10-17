@@ -1,0 +1,105 @@
+{
+  "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "Per-scope access groups with copy loops, the ARM way. One approver group per scope (a copy loop over the scopes) and one access group per scope and tier (ONE copy loop over the flattened scopes x tiers array: ARM has no nested resource loops, so the cartesian product is built as a variable and iterated once). Each access group's PIM for Groups member policy is a copy loop that references its own group by computed name. The existing break-glass accounts join every approver group through a memberOf list built by property iteration (copy inside properties), which references each approver group instance by its computed name. The outputs are output loops (copy on an output) that list the group object ids per scope and per scope and tier. Needs Microsoft Entra ID P2 for the PIM policies and a delegated run; see samples/README.md."
+  },
+  "parameters": {
+    "scopes": {
+      "type": "array",
+      "defaultValue": [
+        { "key": "dev", "name": "Development" },
+        { "key": "uat", "name": "User Acceptance Test" },
+        { "key": "prd", "name": "Production" }
+      ],
+      "metadata": { "description": "The access scopes. key is stable and part of every group name (sa-<key>-...); name is used in display names." }
+    },
+    "breakGlassUserPrincipalNames": {
+      "type": "array",
+      "metadata": { "description": "userPrincipalNames of the EXISTING break-glass accounts. Each is declared with an edge property only (memberOf, ensure-only), so EARM adds the memberships and never changes the account." }
+    }
+  },
+  "variables": {
+    "tiers": [
+      { "key": "privileged", "name": "Privileged", "activation": "PT2H" },
+      { "key": "reader", "name": "Reader", "activation": "PT8H" }
+    ],
+    "scopeTiers": "[flatten(map(parameters('scopes'), lambda('s', map(variables('tiers'), lambda('t', createObject('scopeKey', lambdaVariables('s').key, 'scopeName', lambdaVariables('s').name, 'tierKey', lambdaVariables('t').key, 'tierName', lambdaVariables('t').name, 'activation', lambdaVariables('t').activation, 'uniqueName', format('sa-{0}-{1}-access', lambdaVariables('s').key, lambdaVariables('t').key)))))))]"
+  },
+  "resources": [
+    {
+      "copy": { "name": "approverGroups", "count": "[length(parameters('scopes'))]" },
+      "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01-preview",
+      "name": "[format('sa-{0}-approvers', parameters('scopes')[copyIndex()].key)]",
+      "properties": {
+        "displayName": "[format('SA {0} Approvers', parameters('scopes')[copyIndex()].name)]",
+        "description": "[format('Approves access to the {0} scope.', parameters('scopes')[copyIndex()].name)]",
+        "mailEnabled": false, "securityEnabled": true, "isAssignableToRole": false
+      }
+    },
+    {
+      "copy": { "name": "accessGroups", "count": "[length(variables('scopeTiers'))]" },
+      "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01-preview",
+      "name": "[variables('scopeTiers')[copyIndex()].uniqueName]",
+      "comments": "One loop over the flattened scopes x tiers array. Equivalent range arithmetic without the variable: parameters('scopes')[div(copyIndex(), length(variables('tiers')))] and variables('tiers')[mod(copyIndex(), length(variables('tiers')))].",
+      "properties": {
+        "displayName": "[format('SA {0} {1} Access', variables('scopeTiers')[copyIndex()].scopeName, variables('scopeTiers')[copyIndex()].tierName)]",
+        "description": "[format('{0} access to the {1} scope; membership is approved by SA {1} Approvers.', variables('scopeTiers')[copyIndex()].tierName, variables('scopeTiers')[copyIndex()].scopeName)]",
+        "mailEnabled": false, "securityEnabled": true, "isAssignableToRole": false
+      }
+    },
+    {
+      "copy": { "name": "accessGroupPolicies", "count": "[length(variables('scopeTiers'))]" },
+      "type": "Microsoft.Entra/roleManagementPolicies", "apiVersion": "2026-10-01-preview",
+      "name": "[guid('sa-access-group-policy', variables('scopeTiers')[copyIndex()].uniqueName, 'member')]",
+      "comments": "Depends on its own access group only (the reference names one instance), not on the whole accessGroups loop.",
+      "properties": {
+        "scopeType": "Group",
+        "scopeId": "[reference(variables('scopeTiers')[copyIndex()].uniqueName).id]",
+        "roleDefinitionId": "member",
+        "rules": [
+          { "id": "Expiration_EndUser_Assignment", "isExpirationRequired": true, "maximumDuration": "[variables('scopeTiers')[copyIndex()].activation]" },
+          { "id": "Enablement_EndUser_Assignment", "enabledRules": [ "MultiFactorAuthentication", "Justification" ] }
+        ]
+      }
+    },
+    {
+      "copy": { "name": "breakGlass", "count": "[length(parameters('breakGlassUserPrincipalNames'))]" },
+      "type": "Microsoft.Entra/users", "apiVersion": "2026-10-01-preview",
+      "name": "[parameters('breakGlassUserPrincipalNames')[copyIndex()]]",
+      "comments": "memberOf is built by property iteration: one element per scope, each a reference to that scope's approver group by its computed name (an implicit dependency on that instance).",
+      "properties": {
+        "copy": [
+          {
+            "name": "memberOf",
+            "count": "[length(parameters('scopes'))]",
+            "input": "[reference(format('sa-{0}-approvers', parameters('scopes')[copyIndex('memberOf')].key)).id]"
+          }
+        ]
+      }
+    }
+  ],
+  "outputs": {
+    "approverGroupsByScope": {
+      "type": "array",
+      "copy": {
+        "count": "[length(parameters('scopes'))]",
+        "input": {
+          "scopeKey": "[parameters('scopes')[copyIndex()].key]",
+          "approverGroupId": "[reference(format('sa-{0}-approvers', parameters('scopes')[copyIndex()].key)).id]"
+        }
+      }
+    },
+    "accessGroups": {
+      "type": "array",
+      "copy": {
+        "count": "[length(variables('scopeTiers'))]",
+        "input": {
+          "scopeKey": "[variables('scopeTiers')[copyIndex()].scopeKey]",
+          "tierKey": "[variables('scopeTiers')[copyIndex()].tierKey]",
+          "groupId": "[reference(variables('scopeTiers')[copyIndex()].uniqueName).id]"
+        }
+      }
+    }
+  }
+}

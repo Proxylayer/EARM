@@ -68,7 +68,15 @@ transport to the built-in Microsoft Graph HTTP client.
   Deletes are refused by Graph while assignments exist (`AccessPackageAssignmentsExist`) or a catalog still holds
   packages (`CatalogNotEmpty`). Assignments to people are not managed. Sample: `samples/access-packages.entra.json`,
   where every package, the approver group's included, carries its assignment policy.
-
+- Copy loops reference like ARM: `reference()` / `resourceId()` of one instance of a resource `copy` loop by its evaluated
+  name works from anywhere in the template (a single resource, another loop, a property or output loop) and depends on that
+  instance only; offline validation indexes every instance whose loop count is computable from parameters and variables.
+  A loop whose count is only known at deployment is named in the `ReferenceTargetNotFound` message.
+- Property iteration (`"copy": [ { "name", "count", "input" } ]` inside resource properties, `copyIndex('name')`) and output
+  iteration (`"copy": { "count", "input" }` on an output), with schema support and `InvalidCopy` shape checks. A property copy
+  can build an edge list such as `memberOf` from references to loop instances.
+- docs/format.md: a Copy loops section, including the flattened-cartesian idiom for nested loops (scopes x tiers), and the
+  sample `samples/scoped-access-groups.entra.json`.
 - New resource type `Microsoft.Entra/authenticationMethodConfigurations`: manages the tenant authentication methods
   policy per method (fido2, temporaryAccessPass, x509Certificate, microsoftAuthenticator, sms, voice, email,
   softwareOath). Configurations are never created; only declared properties are patched; targets and AAGUIDs compare
@@ -125,6 +133,9 @@ transport to the built-in Microsoft Graph HTTP client.
 
 ### Changed
 
+- A `reference()` whose arguments use a lambda variable is refused with a message that points to property and output copy
+  loops (ARM does not support lambda variables inside `reference()`); a `reference()` inside a lambda that uses no lambda
+  variable still resolves.
 - Identity is resolved from the live tenant on every run: an object is its declared type plus name, found by its key
   (`uniqueName`, `displayName`, user principal name, or the composite key of an assignment). A rename is a new object;
   ambiguous display names are `AmbiguousMatch`. There is no lock, and `-n` is only a label in the output.
