@@ -255,9 +255,35 @@ public static class InstanceEvaluator
     }
 
     /// <summary>
+    /// The symbol of the value of <c>properties</c> when it is one expression that was not split at expansion and whose value is still only known
+    /// at deployment (it reads <c>reference()</c> of a resource the same run creates); <c>null</c> otherwise. The what-if shows such a resource as a
+    /// "known at deployment" row instead of failing it: <see cref="EvaluateProperties"/> can evaluate it once the referenced resource exists. An
+    /// expression that fails is left to <see cref="EvaluateProperties"/>, which reports the error.
+    /// </summary>
+    public static string? WholePropertiesKnownOnlyAtDeployment(ExpressionEvaluator evaluator, ResourceInstance instance)
+    {
+        ArgumentNullException.ThrowIfNull(evaluator);
+        ArgumentNullException.ThrowIfNull(instance);
+        if (instance.Declaration.Properties is not { } whole || whole is JsonObject)
+        {
+            return null;
+        }
+
+        try
+        {
+            return UnknownJson.IsUnknown(evaluator.EvaluateTree(whole, instance.Context), out var unknown) ? unknown.Symbol : null;
+        }
+        catch (ExpressionException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
     /// <c>properties</c> declared as one expression that could not be split at expansion (<see cref="WithPropertiesExpressionSplit"/>): its value is
     /// evaluated as a whole and split by key into object and edge properties. A value only known at deployment cannot be split (which of its keys
-    /// are edges is not known) and fails the instance.
+    /// are edges is not known) and fails the instance (the what-if shows it as known at deployment first:
+    /// <see cref="WholePropertiesKnownOnlyAtDeployment"/>).
     /// </summary>
     private static void EvaluateWholeProperties(ExpressionEvaluator evaluator, ResourceInstance instance, JsonNode whole)
     {

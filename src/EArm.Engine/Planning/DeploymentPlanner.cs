@@ -406,6 +406,12 @@ public sealed class DeploymentPlanner
         }
 
         SymbolicNames.LinkParent(plan, instance);
+        if (InstanceEvaluator.WholePropertiesKnownOnlyAtDeployment(plan.Evaluator, instance) is { } symbol)
+        {
+            // "properties": "[union(..., reference('created-this-run'))]": its keys are known once the referenced resource exists (create evaluates it then).
+            return ResourceChange.Ignore(instance.Id, instance.Type, $"its properties are one expression whose value is only known at deployment time ({symbol}); it is evaluated when the resource is deployed", isUnknown: true);
+        }
+
         InstanceEvaluator.EvaluateProperties(plan.Evaluator, instance);
         SecretRegistration.RegisterTainted(instance.Properties);
         var provider = plan.Registry.Get(instance.Type);

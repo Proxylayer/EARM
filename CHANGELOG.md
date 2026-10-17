@@ -27,6 +27,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   differs; an equal value is `NoChange`. Write-only secrets (a path the type declares `secure`, such as
   `passwordProfile.password`, or a value Graph does not return) are still sent only on create, so a rerun neither PATCHes them
   nor trips `--exit-code-on-changes`.
+- The what-if no longer fails a resource whose whole `properties` is one expression that reads `reference()` of a resource the
+  same run creates ("properties is a single expression whose value is only known at deployment"): it shows the resource as
+  known at deployment (`Ignore`, `?`), and `create` evaluates the expression once the referenced resource exists.
 
 ## [0.2.0] - 2026-10-17
 
