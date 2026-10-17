@@ -21,6 +21,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - A resource whose name is built from `deployment().name` got a wrong planned id in `what-if`, `create` and `delete`
   (`g-validate` instead of `g-<deployment name>`): the static evaluation of names, ids and `dependsOn` used the offline name `validate`. It now uses the deployment
   name (`-n` or its default); an outer-scope nested template sees the parent's deployment.
+- A secure value now updates an existing object when Graph reads the property back: a conditional access policy whose
+  `state` comes from a `securestring` parameter is switched to `enabled` with `--allow-ca-enforce` (it kept its live state,
+  because every secure value was create-only). Such a value is compared like any other and shown as `*** => ***` when it
+  differs; an equal value is `NoChange`. Write-only secrets (a path the type declares `secure`, such as
+  `passwordProfile.password`, or a value Graph does not return) are still sent only on create, so a rerun neither PATCHes them
+  nor trips `--exit-code-on-changes`.
 
 ## [0.2.0] - 2026-10-17
 

@@ -69,9 +69,12 @@ A second character qualifies the row:
 
 Secure values (`securestring` / `secureObject` parameters, tainted expression results, the type's `secure` overlay
 paths such as `passwordProfile.password`, one-time secrets such as `secretText`) are always `***`, in payloads and on
-both sides of a delta, in both output formats. The CLI never holds a what-if that contains a clear-text secret. Secrets are never compared: on an
-existing object a secret-bearing property is a `NoEffect` delta (shown with `--verbose`), so a rerun of an unchanged template is `NoChange` and
-`--exit-code-on-changes` does not fire for it; a `Create` still sends the secret.
+both sides of a delta, in both output formats. The CLI never holds a what-if that contains a clear-text secret. On an existing object, a secure
+value Graph reads back (a scalar such as a policy `state` or a name passed as a `securestring` parameter) is compared like any value: a `Modify`
+delta shown as `*** => ***` when it differs (and then sent), nothing when it is equal. A write-only secret (a path the type declares `secure`, a
+value Graph does not return, a secure array) cannot be compared: it is a `NoEffect` delta (shown with `--verbose`), so a rerun of an unchanged
+template is `NoChange` and `--exit-code-on-changes` does not fire for it; a `Create` still sends the secret. Unlike an ARM PUT, which carries
+every secure value on every deployment, EARM sends a write-only secret only when it creates the object.
 
 ## Text layout (`-o table`)
 

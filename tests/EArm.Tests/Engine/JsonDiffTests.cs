@@ -239,9 +239,10 @@ public sealed class JsonDiffTests
     // ---- secrets and unknowns ----
 
     [Fact]
-    public void SecretLeaf_IsNeverCompared_IsNoEffectOnAnExistingObject_AndRendersAsMask()
+    public void WriteOnlySecretLeaf_IsNoEffectOnAnExistingObject_AndRendersAsMask()
     {
-        // B14: Diff runs against an existing object; a secret-bearing value was sent on create and is never compared, so it neither PATCHes nor counts.
+        // B14: Diff runs against an existing object; a write-only secret (Graph returns no value for it) was sent on create and is not compared, so
+        // it neither PATCHes nor counts. A secure scalar Graph reads back is compared: SecureValueDiffTests.
         var desired = new JsonObject { ["passwordProfile"] = new JsonObject { ["password"] = SecretJson.CreateString("hunter2"), ["forceChangePasswordNextSignIn"] = true } };
 
         var absent = Assert.Single(JsonDiff.Diff(desired, J("{}")));
@@ -259,11 +260,6 @@ public sealed class JsonDiffTests
         Assert.True(same.IsSecret);
         Assert.Equal("\"***\"", Text(same.Before!["password"]));
         Assert.Equal("\"***\"", Text(same.After!["password"]));
-
-        var scalar = Assert.Single(JsonDiff.Diff(new JsonObject { ["state"] = SecretJson.CreateString("enabled") }, J("{\"state\":\"disabled\"}")));
-        Assert.Equal(PropertyChangeType.NoEffect, scalar.Kind);
-        Assert.True(scalar.IsSecret);
-        Assert.Equal("\"***\"", Text(scalar.Before));
     }
 
     [Fact]
