@@ -89,7 +89,7 @@ internal sealed class WhatIfReadPass
         {
             change = await PlanInstanceCoreAsync(plan, instance, reads, absences, cancellationToken).ConfigureAwait(false);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw;
         }
@@ -104,6 +104,13 @@ internal sealed class WhatIfReadPass
         catch (Exception ex) when (ex is GraphException or GraphTransportException)
         {
             string message = SecretRegistration.Scrub(ex.Message);
+            EngineLog.ReadFailed(_logger, instance.Id.Id, message);
+            change = ResourceChange.Unsupported(instance.Id, instance.Type, ChangeType.Modify, $"{instance.Describe()} could not be read: {message}");
+        }
+        catch (OperationCanceledException ex)
+        {
+            // Not the caller's cancellation (an HTTP timeout, a cancelled inner operation): this row is an error, the rest of the what-if goes on.
+            string message = NonCallerCancellation.Describe(ex);
             EngineLog.ReadFailed(_logger, instance.Id.Id, message);
             change = ResourceChange.Unsupported(instance.Id, instance.Type, ChangeType.Modify, $"{instance.Describe()} could not be read: {message}");
         }
@@ -295,14 +302,16 @@ internal sealed class WhatIfReadPass
             var unreliable = plan.Instances.Where(i => !i.IsSymbolic && !i.IsIgnored && !i.IsDeployment && !candidateSet.Contains(i)).ToList();
             edgePlan = await new EdgePlanner(plan, context, PlanMode.WhatIf, null, unreliable).PlanAsync(candidates, cancellationToken).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is GraphException or GraphTransportException or ProviderException or ExpressionException)
+        catch (Exception ex) when (ex is GraphException or GraphTransportException or ProviderException or ExpressionException
+            || (ex is OperationCanceledException && !cancellationToken.IsCancellationRequested))
         {
-            EngineLog.ReadFailed(_logger, "edge pass", ex.Message);
+            string message = ex is OperationCanceledException canceled ? NonCallerCancellation.Describe(canceled) : ex.Message;
+            EngineLog.ReadFailed(_logger, "edge pass", message);
             foreach (var instance in candidates.Where(EdgePlanner.DeclaresEdges))
             {
                 if (plan.ChangeFor(instance) is { } change)
                 {
-                    plan.RecordChange(instance, change with { UnsupportedReason = $"the relationships of {instance.Describe()} could not be planned: {ex.Message}", Reasons = [.. change.Reasons, ex.Message] });
+                    plan.RecordChange(instance, change with { UnsupportedReason = $"the relationships of {instance.Describe()} could not be planned: {message}", Reasons = [.. change.Reasons, message] });
                 }
             }
 

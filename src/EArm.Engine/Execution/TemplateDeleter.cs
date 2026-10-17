@@ -275,6 +275,12 @@ public sealed class TemplateDeleter
         {
             return new DeclaredObjectDeletion(target, DeletionStatus.Failed, SecretRegistration.Scrub($"{ex.GetType().Name}: {ex.Message}"), EngineDiagnosticCodes.ResourceDeleted, stopwatch.Elapsed);
         }
+        catch (OperationCanceledException ex)
+        {
+            // The reads and the delete never observe the caller's token (LaggingDeleteRetry rethrows the refusal, not the cancellation): this is an
+            // HTTP timeout, and it fails this object only. Whether a timed-out delete reached Graph is unknown; the next run reads the key again.
+            return new DeclaredObjectDeletion(target, DeletionStatus.Failed, $"{instance.Describe()}: {NonCallerCancellation.Describe(ex)}", EngineDiagnosticCodes.ResourceDeleted, stopwatch.Elapsed);
+        }
     }
 
     /// <summary>Why the object must be kept: the delete guards first (<see cref="EngineDiagnosticCodes.ProtectedObject"/>), then the provider (<see cref="EngineDiagnosticCodes.NotDeletable"/>).</summary>

@@ -88,11 +88,13 @@ public sealed partial class DeploymentExecutor
                 _cancelledInEndPhase = true;
                 return;
             }
-            catch (Exception ex) when (ex is GraphException or GraphTransportException or ProviderException or ExpressionException or InvalidOperationException)
+            catch (Exception ex) when (ex is GraphException or GraphTransportException or ProviderException or ExpressionException or InvalidOperationException or OperationCanceledException)
             {
+                // An OperationCanceledException here is not the caller's (an HTTP timeout): the relationships of the declaring resources fail, the end phase goes on.
+                string message = ex is OperationCanceledException canceled ? NonCallerCancellation.Describe(canceled) : ex.Message;
                 foreach (var instance in declaring)
                 {
-                    FailEdges(instance, EngineDiagnosticCodes.EdgeApplyFailed, $"the edge pass failed: {ex.Message}");
+                    FailEdges(instance, EngineDiagnosticCodes.EdgeApplyFailed, $"the edge pass failed: {message}");
                 }
 
                 return;

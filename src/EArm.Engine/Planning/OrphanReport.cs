@@ -111,6 +111,12 @@ internal sealed class OrphanReport
                 diagnostics.Add(Diagnostic.Warning(EngineDiagnosticCodes.OrphanReportIncomplete, $"Undeclared objects of type '{group.Key}' could not be listed: {SecretRegistration.Scrub(ex.Message)}"));
                 continue;
             }
+            catch (OperationCanceledException ex)
+            {
+                // Not the caller's cancellation (an HTTP timeout): this type is not listed, the report goes on.
+                diagnostics.Add(Diagnostic.Warning(EngineDiagnosticCodes.OrphanReportIncomplete, $"Undeclared objects of type '{group.Key}' could not be listed: {NonCallerCancellation.Describe(ex)}"));
+                continue;
+            }
 
             var claimed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var instance in group)
