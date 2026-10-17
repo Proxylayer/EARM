@@ -74,16 +74,10 @@ public sealed record KeyAbsenceCheck
             return found;
         }
 
-        for (int attempt = 1; attempt <= ExtraReads; attempt++)
+        found = await RereadAsync(key, read, logger, cancellationToken).ConfigureAwait(false);
+        if (found is not null)
         {
-            await Delay.DelayAsync(Interval, cancellationToken).ConfigureAwait(false);
-            EngineLog.ConfirmingAbsence(logger, key.Describe(), attempt, ExtraReads);
-            found = await read(cancellationToken).ConfigureAwait(false);
-            if (found is not null)
-            {
-                EngineLog.FoundOnReread(logger, key.Describe(), found.GraphId, attempt);
-                return found;
-            }
+            return found;
         }
 
         if (ExtraReads > 0)
@@ -95,6 +89,32 @@ public sealed record KeyAbsenceCheck
             else
             {
                 batch.RecordConfirmedAbsence();
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// The extra reads alone, for a key whose first read was empty: <see cref="ExtraReads"/> reads, <see cref="Interval"/> apart. Returns the object the
+    /// first of them finds (logged at Warning with its attempt number, event 2083), or <c>null</c> when every one was empty. Failures and cancellation propagate.
+    /// </summary>
+    internal async Task<ExistingResource?> RereadAsync(ResourceKey key, Func<CancellationToken, Task<ExistingResource?>> read, ILogger logger, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        ArgumentNullException.ThrowIfNull(read);
+        ArgumentNullException.ThrowIfNull(logger);
+
+        for (int attempt = 1; attempt <= ExtraReads; attempt++)
+        {
+            await Delay.DelayAsync(Interval, cancellationToken).ConfigureAwait(false);
+            EngineLog.ConfirmingAbsence(logger, key.Describe(), attempt, ExtraReads);
+            var found = await read(cancellationToken).ConfigureAwait(false);
+            if (found is not null)
+            {
+                // The attempt number is the data that tunes ExtraReads: every real-tenant find so far was on extra read 1.
+                EngineLog.FoundOnReread(logger, key.Describe(), found.GraphId, attempt, ExtraReads);
+                return found;
             }
         }
 

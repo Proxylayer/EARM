@@ -116,11 +116,11 @@ public sealed class ReadYourWriteAfterCreateTests
         var warning = Check.Diagnostic(run, EngineDiagnosticCodes.CreatedObjectNotVisible);
         Assert.Equal(EArm.Core.Diagnostics.DiagnosticSeverity.Warning, warning.Severity);
         Assert.Contains(operation.GraphId!, warning.Message, StringComparison.Ordinal);
-        Assert.Contains("90 s", warning.Message, StringComparison.Ordinal);
+        Assert.Contains("87 s", warning.Message, StringComparison.Ordinal);
         Assert.Single(run.Writes);
 
-        var wait = ReplicationWait.Default;
-        int expectedDelays = (int)(wait.Window / wait.Interval);
+        // The adaptive schedule after each miss: 1 + 2 + 4 s, then sixteen 5 s waits (87 s; one more would pass the 90 s window).
+        const int expectedDelays = 19;
         Assert.Equal(expectedDelays, host.ReplicationDelays.Count);
         Assert.Equal(1 + KeyAbsenceCheck.Default.ExtraReads + expectedDelays + 1, ListReads(run, LocPath));
     }

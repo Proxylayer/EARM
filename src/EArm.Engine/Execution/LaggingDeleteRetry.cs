@@ -11,7 +11,8 @@ namespace EArm.Engine.Execution;
 
 /// <summary>
 /// Repeats a provider delete that Graph refused for a reason that clears once an earlier write of the same run has reached the Conditional Access service,
-/// on the <see cref="ReplicationWait"/> schedule (every <see cref="ReplicationWait.Interval"/>, up to <see cref="ReplicationWait.Window"/> of scheduled waiting):
+/// on the adaptive <see cref="ReplicationWait"/> schedule (<see cref="ReplicationWait.IntervalAfter"/>: 1, 2, 4 s, then every <see cref="ReplicationWait.Interval"/>,
+/// up to <see cref="ReplicationWait.Window"/> of scheduled waiting):
 /// <list type="bullet">
 /// <item><see cref="EngineDiagnosticCodes.NamedLocationTrusted"/> (Graph <c>1177</c>): the provider set <c>isTrusted: false</c> itself a moment earlier, and
 /// Graph keeps refusing the delete until the unmark is applied. Always repeated.</item>
@@ -51,25 +52,27 @@ public sealed class LaggingDeleteRetry
         ArgumentNullException.ThrowIfNull(delete);
 
         var waited = TimeSpan.Zero;
-        while (true)
+        for (int refusals = 1; ; refusals++)
         {
+            // The adaptive schedule (1, 2, 4 s, then the interval): most refusals clear within a second or two.
+            var pause = _wait.IntervalAfter(refusals);
             try
             {
                 await delete().ConfigureAwait(false);
                 return;
             }
-            catch (ProviderException ex) when (IsLagging(ex.Code) && waited + _wait.Interval <= _wait.Window && !cancellationToken.IsCancellationRequested)
+            catch (ProviderException ex) when (IsLagging(ex.Code) && waited + pause <= _wait.Window && !cancellationToken.IsCancellationRequested)
             {
                 try
                 {
-                    await _wait.Delay.DelayAsync(_wait.Interval, cancellationToken).ConfigureAwait(false);
+                    await _wait.Delay.DelayAsync(pause, cancellationToken).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
                     ExceptionDispatchInfo.Throw(ex);
                 }
 
-                waited += _wait.Interval;
+                waited += pause;
                 EngineLog.RetryingRefusedDelete(_logger, resourceId, ex.Code, waited.TotalSeconds, _wait.Window.TotalSeconds);
             }
         }

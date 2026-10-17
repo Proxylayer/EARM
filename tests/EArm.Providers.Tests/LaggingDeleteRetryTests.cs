@@ -102,7 +102,8 @@ public sealed class LaggingDeleteRetryTests
         var outcome = Assert.Single(deletion.Outcomes);
         Assert.Equal(DeletionStatus.Failed, outcome.Status);
         Assert.Equal(EngineDiagnosticCodes.NamedLocationTrusted, outcome.ErrorCode);
-        Assert.Equal(18, host.ReplicationDelays.Count - delaysBefore);
+        // The adaptive schedule: 1 + 2 + 4 s, then sixteen 5 s waits (87 s; one more would pass the 90 s window).
+        Assert.Equal(19, host.ReplicationDelays.Count - delaysBefore);
         Assert.Equal(1, host.Directory.Count(LocPath));
     }
 

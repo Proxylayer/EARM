@@ -314,10 +314,9 @@ public sealed class KeyAbsenceCheckTests
         var warning = Check.Diagnostic(run, EngineDiagnosticCodes.CreatedObjectNotVisible);
         Assert.Contains(run.Executed.Operations.Single().GraphId!, warning.Message, StringComparison.Ordinal);
 
-        // Bounded by the window: each hit-miss pair schedules one gap and one interval.
-        var wait = ReplicationWait.Default;
-        int pairs = (int)(wait.Window / (wait.StableGap + wait.Interval));
-        Assert.InRange(host.ReplicationDelays.Count, 2 * pairs, (2 * pairs) + 1);
+        // Bounded by the window: a 2 s gap after each hit, the adaptive schedule after each miss (1, 2, 4, then 5 s): 2+1, 2+2, 2+4, 2+5, then ten
+        // more 2+5 pairs reach exactly 90 s, and the next gap would pass the window.
+        Assert.Equal(28, host.ReplicationDelays.Count);
     }
 
     [Fact]

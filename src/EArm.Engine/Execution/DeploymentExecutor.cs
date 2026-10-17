@@ -86,6 +86,7 @@ public sealed class DeploymentExecutor
         private readonly SemaphoreSlim _secretsFileGate = new(1, 1);
         private readonly LaggingDeleteRetry _laggingDeletes;
         private IReadOnlyList<ResourceChange> _orphans = [];
+        private KeyAbsencePrefetch? _absencePrefetch;
         private bool _oneTimeSecretsWritten;
         private bool _cancelledInEndPhase;
 
@@ -198,6 +199,28 @@ public sealed class DeploymentExecutor
         {
             int parallelism = Math.Max(1, _options.Parallelism ?? _plan.Parallelism);
             var parallel = new ParallelOptions { MaxDegreeOfParallelism = parallelism, CancellationToken = cancellationToken };
+
+            // The absence confirmation of the later batches' planned creates runs while the earlier batches deploy (KeyAbsencePrefetch).
+            await using var prefetch = KeyAbsencePrefetch.Start(
+                _plan,
+                _owner._keyAbsenceCheck,
+                (provider, key, ct) => WithRetryAsync(c => provider.ReadAsync(key, _owner._graph, c), RetryHint.Default, ct),
+                parallelism,
+                Logger,
+                cancellationToken);
+            _absencePrefetch = prefetch;
+            try
+            {
+                return await RunBatchesCoreAsync(parallel, cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                _absencePrefetch = null;
+            }
+        }
+
+        private async Task<bool> RunBatchesCoreAsync(ParallelOptions parallel, CancellationToken cancellationToken)
+        {
             bool stop = false;
 
             foreach (var batch in _plan.Batches)
@@ -606,9 +629,7 @@ public sealed class DeploymentExecutor
             // (a renamed object is a new one). A key read that can miss an existing object (KeyReadLagsCreate) is repeated before "nothing found"
             // becomes a create (KeyAbsenceCheck): its last read is the final look right before the POST, and an object any read finds is adopted
             // (NoChange or Modify) instead of being created a second time.
-            var existing = await _owner._keyAbsenceCheck
-                .ReadAsync(provider, key, ct => WithRetryAsync(c => provider.ReadAsync(key, _owner._graph, c), RetryHint.Default, ct), Logger, batch: null, cancellationToken)
-                .ConfigureAwait(false);
+            var existing = await ReadBeforeApplyAsync(provider, instance, key, cancellationToken).ConfigureAwait(false);
 
             if (existing is not null && !TryClaim(instance, existing.GraphId, out var other))
             {
@@ -726,6 +747,31 @@ public sealed class DeploymentExecutor
         }
 
         /// <summary>Claims a Graph id for an instance; false (with the claimant) when another instance of this run already manages that object.</summary>
+        /// <summary>
+        /// The executor's read of <paramref name="key"/> before it plans and applies <paramref name="instance"/>. Normally the full <see cref="KeyAbsenceCheck"/>
+        /// (first read, then the extra reads when it is empty and the key read lags). When the extra reads of this very key already ran during the earlier
+        /// batches (<see cref="KeyAbsencePrefetch"/>) and were all empty, this waits for them if they are still running and then reads once more: that read is
+        /// the final look before the POST, and an object it finds is adopted. Any other early outcome falls back to the full check.
+        /// </summary>
+        private async Task<ExistingResource?> ReadBeforeApplyAsync(IResourceProvider provider, ResourceInstance instance, ResourceKey key, CancellationToken cancellationToken)
+        {
+            Task<ExistingResource?> Read(CancellationToken ct) => WithRetryAsync(c => provider.ReadAsync(key, _owner._graph, c), RetryHint.Default, ct);
+
+            var check = _owner._keyAbsenceCheck;
+            if (_absencePrefetch is { } prefetch && prefetch.TryTake(instance, key, out var early) && await early.WaitAsync(cancellationToken).ConfigureAwait(false))
+            {
+                var found = await Read(cancellationToken).ConfigureAwait(false);
+                if (found is null)
+                {
+                    EngineLog.AbsenceConfirmedEarly(Logger, key.Describe(), check.ExtraReads, check.WaitedSeconds);
+                }
+
+                return found;
+            }
+
+            return await check.ReadAsync(provider, key, Read, Logger, batch: null, cancellationToken).ConfigureAwait(false);
+        }
+
         private bool TryClaim(ResourceInstance instance, string graphId, out ResourceInstance? other)
         {
             if (string.IsNullOrEmpty(graphId))
@@ -831,8 +877,8 @@ public sealed class DeploymentExecutor
 
         /// <summary>
         /// Read-your-write after a successful create, for a provider whose key read can miss a new object for a while
-        /// (<see cref="IResourceProvider.KeyReadLagsCreate"/>: the <c>$filter=displayName eq</c> lists). The key is read again every
-        /// <see cref="ReplicationWait.Interval"/> until it has returned the created id <see cref="ReplicationWait.ConsecutiveVisibleReads"/> times in a row
+        /// (<see cref="IResourceProvider.KeyReadLagsCreate"/>: the <c>$filter=displayName eq</c> lists). The key is read again after each miss on the adaptive
+        /// schedule (<see cref="ReplicationWait.IntervalAfter"/>) until it has returned the created id <see cref="ReplicationWait.ConsecutiveVisibleReads"/> times in a row
         /// (<see cref="ReplicationWait.StableGap"/> apart; the list flaps, so a miss after a hit starts the count again) or <see cref="ReplicationWait.Window"/>
         /// of waiting was scheduled, so a run started right after this one finds the object instead of planning (and POSTing) it again. Never fails the create: when the object does not
         /// show up in time (or the read itself fails), the <see cref="EngineDiagnosticCodes.CreatedObjectNotVisible"/> warning says so. The reads are not
@@ -849,6 +895,7 @@ public sealed class DeploymentExecutor
             var waited = TimeSpan.Zero;
             string? readFailure = null;
             int visibleInARow = 0;
+            int misses = 0;
             while (true)
             {
                 bool visible = false;
@@ -877,7 +924,8 @@ public sealed class DeploymentExecutor
                     return;
                 }
 
-                var pause = visible ? wait.StableGap : wait.Interval;
+                // A miss waits on the adaptive schedule (1, 2, 4 s, then the interval); a hit that is not yet the last one in a row waits the short gap.
+                var pause = visible ? wait.StableGap : wait.IntervalAfter(++misses);
                 if (cancellationToken.IsCancellationRequested || waited + pause > wait.Window)
                 {
                     break;
@@ -941,7 +989,8 @@ public sealed class DeploymentExecutor
         /// <summary>
         /// Looks for the object by its key after a create whose outcome is not known from its answer (lost, or "already exists"), waiting out replication
         /// (<see cref="ReplicationWait"/>): "not found" - <c>null</c> from the provider (an empty <c>$filter</c> answers 200, not 404), a 404 or a replication-lag
-        /// 400 - is read again every <see cref="ReplicationWait.Interval"/> until the object turns up or <see cref="ReplicationWait.Window"/> of waiting was scheduled.
+        /// 400 - is read again on the adaptive schedule (<see cref="ReplicationWait.IntervalAfter"/>: 1, 2, 4 s, then every <see cref="ReplicationWait.Interval"/>)
+        /// until the object turns up or <see cref="ReplicationWait.Window"/> of waiting was scheduled.
         /// The executor owns this wait whether or not the plan carries a retry policy: each read goes through the policy (when there is one) with
         /// <see cref="RetryHint.Default"/>, so the policy still waits out throttling and transient failures but never waits out replication a second time.
         /// The reads are not cancellable (the create may have committed: an object found is recorded, not orphaned); a cancellation cuts the WAIT short
@@ -951,24 +1000,25 @@ public sealed class DeploymentExecutor
         {
             var wait = _owner._replicationWait;
             var waited = TimeSpan.Zero;
-            while (true)
+            for (int misses = 1; ; misses++)
             {
                 var found = await ReadOnceAfterCreateAsync(provider, key).ConfigureAwait(false);
-                if (found is not null || cancellationToken.IsCancellationRequested || waited + wait.Interval > wait.Window)
+                var pause = wait.IntervalAfter(misses);
+                if (found is not null || cancellationToken.IsCancellationRequested || waited + pause > wait.Window)
                 {
                     return found;
                 }
 
                 try
                 {
-                    await wait.Delay.DelayAsync(wait.Interval, cancellationToken).ConfigureAwait(false);
+                    await wait.Delay.DelayAsync(pause, cancellationToken).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
                     return await ReadOnceAfterCreateAsync(provider, key).ConfigureAwait(false);
                 }
 
-                waited += wait.Interval;
+                waited += pause;
                 EngineLog.WaitingForReplication(Logger, key.Describe(), waited.TotalSeconds, wait.Window.TotalSeconds);
             }
         }
