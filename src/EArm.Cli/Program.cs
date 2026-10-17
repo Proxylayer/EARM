@@ -232,14 +232,12 @@ internal static class Program
             Action = new VersionAction(),
         });
 
-        root.Options.Add(GlobalOptions.Output);
-        root.Options.Add(GlobalOptions.Query);
-        root.Options.Add(GlobalOptions.Auth);
-        root.Options.Add(GlobalOptions.Tenant);
-        root.Options.Add(GlobalOptions.ClientId);
-        root.Options.Add(GlobalOptions.Verbose);
-        root.Options.Add(GlobalOptions.Debug);
-        root.Options.Add(GlobalOptions.EvaluationTimeout);
+        // A fresh set per root command: an option records the commands it belongs to, so the instances are never shared between command lines.
+        foreach (var option in GlobalOptions.CreateAll())
+        {
+            root.Options.Add(option);
+        }
+
         root.Subcommands.Add(DeploymentCommand.Build());
         root.Subcommands.Add(AuthCommand.Build());
         root.Subcommands.Add(PermissionsCommand.Build());

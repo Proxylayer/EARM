@@ -23,7 +23,6 @@ namespace EArm.Tests;
 /// and nothing capped the instances of a template. A copy loop is limited to 800 iterations (the ARM limit) and the whole template to 5,000
 /// instances; both are checked before a single iteration is built (<c>ExpansionLimitExceeded</c>).
 /// </summary>
-[Collection(CliCollection.Name)]
 public sealed class Review1C_ExpansionBudgetTests
 {
     private static string Loop(string tag, string count)

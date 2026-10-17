@@ -24,7 +24,6 @@ namespace EArm.Tests.Cli;
 /// against an in-memory directory behind the real <c>HttpClient</c> stack. (<c>--allow-ca-enforce</c> is covered for what-if and create in
 /// <see cref="Review1D_CaFlagTests"/>.)
 /// </summary>
-[Collection(CliCollection.Name)]
 public sealed class Review2F_CliWiringTests
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;

@@ -9,7 +9,6 @@ namespace EArm.Tests.Cli;
 /// Review 2E: a hostile template with 12,000 variables that each exceed the depth limit used to print 12,000 identical <c>ValueTooDeep</c> diagnostics.
 /// The listing is capped per code (the first 50, then one summary line); the error and warning counts and the JSON <c>suppressedCount</c> keep the truth.
 /// </summary>
-[Collection(CliCollection.Name)]
 public sealed class Review2E_DiagnosticCapTests
 {
     private const int Chain = 12_000;

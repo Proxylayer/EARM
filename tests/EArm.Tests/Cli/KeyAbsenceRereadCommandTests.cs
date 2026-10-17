@@ -17,7 +17,6 @@ namespace EArm.Tests.Cli;
 /// <c>create</c> still confirms the absence with every extra read right before its POST; <c>delete</c> keeps the confirmation in its planner, because it
 /// deletes what that plan finds.
 /// </summary>
-[Collection(CliCollection.Name)]
 public sealed class KeyAbsenceRereadCommandTests
 {
     private const string LocType = "Microsoft.Entra/conditionalAccess/namedLocations";

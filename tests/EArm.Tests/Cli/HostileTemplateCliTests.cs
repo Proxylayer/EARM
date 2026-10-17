@@ -13,7 +13,6 @@ namespace EArm.Tests;
 /// the reader limit, and a lone surrogate escape. Each must end as a diagnostic with a normal exit code, never a stack overflow or an
 /// unhandled exception.
 /// </summary>
-[Collection(CliCollection.Name)]
 public sealed class HostileTemplateCliTests
 {
     private const string Header = "{ \"$schema\": \"https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#\", \"contentVersion\": \"1.0.0.0\", ";

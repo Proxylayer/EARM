@@ -12,7 +12,7 @@ namespace EArm.Tests.Cli;
 /// real template, run with the working directory and the template in a private folder, leave nothing on disk but the secure outputs file that
 /// <c>create</c> was asked to write: no <c>.earm/state</c> next to the template or under the working directory, no lock, no state file anywhere.
 /// </summary>
-[Collection(CliCollection.Name)]
+[Collection(ProcessStateCollection.Name)]
 public sealed class NoLocalStateTests
 {
     private const string Sample = "app-with-sp-and-secret";

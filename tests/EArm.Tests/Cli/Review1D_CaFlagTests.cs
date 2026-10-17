@@ -13,7 +13,6 @@ namespace EArm.Tests.Cli;
 /// Without the flag a declared <c>state: enabled</c> is held back, never refused: a new policy is created report-only, an existing policy
 /// keeps its live state, and the row carries the <c>ConditionalAccessEnforcementNotAllowed</c> warning.
 /// </summary>
-[Collection(CliCollection.Name)]
 public sealed class Review1D_CaFlagTests
 {
     private const string PoliciesPath = "/identity/conditionalAccess/policies";

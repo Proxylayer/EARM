@@ -10,7 +10,6 @@ using Xunit;
 namespace EArm.Tests.Cli;
 
 /// <summary><c>earm schema print</c>: name resolution, the embedded text it writes and the failure for an unknown name.</summary>
-[Collection(CliCollection.Name)]
 public sealed class SchemaCommandTests
 {
     private static string TypeResource(string fileName)

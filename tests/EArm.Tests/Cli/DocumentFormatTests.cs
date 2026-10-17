@@ -11,7 +11,6 @@ namespace EArm.Tests.Cli;
 /// <c>-o jsonc|yaml|yamlc|tsv</c> and <c>--query</c>: the renderers (<see cref="YamlText"/>, <see cref="TsvText"/>, <see cref="JsonText"/>,
 /// <see cref="JmesPathQuery"/>) and the end-to-end path through <c>Program.InvokeAsync</c>.
 /// </summary>
-[Collection(CliCollection.Name)]
 public sealed class DocumentFormatTests
 {
     private static string Sample => TestPaths.Sample("orders-api.entra.json");

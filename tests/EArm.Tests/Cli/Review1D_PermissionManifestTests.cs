@@ -12,7 +12,6 @@ namespace EArm.Tests.Cli;
 /// Review 1D / G-03..G-06, G-17: the permission manifest no longer under-reports. Every expectation cites the Microsoft Learn page it comes from
 /// (docs/permissions.md, "Review 1D corrections").
 /// </summary>
-[Collection(CliCollection.Name)]
 public sealed class Review1D_PermissionManifestTests
 {
     private const string UserId = "11111111-1111-1111-1111-111111111111";

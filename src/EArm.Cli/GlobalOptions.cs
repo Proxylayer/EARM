@@ -19,48 +19,76 @@ internal enum OutputFormat
     None,
 }
 
-/// <summary>Options that apply to every command (added to the root command as recursive options).</summary>
+/// <summary>
+/// Options that apply to every command (added to the root command as recursive options). <see cref="CreateAll"/> builds a fresh set for each
+/// root command, and the accessors below find the options of the parsed command line by name: a <see cref="Symbol"/> records every command
+/// it is added to, so one static instance shared by every root command would be mutated by each command line built (and two built at once,
+/// as parallel tests do, would race on it).
+/// </summary>
 internal static class GlobalOptions
 {
-    public static Option<string> Output { get; } = CreateOutputOption();
+    public const string OutputName = "--output";
+    public const string QueryName = "--query";
+    public const string AuthName = "--auth";
+    public const string TenantName = "--tenant";
+    public const string ClientIdName = "--client-id";
+    public const string VerboseName = "--verbose";
+    public const string DebugName = "--debug";
+    public const string EvaluationTimeoutName = "--evaluation-timeout";
 
-    /// <summary><c>--query</c>: a JMESPath expression applied to the JSON document of the verb (as the Azure CLI's <c>--query</c>).</summary>
-    public static Option<string?> Query { get; } = CreateQueryOption();
-
-    /// <summary><c>--auth</c>: how tokens are obtained (else <c>EARM_AUTH</c>, then auto).</summary>
-    public static Option<string?> Auth { get; } = CreateAuthOption();
+    /// <summary>A new instance of every global option, in the order the help lists them.</summary>
+    public static Option[] CreateAll()
+    {
+        return
+        [
+            CreateOutputOption(),
+            CreateQueryOption(),
+            CreateAuthOption(),
+            CreateTenantOption(),
+            CreateClientIdOption(),
+            CreateVerboseOption(),
+            CreateDebugOption(),
+            CreateEvaluationTimeoutOption(),
+        ];
+    }
 
     /// <summary><c>--tenant</c>: the tenant to sign in to (else <c>EARM_TENANT_ID</c>).</summary>
-    public static Option<string?> Tenant { get; } = new("--tenant")
+    public static Option<string?> CreateTenantOption()
     {
-        Description = "Tenant id or domain to sign in to. Default: EARM_TENANT_ID, then whatever the credential selects.",
-        Recursive = true,
-    };
+        return new Option<string?>(TenantName)
+        {
+            Description = "Tenant id or domain to sign in to. Default: EARM_TENANT_ID, then whatever the credential selects.",
+            Recursive = true,
+        };
+    }
 
     /// <summary><c>--client-id</c>: the public-client app registration of the interactive sign-in (else <c>EARM_CLIENT_ID</c>).</summary>
-    public static Option<string?> ClientId { get; } = new("--client-id")
+    public static Option<string?> CreateClientIdOption()
     {
-        Description = "App registration (client id) used by the interactive sign-in 'earm auth login'. Default: EARM_CLIENT_ID, then the client of the stored sign-in, then Microsoft Graph Command Line Tools (none in the china cloud).",
-        Recursive = true,
-    };
+        return new Option<string?>(ClientIdName)
+        {
+            Description = "App registration (client id) used by the interactive sign-in 'earm auth login'. Default: EARM_CLIENT_ID, then the client of the stored sign-in, then Microsoft Graph Command Line Tools (none in the china cloud).",
+            Recursive = true,
+        };
+    }
 
-    public static Option<bool> Verbose { get; } = new("--verbose")
+    public static Option<bool> CreateVerboseOption()
     {
-        Description = "Debug logging to stderr: every Graph call (method, path, status, timing, request id; query secrets redacted, tokens and bodies never logged).",
-        Recursive = true,
-    };
+        return new Option<bool>(VerboseName)
+        {
+            Description = "Debug logging to stderr: every Graph call (method, path, status, timing, request id; query secrets redacted, tokens and bodies never logged).",
+            Recursive = true,
+        };
+    }
 
-    public static Option<bool> Debug { get; } = new("--debug")
+    public static Option<bool> CreateDebugOption()
     {
-        Description = "Trace logging to stderr: as --verbose plus token acquisition and retry details (tokens are never logged). Also prints the full exception of an unexpected error; EARM_DEBUG=1 does the same.",
-        Recursive = true,
-    };
-
-    /// <summary>
-    /// <c>--evaluation-timeout</c>: the wall-clock budget of template evaluation, in seconds (else <c>EARM_EVALUATION_TIMEOUT</c>, then 60;
-    /// <c>0</c> disables the time limit, the step limit still applies).
-    /// </summary>
-    public static Option<string?> EvaluationTimeout { get; } = CreateEvaluationTimeoutOption();
+        return new Option<bool>(DebugName)
+        {
+            Description = "Trace logging to stderr: as --verbose plus token acquisition and retry details (tokens are never logged). Also prints the full exception of an unexpected error; EARM_DEBUG=1 does the same.",
+            Recursive = true,
+        };
+    }
 
     /// <summary>The environment variable that turns on <c>--debug</c> output (stack traces of unexpected errors): <c>EARM_DEBUG=1</c>.</summary>
     public const string DebugVariable = "EARM_DEBUG";
@@ -68,7 +96,7 @@ internal static class GlobalOptions
     /// <summary>True when <c>--debug</c> is given or <c>EARM_DEBUG</c> is <c>1</c>/<c>true</c>.</summary>
     public static bool IsDebug(ParseResult parseResult)
     {
-        return parseResult.GetValue(Debug) || IsDebugEnvironment();
+        return Value<bool>(parseResult, DebugName) || IsDebugEnvironment();
     }
 
     public static bool IsDebugEnvironment()
@@ -81,7 +109,7 @@ internal static class GlobalOptions
     public static EvaluationLimits GetEvaluationLimits(ParseResult parseResult)
     {
         // The text is validated while parsing; a value that did not pass leaves the run on the defaults (the usage error is reported anyway).
-        string? text = parseResult.GetValue(EvaluationTimeout);
+        string? text = Value<string?>(parseResult, EvaluationTimeoutName);
         return text is not null && EvaluationLimits.TryParseTimeout(text, out var timeout) ? new EvaluationLimits { Timeout = timeout } : EvaluationLimits.FromEnvironment();
     }
 
@@ -91,7 +119,7 @@ internal static class GlobalOptions
     /// </summary>
     public static OutputFormat GetOutputFormat(ParseResult parseResult)
     {
-        string? value = parseResult.GetValue(Output);
+        string? value = Value<string>(parseResult, OutputName);
         return value?.ToLowerInvariant() switch
         {
             "json" or "jsonc" or "yaml" or "yamlc" or "tsv" => OutputFormat.Json,
@@ -107,14 +135,14 @@ internal static class GlobalOptions
     /// </summary>
     public static StructuredOutput? GetStructuredOutput(ParseResult parseResult)
     {
-        string? text = parseResult.GetValue(Query);
+        string? text = Value<string?>(parseResult, QueryName);
         JmesPathQuery? query = null;
         if (!string.IsNullOrWhiteSpace(text) && JmesPathQuery.TryCreate(text, out var compiled, out _))
         {
             query = compiled;
         }
 
-        DocumentFormat? format = parseResult.GetValue(Output)?.ToLowerInvariant() switch
+        DocumentFormat? format = Value<string>(parseResult, OutputName)?.ToLowerInvariant() switch
         {
             "json" => DocumentFormat.Json,
             "jsonc" => DocumentFormat.Jsonc,
@@ -136,17 +164,17 @@ internal static class GlobalOptions
     /// <summary>True when <c>--query</c> is combined with an explicit <c>-o table</c>: the table is text, so there is nothing to query (a usage error).</summary>
     public static bool IsQueryOnTable(ParseResult parseResult)
     {
-        return HasQuery(parseResult) && IsOutputExplicit(parseResult) && string.Equals(parseResult.GetValue(Output), "table", StringComparison.OrdinalIgnoreCase);
+        return HasQuery(parseResult) && IsOutputExplicit(parseResult) && string.Equals(Value<string>(parseResult, OutputName), "table", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool HasQuery(ParseResult parseResult)
     {
-        return !string.IsNullOrWhiteSpace(parseResult.GetValue(Query));
+        return !string.IsNullOrWhiteSpace(Value<string?>(parseResult, QueryName));
     }
 
     private static bool IsOutputExplicit(ParseResult parseResult)
     {
-        return parseResult.GetResult(Output) is { Implicit: false };
+        return Find<string>(parseResult, OutputName) is { } output && parseResult.GetResult(output) is { Implicit: false };
     }
 
     /// <summary>Information by default; <c>--verbose</c> is Debug; <c>--debug</c> (or <c>EARM_DEBUG=1</c>) is Trace.</summary>
@@ -157,7 +185,7 @@ internal static class GlobalOptions
             return LogLevel.Trace;
         }
 
-        return parseResult.GetValue(Verbose) ? LogLevel.Debug : LogLevel.Information;
+        return Value<bool>(parseResult, VerboseName) ? LogLevel.Debug : LogLevel.Information;
     }
 
     /// <summary>The connection settings from the global options (environment fallbacks are applied when the services are built).</summary>
@@ -165,9 +193,9 @@ internal static class GlobalOptions
     {
         return new ConnectionSettings
         {
-            Auth = parseResult.GetValue(Auth),
-            Tenant = parseResult.GetValue(Tenant),
-            ClientId = parseResult.GetValue(ClientId),
+            Auth = Value<string?>(parseResult, AuthName),
+            Tenant = Value<string?>(parseResult, TenantName),
+            ClientId = Value<string?>(parseResult, ClientIdName),
             Parallelism = Math.Max(1, parallelism),
         };
     }
@@ -186,10 +214,30 @@ internal static class GlobalOptions
         });
     }
 
+    /// <summary>The global option <paramref name="name"/> of the parsed command line (a recursive option of its root command), if it has one.</summary>
+    private static Option<T>? Find<T>(ParseResult parseResult, string name)
+    {
+        foreach (var option in parseResult.RootCommandResult.Command.Options)
+        {
+            if (option is Option<T> typed && typed.Name == name)
+            {
+                return typed;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>The value of the global option <paramref name="name"/>; the type default when the command line has no such option.</summary>
+    private static T? Value<T>(ParseResult parseResult, string name)
+    {
+        return Find<T>(parseResult, name) is { } option ? parseResult.GetValue(option) : default;
+    }
+
     private static Option<string?> CreateEvaluationTimeoutOption()
     {
         // Read as text and parsed by EvaluationLimits.TryParseTimeout: a typed double option throws from GetValue on "abc" and parses "NaN".
-        var option = new Option<string?>("--evaluation-timeout")
+        var option = new Option<string?>(EvaluationTimeoutName)
         {
             Description = "Seconds one evaluation (a variable, the properties of a resource, an output) may take before the run fails with EvaluationBudgetExceeded; 0 disables the time limit. Default: EARM_EVALUATION_TIMEOUT, then 60.",
             Recursive = true,
@@ -207,7 +255,7 @@ internal static class GlobalOptions
 
     private static Option<string?> CreateAuthOption()
     {
-        var option = new Option<string?>("--auth")
+        var option = new Option<string?>(AuthName)
         {
             Description = "How to obtain tokens: auto (default: a cached 'earm auth login' sign-in when there is one, else the default chain), default (environment variables, workload identity, managed identity) or interactive. Default: EARM_AUTH.",
             Recursive = true,
@@ -218,7 +266,7 @@ internal static class GlobalOptions
 
     private static Option<string> CreateOutputOption()
     {
-        var option = new Option<string>("--output", "-o")
+        var option = new Option<string>(OutputName, "-o")
         {
             Description = "Output format: table (default), json, jsonc (coloured JSON), yaml, yamlc (coloured YAML), tsv or none.",
             Recursive = true,
@@ -230,7 +278,7 @@ internal static class GlobalOptions
 
     private static Option<string?> CreateQueryOption()
     {
-        var option = new Option<string?>("--query")
+        var option = new Option<string?>(QueryName)
         {
             Description = "JMESPath query (https://jmespath.org) applied to the JSON document of the command. Without -o it selects -o json.",
             Recursive = true,

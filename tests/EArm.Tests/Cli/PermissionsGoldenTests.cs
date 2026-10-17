@@ -11,7 +11,6 @@ namespace EArm.Tests.Cli;
 /// byte for byte (line endings normalised). The goldens were captured before the offline pipeline moved into
 /// <c>EArm.Engine.Permissions</c>, so they pin the command's output across that refactoring. Regenerate deliberately only when the output is meant to change.
 /// </summary>
-[Collection(CliCollection.Name)]
 public sealed class PermissionsGoldenTests
 {
     private static string GoldenDirectory => Path.Combine(TestPaths.RepoRoot, "tests", "fixtures", "permissions");

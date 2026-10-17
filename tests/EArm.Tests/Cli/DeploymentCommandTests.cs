@@ -20,7 +20,6 @@ namespace EArm.Tests.Cli;
 /// codes of the CLI). Templates without resources go through the whole pipeline (preflight, plan, execute) without
 /// needing a resource provider; the engine fixture covers the offline paths that stop before any request.
 /// </summary>
-[Collection(CliCollection.Name)]
 public sealed class DeploymentCommandTests
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;

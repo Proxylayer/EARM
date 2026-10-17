@@ -24,7 +24,6 @@ namespace EArm.Tests.Cli;
 /// consent is prompted for on an interactive terminal (then the run continues, on a new credential) and otherwise stops the run with exit 3 before any write;
 /// the preflight's <c>scp</c> check and the Key Vault consent take the same two paths.
 /// </summary>
-[Collection(CliCollection.Name)]
 public sealed class DelegatedRunScopesCommandTests
 {
     private const string GraphOrigin = "https://graph.microsoft.com";

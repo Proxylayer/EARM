@@ -11,7 +11,7 @@ namespace EArm.Tests.Cli;
 /// (1), an invalid template in every output format (2), no sign-in or an unreadable Key Vault secret (3), and the output switches
 /// (<c>-o json / none</c>) on each failure. All but the sign-in and Key Vault cases stop before any request is sent.
 /// </summary>
-[Collection(CliCollection.Name)]
+[Collection(ProcessStateCollection.Name)]
 public sealed class DeploymentExitCodeTests
 {
     private static string[] Offline(CliSandbox sandbox, params string[] args)

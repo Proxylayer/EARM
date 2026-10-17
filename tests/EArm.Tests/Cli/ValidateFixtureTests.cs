@@ -12,7 +12,6 @@ namespace EArm.Tests;
 /// One case per <c>tests/fixtures/templates/invalid/*.entra.json</c>, driven through the real command line:
 /// the <c>.expected.json</c> sidecar lists the codes that must appear (subset match) and the exit code.
 /// </summary>
-[Collection(CliCollection.Name)]
 public sealed class ValidateFixtureTests
 {
     private const string TemplateSuffix = ".entra.json";

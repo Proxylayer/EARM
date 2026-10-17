@@ -16,7 +16,6 @@ namespace EArm.Tests;
 /// Review 5M: input that is not valid UTF-8 (the review 4L defect: <c>0xC3 0x28</c> inside a string) is refused at load as <c>InvalidJson</c> for templates and parameter files,
 /// through the loader and through the real command line, never as an unhandled exception.
 /// </summary>
-[Collection(CliCollection.Name)]
 public sealed class Review5M_Utf8Tests
 {
     private const string Header = "{ \"$schema\": \"https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#\", \"contentVersion\": \"1.0.0.0\", ";

@@ -6,7 +6,6 @@ using Xunit;
 namespace EArm.Tests.Cli;
 
 /// <summary><c>earm permissions --verb whatif|create|delete</c>: the delegated scopes one run of that verb requests (offline).</summary>
-[Collection(CliCollection.Name)]
 public sealed class PermissionsVerbOptionTests
 {
     private static Task<CliResult> OrdersAsync(params string[] extra)

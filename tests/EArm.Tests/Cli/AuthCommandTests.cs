@@ -15,7 +15,7 @@ using Xunit;
 namespace EArm.Tests.Cli;
 
 /// <summary><c>earm auth login | logout | status</c> and the global sign-in options, driven in-process with fake credentials (no browser, no network).</summary>
-[Collection(CliCollection.Name)]
+[Collection(ProcessStateCollection.Name)]
 public sealed class AuthCommandTests
 {
     private const string RecordJson = "{\"username\":\"alice@contoso.example\",\"authority\":\"login.microsoftonline.com\",\"homeAccountId\":\"oid.tid\",\"tenantId\":\"11111111-1111-1111-1111-111111111111\",\"clientId\":\"04b07795-8ddb-461a-bbee-02f9e1bf7b46\",\"version\":\"1.0\"}";

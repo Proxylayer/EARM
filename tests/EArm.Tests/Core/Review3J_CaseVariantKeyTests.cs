@@ -20,7 +20,6 @@ namespace EArm.Tests;
 /// is loaded, when <c>json()</c> and inline <c>-p</c> values are parsed, and for the objects expressions build; the declared names under
 /// <c>parameters</c>, <c>variables</c> and <c>outputs</c> stay the loader's business (<c>DuplicateDefinition</c>).
 /// </summary>
-[Collection(CliCollection.Name)]
 public sealed class Review3J_CaseVariantKeyTests
 {
     private const string Policy = "{ \"type\": \"Microsoft.Entra/conditionalAccess/policies\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"p\", \"properties\": { \"displayName\": \"p\", \"state\": \"enabledForReportingButNotEnforced\", \"State\": \"enabled\", \"conditions\": {} } }";

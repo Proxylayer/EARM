@@ -18,7 +18,6 @@ namespace EArm.Tests.Cli;
 /// Cheap consistency checks between the documentation and the code: every verb and flag docs/cli.md mentions exists in the
 /// System.CommandLine tree (and answers <c>--help</c>), and every diagnostic code constant appears in docs/diagnostics.md.
 /// </summary>
-[Collection(CliCollection.Name)]
 public sealed class DocsConsistencyTests
 {
     private static readonly Regex FlagToken = new(@"(?<![\w<\-])(--[A-Za-z][\w\-]*|-[A-Za-z])(?![\w\-])", RegexOptions.CultureInvariant, TimeSpan.FromSeconds(2));

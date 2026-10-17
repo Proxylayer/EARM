@@ -19,7 +19,6 @@ namespace EArm.Tests.Cli;
 /// (B16), a secret-bearing property does not make every rerun a change (B14), and the choice options are case-insensitive like the Azure CLI's.
 /// Driven in-process against an in-memory directory.
 /// </summary>
-[Collection(CliCollection.Name)]
 public sealed class ReviewFixesCliTests
 {
     private const string LocType = "Microsoft.Entra/conditionalAccess/namedLocations";

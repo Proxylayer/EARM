@@ -13,7 +13,6 @@ namespace EArm.Tests.Cli;
 /// <c>az deployment ... --parameters</c>) and repeats; <c>-p @file -n name</c> still ends the values at the next option, and an unknown option after a value
 /// is reported by name.
 /// </summary>
-[Collection(CliCollection.Name)]
 public sealed class Review4K_CliTests
 {
     private const string TemplateBody = "\"parameters\": { \"a\": { \"type\": \"string\" }, \"b\": { \"type\": \"string\" } }, \"resources\": [], \"outputs\": { \"joined\": { \"type\": \"string\", \"value\": \"[concat(parameters('a'), parameters('b'))]\" } }";

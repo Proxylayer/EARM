@@ -11,7 +11,6 @@ using Xunit;
 namespace EArm.Tests;
 
 /// <summary><c>earm deployment validate</c> and the command-line surface around it, driven in-process.</summary>
-[Collection(CliCollection.Name)]
 public sealed class ValidateCommandTests
 {
     private const string FicType = "Microsoft.Entra/applications/federatedIdentityCredentials";

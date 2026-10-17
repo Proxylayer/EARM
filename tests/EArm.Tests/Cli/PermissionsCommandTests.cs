@@ -8,7 +8,6 @@ using Xunit;
 namespace EArm.Tests.Cli;
 
 /// <summary><c>earm permissions</c> driven in-process over the samples and small purpose-built templates (offline: no az, no tenant).</summary>
-[Collection(CliCollection.Name)]
 public sealed class PermissionsCommandTests
 {
     private const string KeyVaultName = "Key Vault secret read ('Key Vault Secrets User' or the get-secret access policy) on vault 'contoso-kv'";
