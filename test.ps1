@@ -22,7 +22,11 @@
     selected project exits 3 with a message (a silent green run for a typo is worse than a failure).
     Tests that assert wall-clock bounds carry [Trait("Category", "Timing")]. Without -Filter, each project runs everything else in parallel first,
     then the Timing tests alone and serially (reported as "<project> [timing, serial]"), so the rest of the suite cannot distort them.
+    A project with no [Trait("Category", "Timing")] in its sources gets no second pass (its process start would be wasted).
     -SkipTiming skips that second pass (useful on an overloaded machine or while iterating). With -Filter the expression is used as is, in one pass.
+    -NoBuild skips the build step and runs the binaries already built (after build.ps1 or a previous test.ps1 run, same -Configuration).
+    Iterating on one area: build once, then pwsh -File test.ps1 -NoBuild -SkipTiming -Target EArm.Tests -Filter "FullyQualifiedName~MyTests".
+    Each result line ends with the wall-clock seconds of its pass; the last line is the total.
     Exit code is non-zero (3 for an empty -Filter match) when the build fails or any selected project has failing tests.
 .EXAMPLE
     pwsh -File test.ps1
@@ -30,6 +34,8 @@
     pwsh -File test.ps1 -Target EArm.Tests -Filter "FullyQualifiedName~CliSmokeTests"
 .EXAMPLE
     pwsh -File test.ps1 -Detailed
+.EXAMPLE
+    pwsh -File test.ps1 -NoBuild -SkipTiming -Target EArm.Tests -Filter "FullyQualifiedName~Review4K_SecretsTests"
 #>
 [CmdletBinding()]
 param(
@@ -38,6 +44,7 @@ param(
     [string]$Filter,
     [switch]$Coverage,
     [switch]$SkipTiming,
+    [switch]$NoBuild,
     [ValidateSet('Debug', 'Release')]
     [string]$Configuration = 'Debug'
 )
@@ -53,6 +60,7 @@ $resultsDir = Join-Path $repoRoot 'artifacts' 'test-results'
 $integrationProjectName = 'EArm.Integration.Tests'
 $integrationGateVariable = 'EARM_IT_TENANT'
 $zeroTestsExitCode = 8
+$runClock = [System.Diagnostics.Stopwatch]::StartNew()
 
 function Resolve-TestProjectPath {
     param([Parameter(Mandatory)][string]$Name)
@@ -81,6 +89,21 @@ function Test-IsSupportProject {
 
     return (Get-Content -LiteralPath $ProjectPath -Raw) -match '<IsTestProject>\s*false\s*</IsTestProject>'
 }
+# True when the project's sources tag at least one test [Trait("Category", "Timing")]: only those projects get the serial Timing pass.
+function Test-HasTimingTests {
+    param([Parameter(Mandatory)][string]$ProjectPath)
+
+    $projectDir = Split-Path -Parent $ProjectPath
+    $sources = Get-ChildItem -LiteralPath $projectDir -Recurse -File -Filter '*.cs' |
+        Where-Object { $_.FullName -notmatch '[\\/](bin|obj)[\\/]' }
+    foreach ($source in $sources) {
+        if (Select-String -LiteralPath $source.FullName -SimpleMatch -Pattern '[Trait("Category", "Timing")]' -Quiet) {
+            return $true
+        }
+    }
+    return $false
+}
+
 function Get-SummaryCount {
     param(
         [Parameter(Mandatory)][string]$Text,
@@ -150,18 +173,26 @@ else {
 }
 
 # Simple mode captures the build output (the dotnet CLI always appends a 'Build succeeded. 0 Warning(s)' banner) and shows it only on failure.
-if ($Detailed) {
-    & dotnet @buildArgs
+# -NoBuild skips this step: the test binaries of the last build are run as they are (dotnet test fails if they are missing).
+if ($NoBuild) {
+    Write-Host "NO BUILD   running the binaries already built ($Configuration)"
 }
 else {
-    $buildOutput = @(& dotnet @buildArgs 2>&1 | ForEach-Object { "$_" })
-}
-if ($LASTEXITCODE -ne 0) {
-    if (-not $Detailed) {
-        $buildOutput | ForEach-Object { Write-Host $_ }
+    $buildClock = [System.Diagnostics.Stopwatch]::StartNew()
+    if ($Detailed) {
+        & dotnet @buildArgs
     }
-    Write-Host "TEST FAIL  build of $([System.IO.Path]::GetFileName($buildTarget)) exited with code $LASTEXITCODE"
-    exit $LASTEXITCODE
+    else {
+        $buildOutput = @(& dotnet @buildArgs 2>&1 | ForEach-Object { "$_" })
+    }
+    if ($LASTEXITCODE -ne 0) {
+        if (-not $Detailed) {
+            $buildOutput | ForEach-Object { Write-Host $_ }
+        }
+        Write-Host "TEST FAIL  build of $([System.IO.Path]::GetFileName($buildTarget)) exited with code $LASTEXITCODE"
+        exit $LASTEXITCODE
+    }
+    Write-Host ("BUILD OK   {0:N1} s" -f $buildClock.Elapsed.TotalSeconds)
 }
 
 # ---- Run each project ---------------------------------------------------------------------------------------
@@ -208,6 +239,7 @@ function Invoke-TestPass {
         $testArgs += @('--coverage', '--coverage-output-format', 'cobertura', '--coverage-output', "$ArtifactName.cobertura.xml")
     }
 
+    $passClock = [System.Diagnostics.Stopwatch]::StartNew()
     if ($Detailed) {
         Write-Host "---- $Label ----"
         $lines = @(& dotnet @testArgs 2>&1 | ForEach-Object { Write-Host "$_"; "$_" })
@@ -216,6 +248,7 @@ function Invoke-TestPass {
         $lines = @(& dotnet @testArgs 2>&1 | ForEach-Object { "$_" })
     }
     $exitCode = $LASTEXITCODE
+    $seconds = '({0:N1} s)' -f $passClock.Elapsed.TotalSeconds
     $text = $lines -join "`n"
 
     $total = Get-SummaryCount -Text $text -Label 'total'
@@ -234,7 +267,7 @@ function Invoke-TestPass {
     }
     elseif ($total -eq 0) {
         if (-not $QuietWhenEmpty -and -not $Detailed) {
-            Write-Host "NO TESTS   $Label"
+            Write-Host "NO TESTS   $Label $seconds"
         }
     }
     elseif ($Detailed) {
@@ -251,13 +284,13 @@ function Invoke-TestPass {
         else {
             "all $skipped test(s) skipped, nothing was verified"
         }
-        Write-Host "SKIPPED    $Label $reason"
+        Write-Host "SKIPPED    $Label $reason $seconds"
     }
     elseif ($failed -eq 0 -and $exitCode -eq 0) {
-        Write-Host "PASS       $Label $succeeded/$total ($skipped skipped)"
+        Write-Host "PASS       $Label $succeeded/$total ($skipped skipped) $seconds"
     }
     else {
-        Write-Host "FAIL       $Label $failed failed, $succeeded passed, $skipped skipped of $total (exit $exitCode)"
+        Write-Host "FAIL       $Label $failed failed, $succeeded passed, $skipped skipped of $total (exit $exitCode) $seconds"
         $lines | Select-String -Pattern '^\s*failed\s+\S+' | ForEach-Object { Write-Host "           $($_.Line.Trim())" }
         $lines | Select-String -Pattern 'Assert\.|Expected:|Actual:|Exception|error' | Select-Object -First 20 |
             ForEach-Object { Write-Host "           $($_.Line.Trim())" }
@@ -284,7 +317,8 @@ foreach ($project in $projects) {
         $passes = @(
             @{ Label = $projectName; Selection = @('--filter-not-trait', $timingTrait); Artifact = $projectName; Quiet = $false }
         )
-        if (-not $SkipTiming) {
+        # A project without a single Timing test gets no second pass: it would only pay for another process start.
+        if (-not $SkipTiming -and (Test-HasTimingTests -ProjectPath $project)) {
             $passes += @{ Label = "$projectName [timing, serial]"; Selection = @('--filter-trait', $timingTrait, '--parallel', 'none'); Artifact = "$projectName.timing"; Quiet = $true }
         }
     }
@@ -299,6 +333,7 @@ foreach ($project in $projects) {
 }
 
 Write-Host "TRX        $resultsDir"
+Write-Host ("TIME       {0:N1} s" -f $runClock.Elapsed.TotalSeconds)
 
 # A -Filter that matches no test in any selected project is a mistake (a typo, or a namespace filter: test namespaces do not follow the folders, see
 # docs/testing.md), not a green run.

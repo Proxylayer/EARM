@@ -15,8 +15,8 @@ namespace EArm.Tests.Engine;
 /// <summary>
 /// <see cref="KeyAbsencePrefetch"/>: the absence confirmation (<see cref="KeyAbsenceCheck"/>) of a planned create in a later batch runs while the earlier
 /// batches deploy, instead of after them, and never at the price of a duplicate. The template is a group (an alternate key: no confirmation of its own)
-/// in batch 1 and an administrative unit (a displayName key whose read lags) that depends on it, in batch 2. The group's POST is held until the unit's
-/// early extra reads have run: without the overlap they would only start after that POST, and the hold would time out. Nothing sleeps: the delay
+/// in batch 1 and an administrative unit (a displayName key whose read lags) that depends on it, in batch 2. The group's write (an upsert by its alternate key) is held until the unit's
+/// early extra reads have run: without the overlap they would only start after that write, and the hold would time out. Nothing sleeps: the delay
 /// providers record and return.
 /// </summary>
 public sealed class KeyAbsencePrefetchTests

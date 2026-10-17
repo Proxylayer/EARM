@@ -39,9 +39,6 @@ internal sealed class KeyAbsencePrefetch : IAsyncDisposable
         _reads = reads;
     }
 
-    /// <summary>The instances whose confirmation was started (tests and logging).</summary>
-    public int Count => _entries.Count;
-
     /// <summary>
     /// Starts the extra reads of every planned create of a later batch whose key read lags and whose key the what-if pass resolved. <paramref name="read"/>
     /// reads a key once (with the run's retry policy); at most <paramref name="parallelism"/> early reads are in flight at a time. Nothing is started for a
