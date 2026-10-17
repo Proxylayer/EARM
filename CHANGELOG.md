@@ -40,6 +40,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   more right before the `POST`, and an object any read finds is adopted. New log events 2086 (absence confirmed by the early reads) and 2087 (early
   reads started, Debug).
 - The warning for an object found on an extra read (event 2083) names the attempt out of the total (`extra read 1 of 3`).
+- `create -y` now overlaps the absence confirmation of later batches with the earlier ones, as `create` without `-y` already
+  did: a new Conditional Access policy, named location, authentication strength, administrative unit or custom role definition
+  in a later batch no longer adds its own 12 s wait when its key (its name) is known before the run. The keys come from a dry
+  run that makes no Graph call and fills none of the run's caches; a key built from an object an earlier batch creates is
+  still confirmed right before its `POST`. The run still reads the key once more before every `POST`, so nothing is created
+  twice.
 
 ### Fixed
 
