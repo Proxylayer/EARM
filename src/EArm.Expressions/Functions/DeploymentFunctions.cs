@@ -23,7 +23,7 @@ internal static class DeploymentFunctions
 
     public static void Register(FunctionRegistry registry)
     {
-        registry.Register(new FunctionDescriptor { Name = "parameters", Group = Group, MinArgs = 1, MaxArgs = 1, Implementation = Parameters });
+        registry.Register(new FunctionDescriptor { Name = "parameters", Group = Group, MinArgs = 1, MaxArgs = 1, Implementation = ParametersImplementation });
         registry.Register(new FunctionDescriptor { Name = "variables", Group = Group, MinArgs = 1, MaxArgs = 1, Implementation = VariablesImplementation });
         registry.Register(new FunctionDescriptor { Name = "resourceId", Group = Group, MinArgs = 2, HandlesUnknown = true, Implementation = ResourceId });
         registry.Register(new FunctionDescriptor { Name = "reference", Group = Group, MinArgs = 1, MaxArgs = 3, HandlesUnknown = true, Implementation = ReferenceFunctions.Reference });
@@ -42,16 +42,34 @@ internal static class DeploymentFunctions
     private static JsonNode? Parameters(FunctionCall call)
     {
         string name = call.String(0);
-        if (!call.Context.Parameters.TryGetValue(name, out var value))
+        return JsonValues.Clone(ReadParameter(call.Context, name, call.Offset, call.Redact(0, name)));
+    }
+
+    /// <summary>The implementation of <c>parameters()</c>; the evaluator recognises it to read <c>parameters('x')[...]</c> without copying the whole value.</summary>
+    internal static readonly FunctionImplementation ParametersImplementation = Parameters;
+
+    /// <summary>
+    /// The value of parameter <paramref name="name"/> itself, not a copy (the memoised value of <see cref="LazyParameters"/> or
+    /// <see cref="NestedParameters"/>, or the stored value of a plain dictionary such as a user function's frame): the caller only reads it.
+    /// <paramref name="shownName"/> is the name as a message may show it (redacted when computed from a secure value).
+    /// </summary>
+    internal static JsonNode? ReadParameter(EvaluationContext context, string name, int offset, string shownName)
+    {
+        var parameters = context.Parameters;
+        if (!parameters.ContainsKey(name))
         {
-            string message = call.Context.Scope == EvaluationScope.UserFunction
-                ? $"'{call.Redact(0, name)}' is not a parameter of user-defined function {call.Context.UserFunction ?? "(unknown)"}; inside a function, parameters() names only the function's own parameters ({DescribeNames(call.Context.Parameters.Keys)})."
-                : $"Parameter '{call.Redact(0, name)}' is not defined.";
-            throw new ExpressionEvaluationException(DiagnosticCodes.UndefinedParameter, message, call.Offset);
+            string message = context.Scope == EvaluationScope.UserFunction
+                ? $"'{shownName}' is not a parameter of user-defined function {context.UserFunction ?? "(unknown)"}; inside a function, parameters() names only the function's own parameters ({DescribeNames(parameters.Keys)})."
+                : $"Parameter '{shownName}' is not defined.";
+            throw new ExpressionEvaluationException(DiagnosticCodes.UndefinedParameter, message, offset);
         }
 
-        // LazyParameters already hands out copies; a plain dictionary does not.
-        return call.Context.Parameters is LazyParameters ? value : JsonValues.Clone(value);
+        return parameters switch
+        {
+            LazyParameters lazy => lazy.GetShared(name),
+            NestedParameters nested => nested.GetShared(name),
+            _ => parameters[name],
+        };
     }
 
     /// <summary>User-function parameter names are template source; listed for the message.</summary>

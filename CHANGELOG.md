@@ -14,6 +14,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   least two.
 - docs/format.md now states the order of `items()`: sorted alphabetically by key, ignoring case, as ARM returns it (the
   behaviour was already this; it is now pinned by tests).
+- Reading part of a parameter (`parameters('x')[i]`) or of a lambda binding (`lambdaVariables('x').y`) no longer copies the
+  whole value and counts it against the run's 5,000,000 value-node budget on every read; only the selected part is copied,
+  as for `variables('x')[i]`. A large array parameter read once per copy iteration could otherwise fail with
+  `EvaluationBudgetExceeded`.
 
 ## [0.2.0] - 2026-10-17
 

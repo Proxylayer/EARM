@@ -72,25 +72,37 @@ internal static class LambdaFunctions
         registry.Register(new FunctionDescriptor { Name = "toObject", Group = Group, MinArgs = 2, MaxArgs = 3, Lazy = true, Implementation = ToObject });
         registry.Register(new FunctionDescriptor { Name = "groupBy", Group = Group, MinArgs = 2, MaxArgs = 2, Lazy = true, Implementation = GroupBy });
         registry.Register(new FunctionDescriptor { Name = "mapValues", Group = Group, MinArgs = 2, MaxArgs = 2, Lazy = true, Implementation = MapValues });
-        registry.Register(new FunctionDescriptor { Name = "lambdaVariables", Group = Group, MinArgs = 1, MaxArgs = 1, Implementation = LambdaVariables });
+        registry.Register(new FunctionDescriptor { Name = "lambdaVariables", Group = Group, MinArgs = 1, MaxArgs = 1, Implementation = LambdaVariablesImplementation });
     }
+
+    /// <summary>The implementation of <c>lambdaVariables()</c>; the evaluator recognises it to read <c>lambdaVariables('x').y</c> without copying the whole binding.</summary>
+    internal static readonly FunctionImplementation LambdaVariablesImplementation = LambdaVariables;
 
     private static JsonNode? LambdaVariables(FunctionCall call)
     {
         string name = call.String(0);
-        var scope = call.Context.LambdaScope;
+        return JsonValues.Clone(ReadLambdaVariable(call.Context, name, call.Offset, call.Redact(0, name)));
+    }
+
+    /// <summary>
+    /// The value bound to lambda parameter <paramref name="name"/> itself, not a copy: the caller only reads it. Applies the rules of
+    /// <c>lambdaVariables()</c>; <paramref name="shownName"/> is the name as a message may show it (redacted when computed from a secure value).
+    /// </summary>
+    internal static JsonNode? ReadLambdaVariable(EvaluationContext context, string name, int offset, string shownName)
+    {
+        var scope = context.LambdaScope;
         if (scope.Count == 0)
         {
-            throw new ExpressionEvaluationException(DiagnosticCodes.FunctionNotAllowedHere, $"lambdaVariables() can only be used inside the body of a lambda passed to {TakingFunctions}.", call.Offset);
+            throw new ExpressionEvaluationException(DiagnosticCodes.FunctionNotAllowedHere, $"lambdaVariables() can only be used inside the body of a lambda passed to {TakingFunctions}.", offset);
         }
 
         if (!scope.TryGetValue(name, out var value))
         {
             // Lambda parameter names are template source, safe to list; the requested name may be computed.
-            throw call.Error($"'{call.Redact(0, name)}' is not a parameter of an enclosing lambda (in scope: {string.Join(", ", scope.Keys)}).");
+            throw new ExpressionEvaluationException(DiagnosticCodes.InvalidFunctionArguments, $"lambdaVariables(): '{shownName}' is not a parameter of an enclosing lambda (in scope: {string.Join(", ", scope.Keys)}).", offset);
         }
 
-        return JsonValues.Clone(value);
+        return value;
     }
 
     private static JsonNode? Map(FunctionCall call)

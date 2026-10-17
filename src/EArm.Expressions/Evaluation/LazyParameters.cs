@@ -93,12 +93,21 @@ public sealed class LazyParameters : IReadOnlyDictionary<string, JsonNode?>
     /// <summary>Resolves (once) and returns a copy of the parameter value.</summary>
     public JsonNode? Get(string name)
     {
+        return JsonValues.Clone(GetShared(name));
+    }
+
+    /// <summary>
+    /// Resolves (once) and returns the memoised parameter value itself, not a copy: the caller must only read it (never mutate it or attach it to
+    /// another tree). <c>parameters('x')[i]</c> walks it and copies only the selected part.
+    /// </summary>
+    internal JsonNode? GetShared(string name)
+    {
         ArgumentNullException.ThrowIfNull(name);
         lock (_gate)
         {
             if (_memo.TryGetValue(name, out var memoised))
             {
-                return JsonValues.Clone(memoised);
+                return memoised;
             }
 
             if (!_bound.TryGetValue(name, out var bound))
@@ -115,7 +124,7 @@ public sealed class LazyParameters : IReadOnlyDictionary<string, JsonNode?>
             {
                 var value = Resolve(bound);
                 _memo[name] = value;
-                return JsonValues.Clone(value);
+                return value;
             }
             finally
             {
