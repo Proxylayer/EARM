@@ -30,6 +30,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The what-if no longer fails a resource whose whole `properties` is one expression that reads `reference()` of a resource the
   same run creates ("properties is a single expression whose value is only known at deployment"): it shows the resource as
   known at deployment (`Ignore`, `?`), and `create` evaluates the expression once the referenced resource exists.
+- A resource whose whole `properties` is one expression is now ordered like the same resource written as an object literal:
+  the known, non-secure values of the expression are declared as literals, so the apply order that matches declared values
+  (a group PIM policy before the eligibility and assignment requests of its group, access package resource ordering) sees
+  them. Secure values and values known only at deployment stay expressions, as in an object literal.
 
 ## [0.2.0] - 2026-10-17
 
