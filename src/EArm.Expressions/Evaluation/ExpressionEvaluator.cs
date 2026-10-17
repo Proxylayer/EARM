@@ -353,7 +353,63 @@ public sealed class ExpressionEvaluator : IExpressionEvaluator
 
     private JsonNode? EvaluateProperty(PropertyExpression property, EvaluationContext context)
     {
-        var target = Evaluate(property.Target, context);
+        return JsonValues.Clone(SelectProperty(property, context));
+    }
+
+    private JsonNode? EvaluateIndex(IndexExpression index, EvaluationContext context)
+    {
+        return JsonValues.Clone(SelectIndex(index, context));
+    }
+
+    /// <summary>
+    /// Evaluates the target of a property or index access as a value that is only read, never mutated or attached: a chain of accesses rooted in
+    /// <c>variables('x')</c> (a literal name) walks the memoised variable itself, and only the part finally selected is copied (by
+    /// <see cref="EvaluateProperty"/> / <see cref="EvaluateIndex"/>). ARM evaluates a variable once; reading <c>variables('x')[copyIndex()].name</c>
+    /// for every copy instance must not copy, or count against the run's value budget, the whole of <c>x</c> each time. Anything else is evaluated
+    /// as usual.
+    /// </summary>
+    private JsonNode? EvaluateForRead(Expression expression, EvaluationContext context)
+    {
+        ExpressionStackGuard.Ensure(expression.Offset);
+        switch (expression)
+        {
+            case CallExpression call when IsLiteralVariableRead(call, context, out string? name):
+                {
+                    using var unit = EvaluationBudget.BeginUnit();
+                    context.Budget.Step(call.Offset);
+                    return DeploymentFunctions.ReadVariable(context, name, call.Offset, name);
+                }
+
+            case PropertyExpression property:
+                return SelectProperty(property, context);
+            case IndexExpression index:
+                return SelectIndex(index, context);
+            default:
+                return Evaluate(expression, context);
+        }
+    }
+
+    /// <summary>True for <c>variables('name')</c> with a literal string name, bound to the built-in <c>variables()</c>.</summary>
+    private static bool IsLiteralVariableRead(CallExpression call, EvaluationContext context, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out string? name)
+    {
+        name = null;
+        if (call.IsUserFunction
+            || call.Arguments.Count != 1
+            || call.Arguments[0] is not LiteralExpression { IsString: true } literal
+            || !context.Functions.TryGet(call.Name, out var descriptor)
+            || !ReferenceEquals(descriptor.Implementation, DeploymentFunctions.VariablesImplementation))
+        {
+            return false;
+        }
+
+        name = literal.StringValue;
+        return name is not null;
+    }
+
+    /// <summary>The selected property, shared with the target when the target is (part of) a memoised variable; see <see cref="EvaluateForRead"/>.</summary>
+    private JsonNode? SelectProperty(PropertyExpression property, EvaluationContext context)
+    {
+        var target = EvaluateForRead(property.Target, context);
         if (UnknownJson.IsUnknown(target, out var unknown))
         {
             return UnknownJson.Create(unknown.Symbol + "." + property.Name, unknown.Origins, unknown.Tainted, unknown.Source);
@@ -363,7 +419,7 @@ public sealed class ExpressionEvaluator : IExpressionEvaluator
         {
             if (TryGetPropertyIgnoreCase(obj, property.Name, out var value))
             {
-                return JsonValues.Clone(value);
+                return value;
             }
 
             throw new ExpressionEvaluationException(DiagnosticCodes.ExpressionEvaluationFailed, $"The object has no property '{property.Name}' ({DescribeProperties(obj)}).", property.Offset);
@@ -372,9 +428,10 @@ public sealed class ExpressionEvaluator : IExpressionEvaluator
         throw new ExpressionEvaluationException(DiagnosticCodes.ExpressionEvaluationFailed, $"Cannot read property '{property.Name}' of {JsonValues.Describe(target)}.", property.Offset);
     }
 
-    private JsonNode? EvaluateIndex(IndexExpression index, EvaluationContext context)
+    /// <summary>The selected element, shared with the target when the target is (part of) a memoised variable; see <see cref="EvaluateForRead"/>.</summary>
+    private JsonNode? SelectIndex(IndexExpression index, EvaluationContext context)
     {
-        var target = Evaluate(index.Target, context);
+        var target = EvaluateForRead(index.Target, context);
         var key = Evaluate(index.Index, context);
 
         if (UnknownJson.IsUnknown(target, out var unknownTarget))
@@ -402,7 +459,7 @@ public sealed class ExpressionEvaluator : IExpressionEvaluator
                         throw new ExpressionEvaluationException(DiagnosticCodes.ExpressionEvaluationFailed, $"Index {position} is outside the array (length {array.Count}).", index.Index.Offset);
                     }
 
-                    return JsonValues.Clone(array[(int)position]);
+                    return array[(int)position];
                 }
 
             case JsonObject obj:
@@ -414,7 +471,7 @@ public sealed class ExpressionEvaluator : IExpressionEvaluator
 
                     if (TryGetPropertyIgnoreCase(obj, name, out var value))
                     {
-                        return JsonValues.Clone(value);
+                        return value;
                     }
 
                     throw new ExpressionEvaluationException(DiagnosticCodes.ExpressionEvaluationFailed, $"The object has no property '{name}' ({DescribeProperties(obj)}).", index.Index.Offset);

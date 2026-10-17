@@ -141,7 +141,7 @@ public sealed class StaticEvaluator
             {
                 try
                 {
-                    _variables.Get(name);
+                    _variables.GetShared(name);
                 }
                 catch (ExpressionException ex)
                 {

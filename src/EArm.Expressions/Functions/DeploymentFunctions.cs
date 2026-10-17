@@ -24,7 +24,7 @@ internal static class DeploymentFunctions
     public static void Register(FunctionRegistry registry)
     {
         registry.Register(new FunctionDescriptor { Name = "parameters", Group = Group, MinArgs = 1, MaxArgs = 1, Implementation = Parameters });
-        registry.Register(new FunctionDescriptor { Name = "variables", Group = Group, MinArgs = 1, MaxArgs = 1, Implementation = Variables });
+        registry.Register(new FunctionDescriptor { Name = "variables", Group = Group, MinArgs = 1, MaxArgs = 1, Implementation = VariablesImplementation });
         registry.Register(new FunctionDescriptor { Name = "resourceId", Group = Group, MinArgs = 2, HandlesUnknown = true, Implementation = ResourceId });
         registry.Register(new FunctionDescriptor { Name = "reference", Group = Group, MinArgs = 1, MaxArgs = 3, HandlesUnknown = true, Implementation = ReferenceFunctions.Reference });
         registry.Register(new FunctionDescriptor { Name = "references", Group = Group, MinArgs = 1, MaxArgs = 2, Implementation = ReferenceFunctions.References });
@@ -61,30 +61,43 @@ internal static class DeploymentFunctions
         return list.Count == 0 ? "the function declares no parameters" : string.Join(", ", list);
     }
 
+    /// <summary>The implementation of <c>variables()</c>; the evaluator recognises it to read <c>variables('x')[...]</c> without copying the whole variable.</summary>
+    internal static readonly FunctionImplementation VariablesImplementation = Variables;
+
     private static JsonNode? Variables(FunctionCall call)
     {
         string name = call.String(0);
-        switch (call.Context.Scope)
+        return JsonValues.Clone(ReadVariable(call.Context, name, call.Offset, call.Redact(0, name)));
+    }
+
+    /// <summary>
+    /// The memoised value of variable <paramref name="name"/> itself, not a copy (see <see cref="LazyVariables.GetShared"/>): the caller only reads it.
+    /// Applies the rules of <c>variables()</c> (not in a parameter default or a user-defined function; the variable must exist);
+    /// <paramref name="shownName"/> is the name as a message may show it (redacted when computed from a secure value).
+    /// </summary>
+    internal static JsonNode? ReadVariable(EvaluationContext context, string name, int offset, string shownName)
+    {
+        switch (context.Scope)
         {
             case EvaluationScope.ParameterDefault:
-                throw new ExpressionEvaluationException(DiagnosticCodes.FunctionNotAllowedHere, "variables() cannot be used in a parameter default value.", call.Offset);
+                throw new ExpressionEvaluationException(DiagnosticCodes.FunctionNotAllowedHere, "variables() cannot be used in a parameter default value.", offset);
             case EvaluationScope.UserFunction:
-                throw new ExpressionEvaluationException(DiagnosticCodes.FunctionNotAllowedHere, "variables() cannot be used inside a user-defined function.", call.Offset);
+                throw new ExpressionEvaluationException(DiagnosticCodes.FunctionNotAllowedHere, "variables() cannot be used inside a user-defined function.", offset);
         }
 
-        if (!call.Context.Variables.Contains(name))
+        if (!context.Variables.Contains(name))
         {
             // Reported here rather than by LazyVariables.Get so a name computed from a secure value can be redacted.
-            throw new ExpressionEvaluationException(DiagnosticCodes.UndefinedVariable, $"Variable '{call.Redact(0, name)}' is not defined.", call.Offset);
+            throw new ExpressionEvaluationException(DiagnosticCodes.UndefinedVariable, $"Variable '{shownName}' is not defined.", offset);
         }
 
         try
         {
-            return call.Context.Variables.Get(name);
+            return context.Variables.GetShared(name);
         }
         catch (ExpressionEvaluationException ex) when (ex.Offset is null)
         {
-            throw new ExpressionEvaluationException(ex.Code, ex.Message, call.Offset, ex);
+            throw new ExpressionEvaluationException(ex.Code, ex.Message, offset, ex);
         }
     }
 

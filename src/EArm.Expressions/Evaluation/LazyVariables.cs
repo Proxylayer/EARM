@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Text.Json.Nodes;
+using System.Threading;
 using EArm.Core;
 using EArm.Core.Diagnostics;
 using EArm.Expressions.Values;
@@ -11,6 +12,8 @@ namespace EArm.Expressions.Evaluation;
 /// The template's <c>variables</c>, evaluated on first use and memoised, with a cycle guard. Each variable is
 /// evaluated in the bound context's <see cref="EvaluationContext.Base"/> with <see cref="EvaluationScope.Variable"/>,
 /// whoever asks for it. <see cref="Get"/> returns a fresh copy every time so callers can attach the result to a tree.
+/// Each variable is evaluated once per instance (one evaluation context): a reader that finds another thread evaluating it (resources are
+/// planned in parallel) waits for that value instead of evaluating it again.
 /// </summary>
 public sealed class LazyVariables
 {
@@ -26,6 +29,12 @@ public sealed class LazyVariables
     private readonly Dictionary<string, JsonNode?> _memo = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, ExpressionException> _failures = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _gate = new();
+
+    /// <summary>The variables being evaluated right now, by the managed thread id of the evaluating thread (one evaluation per variable).</summary>
+    private readonly Dictionary<string, int> _pending = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The threads waiting for another thread's evaluation, with the variable each waits for (deadlock detection).</summary>
+    private readonly Dictionary<int, string> _waiting = [];
     private IExpressionEvaluator? _evaluator;
     private EvaluationContext? _context;
 
@@ -86,44 +95,23 @@ public sealed class LazyVariables
     /// </summary>
     public JsonNode? Get(string name)
     {
+        return JsonValues.Clone(GetShared(name));
+    }
+
+    /// <summary>
+    /// Like <see cref="Get"/>, but returns the memoised value itself instead of a copy: the caller only reads it (never mutates it or attaches it
+    /// to another tree). The evaluator uses it for <c>variables('x')[...]</c> and <c>variables('x').y</c>, which copy only the selected part, so
+    /// reading one element of a large variable costs the element, not the variable (ARM evaluates a variable once and reads it from there).
+    /// </summary>
+    internal JsonNode? GetShared(string name)
+    {
         ArgumentNullException.ThrowIfNull(name);
-        JsonNode? definition;
-        IExpressionEvaluator? evaluator;
-        EvaluationContext? context;
-        lock (_gate)
-        {
-            if (_memo.TryGetValue(name, out var memoised))
-            {
-                return JsonValues.Clone(memoised);
-            }
-
-            // A variable that failed fails the same way every time it is read; evaluating it again for each reader would make a long
-            // chain of failing variables quadratic.
-            if (_failures.TryGetValue(name, out var failure))
-            {
-                throw failure;
-            }
-
-            if (!_definitions.TryGetValue(name, out definition))
-            {
-                throw new ExpressionEvaluationException(DiagnosticCodes.UndefinedVariable, $"Variable '{name}' is not defined.");
-            }
-
-            evaluator = _evaluator;
-            context = _context;
-        }
-
-        if (evaluator is null || context is null)
-        {
-            throw new InvalidOperationException("LazyVariables must be bound to a context before variables are evaluated (EvaluationContext.Bind).");
-        }
-
         var path = chain ??= [];
         foreach (var (owner, active) in path)
         {
             if (ReferenceEquals(owner, this) && string.Equals(active, name, StringComparison.OrdinalIgnoreCase))
             {
-                throw new ExpressionEvaluationException(DiagnosticCodes.VariableCycle, $"Variable '{name}' refers to itself (directly or through other variables).");
+                throw Cycle(name);
             }
         }
 
@@ -133,8 +121,66 @@ public sealed class LazyVariables
             throw new ExpressionEvaluationException(DiagnosticCodes.VariableChainTooDeep, $"Variables read other variables more than {MaxChainDepth} levels deep (a chain of {MaxChainDepth} or more variables, each using the next); shorten the chain.");
         }
 
-        path.Add((this, name));
-        try
+        JsonNode? definition;
+        IExpressionEvaluator? evaluator;
+        EvaluationContext? context;
+        int thread = Environment.CurrentManagedThreadId;
+        lock (_gate)
+        {
+            while (true)
+            {
+                if (_memo.TryGetValue(name, out var memoised))
+                {
+                    return memoised;
+                }
+
+                // A variable that failed fails the same way every time it is read; evaluating it again for each reader would make a long
+                // chain of failing variables quadratic.
+                if (_failures.TryGetValue(name, out var failure))
+                {
+                    throw failure;
+                }
+
+                if (!_definitions.TryGetValue(name, out definition))
+                {
+                    throw new ExpressionEvaluationException(DiagnosticCodes.UndefinedVariable, $"Variable '{name}' is not defined.");
+                }
+
+                evaluator = _evaluator;
+                context = _context;
+                if (evaluator is null || context is null)
+                {
+                    throw new InvalidOperationException("LazyVariables must be bound to a context before variables are evaluated (EvaluationContext.Bind).");
+                }
+
+                // Another thread is evaluating it (resources are planned in parallel): wait for its value instead of evaluating it a second time.
+                // The owner never waits for this thread unless the variables form a cycle across the two threads, which is reported as one.
+                if (_pending.TryGetValue(name, out int owner))
+                {
+                    if (WaitWouldDeadlock(owner, thread))
+                    {
+                        throw Cycle(name);
+                    }
+
+                    _waiting[thread] = name;
+                    try
+                    {
+                        Monitor.Wait(_gate);
+                    }
+                    finally
+                    {
+                        _waiting.Remove(thread);
+                    }
+
+                    continue;
+                }
+
+                _pending[name] = thread;
+                break;
+            }
+        }
+
+        path.Add((this, name));        try
         {
             var value = _iterations.TryGetValue(name, out var iteration)
                 ? CopyExpansion.Expand(evaluator, iteration.Name, iteration.Count, iteration.Input, context, requiresName: true, $"variable iteration '{iteration.Name}'")
@@ -145,7 +191,7 @@ public sealed class LazyVariables
                 _memo[name] = value;
             }
 
-            return JsonValues.Clone(value);
+            return value;
         }
         catch (ExpressionException ex) when (Record(name, ex))
         {
@@ -154,9 +200,38 @@ public sealed class LazyVariables
         finally
         {
             path.RemoveAt(path.Count - 1);
+            lock (_gate)
+            {
+                _pending.Remove(name);
+                Monitor.PulseAll(_gate);
+            }
         }
     }
 
+    /// <summary>True when the thread evaluating the awaited variable is itself (directly or through other threads) waiting for <paramref name="thread"/>. Called under the gate.</summary>
+    private bool WaitWouldDeadlock(int owner, int thread)
+    {
+        int current = owner;
+        for (int hops = 0; hops <= _waiting.Count; hops++)
+        {
+            if (current == thread)
+            {
+                return true;
+            }
+
+            if (!_waiting.TryGetValue(current, out var awaited) || !_pending.TryGetValue(awaited, out current))
+            {
+                return false;
+            }
+        }
+
+        return false;
+    }
+
+    private static ExpressionEvaluationException Cycle(string name)
+    {
+        return new ExpressionEvaluationException(DiagnosticCodes.VariableCycle, $"Variable '{name}' refers to itself (directly or through other variables).");
+    }
     /// <summary>Exception filter: remembers a failure of the variable (never matches, so nothing is caught and re-thrown). Failures that depend on where the variable was read from (depth, stack) are not remembered.</summary>
     private bool Record(string name, ExpressionException ex)
     {
