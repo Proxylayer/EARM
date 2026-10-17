@@ -47,6 +47,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   timed out is an error row and the rest of the what-if completes. The same holds for an existing-resource lookup (`reference(id,
   apiVersion)` stays a placeholder and is reported as unresolved), the orphan report (that type is not listed, with a warning), the
   edge pass (the declaring resources fail their relationships) and `deployment delete` (that object fails). Ctrl+C still stops the run.
+- An adopt-only resource whose object is missing at apply time fails with `AdoptOnlyNotFound` after one key read. It no longer waits
+  for the extra reads that confirm an absence before a create (12 s for a Conditional Access policy, named location, authentication
+  strength, administrative unit or custom role definition): nothing is created for it either way.
 - docs/engine.md no longer says a resource whose condition is false is kept as an `Ignore` row: it is left out of the
   deployment and the what-if lists it only as skipped (`skipped[]`).
 - `union()` and `intersection()` with a single argument are rejected (`InvalidFunctionArguments`), as ARM requires at

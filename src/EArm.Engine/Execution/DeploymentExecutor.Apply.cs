@@ -282,11 +282,19 @@ public sealed partial class DeploymentExecutor
         /// The executor's read of <paramref name="key"/> before it plans and applies <paramref name="instance"/>. Normally the full <see cref="KeyAbsenceCheck"/>
         /// (first read, then the extra reads when it is empty and the key read lags). When the extra reads of this very key already ran during the earlier
         /// batches (<see cref="KeyAbsencePrefetch"/>) and were all empty, this waits for them if they are still running and then reads once more: that read is
-        /// the final look before the POST, and an object it finds is adopted. Any other early outcome falls back to the full check.
+        /// the final look before the POST, and an object it finds is adopted. Any other early outcome falls back to the full check. An adopt-only resource
+        /// is read once: it is never created, so an empty read only fails it.
         /// </summary>
         private async Task<ExistingResource?> ReadBeforeApplyAsync(IResourceProvider provider, ResourceInstance instance, ResourceKey key, CancellationToken cancellationToken)
         {
             Task<ExistingResource?> Read(CancellationToken ct) => _retry.WithRetryAsync(c => provider.ReadAsync(key, _owner._graph, c), RetryHint.Default, ct);
+
+            if (instance.Declaration.AdoptOnly is not null)
+            {
+                // An adopt-only resource is never created: an empty read fails it (AdoptOnlyNotFound) and writes nothing, so there is no duplicate for
+                // the extra reads to prevent. One read decides.
+                return await Read(cancellationToken).ConfigureAwait(false);
+            }
 
             var check = _owner._keyAbsenceCheck;
             if (_absencePrefetch is { } prefetch && prefetch.TryTake(instance, key, out var early) && await early.WaitAsync(cancellationToken).ConfigureAwait(false))
