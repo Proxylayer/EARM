@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
-using System.Linq;
 using System.Text;
 using System.Text.Json.Nodes;
 using EArm.Expressions.Evaluation;
@@ -18,13 +17,11 @@ namespace EArm.Expressions.Functions;
 internal static class StringFunctions
 {
     private const string Group = "string";
-    private const string DefaultUtcNowFormat = "yyyyMMddTHHmmssZ";
-    private const string Iso8601 = "yyyy-MM-dd'T'HH:mm:ss'Z'";
 
     public static void Register(FunctionRegistry registry)
     {
         registry.Register(new FunctionDescriptor { Name = "concat", Group = Group, MinArgs = 1, HandlesUnknown = true, Implementation = Concat });
-        registry.Register(new FunctionDescriptor { Name = "format", Group = Group, MinArgs = 1, Implementation = Format });
+        registry.Register(new FunctionDescriptor { Name = "format", Group = Group, MinArgs = 1, Implementation = StringFormatFunctions.Format });
         registry.Register(new FunctionDescriptor { Name = "toLower", Group = Group, MinArgs = 1, MaxArgs = 1, Implementation = call => JsonValue.Create(Charged(call, call.String(0)).ToLowerInvariant()) });
         registry.Register(new FunctionDescriptor { Name = "toUpper", Group = Group, MinArgs = 1, MaxArgs = 1, Implementation = call => JsonValue.Create(Charged(call, call.String(0)).ToUpperInvariant()) });
         registry.Register(new FunctionDescriptor { Name = "substring", Group = Group, MinArgs = 1, MaxArgs = 3, Implementation = Substring });
@@ -34,11 +31,11 @@ internal static class StringFunctions
         registry.Register(new FunctionDescriptor { Name = "trim", Group = Group, MinArgs = 1, MaxArgs = 1, Implementation = call => JsonValue.Create(Charged(call, call.String(0)).Trim()) });
         registry.Register(new FunctionDescriptor { Name = "startsWith", Group = Group, MinArgs = 2, MaxArgs = 2, Implementation = call => JsonValue.Create(Charged(call, call.String(0)).StartsWith(call.String(1), StringComparison.OrdinalIgnoreCase)) });
         registry.Register(new FunctionDescriptor { Name = "endsWith", Group = Group, MinArgs = 2, MaxArgs = 2, Implementation = call => JsonValue.Create(Charged(call, call.String(0)).EndsWith(call.String(1), StringComparison.OrdinalIgnoreCase)) });
-        registry.Register(new FunctionDescriptor { Name = "contains", Group = Group, MinArgs = 2, MaxArgs = 2, Implementation = Contains });
+        registry.Register(new FunctionDescriptor { Name = "contains", Group = Group, MinArgs = 2, MaxArgs = 2, Implementation = StringSearchFunctions.Contains });
         registry.Register(new FunctionDescriptor { Name = "length", Group = Group, MinArgs = 1, MaxArgs = 1, HandlesUnknown = true, Implementation = Length });
         registry.Register(new FunctionDescriptor { Name = "empty", Group = Group, MinArgs = 1, MaxArgs = 1, HandlesUnknown = true, Implementation = Empty });
-        registry.Register(new FunctionDescriptor { Name = "indexOf", Group = Group, MinArgs = 2, MaxArgs = 2, Implementation = call => IndexOf(call, last: false) });
-        registry.Register(new FunctionDescriptor { Name = "lastIndexOf", Group = Group, MinArgs = 2, MaxArgs = 2, Implementation = call => IndexOf(call, last: true) });
+        registry.Register(new FunctionDescriptor { Name = "indexOf", Group = Group, MinArgs = 2, MaxArgs = 2, Implementation = call => StringSearchFunctions.IndexOf(call, last: false) });
+        registry.Register(new FunctionDescriptor { Name = "lastIndexOf", Group = Group, MinArgs = 2, MaxArgs = 2, Implementation = call => StringSearchFunctions.IndexOf(call, last: true) });
         registry.Register(new FunctionDescriptor { Name = "padLeft", Group = Group, MinArgs = 2, MaxArgs = 3, Implementation = PadLeft });
         registry.Register(new FunctionDescriptor { Name = "string", Group = Group, MinArgs = 1, MaxArgs = 1, Implementation = call => JsonValue.Create(Stringify(call, call.Arg(0))) });
         registry.Register(new FunctionDescriptor { Name = "base64", Group = Group, MinArgs = 1, MaxArgs = 1, Implementation = Base64 });
@@ -49,10 +46,10 @@ internal static class StringFunctions
         registry.Register(new FunctionDescriptor { Name = "guid", Group = Group, MinArgs = 1, Implementation = Guid });
         registry.Register(new FunctionDescriptor { Name = "uniqueString", Group = Group, MinArgs = 1, Implementation = UniqueString });
         registry.Register(new FunctionDescriptor { Name = "newGuid", Group = Group, MinArgs = 0, MaxArgs = 0, NonDeterministic = true, Implementation = _ => JsonValue.Create(System.Guid.NewGuid().ToString("D")) });
-        registry.Register(new FunctionDescriptor { Name = "utcNow", Group = Group, MinArgs = 0, MaxArgs = 1, NonDeterministic = true, Implementation = UtcNow });
-        registry.Register(new FunctionDescriptor { Name = "dateTimeAdd", Group = Group, MinArgs = 2, MaxArgs = 3, Implementation = DateTimeAdd });
-        registry.Register(new FunctionDescriptor { Name = "dateTimeFromEpoch", Group = Group, MinArgs = 1, MaxArgs = 1, Implementation = DateTimeFromEpoch });
-        registry.Register(new FunctionDescriptor { Name = "dateTimeToEpoch", Group = Group, MinArgs = 1, MaxArgs = 1, Implementation = DateTimeToEpoch });
+        registry.Register(new FunctionDescriptor { Name = "utcNow", Group = Group, MinArgs = 0, MaxArgs = 1, NonDeterministic = true, Implementation = DateTimeFunctions.UtcNow });
+        registry.Register(new FunctionDescriptor { Name = "dateTimeAdd", Group = Group, MinArgs = 2, MaxArgs = 3, Implementation = DateTimeFunctions.DateTimeAdd });
+        registry.Register(new FunctionDescriptor { Name = "dateTimeFromEpoch", Group = Group, MinArgs = 1, MaxArgs = 1, Implementation = DateTimeFunctions.DateTimeFromEpoch });
+        registry.Register(new FunctionDescriptor { Name = "dateTimeToEpoch", Group = Group, MinArgs = 1, MaxArgs = 1, Implementation = DateTimeFunctions.DateTimeToEpoch });
         EncodingFunctions.Register(registry, Group);
         WildcardFunctions.Register(registry, Group);
     }
@@ -118,281 +115,6 @@ internal static class StringFunctions
         return JsonValue.Create(sb.ToString());
     }
 
-    private static JsonNode? Format(FunctionCall call)
-    {
-        string format = call.String(0);
-        var args = new object?[call.Count - 1];
-        for (int i = 1; i < call.Count; i++)
-        {
-            args[i - 1] = FormatArgument(call, call.Arg(i));
-        }
-
-        try
-        {
-            return JsonValue.Create(FormatItems(call, format, args));
-        }
-        catch (FormatException ex)
-        {
-            throw call.Failure(call.ArgumentIsTainted(0) ? "invalid format string." : $"invalid format string '{format}': {ex.Message}", ex);
-        }
-    }
-
-    /// <summary>The longest format specifier (the text after the colon of a format item) that is accepted.</summary>
-    private const int MaxFormatSpecifierLength = 100;
-
-    /// <summary>The largest precision of a standard numeric specifier (<c>D</c>, <c>N</c>, <c>F</c>, ...), as in <c>{0:D10}</c>.</summary>
-    private const int MaxFormatPrecision = 100;
-
-    private const string StandardSpecifiers = "DdNnFfXxGgPpEe";
-
-    /// <summary>
-    /// ARM <c>format()</c>: .NET composite formatting (<c>{index[,alignment][:specifier]}</c>, <c>{{</c> and <c>}}</c> for braces), done here instead of by
-    /// <c>string.Format</c> because that one allocates what a format item asks for before anything can be checked (<c>{0:D999999999}</c> builds a
-    /// 2 GB string, <c>{0,1000000}</c> repeated 2000 times 4 GB). Here every item is parsed, its specifier held to a short allow-list (standard
-    /// numeric specifiers with a precision of at most 100, or a custom numeric format of at most 100 characters; a string argument ignores it, as in
-    /// .NET), its alignment held to the string limit, and the running length of the result is checked before each piece is appended.
-    /// </summary>
-    private static string FormatItems(FunctionCall call, string format, object?[] args)
-    {
-        var budget = call.Context.Budget;
-        budget.ChargeText(format.Length, call.Offset);
-        var result = new StringBuilder();
-        int position = 0;
-        while (position < format.Length)
-        {
-            char c = format[position];
-            if (c == '}')
-            {
-                if (position + 1 < format.Length && format[position + 1] == '}')
-                {
-                    result.Append('}');
-                    position += 2;
-                    continue;
-                }
-
-                throw new FormatException("Input string was not in a correct format (unmatched '}').");
-            }
-
-            if (c != '{')
-            {
-                int next = format.AsSpan(position).IndexOfAny('{', '}');
-                int length = next < 0 ? format.Length - position : next;
-                budget.CheckStringLength(result.Length + (long)length, call.Offset);
-                result.Append(format, position, length);
-                position += length;
-                continue;
-            }
-
-            if (position + 1 < format.Length && format[position + 1] == '{')
-            {
-                result.Append('{');
-                position += 2;
-                continue;
-            }
-
-            position++;
-            long index = ReadFormatNumber(format, ref position, "the argument index");
-            SkipSpaces(format, ref position);
-            long alignment = 0;
-            if (position < format.Length && format[position] == ',')
-            {
-                position++;
-                SkipSpaces(format, ref position);
-                bool left = position < format.Length && format[position] == '-';
-                if (left)
-                {
-                    position++;
-                }
-
-                alignment = ReadFormatNumber(format, ref position, "the alignment");
-                if (alignment > EvaluationLimits.MaxStringLength)
-                {
-                    throw new ExpressionEvaluationException(EArm.Core.Diagnostics.DiagnosticCodes.EvaluationBudgetExceeded, $"{call.Name}(): a format item pads to more than {EvaluationLimits.MaxStringLength:N0} characters (1 MiB).", call.Offset);
-                }
-
-                if (left)
-                {
-                    alignment = -alignment;
-                }
-
-                SkipSpaces(format, ref position);
-            }
-
-            string? specifier = null;
-            if (position < format.Length && format[position] == ':')
-            {
-                position++;
-                var spec = new StringBuilder();
-                while (true)
-                {
-                    if (position >= format.Length)
-                    {
-                        throw new FormatException("Input string was not in a correct format (the format item is not closed).");
-                    }
-
-                    char s = format[position];
-                    if (s == '{')
-                    {
-                        if (position + 1 < format.Length && format[position + 1] == '{')
-                        {
-                            spec.Append('{');
-                            position += 2;
-                            continue;
-                        }
-
-                        throw new FormatException("Input string was not in a correct format (unexpected '{' in a format specifier).");
-                    }
-
-                    if (s == '}')
-                    {
-                        if (position + 1 < format.Length && format[position + 1] == '}')
-                        {
-                            spec.Append('}');
-                            position += 2;
-                            continue;
-                        }
-
-                        break;
-                    }
-
-                    if (spec.Length >= MaxFormatSpecifierLength)
-                    {
-                        throw call.Error($"a format specifier is longer than {MaxFormatSpecifierLength} characters.");
-                    }
-
-                    spec.Append(s);
-                    position++;
-                }
-
-                specifier = spec.ToString();
-            }
-
-            if (position >= format.Length || format[position] != '}')
-            {
-                throw new FormatException("Input string was not in a correct format (the format item is not closed).");
-            }
-
-            position++;
-            if (index >= args.Length)
-            {
-                throw new FormatException("Index (zero based) must be greater than or equal to zero and less than the size of the argument list.");
-            }
-
-            string piece = FormatPiece(call, args[(int)index], specifier);
-            long width = Math.Max(piece.Length, Math.Abs(alignment));
-            budget.CheckStringLength(result.Length + width, call.Offset);
-            if (alignment > piece.Length)
-            {
-                result.Append(' ', (int)(alignment - piece.Length));
-            }
-
-            result.Append(piece);
-            if (-alignment > piece.Length)
-            {
-                result.Append(' ', (int)(-alignment - piece.Length));
-            }
-        }
-
-        return result.ToString();
-    }
-
-    private static long ReadFormatNumber(string format, ref int position, string what)
-    {
-        int start = position;
-        long value = 0;
-        while (position < format.Length && char.IsAsciiDigit(format[position]))
-        {
-            // Saturate: anything this large is refused by the caller's limits; the digits are still consumed.
-            value = Math.Min(value * 10 + (format[position] - '0'), 1_000_000_000_000L);
-            position++;
-        }
-
-        if (position == start)
-        {
-            throw new FormatException($"Input string was not in a correct format ({what} is missing).");
-        }
-
-        return value;
-    }
-
-    private static void SkipSpaces(string format, ref int position)
-    {
-        while (position < format.Length && format[position] == ' ')
-        {
-            position++;
-        }
-    }
-
-    private static string FormatPiece(FunctionCall call, object? argument, string? specifier)
-    {
-        switch (argument)
-        {
-            case string text:
-                return text;
-            case long or double:
-                {
-                    string? checkedSpecifier = CheckSpecifier(call, specifier);
-                    var formattable = (IFormattable)argument;
-                    return formattable.ToString(checkedSpecifier, CultureInfo.InvariantCulture);
-                }
-
-            default:
-                return Convert.ToString(argument, CultureInfo.InvariantCulture) ?? string.Empty;
-        }
-    }
-
-    /// <summary>
-    /// A specifier for a numeric argument: empty means none; a single letter followed by digits is a standard specifier (<c>D N F X G P E</c>,
-    /// either case) whose precision is at most 100; anything else is a custom numeric format, bounded by its length (the output of a custom format
-    /// is no longer than the format plus the digits of the number).
-    /// </summary>
-    private static string? CheckSpecifier(FunctionCall call, string? specifier)
-    {
-        if (string.IsNullOrEmpty(specifier))
-        {
-            return null;
-        }
-
-        if (char.IsAsciiLetter(specifier[0]) && specifier.AsSpan(1).IndexOfAnyExceptInRange('0', '9') < 0)
-        {
-            if (StandardSpecifiers.IndexOf(specifier[0], StringComparison.Ordinal) < 0)
-            {
-                throw call.Error($"the format specifier '{specifier[0]}' is not supported (use D, N, F, X, G, P or E, or a custom numeric format such as 0.00).");
-            }
-
-            if (specifier.Length > 1 && (specifier.Length > 4 || int.Parse(specifier.AsSpan(1), NumberStyles.None, CultureInfo.InvariantCulture) > MaxFormatPrecision))
-            {
-                throw call.Error($"the precision of a format specifier must be at most {MaxFormatPrecision}.");
-            }
-        }
-
-        return specifier;
-    }
-    private static object? FormatArgument(FunctionCall call, JsonNode? node)
-    {
-        if (node is null)
-        {
-            return string.Empty;
-        }
-
-        if (JsonValues.TryGetString(node, out var text))
-        {
-            return text;
-        }
-
-        if (JsonValues.TryGetInt64(node, out long l))
-        {
-            return l;
-        }
-
-        if (JsonValues.TryGetDouble(node, out double d))
-        {
-            return d;
-        }
-
-        return Stringify(call, node);
-    }
-
     private static JsonNode? Substring(FunctionCall call)
     {
         string text = call.String(0);
@@ -413,7 +135,7 @@ internal static class StringFunctions
         return JsonValue.Create(text.Substring((int)start, (int)length));
     }
 
-    private static string Invariant(long value)
+    internal static string Invariant(long value)
     {
         return value.ToString(CultureInfo.InvariantCulture);
     }
@@ -504,30 +226,6 @@ internal static class StringFunctions
         return JsonValue.Create(string.Join(delimiter, items));
     }
 
-    private static JsonNode? Contains(FunctionCall call)
-    {
-        var container = call.Arg(0);
-        var item = call.Arg(1);
-        switch (container)
-        {
-            case JsonArray array:
-                call.Context.Budget.Charge(array.Count, call.Offset);
-                return JsonValue.Create(array.Any(element => JsonValues.AreEqual(element, item)));
-            case JsonObject obj:
-                {
-                    string key = call.String(1);
-                    return JsonValue.Create(obj.Any(p => p.Key.Equals(key, StringComparison.OrdinalIgnoreCase)));
-                }
-
-            default:
-                {
-                    string text = call.String(0);
-                    string needle = Stringify(call, item);
-                    return JsonValue.Create(Search(call, text, needle, last: false, ignoreCase: false) >= 0);
-                }
-        }
-    }
-
     private static JsonNode? Length(FunctionCall call)
     {
         var node = call.Arg(0);
@@ -561,97 +259,6 @@ internal static class StringFunctions
         };
     }
 
-    private static JsonNode? IndexOf(FunctionCall call, bool last)
-    {
-        if (call.Arg(0) is JsonArray array)
-        {
-            var item = call.Arg(1);
-            call.Context.Budget.Charge(array.Count, call.Offset);
-            int found = -1;
-            for (int i = 0; i < array.Count; i++)
-            {
-                if (JsonValues.AreEqual(array[i], item))
-                {
-                    found = i;
-                    if (!last)
-                    {
-                        break;
-                    }
-                }
-            }
-
-            return JsonValue.Create((long)found);
-        }
-
-        string text = call.String(0);
-        string needle = call.String(1);
-        return JsonValue.Create((long)Search(call, text, needle, last, ignoreCase: true));
-    }
-
-    /// <summary>
-    /// The index of the first (or last) occurrence of <paramref name="needle"/> in <paramref name="text"/>, or -1, compared case-insensitively
-    /// when <paramref name="ignoreCase"/> is set (both are then folded to upper case once) and ordinally otherwise. Searched with Knuth-Morris-Pratt, so the time is linear in their lengths however the text and the needle repeat (the
-    /// framework's case-insensitive <c>LastIndexOf</c> takes 12 seconds for 200,000 characters and minutes for 1 MiB). The work is charged to the
-    /// run's budget first. An empty needle is found at 0 (first) or at the end (last), as in .NET.
-    /// </summary>
-    internal static int Search(FunctionCall call, string text, string needle, bool last, bool ignoreCase)
-    {
-        call.Context.Budget.ChargeText((long)text.Length + needle.Length, call.Offset);
-        if (needle.Length == 0)
-        {
-            return last ? text.Length : 0;
-        }
-
-        if (needle.Length > text.Length)
-        {
-            return -1;
-        }
-
-        string haystack = ignoreCase ? text.ToUpperInvariant() : text;
-        string pattern = ignoreCase ? needle.ToUpperInvariant() : needle;
-        int m = pattern.Length;
-
-        // The failure table of the pattern, read forward for a first match and backward (from the end) for a last one.
-        var table = new int[m];
-        for (int i = 1, k = 0; i < m; i++)
-        {
-            char pi = pattern[last ? m - 1 - i : i];
-            while (k > 0 && pi != pattern[last ? m - 1 - k : k])
-            {
-                k = table[k - 1];
-            }
-
-            if (pi == pattern[last ? m - 1 - k : k])
-            {
-                k++;
-            }
-
-            table[i] = k;
-        }
-
-        int matched = 0;
-        for (int i = 0; i < haystack.Length; i++)
-        {
-            int at = last ? haystack.Length - 1 - i : i;
-            char c = haystack[at];
-            while (matched > 0 && c != pattern[last ? m - 1 - matched : matched])
-            {
-                matched = table[matched - 1];
-            }
-
-            if (c == pattern[last ? m - 1 - matched : matched])
-            {
-                matched++;
-            }
-
-            if (matched == m)
-            {
-                return last ? at : at - m + 1;
-            }
-        }
-
-        return -1;
-    }
 
     private static JsonNode? PadLeft(FunctionCall call)
     {
@@ -814,163 +421,5 @@ internal static class StringFunctions
         }
 
         return JsonValue.Create(Hashing.UniqueString(string.Join("-", parts)));
-    }
-
-    private static JsonNode? UtcNow(FunctionCall call)
-    {
-        string format = call.Has(0) ? call.String(0) : DefaultUtcNowFormat;
-        try
-        {
-            return JsonValue.Create(DateTime.UtcNow.ToString(format, CultureInfo.InvariantCulture));
-        }
-        catch (FormatException ex)
-        {
-            throw call.Failure($"invalid date format '{call.Redact(0, format)}'.", ex);
-        }
-    }
-
-    private static JsonNode? DateTimeAdd(FunctionCall call)
-    {
-        var baseTime = ParseDateTime(call, call.String(0));
-        var result = AddIsoDuration(call, baseTime, call.String(1));
-        string format = call.Has(2) ? call.String(2) : Iso8601;
-        try
-        {
-            return JsonValue.Create(result.ToString(format, CultureInfo.InvariantCulture));
-        }
-        catch (FormatException ex)
-        {
-            throw call.Failure($"invalid date format '{call.Redact(2, format)}'.", ex);
-        }
-    }
-
-    private static JsonNode? DateTimeFromEpoch(FunctionCall call)
-    {
-        long seconds = call.Int(0);
-        try
-        {
-            return JsonValue.Create(DateTimeOffset.FromUnixTimeSeconds(seconds).UtcDateTime.ToString(Iso8601, CultureInfo.InvariantCulture));
-        }
-        catch (ArgumentOutOfRangeException ex)
-        {
-            throw call.Failure($"epoch value {call.Redact(0, Invariant(seconds))} is out of range.", ex);
-        }
-    }
-
-    private static JsonNode? DateTimeToEpoch(FunctionCall call)
-    {
-        var time = ParseDateTime(call, call.String(0));
-        return JsonValue.Create(new DateTimeOffset(time, TimeSpan.Zero).ToUnixTimeSeconds());
-    }
-
-    private static DateTime ParseDateTime(FunctionCall call, string text)
-    {
-        if (DateTimeOffset.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var parsed))
-        {
-            return parsed.UtcDateTime;
-        }
-
-        throw call.Failure($"'{call.Redact(0, text)}' is not a valid ISO 8601 date/time.");
-    }
-
-    /// <summary>
-    /// Adds an ISO 8601 duration (<c>[-]P[nY][nM][nW][nD][T[nH][nM][nS]]</c>) to a UTC time. The duration is the
-    /// call's second argument (index 1): messages redact it through that argument.
-    /// </summary>
-    internal static DateTime AddIsoDuration(FunctionCall call, DateTime baseTime, string duration)
-    {
-        string text = duration.Trim();
-        string shown = call.Redact(1, duration);
-        int sign = 1;
-        int i = 0;
-        if (i < text.Length && (text[i] == '-' || text[i] == '+'))
-        {
-            sign = text[i] == '-' ? -1 : 1;
-            i++;
-        }
-
-        if (i >= text.Length || char.ToUpperInvariant(text[i]) != 'P')
-        {
-            throw call.Failure($"'{shown}' is not an ISO 8601 duration (expected P...).");
-        }
-
-        i++;
-        bool inTime = false;
-        bool any = false;
-        var result = baseTime;
-        while (i < text.Length)
-        {
-            char c = char.ToUpperInvariant(text[i]);
-            if (c == 'T')
-            {
-                inTime = true;
-                i++;
-                continue;
-            }
-
-            int start = i;
-            while (i < text.Length && (char.IsAsciiDigit(text[i]) || text[i] == '.'))
-            {
-                i++;
-            }
-
-            if (start == i || i >= text.Length)
-            {
-                throw call.Failure($"'{shown}' is not an ISO 8601 duration (missing number or unit).");
-            }
-
-            if (!double.TryParse(text[start..i], NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out double amount))
-            {
-                throw call.Failure($"'{shown}' is not an ISO 8601 duration (bad number '{call.Redact(1, text[start..i])}').");
-            }
-
-            char unit = char.ToUpperInvariant(text[i]);
-            i++;
-            any = true;
-            try
-            {
-                switch (unit)
-                {
-                    case 'Y' when !inTime:
-                        result = result.AddYears(checked((int)(sign * amount)));
-                        break;
-                    case 'M' when !inTime:
-                        result = result.AddMonths(checked((int)(sign * amount)));
-                        break;
-                    case 'W' when !inTime:
-                        result = result.AddDays(sign * amount * 7);
-                        break;
-                    case 'D' when !inTime:
-                        result = result.AddDays(sign * amount);
-                        break;
-                    case 'H' when inTime:
-                        result = result.AddHours(sign * amount);
-                        break;
-                    case 'M' when inTime:
-                        result = result.AddMinutes(sign * amount);
-                        break;
-                    case 'S' when inTime:
-                        result = result.AddSeconds(sign * amount);
-                        break;
-                    default:
-                        throw call.Failure($"'{shown}' is not an ISO 8601 duration (unexpected unit '{call.Redact(1, unit.ToString())}').");
-                }
-            }
-            catch (ArgumentOutOfRangeException ex)
-            {
-                throw call.Failure($"adding '{shown}' moves the date out of range.", ex);
-            }
-            catch (OverflowException ex)
-            {
-                throw call.Failure($"'{shown}' is too large.", ex);
-            }
-        }
-
-        if (!any)
-        {
-            throw call.Failure($"'{shown}' is not an ISO 8601 duration (no components).");
-        }
-
-        return result;
     }
 }
