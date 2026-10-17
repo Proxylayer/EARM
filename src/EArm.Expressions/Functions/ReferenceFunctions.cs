@@ -161,6 +161,12 @@ internal static class ReferenceFunctions
         var result = new JsonArray();
         foreach (var entry in entries)
         {
+            if (context.References.IsConditionFalse(entry.Id))
+            {
+                // ARM: an iteration that is not deployed because of a false condition is left out of the result.
+                continue;
+            }
+
             var properties = Resolve(call, entry.Id, null, null, tainted: false);
             result.Add(full ? Envelope(properties, IdValue(entry), declaration.ApiVersion ?? ResourceTypeCatalog.SchemaVersion, $"{symbolicName}[{entry.CopyIndex ?? 0}]") : properties);
         }

@@ -540,6 +540,7 @@ public sealed class DeploymentExecutor
 
             if (instance.IsIgnored)
             {
+                _plan.Resolver.MarkConditionFalse(instance.Id);
                 _changes[instance] = ResourceChange.Ignore(instance.Id, instance.Type, "condition evaluated to false");
                 _operations[instance] = new ResourceOperation(instance.Id, instance.Type, batchIndex, OperationStatus.Ignored, ChangeType.Ignore, ChangeMode.None, null, null, null, stopwatch.Elapsed);
                 return;
@@ -1265,6 +1266,11 @@ public sealed class DeploymentExecutor
                 _unavailable.Clear();
                 UnavailableSecretTexts = false;
                 UnavailableInitialPasswords = false;
+            }
+
+            public bool IsConditionFalse(ResourceIdentifier id)
+            {
+                return _inner.IsConditionFalse(id);
             }
 
             public ReferenceResult Resolve(ResourceIdentifier id, string? apiVersion)

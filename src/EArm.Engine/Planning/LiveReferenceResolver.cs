@@ -51,6 +51,7 @@ public sealed class LiveReferenceResolver : IReferenceResolver
     private readonly Dictionary<string, ReferenceResult> _existing = new(StringComparer.Ordinal);
     private readonly List<UnresolvedReference> _unresolved = [];
     private readonly HashSet<string> _unresolvedKeys = new(StringComparer.Ordinal);
+    private readonly HashSet<ResourceIdentifier> _conditionFalse = [];
 
     /// <summary>Performs an existing-resource lookup; <c>null</c> (the default) keeps every such reference a placeholder.</summary>
     public Func<ResourceIdentifier, string, CancellationToken, Task<ExistingLookupResult>>? ExistingLookup { get; set; }
@@ -83,6 +84,25 @@ public sealed class LiveReferenceResolver : IReferenceResolver
             {
                 _published[alias] = result;
             }
+        }
+    }
+
+    /// <summary>Records that the template resource <paramref name="id"/> is not deployed: its condition evaluated to false.</summary>
+    public void MarkConditionFalse(ResourceIdentifier id)
+    {
+        ArgumentNullException.ThrowIfNull(id);
+        lock (_gate)
+        {
+            _conditionFalse.Add(id);
+        }
+    }
+
+    public bool IsConditionFalse(ResourceIdentifier id)
+    {
+        ArgumentNullException.ThrowIfNull(id);
+        lock (_gate)
+        {
+            return _conditionFalse.Contains(id);
         }
     }
 

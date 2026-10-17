@@ -119,6 +119,20 @@ public sealed class LanguageVersion2EngineTests
     }
 
     [Fact]
+    public async Task References_LeavesOutAnIterationWhoseConditionIsFalse()
+    {
+        var host = new EngineHost();
+        string loop = "\"loop\": { \"copy\": { \"name\": \"loop\", \"count\": 3 }, \"condition\": \"[not(equals(copyIndex(), 1))]\", \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01-preview\", "
+            + "\"name\": \"[format('l{0}', copyIndex())]\", \"properties\": { \"displayName\": \"[format('L{0}', copyIndex())]\", \"mailEnabled\": false, \"securityEnabled\": true } }";
+        string outputs = "\"names\": { \"type\": \"array\", \"value\": \"[map(references('loop'), lambda('g', lambdaVariables('g').displayName))]\" }";
+
+        var (_, result) = await host.CreateAsync(Template(loop, outputs));
+
+        Assert.True(result.Succeeded, string.Join(Environment.NewLine, result.Diagnostics.Select(d => d.Message)));
+        Assert.Equal("[\"L0\",\"L2\"]", result.Outputs["names"]!["value"]!.ToJsonString());
+    }
+
+    [Fact]
     public async Task Delete_LeavesAnExistingResourceAlone()
     {
         var host = new EngineHost();

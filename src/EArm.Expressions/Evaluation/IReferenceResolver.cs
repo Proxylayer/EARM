@@ -15,6 +15,12 @@ namespace EArm.Expressions.Evaluation;
 public interface IReferenceResolver
 {
     ReferenceResult Resolve(ResourceIdentifier id, string? apiVersion);
+
+    /// <summary>
+    /// True when the template resource <paramref name="id"/> is not deployed because its <c>condition</c> evaluated to false; <c>references()</c>
+    /// leaves such an iteration out, as ARM does. Unknown (false) before the engine has decided the condition.
+    /// </summary>
+    bool IsConditionFalse(ResourceIdentifier id) => false;
 }
 
 /// <summary>The outcome of a <see cref="IReferenceResolver.Resolve"/> call.</summary>

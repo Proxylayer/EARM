@@ -352,6 +352,7 @@ public sealed class DeploymentPlanner
 
         if (instance.IsIgnored)
         {
+            plan.Resolver.MarkConditionFalse(instance.Id);
             return ResourceChange.Ignore(instance.Id, instance.Type, "condition evaluated to false");
         }
 
