@@ -320,7 +320,7 @@ Manifest tables and warnings: [docs/permissions.md](docs/permissions.md).
 - **Deferred**: gallery / template application instantiation, application logo, SAML token-signing certificates, group settings templates and lifecycle policies,
   B2B invitations (guests), devices, cross-tenant access, custom security attributes, entitlement management, access reviews, lifecycle workflows, terms of use,
   PIM for Azure resources (ARM's own `Microsoft.Authorization` types cover it) and PIM alerts, the authentication methods policy's tenant-wide settings
-  (registration campaign and the other root properties) and the beta-only methods (hardware OATH, QR code), nested deployments.
+  (registration campaign and the other root properties) and the beta-only methods (hardware OATH, QR code), template specs in linked deployments.
 - **Later (v1.1+)**: `--rollback-on-error`, `export` (template from a tenant), `deployment validate --online`, user password
   reset, name-prefix scoping for the orphan report of applications, groups and users, administrative-unit scoped role members, a published `$schema` URL (use `earm schema install` meanwhile).
 - Graph is eventually consistent: a freshly created object can be invisible for seconds, so dependent calls are retried for up to 90 s. Mail-enabled security groups cannot be

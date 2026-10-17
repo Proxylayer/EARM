@@ -62,6 +62,16 @@ transport to the built-in Microsoft Graph HTTP client.
 
 ### Added
 
+- Nested and linked deployments (`Microsoft.Resources/deployments`, see `docs/format.md#nested-and-linked-deployments`): an inline
+  `template` or a `templateLink` (`relativePath` next to the template or relative to its URL, or an https `uri` downloaded with the rules
+  of https parameter files) is expanded into the parent's plan: one graph, one what-if, one apply. Outer and inner expression scope as in
+  ARM (inner by default and outer refused with languageVersion 2.0), `parameters` or `parametersLink`, `contentVersion` checks,
+  `condition` and `copy` on the deployment, `dependsOn` to and from it (a deployment waits for everything inside it), outputs read back with
+  `reference('<deployment>').outputs.<name>.value` (secure outputs stay masked), nesting up to 10 levels and 500 deployments, cycle detection
+  for linked templates, ids unique across all templates. What-if rows name their nested deployment (`deployment` in the JSON);
+  `deployment delete`, the orphan report and `earm permissions` include the nested resources; `deployment validate` checks inline and local
+  linked templates offline. Mode Complete on a nested deployment, template specs and other Azure scopes are refused. New sample
+  `samples/nested-deployments.entra.json`.
 - languageVersion 2.0 (`"languageVersion": "2.0"`), so Bicep-compiled JSON templates of EARM types are accepted unchanged
   (see `docs/format.md#languageversion-20`):
   - `resources` as an object keyed by symbolic name; `dependsOn`, `reference()` and `references()` by symbolic name,

@@ -132,7 +132,7 @@ deterministic, and what the what-if output and the deployment result print. `res
 | `reference()` is not allowed in `variables` | **Intentional superset**: the existing-object form `reference(resourceId(...), apiVersion)` is allowed in a variable (a fixed lookup, evaluated once). A reference to a template resource (by name, id or symbolic name) and `references()` are refused in variables, as ARM refuses them. |
 | `reference()` accepts a resource name only without symbolic names | With languageVersion 2.0, EARM still accepts a bare resource name or an id besides the symbolic name (a superset). |
 | Relationships live in separate resources | Arrays inside `properties`, declarable from either side; see [edges.md](edges.md). |
-| Nested and linked deployments (`Microsoft.Resources/deployments`, `templateLink`) | Not supported: a template is deployed on its own. Split the work into several templates and pass values between them through parameter files. |
+| Nested and linked deployments (`Microsoft.Resources/deployments`, `templateLink`) are tracked deployments in the deployment history | **Template composition**: the nested and linked templates are expanded into the parent's plan (one graph, one what-if, one apply); no deployment record exists ([Nested and linked deployments](#nested-and-linked-deployments)). Incremental mode only (ARM's rule too). Not supported: template specs (`templateLink.id`), other Azure scopes (`subscriptionId`, `resourceGroup`, `scope`), Key Vault references in nested parameters, a template given as a JSON string, `onErrorDeployment`. A `relativePath` may name a local file; `parametersLink.uri` may be a relative path (EARM extensions). `copyIndex()` of the deployment's loop is not visible inside an outer-scope template (pass it to an inner-scope one). What-if names the deployment of each nested row and shows no row for the deployment itself. |
 | Property iteration only in top-level resources | Also accepted in nested child resources (the loader flattens them to top-level declarations). |
 | `reference(resourceIdOrName, apiVersion, 'Full')` returns the full resource object (`location`, `sku`, `subscriptionId`, ...) | Returns `{ apiVersion, properties, resourceId, isTemplateResource[, symbolicName] }`: the keys that apply to an Entra object, `resourceId` being the EARM id. |
 | Multi-line strings are refused by the REST API, the portal and pipelines, and accepted by Azure CLI and PowerShell | Accepted (EARM is a command-line tool like them). |
@@ -197,8 +197,85 @@ unresolvable or cyclic `$ref`, `properties` on a string) is `InvalidTypeDefiniti
 `"languageVersion": "2.0"` is `InvalidLanguageVersion`. As in the original language, output values are not checked against their declared
 type. `metadata` may be anywhere, and Bicep's markers (`__bicep_export!`, `__bicep_imported_from!`, `_generator`) are accepted and ignored.
 
-Not applicable to EARM: `expressionEvaluationOptions` and `Microsoft.Resources/deployments` (EARM has no nested deployments), and
-`apiProfile`.
+A nested deployment in a languageVersion 2.0 template is evaluated in its own scope by default, and `outer` is refused, as in ARM (see
+[Nested and linked deployments](#nested-and-linked-deployments)). Not applicable to EARM: `apiProfile`.
+
+## Nested and linked deployments
+
+A `Microsoft.Resources/deployments` resource deploys another template together with this one: an inline `template` (a **nested** template) or a
+file named by `templateLink` (a **linked** template), as in ARM ([linked and nested templates](https://learn.microsoft.com/azure/azure-resource-manager/templates/linked-templates),
+[resource reference](https://learn.microsoft.com/azure/templates/microsoft.resources/deployments)). EARM keeps no deployment record (it is stateless),
+so a nested deployment is template composition: its template is loaded, validated like a main template, and its resources are expanded into the
+same plan as the parent's: the same graph and batches, what-if rows, apply, `deployment delete`, the orphan report and `earm permissions`.
+The type name and ARM's apiVersions (`2015-01-01` to `2026-06-01`; the value changes nothing) are kept, so an ARM snippet pastes in.
+[`samples/nested-deployments.entra.json`](../samples/nested-deployments.entra.json) shows every form.
+
+```json
+{
+  "type": "Microsoft.Resources/deployments",
+  "apiVersion": "2025-04-01",
+  "name": "teams",
+  "properties": {
+    "mode": "Incremental",
+    "expressionEvaluationOptions": { "scope": "inner" },
+    "parameters": { "env": { "value": "[parameters('env')]" } },
+    "template": {
+      "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+      "contentVersion": "1.0.0.0",
+      "parameters": { "env": { "type": "string" } },
+      "resources": [ { "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01-preview", "name": "[format('contoso-{0}-team', parameters('env'))]", "properties": { "displayName": "Team", "mailEnabled": false, "securityEnabled": true } } ],
+      "outputs": { "groupId": { "type": "string", "value": "[reference(format('contoso-{0}-team', parameters('env'))).id]" } }
+    }
+  }
+}
+```
+
+| Property | EARM |
+|---|---|
+| `name`, `condition`, `copy`, `dependsOn`, `comments`, `metadata` | As for any resource. The name follows ARM's rule (1-64 characters: letters, digits, `-`, `_`, `.`, `(`, `)`) and must be computable before deployment, as must the `condition` (`NestedDeploymentNotStatic`); a deployment whose condition is false is not expanded. A `copy` loop expands the template once per iteration. |
+| `properties.mode` | `Incremental` only. ARM allows only Incremental for nested and linked deployments; deploy the parent with `--mode Complete` instead: the resources of the nested templates count as declared in the parent's Complete-mode comparison (the orphan report). `Complete` is `InvalidNestedDeployment`. |
+| `properties.template` | The inline template: any template EARM accepts (EARM types only; its `$schema` may be EARM's or ARM's, and may be omitted). A template given as a JSON string is not supported. |
+| `properties.templateLink.relativePath` | A linked file relative to the template that declares the deployment: the file's directory, or, for a template read from a URL, that URL (ARM combines the parent URL and the relative path; the parent's query string is kept). `..` is allowed; an absolute path is refused. |
+| `properties.templateLink.uri` | An https URL, downloaded with the rules of `-p https://...` parameter files: https only, no user name or password in the URL, no credentials sent, redirects never followed, at most 1 MiB and 120 s; the query string (a SAS token) is sent but never shown. `queryString` is appended to the URL. |
+| `properties.templateLink.contentVersion`, `properties.parametersLink.contentVersion` | When given, must equal the linked file's `contentVersion` (`LinkedTemplateContentVersionMismatch`). |
+| `properties.templateLink.id` | Template specs are Azure resources: `NestedDeploymentFeatureNotSupported`. |
+| `properties.parameters` | Values for the template's parameters, `{ "name": { "value": ... } }`, evaluated in the parent (with the deployment's copy iteration). A value may depend on a resource the parent deploys (`reference()`, another nested deployment's outputs): it is re-evaluated when the nested resources are planned and applied, and the nested resources wait for that resource. A Key Vault `reference` entry is not supported: pass the secret from a secure parameter of the parent. A value for a parameter the template does not declare is `UnknownParameter`; a required parameter that is not passed is `MissingParameterValue` (an error, even offline). |
+| `properties.parametersLink` | A parameter file (the `deploymentParameters` shape): an https `uri`, or, as an EARM extension, a path relative to the declaring template. Not together with `parameters` (ARM rule). |
+| `properties.expressionEvaluationOptions.scope` | `outer` (the default for an inline template) or `inner`. A linked template is always inner (an explicit `outer` is ignored with a warning). With languageVersion 2.0 the default is `inner` and `outer` is refused, as in ARM. The value must be literal. |
+| `properties.debugSetting` | Accepted and ignored. Other properties (`onErrorDeployment`, `validationLevel`, ...) and `location`, `tags`, `identity` are ignored with `NestedDeploymentPropertyIgnored`; `subscriptionId`, `resourceGroup` and `scope` (another Azure scope) are refused. |
+
+**Scope.** In the **outer** scope the template's expressions see the parent's parameters, variables and user-defined functions; the template's own
+`parameters`, `variables` and `functions` are ignored (a warning), `parameters` / `parametersLink` on the deployment are refused, and a `copy` loop
+inside the template is an error (ARM rule: put the copy on the deployment, or use the inner scope). In the **inner** scope the template is
+isolated: it sees only the parameters passed in, and its own variables and functions. `deployment()` is the nested deployment in the inner
+scope (its `name`) and the parent's in the outer scope. In both scopes `copyIndex()` refers to the template's own loops: the deployment's
+iteration is passed as a parameter (`"index": { "value": "[copyIndex()]" }`).
+
+**Names and dependencies.** Resource names, symbolic names, copy-loop names and `dependsOn` resolve within the template that declares them, as in
+ARM: `reference('name')` names a resource of the same template. A deployment is a resource of its parent: `dependsOn` on it (its name, its
+symbolic name, `type/name` or `resourceId('Microsoft.Resources/deployments', 'name')`) waits for **every** resource of its template, nested
+deployments included, and every resource of the template waits for what the deployment depends on (its `dependsOn`, and the resources its
+`parameters` reference).
+
+**Outputs.** `reference('<deployment>').outputs.<output>.value` (or `reference('<symbolic name>')`, and `references('<loop>')` for a deployment loop)
+returns the template's outputs once its resources are planned (what-if) or applied (create), with an implicit dependency on the deployment.
+In what-if an output that depends on a resource still to be created is a deploy-time value. A `secureString` / `secureObject` output stays
+secure: usable in the parent, masked wherever it is shown. An output that cannot be evaluated fails the deployment resource in a deployment
+(its dependents are skipped) and is a warning in what-if. Unlike ARM, `reference()` of the template's own resources is also evaluated in the
+outputs of an outer-scope template.
+
+**Identity across templates.** Ids must be unique across the main template and every nested template: two templates that declare the same
+object are a `DuplicateResourceId` error naming both deployments, as two declarations of one template are. Two nested deployments with the
+same name (in any template) are a duplicate as well.
+
+**Limits.** Nested deployments are expanded at most 10 levels deep and at most 500 in one run (ARM's what-if limit of nested templates;
+`NestedDeploymentLimitExceeded`); the instance limit applies to the whole expansion. A linked template that is deployed again by a template it
+encloses is `LinkedTemplateCycle`.
+
+**Offline validation.** `deployment validate` expands nested and linked templates offline: inline templates and local linked files are validated
+(their findings point at the place in the file that holds them), https links are not downloaded (`LinkedTemplateNotFetched`, a warning), and a
+deployment whose condition, name or link depends on a value that is not known offline is not expanded (a warning). `what-if`, `create` and
+`delete` download https links and validate everything before the first sign-in.
 
 ## Resource type catalog
 

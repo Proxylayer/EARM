@@ -29,6 +29,18 @@ load ──► validate ──► expand ──► graph ──► [per batch: r
    The static index (`TemplateResourceIndex`) only holds ids computable without a copy frame; right after
    expansion the planner adds the concrete id of every copy iteration to the deployment's index (shared by every
    evaluation context), so `reference(format('g-{0}', copyIndex()))` resolves by name from then on.
+   **Nested and linked deployments** (`NestedDeploymentExpander`, [format.md](format.md#nested-and-linked-deployments)): every instance of a
+   `Microsoft.Resources/deployments` resource whose condition is true is expanded right after: its settings are evaluated in the parent
+   (`DeploymentSettings`), its template is loaded (inline, or a linked file through `LinkedTemplateReader`), its parameters are bound (inner
+   scope: the values of `parameters`, evaluated in the parent with the deployment's copy frame and re-evaluated on every read by
+   `NestedParameters`, so a value that depends on a resource the parent deploys resolves once that resource is live; outer scope: the parent's
+   stores), the template is validated (`TemplateValidator` + `ExpressionValidator`) and its resources are expanded by `ResourceExpander` with a
+   context of their own. Each template is a `TemplateScope` (document, static analysis, resource index, context, deployment path); every
+   instance points to its scope (`ResourceInstance.Scope`), so names, symbolic names and copy loops resolve within their template and diagnostics
+   point into the right file. Nested deployments recurse (10 levels, 500 deployments at most); ids must be unique across the whole expansion.
+   The deployment instance itself stays in the plan as a node without a provider: it writes nothing, is no what-if row and owns nothing for
+   `deployment delete`. When its batch runs (all its resources are done by then), its outputs are evaluated in its template's context and
+   published under its id (`NestedDeploymentOutputs`), which is what `reference('<deployment>').outputs.<name>.value` reads.
 4. **Graph** (`DependencyGraph`): edges are the union of
    - explicit `dependsOn` (resource id, `type/name`, bare name, or a copy-loop name → every iteration
      (`DependencyKind.CopyLoop`); entries that depend on `copyIndex()` are re-resolved per iteration). Every
@@ -45,6 +57,9 @@ load ──► validate ──► expand ──► graph ──► [per batch: r
      iteration (`u1` → `g-1`),
    - the inputs of a **symbolic name** (see below),
    - `mode: serial` copy chaining (iteration *n* waits for chunk *n-1*),
+   - nested deployments (`DependencyKind.NestedDeployment`, `NestedDeploymentEdges`): a deployment waits for every instance of its template (at
+     any depth), and each of those waits for what the deployment itself depends on (its `dependsOn` and the references in its `parameters`),
+     so depending on a deployment means depending on everything inside it,
    - a provider-declared apply order (`IApplyOrderSource`, `DependencyKind.Ordering`), asked once the edges above are known: a
      `roleManagementPolicies` instance is applied before the PIM schedule requests of the same role (directory role eligibility and active
      assignment) or group and access (PIM for Groups eligibility and active assignment) the template declares, so they are judged by the

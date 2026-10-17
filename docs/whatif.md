@@ -250,6 +250,7 @@ Rules:
 | `changes[]` | Same order as the text. `resourceId` is the ARM-style id; `changeType` one of `Create`, `Modify`, `Delete`, `NoChange`, `Ignore`, `Deploy` (`ResourceIdOnly` only, for an existing declared resource), or ARM's `Unsupported` for a row that cannot be applied as planned (it carries an `unsupportedReason`; the text marks it `!`). An `Unsupported` row keeps the `before` / `after` / `delta` of its planned change type (the text symbol shows that type) and is counted in `summary` under that type and under `unsupported`. |
 | `before` / `after` | `{ name, type, apiVersion, properties }`. ARM semantics: Create has `after`, Delete has `before`, Modify and NoChange have both, Ignore (orphan rows included) has neither. `after.properties` includes the relationship properties; `before.properties` is the live object as the provider reads it (server-managed properties stripped). Absent with `--result-format ResourceIdOnly`. |
 | `delta[]` | Modify rows only (ARM: Create / Delete carry only the payload). Each entry: `path`, `propertyChangeType` (`Create`, `Delete`, `Modify`, `Array`, `NoEffect`), `before` / `after` (omitted when null), `children[]`, `note` (EARM: why a declared value is held back, for example a Conditional Access `state: enabled` without `--allow-ca-enforce`; a `NoChange` row carries a `delta[]` holding only such noted deltas). Top-level paths are rooted at the resource (`properties.web.redirectUris`); child paths are relative to their parent (`[0]`, `['<memberKey>']`, `isEnabled`), as in ARM's what-if output. Absent with `ResourceIdOnly`. |
+| `deployment` | **Extension.** Present on the row of a resource deployed by a nested or linked deployment: the deployment names from the main template down, joined with `/` (`teams/payments`). See [Nested deployments](#nested-deployments). |
 | `orphan`, `graphId` | **Extension.** Present on the rows of the [orphan report](#orphan-report) only (always `changeType: Ignore`): `orphan` is `undeclared` (a live object of a declared type no declared resource matches, Complete mode) or `retained` (a live assignment / grant of a declared principal that is not declared, both modes); `graphId` is the live object's id. Present with `ResourceIdOnly` too. |
 | `unsupportedReason` | Always present on every change; `null` unless the change cannot be applied as planned (then `changeType` is `Unsupported`). |
 | `reasons[]` | **Extension.** Present when non-empty: the human-readable reasons printed in parentheses in the text (ignore reason, symbolic name, deploy-time values, recreate, delete risks) including the unsupported reason. |
@@ -258,6 +259,23 @@ Rules:
 | `unresolvedReferences[]` | **Extension.** `reference(resourceId(...), apiVersion)` lookups that could not be performed: `resourceId`, `apiVersion`, `reason`. |
 | `skipped[]` | **Extension.** The resources whose condition evaluated to false, in row order: `resourceId`, `reason`. ARM's what-if does not list them; they are not in `changes[]`. |
 | `summary` | **Extension.** Counts per change type of the rows shown (after `--exclude-change-types`; with `ResourceIdOnly` the existing declared resources count under `deploy`, not `modify` / `noChange`) plus `unsupported` (rows carrying an `unsupportedReason`, `changeType: Unsupported`, already counted in their planned change type), `orphans` (orphan report rows; not counted in `ignore`), `skipped` (condition false; never a row) and `edges` (`add` / `remove`). |
+
+## Nested deployments
+
+ARM's what-if expands nested and linked templates and lists their resources as ordinary changes
+([what-if limits](https://learn.microsoft.com/azure/azure-resource-manager/templates/deploy-what-if#what-if-limits)). EARM does the same: the resources of
+a `Microsoft.Resources/deployments` template ([format.md](format.md#nested-and-linked-deployments)) are planned in the same batches as the parent's and
+shown as rows, each annotated with the deployment it comes from:
+
+```
+  + /providers/Microsoft.Entra/groups/contoso-dev-team-payments [Microsoft.Entra/groups] (nested deployment: team-payments)
+```
+
+(`"deployment": "team-payments"` in the JSON). The deployment itself is not a row: it writes nothing. Its outputs are evaluated once its resources are
+planned, so a parent resource that reads `reference('team-payments').outputs.groupId.value` shows the value when the group exists, and a deploy-time value
+(`?`) when the group is still to be created. A deployment whose condition is false is not expanded and contributes no row. ARM gives up expanding after 500
+nested templates and reports the rest as `Ignore`; EARM's limit is the same number but an error (`NestedDeploymentLimitExceeded`), since a partial
+plan cannot be applied. Linked https templates are downloaded for the what-if.
 
 ## Orphan report
 
