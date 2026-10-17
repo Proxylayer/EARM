@@ -6,12 +6,12 @@
   "changes": [
     {
       "resourceId": "/providers/Microsoft.Entra/applications/contoso-dev-api",
-      "changeType": "Modify",
+      "changeType": "Deploy",
       "unsupportedReason": null
     },
     {
       "resourceId": "/providers/Microsoft.Entra/groups/contoso-dev-orders-admins",
-      "changeType": "Modify",
+      "changeType": "Deploy",
       "unsupportedReason": null
     },
     {
@@ -21,7 +21,7 @@
     },
     {
       "resourceId": "/providers/Microsoft.Entra/groups/contoso-dev-orders-ops",
-      "changeType": "NoChange",
+      "changeType": "Deploy",
       "unsupportedReason": null
     },
     {
@@ -34,7 +34,7 @@
     },
     {
       "resourceId": "/providers/Microsoft.Entra/users/bg-orders@contoso.com",
-      "changeType": "Modify",
+      "changeType": "Deploy",
       "unsupportedReason": null
     }
   ],
@@ -47,14 +47,17 @@
     "User.ReadWrite.All"
   ],
   "unresolvedReferences": [],
+  "skipped": [],
   "summary": {
     "create": 1,
-    "modify": 4,
+    "modify": 0,
     "delete": 0,
-    "noChange": 1,
+    "noChange": 0,
+    "deploy": 5,
     "ignore": 0,
     "unsupported": 1,
     "orphans": 0,
+    "skipped": 0,
     "edges": {
       "add": 3,
       "remove": 1

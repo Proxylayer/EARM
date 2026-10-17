@@ -389,9 +389,12 @@ public sealed class DeploymentPlannerTests
         Assert.Equal(EngineHost.Tenant, json["tenantId"]!.GetValue<string>());
         Assert.Equal("Incremental", json["mode"]!.GetValue<string>());
         Assert.Equal(15, json["summary"]!["create"]!.GetValue<int>());
-        Assert.Equal(1, json["summary"]!["ignore"]!.GetValue<int>());
+        // The resource whose condition is false is not a change (ARM does not list it): it is listed under skipped.
+        Assert.Equal(0, json["summary"]!["ignore"]!.GetValue<int>());
+        Assert.Equal(1, json["summary"]!["skipped"]!.GetValue<int>());
+        Assert.Equal(Fixture.Policy, Assert.Single(json["skipped"]!.AsArray())!["resourceId"]!.GetValue<string>());
         var changes = json["changes"]!.AsArray();
-        Assert.Equal(Fixture.InstanceCount, changes.Count);
+        Assert.Equal(Fixture.InstanceCount - 1, changes.Count);
         var user = Assert.Single(changes, c => c!["resourceId"]!.GetValue<string>() == Fixture.User);
         Assert.Equal("Create", user!["changeType"]!.GetValue<string>());
 
@@ -419,15 +422,21 @@ public sealed class DeploymentPlannerTests
 
         WhatIfText.Render(plan, writer);
         string text = writer.ToString();
+        using var verboseWriter = new System.IO.StringWriter();
+        WhatIfText.Render(plan, verboseWriter, new WhatIfTextOptions(Verbose: true));
+        string verbose = verboseWriter.ToString();
 
-        Assert.Contains("15 to create, 0 to modify, 0 to delete, 0 unchanged, 1 ignored", text);
+        Assert.Contains("15 to create, 0 to modify, 0 to delete, 0 unchanged, 0 ignored", text);
         Assert.StartsWith("Deployment '" + EngineHost.DeploymentName + "' (Incremental) on tenant " + EngineHost.Tenant, text, StringComparison.Ordinal);
         Assert.Contains("  + " + Fixture.RoleDefinition + " [" + Fixture.RoleDefinitionType + "]", text);
 
         // The user declares edges to resources that do not exist yet (memberOf, ownerOf, ...): the row is marked '?'.
         Assert.Contains("  +? " + Fixture.User + " [" + Fixture.UserType + "]", text);
-        Assert.Contains("  * " + Fixture.Policy + " [" + Fixture.PolicyType + "]", text);
-        Assert.Contains("condition evaluated to false", text);
+        // A condition-false resource is not listed (as ARM); --verbose names it under "Skipped".
+        Assert.DoesNotContain(Fixture.Policy + " [", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("Skipped", text, StringComparison.Ordinal);
+        Assert.Contains("Skipped (condition false; not part of the deployment, nothing is read or written):\n  " + Fixture.Policy + " [" + Fixture.PolicyType + "]", verbose.Replace("\r\n", "\n", StringComparison.Ordinal), StringComparison.Ordinal);
+        Assert.Contains("Skipped: 1 resource(s) whose condition is false.", verbose, StringComparison.Ordinal);
         Assert.DoesNotContain(Templates.DefaultPassword, text, StringComparison.Ordinal);
     }
 

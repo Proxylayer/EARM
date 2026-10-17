@@ -13,12 +13,15 @@ namespace EArm.Engine.WhatIf;
 
 /// <summary>
 /// The ARM-shaped what-if JSON: <c>status</c>, <c>deploymentName</c>, <c>tenantId</c>,
-/// <c>mode</c>, <c>changes[]</c> (<c>resourceId</c>, <c>changeType</c> (<c>Unsupported</c> when the row has an <c>unsupportedReason</c>), <c>before</c>, <c>after</c>, <c>delta[]</c>
+/// <c>mode</c>, <c>changes[]</c> (<c>resourceId</c>, <c>changeType</c> (<c>Unsupported</c> when the row has an <c>unsupportedReason</c>; <c>Deploy</c> for an existing
+/// declared resource with <c>ResourceIdOnly</c>), <c>before</c>, <c>after</c>, <c>delta[]</c>
 /// with <c>path</c> / <c>propertyChangeType</c> / <c>before</c> / <c>after</c> / <c>children</c> / <c>note</c> (EARM: why a declared value is held back;
 /// a <c>NoChange</c> row carries a <c>delta</c> only for such noted deltas),
 /// <c>unsupportedReason</c>) and <c>diagnostics[]</c>, plus EARM's extensions: <c>reasons[]</c> per change,
 /// <c>orphan</c> (<c>undeclared</c> / <c>retained</c>) and <c>graphId</c> on the <c>Ignore</c> rows of the orphan report,
-/// <c>summary</c> (with <c>orphans</c>), <c>requiredPermissions[]</c> and <c>unresolvedReferences[]</c>. Secure values are <c>***</c> and
+/// <c>summary</c> (with <c>orphans</c> and <c>skipped</c>), <c>requiredPermissions[]</c>, <c>unresolvedReferences[]</c> and <c>skipped[]</c> (the resources whose
+/// condition is false, which ARM does not list among the changes). <c>changes[]</c> and <c>summary</c> describe the rows a <see cref="WhatIfView"/> shows
+/// (<c>--exclude-change-types</c> applied). Secure values are <c>***</c> and
 /// deploy-time values <c>(deploy-time)</c>; <c>ResourceIdOnly</c> drops <c>before</c>, <c>after</c> and
 /// <c>delta</c>. Member order is fixed so the document diffs cleanly.
 /// </summary>
@@ -48,11 +51,29 @@ public static class WhatIfJson
     public static JsonObject Build(WhatIfReport report, ResultFormat format = ResultFormat.FullResourcePayloads)
     {
         ArgumentNullException.ThrowIfNull(report);
+        return Build(WhatIfView.Of(report, format));
+    }
+
+    public static JsonObject Build(WhatIfView view)
+    {
+        ArgumentNullException.ThrowIfNull(view);
+        var report = view.Report;
+        var format = view.Format;
 
         var changes = new JsonArray();
-        foreach (var row in report.Rows)
+        foreach (var row in view.Rows)
         {
             changes.Add(BuildChange(row, format));
+        }
+
+        var skipped = new JsonArray();
+        foreach (var row in report.Skipped)
+        {
+            skipped.Add(new JsonObject
+            {
+                ["resourceId"] = row.ResourceId,
+                ["reason"] = ResourceChange.ConditionFalseReason,
+            });
         }
 
         var diagnostics = new JsonArray();
@@ -85,7 +106,7 @@ public static class WhatIfJson
             requiredPermissions.Add(JsonValue.Create(permission));
         }
 
-        var summary = report.Summary;
+        var summary = view.Summary;
         return new JsonObject
         {
             ["status"] = "Succeeded",
@@ -96,19 +117,22 @@ public static class WhatIfJson
             ["diagnostics"] = diagnostics,
             ["requiredPermissions"] = requiredPermissions,
             ["unresolvedReferences"] = unresolvedReferences,
+            ["skipped"] = skipped,
             ["summary"] = new JsonObject
             {
                 ["create"] = summary.Create,
                 ["modify"] = summary.Modify,
                 ["delete"] = summary.Delete,
                 ["noChange"] = summary.NoChange,
+                ["deploy"] = summary.Deploy,
                 ["ignore"] = summary.Ignore,
                 ["unsupported"] = summary.Unsupported,
                 ["orphans"] = summary.Orphans,
+                ["skipped"] = summary.Skipped,
                 ["edges"] = new JsonObject
                 {
-                    ["add"] = report.Edges.Add,
-                    ["remove"] = report.Edges.Remove,
+                    ["add"] = view.Edges.Add,
+                    ["remove"] = view.Edges.Remove,
                 },
             },
         };
@@ -121,7 +145,8 @@ public static class WhatIfJson
         {
             ["resourceId"] = row.ResourceId,
             // ARM: a change that cannot be applied as planned is "Unsupported" (with its unsupportedReason); the payloads below still follow the planned type.
-            ["changeType"] = row.IsUnsupported ? "Unsupported" : row.Type.ToString(),
+            // ResourceIdOnly reports an existing declared resource as "Deploy".
+            ["changeType"] = row.DisplayType(format).ToString(),
         };
 
         if (format == ResultFormat.FullResourcePayloads)

@@ -30,6 +30,9 @@ public sealed class Review2F_DocsCliParityTests
         "--az-command", "--pwsh-path", "--temp-dir",
         "--state-dir", "--force-unlock", "--lock-timeout", "--max-deletes", "--allow-delete-all", "--delete-adopted", "--delete-resources",
         "--version", "--help", "-h", "-?", "-g",
+
+        // The Azure CLI options the comparison with 'az deployment' lists as omitted.
+        "--no-wait", "--subscription", "--management-group-id", "-l", "--location", "--template-uri", "--template-spec", "--query-string", "--rollback-on-error",
     };
 
     private static string[] DocLines => File.ReadAllText(Path.Combine(TestPaths.RepoRoot, "docs", "cli.md")).Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');

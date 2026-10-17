@@ -37,9 +37,6 @@ The deployment would make the following changes:
             isEnabled: true
         ]
 
-  * /providers/Microsoft.Entra/conditionalAccess/namedLocations/Contoso offices [Microsoft.Entra/conditionalAccess/namedLocations]
-      (condition evaluated to false)
-
   +? /providers/Microsoft.Entra/users/bg-orders@contoso.com [Microsoft.Entra/users]
       name: "bg-orders@contoso.com"
       type: "Microsoft.Entra/users"
@@ -79,6 +76,6 @@ The deployment would make the following changes:
           0: "(deploy-time)"
         ]
 
-Resource changes: 4 to create, 0 to modify, 0 to delete, 0 unchanged, 1 ignored.
+Resource changes: 4 to create, 0 to modify, 0 to delete, 0 unchanged, 0 ignored.
 Edges: 3 to add, 0 to remove.
 Required permissions: Application.ReadWrite.All, Application.ReadWrite.OwnedBy, Directory.Read.All, Group.ReadWrite.All, GroupMember.ReadWrite.All, Policy.Read.All, Policy.ReadWrite.ConditionalAccess, User.ReadWrite.All.

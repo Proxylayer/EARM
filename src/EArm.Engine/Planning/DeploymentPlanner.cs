@@ -355,7 +355,7 @@ public sealed class DeploymentPlanner
         if (instance.IsIgnored)
         {
             plan.Resolver.MarkConditionFalse(instance.Id);
-            return ResourceChange.Ignore(instance.Id, instance.Type, "condition evaluated to false");
+            return ResourceChange.ConditionFalse(instance.Id, instance.Type);
         }
 
         SymbolicNames.LinkParent(plan, instance);

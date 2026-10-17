@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.IO;
 using System.Text;
 using System.Text.Json.Nodes;
@@ -11,9 +13,10 @@ namespace EArm.Engine.WhatIf;
 
 /// <summary>How <see cref="WhatIfText"/> renders.</summary>
 /// <param name="Format"><c>ResourceIdOnly</c> prints resource ids and reasons only (no payloads, no property deltas).</param>
-/// <param name="Verbose">Also print the payload of <c>NoChange</c> rows and the <c>NoEffect</c> deltas.</param>
+/// <param name="Verbose">Also print the payload of <c>NoChange</c> rows, the <c>NoEffect</c> deltas and the resources skipped because their condition is false.</param>
 /// <param name="Colors">Wrap rows in ANSI colours (the caller decides: TTY and no <c>NO_COLOR</c>).</param>
-public sealed record WhatIfTextOptions(ResultFormat Format = ResultFormat.FullResourcePayloads, bool Verbose = false, bool Colors = false)
+/// <param name="Exclude">The change types not shown (<c>--exclude-change-types</c>); <c>null</c> shows every row.</param>
+public sealed record WhatIfTextOptions(ResultFormat Format = ResultFormat.FullResourcePayloads, bool Verbose = false, bool Colors = false, IReadOnlySet<WhatIfChangeType>? Exclude = null)
 {
     public static WhatIfTextOptions Default { get; } = new();
 }
@@ -32,6 +35,9 @@ public static class WhatIfText
     private const string Step = "  ";
     private const string Reset = "\u001b[0m";
 
+    /// <summary>The colour key of a Deploy row (its symbol, '!', is the colour key of a change that cannot be applied as planned).</summary>
+    private const char DeployColourKey = '#';
+
     public static void Render(DeploymentPlan plan, TextWriter writer)
     {
         Render(plan, writer, WhatIfTextOptions.Default);
@@ -46,41 +52,92 @@ public static class WhatIfText
     public static void Render(WhatIfReport report, TextWriter writer, WhatIfTextOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(report);
-        ArgumentNullException.ThrowIfNull(writer);
         options ??= WhatIfTextOptions.Default;
+        Render(WhatIfView.Of(report, options.Format, options.Exclude), writer, options);
+    }
+
+    /// <summary>Renders the rows <paramref name="view"/> shows (its format and exclusions win over the ones of <paramref name="options"/>).</summary>
+    public static void Render(WhatIfView view, TextWriter writer, WhatIfTextOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(view);
+        ArgumentNullException.ThrowIfNull(writer);
+        options = (options ?? WhatIfTextOptions.Default) with { Format = view.Format, Exclude = view.Excluded };
+        var report = view.Report;
 
         var culture = CultureInfo.InvariantCulture;
         writer.WriteLine(string.Create(culture, $"Deployment '{report.DeploymentName}' ({report.Mode}) on tenant {report.TenantId ?? "(unknown)"}"));
         writer.WriteLine();
         writer.WriteLine("Resource and property changes are indicated with these symbols:");
+        bool idOnly = options.Format == ResultFormat.ResourceIdOnly;
         writer.WriteLine(Colour(options, '+', RowIndent + "+ Create"));
-        writer.WriteLine(Colour(options, '~', RowIndent + "~ Modify"));
+        if (idOnly)
+        {
+            // ARM's ResourceIdOnly computes no property changes: an existing declared resource is "Deploy" (redeployed, properties may or may not change).
+            writer.WriteLine(Colour(options, DeployColourKey, RowIndent + "! Deploy"));
+        }
+        else
+        {
+            writer.WriteLine(Colour(options, '~', RowIndent + "~ Modify"));
+        }
+
         writer.WriteLine(Colour(options, '-', RowIndent + "- Delete"));
-        writer.WriteLine(Colour(options, '=', RowIndent + "= NoChange"));
+        if (!idOnly)
+        {
+            writer.WriteLine(Colour(options, '=', RowIndent + "= NoChange"));
+        }
+
         writer.WriteLine(Colour(options, '*', RowIndent + "* Ignore"));
-        writer.WriteLine(Colour(options, '?', RowIndent + "? Value only known at deployment time"));
-        writer.WriteLine(Colour(options, '!', RowIndent + "! Change cannot be applied as planned"));
+        writer.WriteLine(Colour(options, '?', RowIndent + (idOnly ? "? (after the symbol) Value only known at deployment time" : "? Value only known at deployment time")));
+        writer.WriteLine(Colour(options, '!', RowIndent + (idOnly ? "! (after the symbol) Change cannot be applied as planned" : "! Change cannot be applied as planned")));
         writer.WriteLine();
 
         if (report.Rows.Count == 0)
         {
-            writer.WriteLine("The template declares no resources.");
+            writer.WriteLine(report.Skipped.Count == 0 ? "The template declares no resources." : "The deployment would deploy no resources: every condition is false.");
+            writer.WriteLine();
+        }
+        else if (view.Rows.Count == 0)
+        {
+            writer.WriteLine("No changes to show: every change type in the result is excluded.");
             writer.WriteLine();
         }
         else
         {
             writer.WriteLine("The deployment would make the following changes:");
             writer.WriteLine();
-            foreach (var row in report.Rows)
+            foreach (var row in view.Rows)
             {
                 RenderRow(row, writer, options);
                 writer.WriteLine();
             }
         }
 
-        var summary = report.Summary;
-        writer.WriteLine(string.Create(culture, $"Resource changes: {summary.Create} to create, {summary.Modify} to modify, {summary.Delete} to delete, {summary.NoChange} unchanged, {summary.Ignore} ignored."));
-        writer.WriteLine(string.Create(culture, $"Edges: {report.Edges.Add} to add, {report.Edges.Remove} to remove."));
+        if (options.Verbose && report.Skipped.Count > 0)
+        {
+            // EARM: ARM does not list a resource whose condition is false; --verbose names them so a template author can check the conditions.
+            writer.WriteLine("Skipped (condition false; not part of the deployment, nothing is read or written):");
+            foreach (var row in report.Skipped)
+            {
+                writer.WriteLine($"{RowIndent}{row.ResourceId} [{row.ResourceType}]");
+            }
+
+            writer.WriteLine();
+        }
+
+        var summary = view.Summary;
+        writer.WriteLine(idOnly
+            ? string.Create(culture, $"Resource changes: {summary.Create} to create, {summary.Deploy} to deploy, {summary.Delete} to delete, {summary.Ignore} ignored.")
+            : string.Create(culture, $"Resource changes: {summary.Create} to create, {summary.Modify} to modify, {summary.Delete} to delete, {summary.NoChange} unchanged, {summary.Ignore} ignored."));
+        writer.WriteLine(string.Create(culture, $"Edges: {view.Edges.Add} to add, {view.Edges.Remove} to remove."));
+        if (view.IsFiltered)
+        {
+            writer.WriteLine(string.Create(culture, $"Not shown: {report.Rows.Count - view.Rows.Count} row(s) of the excluded change types ({string.Join(", ", view.Excluded.Order())}); they are still deployed."));
+        }
+
+        if (options.Verbose && summary.Skipped > 0)
+        {
+            writer.WriteLine(string.Create(culture, $"Skipped: {summary.Skipped} resource(s) whose condition is false."));
+        }
         if (summary.Orphans > 0)
         {
             writer.WriteLine(string.Create(culture, $"Orphans: {summary.Orphans} live object(s) not declared in the template (reported only; never deleted)."));
@@ -92,7 +149,7 @@ public static class WhatIfText
 
         if (summary.Unsupported > 0)
         {
-            writer.WriteLine(Colour(options, '!', string.Create(culture, $"{summary.Unsupported} change(s) cannot be applied as planned; see the rows marked '!'.")));
+            writer.WriteLine(Colour(options, '!', string.Create(culture, $"{summary.Unsupported} change(s) cannot be applied as planned; see the rows marked '!'{(idOnly ? " after the symbol" : string.Empty)}.")));
         }
 
         if (report.Diagnostics.Count > 0 || report.UnresolvedReferences.Count > 0)
@@ -112,14 +169,15 @@ public static class WhatIfText
 
     private static void RenderRow(WhatIfRow row, TextWriter writer, WhatIfTextOptions options)
     {
-        char symbol = row.Change.Symbol;
+        // The colour key of the row: a Deploy row (ResourceIdOnly) is blue, not the bold red of a change that cannot be applied.
+        char symbol = row.IsDeploy(options.Format) ? DeployColourKey : row.Change.Symbol;
         string orphan = row.Change.Orphan switch
         {
             OrphanReason.Retained => " (orphan: retained)",
             OrphanReason.Undeclared => " (orphan: undeclared)",
             _ => string.Empty,
         };
-        writer.WriteLine(Colour(options, symbol, $"{RowIndent}{row.Marker} {row.ResourceId} [{row.ResourceType}]{orphan}"));
+        writer.WriteLine(Colour(options, symbol, $"{RowIndent}{row.MarkerFor(options.Format)} {row.ResourceId} [{row.ResourceType}]{orphan}"));
 
         bool full = options.Format == ResultFormat.FullResourcePayloads;
         switch (row.Type)
@@ -334,6 +392,7 @@ public static class WhatIfText
             '=' => "\u001b[90m",
             '?' => "\u001b[36m",
             '!' => "\u001b[1;31m",
+            DeployColourKey => "\u001b[34m",
             _ => null,
         };
 

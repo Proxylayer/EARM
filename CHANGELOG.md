@@ -56,6 +56,9 @@ transport to the built-in Microsoft Graph HTTP client.
   name, a `mailNickname`, an app role or scope `id`, a `uniqueName`) gets a new value: review the what-if, and pin
   such values with a parameter or a literal where they must not change (an enabled app role or scope cannot be
   removed by Graph). The new values match what an ARM or Bicep deployment computes for the same inputs.
+- Scripts that read a condition-false resource from the what-if JSON (`changeType: Ignore`, reason
+  `condition evaluated to false`) read it from `skipped[]` now. Scripts that used `-p a=1 b=2` to get a usage error get both
+  values applied instead.
 
 ### Added
 
@@ -84,6 +87,20 @@ transport to the built-in Microsoft Graph HTTP client.
   `deployer()` (`{ objectId, tenantId, userPrincipalName }` of the signed-in principal; empty `userPrincipalName` for
   an app-only sign-in) and `roleDefinitions(name)`, ARM's name-based role helper applied to Microsoft Entra directory
   roles (`{ id, roleDefinitionId, name, templateId }`; custom roles need `RoleManagement.Read.Directory`).
+- `az deployment` options for the CLI (see `docs/cli.md`, "Compared with `az deployment`"):
+  - `-x` / `--exclude-change-types` on `what-if` and `--what-if-exclude-change-types` (also `-x`) on `create`: hide change types from the what-if
+    (ARM's names, case-insensitive); the deployment, `--exit-code-on-changes` and the replacement confirmation still see every row.
+  - `--proceed-if-no-change` on `create -c`: deploy without the prompt when the what-if shows only `NoChange` / `Ignore` rows.
+  - `-o jsonc`, `yaml`, `yamlc` and `tsv`, rendered from the verb's JSON document, and `--query` (JMESPath, through the JmesPath.Net package,
+    Apache-2.0) on every verb; `--query` without `-o` selects `json`. The default output stays `table`.
+  - `-p` in every form the Azure CLI takes: several values per `-p`, a parameter file without `@`, an inline JSON object, `name=@file`, and an
+    `https://` URL (no credentials, no redirects, 1 MiB, 120 s; new diagnostic `ParameterDownloadFailed`). A `.bicepparam` file is refused
+    with a message.
+  - Interactive `what-if` / `create` ask for parameters that have no value (`Please provide string value for 'x' (? for help):`, secure ones
+    without echo); `--no-prompt` (also on `validate`) turns this off.
+  - `validate --validation-level Template|Provider|ProviderNoRbac`: `Template` (default) is the offline validation; the others sign in and plan
+    read-only against the tenant with the write or read scopes.
+  - `-w` for `create --what-if`, `-r` for `--result-format`, and `--what-if-result-format` on `create`.
 - New resource types for Microsoft Entra entitlement management (access packages, see `docs/access-packages.md`):
   - `Microsoft.Entra/entitlementManagement/catalogs`, found by `displayName`; `state` and `isExternallyVisible`
     default to `published` and false only when EARM creates the catalog;
@@ -196,6 +213,14 @@ transport to the built-in Microsoft Graph HTTP client.
     produced (see Breaking changes and Migration).
   - String comparisons, `and`/`or`, `array`, `union`/`intersection` and `range` as listed under Breaking changes.
   - `padLeft()` accepts any total length up to the 1 MiB string limit (it was capped at 16).
+- What-if change types follow ARM: a resource whose condition is false is no longer an `Ignore` row (ARM's `Ignore` means "exists but not
+  managed by this template"); it is left out of the changes, listed in the JSON's new `skipped[]` / `summary.skipped` and, in the text, only
+  with `--verbose`. With `--result-format ResourceIdOnly` an existing declared resource is reported as `Deploy` (`!`) instead of
+  `Modify` / `NoChange`, as ARM does. The JSON summary gains `deploy` and `skipped`.
+- `-p` takes several values per occurrence, as the Azure CLI does (it took one value per `-p`).
+- `--rollback-on-error` is not offered, by decision: EARM has no deployment history to roll back to, and an automatic undo of a failed run cannot
+  restore secrets, replaced object ids or Graph writes such as PIM requests and consent grants. Deploy the last known-good template again instead
+  (see `docs/cli.md`).
 
 - A `reference()` whose arguments use a lambda variable is refused with a message that points to property and output copy
   loops (ARM does not support lambda variables inside `reference()`); a `reference()` inside a lambda that uses no lambda

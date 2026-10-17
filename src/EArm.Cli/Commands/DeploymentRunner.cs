@@ -75,7 +75,7 @@ internal static class DeploymentRunner
         // 6. What-if output. With -c the same plan is executed below: the expansion, the
         //    dependency graph and the batches are not computed again; the executor re-reads each resource right
         //    before applying it (docs/engine.md step 6), so the confirmed what-if cannot go stale.
-        WhatIfReport? confirmedWhatIf = null;
+        WhatIfView? confirmedWhatIf = null;
         if (needsWhatIf)
         {
             if (invocation.WhatIf)
@@ -87,12 +87,27 @@ internal static class DeploymentRunner
             // -c: with -o json stdout carries exactly ONE document, so the what-if is not written on its own: it is embedded in the result
             // document ("whatIf"), or in the refusal document when the run does not start. The prompt then shows the what-if as text on stderr.
             bool json = invocation.Output == OutputFormat.Json;
-            confirmedWhatIf = json ? WhatIfReport.From(plan) : WhatIfWriter.Write(plan, invocation, stdout);
-            if (!invocation.Yes)
+            confirmedWhatIf = WhatIfWriter.View(WhatIfReport.From(plan), invocation);
+            if (!json)
+            {
+                WhatIfWriter.Write(confirmedWhatIf.Report, invocation, stdout);
+            }
+
+            // --proceed-if-no-change (as the Azure CLI): no prompt when the what-if shown (after --what-if-exclude-change-types) has nothing but NoChange and
+            // Ignore rows. A replacement that the exclusion hid is a change the user has not seen: it is still confirmed (or needs -y).
+            if (!invocation.Yes && invocation.ProceedIfNoChange && !confirmedWhatIf.ShowsChanges)
+            {
+                stderr.WriteLine("The what-if shows no change; deploying without confirmation (--proceed-if-no-change).");
+                if (ConfirmReplacements(invocation, plan, stdout, stderr, readLine) is { } hiddenRefused)
+                {
+                    return hiddenRefused;
+                }
+            }
+            else if (!invocation.Yes)
             {
                 if (json)
                 {
-                    WhatIfText.Render(confirmedWhatIf, stderr, new WhatIfTextOptions(invocation.ResultFormat, Verbose: invocation.LogLevel <= LogLevel.Debug, Colors: false));
+                    WhatIfWriter.RenderText(confirmedWhatIf, invocation, stderr, colors: false);
                 }
 
                 // Confirming the what-if confirms the replacements it shows.
@@ -102,7 +117,7 @@ internal static class DeploymentRunner
                     {
                         // The human line on stderr (next to the prompt), the one document on stdout.
                         stderr.WriteLine("Deployment not started.");
-                        var declined = WhatIfJson.Build(confirmedWhatIf, invocation.ResultFormat);
+                        var declined = WhatIfJson.Build(confirmedWhatIf);
                         return VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.Failure, "NotConfirmed", "Deployment not started.", document => document["whatIf"] = declined);
                     }
 
@@ -130,7 +145,7 @@ internal static class DeploymentRunner
             ApprovedRecreates = invocation.Yes ? null : Replacements(plan).Select(change => change.Id.Id).ToHashSet(StringComparer.OrdinalIgnoreCase),
         }, cancellationToken).ConfigureAwait(false);
 
-        var embeddedWhatIf = invocation.Output == OutputFormat.Json && confirmedWhatIf is not null ? WhatIfJson.Build(confirmedWhatIf, invocation.ResultFormat) : null;
+        var embeddedWhatIf = invocation.Output == OutputFormat.Json && confirmedWhatIf is not null ? WhatIfJson.Build(confirmedWhatIf) : null;
         DeploymentResultWriter.Write(result, invocation.Output, !invocation.NoPrettyPrint, stdout, stderr, embeddedWhatIf);
         if (!result.Succeeded)
         {

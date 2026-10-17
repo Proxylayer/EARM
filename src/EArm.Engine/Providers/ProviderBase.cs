@@ -207,7 +207,7 @@ public abstract class ProviderBase : IResourceProvider, IExistingResourceLookup
 
         if (desired.IsIgnored)
         {
-            return ResourceChange.Ignore(desired.Id, TypeName, "condition evaluated to false");
+            return ResourceChange.ConditionFalse(desired.Id, TypeName);
         }
 
         var properties = desired.Properties

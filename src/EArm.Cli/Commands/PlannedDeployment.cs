@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using EArm.Cli.Hosting;
@@ -61,7 +62,7 @@ internal sealed class PlannedDeployment : IDisposable
         ParameterSet parameters;
         try
         {
-            parameters = ValidateCommand.BuildParameterSet(invocation.ParameterTokens, out _);
+            parameters = (await ParameterArguments.BuildAsync(invocation.ParameterTokens, cancellationToken).ConfigureAwait(false)).Parameters;
         }
         catch (TemplateLoadException ex)
         {
@@ -82,6 +83,24 @@ internal sealed class PlannedDeployment : IDisposable
         catch (TemplateLoadException ex)
         {
             return (null, FailValidation(invocation, [ex.ToDiagnostic()], stdout, stderr, ExitCodes.Failure));
+        }
+
+        // A parameter without a value or default: an interactive what-if / create asks for it (unless --no-prompt), as the Azure CLI does.
+        if (!invocation.NoPrompt && verb != RunVerb.Delete && document.ParameterValues.Values.Any(bound => bound.IsMissing) && ParameterPrompt.ForConsole(stderr) is { } prompt)
+        {
+            var answers = prompt.Ask(document.ParameterValues.Values.Where(bound => bound.IsMissing).Select(bound => bound.Definition));
+            if (answers is not null)
+            {
+                parameters = answers.Aggregate(parameters, (set, answer) => set.WithInline(answer.Key, answer.Value));
+                try
+                {
+                    document = await new TemplateLoader(catalog).LoadAsync(invocation.TemplateFile, parameters, cancellationToken).ConfigureAwait(false);
+                }
+                catch (TemplateLoadException ex)
+                {
+                    return (null, FailValidation(invocation, [ex.ToDiagnostic()], stdout, stderr, ExitCodes.Failure));
+                }
+            }
         }
 
         SecretRegistration.RegisterDocument(document);

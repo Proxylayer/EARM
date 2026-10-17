@@ -238,7 +238,7 @@ public sealed class Review3J_CliTests
         Assert.StartsWith("Not signed in", lines[0], StringComparison.Ordinal);
     }
 
-    // ---- -p: one value per option ----
+    // ---- -p: several values per option (as the Azure CLI), ended by the next option ----
 
     [Fact]
     public async Task AStrayOption_AfterAParameterFile_IsAUsageError_NamingIt_OnValidate()
@@ -252,25 +252,26 @@ public sealed class Review3J_CliTests
         var two = await CliRunner.RunAsync("deployment", "validate", "-f", path, "-p", "@" + parameters, "-p", "z=1");
         var spaced = await CliRunner.RunAsync("deployment", "validate", "-f", path, "-p", "@" + parameters, "z=1");
 
+        // validate has no -n: the unknown option is reported by name, never taken as a parameter value.
         Assert.Equal(1, swallowed.ExitCode);
-        Assert.Contains("'-n'", swallowed.StandardError, StringComparison.Ordinal);
-        Assert.Equal(1, spaced.ExitCode);
-        Assert.Contains("'z=1'", spaced.StandardError, StringComparison.Ordinal);
-        // Repeating the option is how several values are given.
+        Assert.Contains("-n", swallowed.StandardError, StringComparison.Ordinal);
+        // Several values after one -p, or the option repeated: both reach the template (z is not one of its parameters).
+        Assert.Contains("UnknownParameter", spaced.StandardError, StringComparison.Ordinal);
         Assert.Contains("UnknownParameter", two.StandardError, StringComparison.Ordinal);
     }
 
     [Fact]
-    public async Task APermissionsRun_WithRepeatedP_StillWorks_AndAStrayTokenIsRefused()
+    public async Task APermissionsRun_TakesSeveralValuesPerP_AndRefusesAValueInNoAcceptedForm()
     {
-        string path = await TemplateFileAsync(nameof(APermissionsRun_WithRepeatedP_StillWorks_AndAStrayTokenIsRefused));
+        string path = await TemplateFileAsync(nameof(APermissionsRun_TakesSeveralValuesPerP_AndRefusesAValueInNoAcceptedForm));
 
         var ok = await CliRunner.RunAsync("permissions", "-f", path, "-o", "json");
-        var stray = await CliRunner.RunAsync("permissions", "-f", path, "-p", "a=1", "b=2", "-o", "json");
+        var stray = await CliRunner.RunAsync("permissions", "-f", path, "-p", "a=1", "stray", "-o", "json");
 
         Assert.Equal(0, ok.ExitCode);
         Assert.Equal(1, stray.ExitCode);
-        Assert.Contains("'b=2'", stray.StandardError, StringComparison.Ordinal);
+        Assert.Contains("InvalidArgument", stray.StandardOutput, StringComparison.Ordinal);
+        Assert.Contains("stray", stray.StandardOutput, StringComparison.Ordinal);
     }
 
     // ---- auth login ----

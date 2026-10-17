@@ -189,7 +189,7 @@ public sealed class Review1C_UnexpectedErrorTests
     public async Task AnUnknownCommand_AndABadOptionValue_AreUsageErrorsOnStandardError()
     {
         var unknown = await CliRunner.RunAsync("explode");
-        var badOutput = await CliRunner.RunAsync("deployment", "validate", "-f", "x.json", "-o", "yaml");
+        var badOutput = await CliRunner.RunAsync("deployment", "validate", "-f", "x.json", "-o", "xml");
 
         foreach (var result in new[] { unknown, badOutput })
         {

@@ -11,12 +11,7 @@ internal sealed record TemplateScopeOptions(Option<string?> TemplateFile, Option
         {
             Description = "A template (*.entra.json) whose delegated scopes to " + purpose + " (computed offline, as 'earm permissions --verb' lists them).",
         };
-        var parameters = new Option<string[]>("--parameters", "-p")
-        {
-            Description = "Parameter values of the template: @file.json or name=value. Repeatable; later values win.",
-            AllowMultipleArgumentsPerToken = false,
-            DefaultValueFactory = _ => [],
-        };
+        var parameters = ParameterArguments.CreateOption();
         var verb = new Option<string>("--verb")
         {
             Description = "create|whatif|delete: the run of the template whose scopes count (default create).",

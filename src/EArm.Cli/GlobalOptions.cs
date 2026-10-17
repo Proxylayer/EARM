@@ -8,7 +8,10 @@ using Microsoft.Extensions.Logging.Console;
 
 namespace EArm.Cli;
 
-/// <summary>The output format selected with <c>-o/--output</c>.</summary>
+/// <summary>
+/// The output format the verbs write, selected with <c>-o/--output</c>. Every document format (<c>json</c>, <c>jsonc</c>, <c>yaml</c>, <c>yamlc</c>,
+/// <c>tsv</c>) is <see cref="Json"/> here: the verbs write their one JSON document and <see cref="StructuredOutput"/> renders it.
+/// </summary>
 internal enum OutputFormat
 {
     Table,
@@ -20,6 +23,9 @@ internal enum OutputFormat
 internal static class GlobalOptions
 {
     public static Option<string> Output { get; } = CreateOutputOption();
+
+    /// <summary><c>--query</c>: a JMESPath expression applied to the JSON document of the verb (as the Azure CLI's <c>--query</c>).</summary>
+    public static Option<string?> Query { get; } = CreateQueryOption();
 
     /// <summary><c>--auth</c>: how tokens are obtained (else <c>EARM_AUTH</c>, then auto).</summary>
     public static Option<string?> Auth { get; } = CreateAuthOption();
@@ -79,15 +85,68 @@ internal static class GlobalOptions
         return text is not null && EvaluationLimits.TryParseTimeout(text, out var timeout) ? new EvaluationLimits { Timeout = timeout } : EvaluationLimits.FromEnvironment();
     }
 
+    /// <summary>
+    /// The format the verbs write: <see cref="OutputFormat.Json"/> for every document format, and for <c>--query</c> without an explicit <c>-o</c> (EARM's
+    /// default is <c>table</c>, and a query needs a document).
+    /// </summary>
     public static OutputFormat GetOutputFormat(ParseResult parseResult)
     {
         string? value = parseResult.GetValue(Output);
         return value?.ToLowerInvariant() switch
         {
-            "json" => OutputFormat.Json,
+            "json" or "jsonc" or "yaml" or "yamlc" or "tsv" => OutputFormat.Json,
             "none" => OutputFormat.None,
+            _ when HasQuery(parseResult) && !IsOutputExplicit(parseResult) => OutputFormat.Json,
             _ => OutputFormat.Table,
         };
+    }
+
+    /// <summary>
+    /// The rendering of the verb's JSON document that <c>-o</c> and <c>--query</c> ask for; <c>null</c> when the verb's output goes out as it is
+    /// (<c>table</c>, <c>none</c>, or plain <c>json</c> without a query).
+    /// </summary>
+    public static StructuredOutput? GetStructuredOutput(ParseResult parseResult)
+    {
+        string? text = parseResult.GetValue(Query);
+        JmesPathQuery? query = null;
+        if (!string.IsNullOrWhiteSpace(text) && JmesPathQuery.TryCreate(text, out var compiled, out _))
+        {
+            query = compiled;
+        }
+
+        DocumentFormat? format = parseResult.GetValue(Output)?.ToLowerInvariant() switch
+        {
+            "json" => DocumentFormat.Json,
+            "jsonc" => DocumentFormat.Jsonc,
+            "yaml" => DocumentFormat.Yaml,
+            "yamlc" => DocumentFormat.Yamlc,
+            "tsv" => DocumentFormat.Tsv,
+            "none" => null,
+            _ => query is not null && !IsOutputExplicit(parseResult) ? DocumentFormat.Json : null,
+        };
+
+        if (format is null || (format == DocumentFormat.Json && query is null))
+        {
+            return null;
+        }
+
+        return new StructuredOutput(format.Value, query);
+    }
+
+    /// <summary>True when <c>--query</c> is combined with an explicit <c>-o table</c>: the table is text, so there is nothing to query (a usage error).</summary>
+    public static bool IsQueryOnTable(ParseResult parseResult)
+    {
+        return HasQuery(parseResult) && IsOutputExplicit(parseResult) && string.Equals(parseResult.GetValue(Output), "table", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool HasQuery(ParseResult parseResult)
+    {
+        return !string.IsNullOrWhiteSpace(parseResult.GetValue(Query));
+    }
+
+    private static bool IsOutputExplicit(ParseResult parseResult)
+    {
+        return parseResult.GetResult(Output) is { Implicit: false };
     }
 
     /// <summary>Information by default; <c>--verbose</c> is Debug; <c>--debug</c> (or <c>EARM_DEBUG=1</c>) is Trace.</summary>
@@ -161,11 +220,29 @@ internal static class GlobalOptions
     {
         var option = new Option<string>("--output", "-o")
         {
-            Description = "Output format: table (default), json or none.",
+            Description = "Output format: table (default), json, jsonc (coloured JSON), yaml, yamlc (coloured YAML), tsv or none.",
             Recursive = true,
             DefaultValueFactory = _ => "table",
         };
-        option.AcceptOnlyFromAmongIgnoreCase("table", "json", "none");
+        option.AcceptOnlyFromAmongIgnoreCase("table", "json", "jsonc", "yaml", "yamlc", "tsv", "none");
+        return option;
+    }
+
+    private static Option<string?> CreateQueryOption()
+    {
+        var option = new Option<string?>("--query")
+        {
+            Description = "JMESPath query (https://jmespath.org) applied to the JSON document of the command. Without -o it selects -o json.",
+            Recursive = true,
+        };
+        option.Validators.Add(result =>
+        {
+            string? value = result.GetValueOrDefault<string?>();
+            if (value is not null && !JmesPathQuery.TryCreate(value, out _, out string? error))
+            {
+                result.AddError(error!);
+            }
+        });
         return option;
     }
 }

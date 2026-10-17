@@ -7,7 +7,12 @@ using EArm.Core.Json;
 
 namespace EArm.Engine.Providers;
 
-/// <summary>ARM what-if change types.</summary>
+/// <summary>
+/// The planned change types. <see cref="Ignore"/> follows ARM: the object exists (or may exist) but this run does not deploy or modify it: a row of the
+/// orphan report, a resource whose condition is only known at deployment time, or one a provider defers to the next run. A resource whose condition is
+/// false is not part of the deployment at all: it is an <see cref="Ignore"/> change flagged <see cref="ResourceChange.IsConditionFalse"/>, which
+/// the what-if leaves out of its changes (ARM does not list such a resource either).
+/// </summary>
 public enum ChangeType
 {
     Create,
@@ -92,6 +97,12 @@ public sealed record ResourceChange
 
     public IReadOnlyList<PropertyDelta> Deltas { get; init; } = [];
 
+    /// <summary>
+    /// True when the resource's condition evaluated to false: the resource is not part of the deployment (nothing is read or written for it). The
+    /// change is an <see cref="ChangeType.Ignore"/> internally; the what-if omits it from its changes (as ARM does) and lists it only as skipped.
+    /// </summary>
+    public bool IsConditionFalse { get; init; }
+
     /// <summary>Human-readable reasons (why Ignore, why Recreate, what is unknown).</summary>
     public IReadOnlyList<string> Reasons { get; init; } = [];
 
@@ -133,6 +144,16 @@ public sealed record ResourceChange
         ArgumentNullException.ThrowIfNull(id);
         return new ResourceChange { Id = id, ResourceType = resourceType, Type = ChangeType.Ignore, Mode = ChangeMode.None, Reasons = [reason], IsUnknown = isUnknown };
     }
+
+    /// <summary>The change of a resource whose condition evaluated to false: not part of the deployment (see <see cref="IsConditionFalse"/>).</summary>
+    public static ResourceChange ConditionFalse(ResourceIdentifier id, string resourceType)
+    {
+        ArgumentNullException.ThrowIfNull(id);
+        return new ResourceChange { Id = id, ResourceType = resourceType, Type = ChangeType.Ignore, Mode = ChangeMode.None, Reasons = [ConditionFalseReason], IsConditionFalse = true };
+    }
+
+    /// <summary>The reason text of <see cref="ConditionFalse"/>.</summary>
+    public const string ConditionFalseReason = "condition evaluated to false";
 
     /// <summary>A row of the orphan report: an <see cref="ChangeType.Ignore"/> row for the live object <paramref name="graphId"/>, never acted on.</summary>
     public static ResourceChange OrphanRow(ResourceIdentifier id, string resourceType, string graphId, OrphanReason reason, string text)

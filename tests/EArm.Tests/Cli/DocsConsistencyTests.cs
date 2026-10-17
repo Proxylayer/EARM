@@ -443,7 +443,7 @@ public sealed class DocsConsistencyTests
         // The CLI-level codes are literals of the command line (PlannedDeployment, EngineServices, DeploymentRunner, DeleteCommand), not constants.
         var known = new HashSet<string>(CodeConstants().Keys, StringComparer.Ordinal)
         {
-            ValidateCommand.InvalidArgumentCode, AuthCommand.AuthenticationFailedCode, "PreflightFailed", "ConsentRequired", "UnknownProvider", "NotConfirmed", "SecureOutputsFileInvalid",
+            ValidateCommand.InvalidArgumentCode, ParameterFileDownloader.DownloadFailedCode, AuthCommand.AuthenticationFailedCode, "PreflightFailed", "ConsentRequired", "UnknownProvider", "NotConfirmed", "SecureOutputsFileInvalid",
         };
         var documented = new Regex(@"^\|\s*`([A-Z][A-Za-z0-9]+)`\s*\|", RegexOptions.Multiline | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(2))
             .Matches(DiagnosticsDoc)

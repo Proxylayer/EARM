@@ -34,19 +34,34 @@ internal static class WhatIfWriter
         ArgumentNullException.ThrowIfNull(invocation);
         ArgumentNullException.ThrowIfNull(stdout);
 
+        var view = View(report, invocation);
         switch (invocation.Output)
         {
             case OutputFormat.Json:
-                stdout.WriteLine(WhatIfJson.Serialize(WhatIfJson.Build(report, invocation.ResultFormat), prettyPrint: !invocation.NoPrettyPrint));
+                stdout.WriteLine(WhatIfJson.Serialize(WhatIfJson.Build(view), prettyPrint: !invocation.NoPrettyPrint));
                 break;
 
             case OutputFormat.None:
                 break;
 
             default:
-                WhatIfText.Render(report, stdout, new WhatIfTextOptions(invocation.ResultFormat, Verbose: invocation.LogLevel <= LogLevel.Debug, Colors: UseColors(stdout)));
+                RenderText(view, invocation, stdout, UseColors(stdout));
                 break;
         }
+    }
+
+    /// <summary>What the what-if of <paramref name="invocation"/> shows: its result format and <c>--exclude-change-types</c> applied to <paramref name="report"/>.</summary>
+    public static WhatIfView View(WhatIfReport report, DeploymentInvocation invocation)
+    {
+        ArgumentNullException.ThrowIfNull(invocation);
+        return WhatIfView.Of(report, invocation.ResultFormat, invocation.ExcludeChangeTypes);
+    }
+
+    /// <summary>The what-if text of <paramref name="view"/>; <c>--verbose</c> adds the NoChange payloads, the NoEffect deltas and the skipped resources.</summary>
+    public static void RenderText(WhatIfView view, DeploymentInvocation invocation, TextWriter writer, bool colors)
+    {
+        ArgumentNullException.ThrowIfNull(invocation);
+        WhatIfText.Render(view, writer, new WhatIfTextOptions(view.Format, Verbose: invocation.LogLevel <= LogLevel.Debug, Colors: colors));
     }
 
     /// <summary>ANSI colours only when writing to a real terminal and neither <c>NO_COLOR</c> nor <c>AZURE_CORE_NO_COLOR</c> switches them off.</summary>
