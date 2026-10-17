@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/roleManagementPolicies.json",
   "title": "Microsoft.Entra/roleManagementPolicies",
-  "description": "The PIM policy (role settings) of a directory role or of a PIM for Groups membership / ownership, shaped like ARM's Microsoft.Authorization/roleManagementPolicies. The resource name is a deterministic GUID chosen with guid() (a label, not the identity); the policy is named by role (a directory role), or by group and accessId (a group), or by scopeType, scopeId and roleDefinitionId, and read live on every run. Only the rules declared in rules[] (matched by id) are managed: each is filled from the live rule and changed in place with one PATCH per changed rule; undeclared rules are left as they are. Never created (every role and onboarded group has a policy) and never deleted (kept as NotDeletable). Applied before the PIM schedule requests of the same role or group in the template.",
+  "description": "The PIM policy (role settings) of a directory role or of a PIM for Groups membership / ownership, shaped like ARM's Microsoft.Authorization/roleManagementPolicies. The resource name is a deterministic GUID chosen with guid() (a label, not the identity); the policy is named by role (a directory role), or by group and accessId (a group), or by scopeType, scopeId and roleDefinitionId, and read live on every run. Only the rules declared in rules[] (matched by id) are managed: each is filled from the live rule and changed in place with one PATCH per changed rule; undeclared rules are left as they are. Never created (every role and onboarded group has a policy; a group policy may opt in to onboarding the group with onboarding) and never deleted (kept as NotDeletable). Applied before the PIM schedule requests of the same role or group in the template.",
   "type": "object",
   "properties": {
     "role": {
@@ -28,6 +28,25 @@
     "roleDefinitionId": {
       "description": "The directory role template id, or member / owner for a group policy.",
       "anyOf": [ { "type": "string", "minLength": 1 }, { "$ref": "#/$defs/expression" } ]
+    },
+    "onboarding": {
+      "description": "EARM opt-in, group policies only: lets the deployment onboard the group in PIM for Groups when Graph lists no policy for it (PIM onboards a group only on its first eligibility or assignment). A temporary member eligibility (one hour) is created for temporaryEligiblePrincipalId, the policy is waited for, the eligibility is removed, and the rules are applied, all in the same run. Ignored when the group is onboarded already, or when a schedule request of the same deployment onboards it. Never sent to Graph. Needs PrivilegedEligibilitySchedule.ReadWrite.AzureADGroup.",
+      "anyOf": [
+        {
+          "type": [ "object", "null" ],
+          "properties": {
+            "temporaryEligiblePrincipalId": {
+              "description": "Required: the object id of the user or service principal made eligible (member) for the onboarding, typically [reference(...).id]. The group's default policy must allow it to be made eligible.",
+              "anyOf": [
+                { "type": "string", "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$" },
+                { "$ref": "#/$defs/expression" }
+              ]
+            }
+          },
+          "required": [ "temporaryEligiblePrincipalId" ]
+        },
+        { "$ref": "#/$defs/expression" }
+      ]
     },
     "rules": {
       "description": "Required: the rules to manage, matched by id (Expiration_EndUser_Assignment, Approval_EndUser_Assignment...). Every other rule of the policy is left as it is.",
@@ -324,7 +343,10 @@
       "application": ["RoleManagementPolicy.ReadWrite.Directory", "RoleManagementPolicy.ReadWrite.AzureADGroup", "Directory.Read.All"],
       "delegated": ["RoleManagementPolicy.ReadWrite.Directory", "RoleManagementPolicy.ReadWrite.AzureADGroup", "Directory.Read.All"],
       "roles": ["Privileged Role Administrator"],
-      "notes": "Learn (unifiedrolemanagementpolicyrule-update, policyroot-list-rolemanagementpolicyassignments): RoleManagementPolicy.ReadWrite.Directory is the least privileged permission to update the rules of a directory role policy and RoleManagementPolicy.ReadWrite.AzureADGroup of a PIM for Groups policy (delegated and application); reads need RoleManagementPolicy.Read.Directory / RoleManagementPolicy.Read.AzureADGroup. The provider asks only for the variant of the declared scope (both when it is computed). Delegated callers need Privileged Role Administrator for directory role policies (Global Reader, Security Reader and similar suffice for reads); Learn lists no role for group policies, where Privileged Role Administrator, or the group's owner, is what the portal accepts. Directory.Read.All covers the role name and group lookups. A group policy update onboards the group in PIM for Groups permanently. The tenant needs Microsoft Entra ID P2 or ID Governance."
+      "conditional": {
+        "onboarding": { "application": ["PrivilegedEligibilitySchedule.ReadWrite.AzureADGroup"], "roles": ["Privileged Role Administrator", "Identity Governance Administrator", "Groups Administrator"] }
+      },
+      "notes": "Learn (unifiedrolemanagementpolicyrule-update, policyroot-list-rolemanagementpolicyassignments):RoleManagementPolicy.ReadWrite.Directory is the least privileged permission to update the rules of a directory role policy and RoleManagementPolicy.ReadWrite.AzureADGroup of a PIM for Groups policy (delegated and application); reads need RoleManagementPolicy.Read.Directory / RoleManagementPolicy.Read.AzureADGroup. The provider asks only for the variant of the declared scope (both when it is computed). Delegated callers need Privileged Role Administrator for directory role policies (Global Reader, Security Reader and similar suffice for reads); Learn lists no role for group policies, where Privileged Role Administrator, or the group's owner, is what the portal accepts. Directory.Read.All covers the role name and group lookups. A group policy update onboards the group in PIM for Groups permanently. A group policy that declares onboarding also needs PrivilegedEligibilitySchedule.ReadWrite.AzureADGroup (Learn: privilegedaccessgroup-post-eligibilityschedulerequests) for the temporary eligibility that onboards the group; the provider asks for it only then. The tenant needs Microsoft Entra ID P2 or ID Governance."
     }
   }
 }

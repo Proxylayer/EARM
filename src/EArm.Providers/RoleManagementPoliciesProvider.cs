@@ -10,6 +10,7 @@ using EArm.Core.Secrets;
 using EArm.Core.Types;
 using EArm.Core.Validation;
 using EArm.Engine;
+using EArm.Engine.Execution;
 using EArm.Engine.Providers;
 using EArm.Expressions.Values;
 using EArm.Graph;
@@ -27,7 +28,9 @@ namespace EArm.Providers;
 /// (<see cref="RoleManagementPolicyShape.FillFromLive"/>) and compared in ARM's shape. A declared rule id the live policy does not have is an error.</item>
 /// <item><b>Create</b>: never (every policy exists, Graph creates none). A directory role without a policy is <see cref="EngineDiagnosticCodes.PimPolicyNotAvailable"/>;
 /// so is a group PIM for Groups has not onboarded, unless a schedule request of the same deployment onboards it: then the policy is deferred to the next
-/// run (an Ignore row with a <see cref="EngineDiagnosticCodes.PimPolicyNotAvailable"/> warning) and the requests go ahead.</item>
+/// run (an Ignore row with a <see cref="EngineDiagnosticCodes.PimPolicyNotAvailable"/> warning) and the requests go ahead. A group policy that opts in
+/// (<c>properties.onboarding.temporaryEligiblePrincipalId</c>) is a Create row instead: the create onboards the group with a temporary eligibility for that
+/// principal, removes it, and applies the rules to the policy listed afterwards (<see cref="GroupPolicyOnboarding"/>).</item>
 /// <item><b>Update</b>: <c>PATCH /policies/roleManagementPolicies/{policyId}/rules/{ruleId}</c> per changed rule, with its <c>@odata.type</c>. A group's
 /// first rule PATCH onboards the group, which re-ids its policy (Learn): a rule PATCH answered 404 re-reads the policy id and is sent once more.</item>
 /// <item><b>Delete</b>: refused (<see cref="IDeleteRefusalSource"/>, <see cref="EngineDiagnosticCodes.NotDeletable"/>): a policy cannot be deleted; revert its
@@ -46,13 +49,28 @@ public sealed class RoleManagementPoliciesProvider : ProviderBase, IDeleteRefusa
     /// <summary>The group policies a schedule request of the same deployment onboards (found by <see cref="AppliesBefore"/>).</summary>
     private readonly ConditionalWeakTable<ResourceInstance, object> _onboardedThisRun = new();
 
+    /// <summary>The onboarding opt-in of each planned declaration (<c>properties.onboarding</c>, taken out of the properties by <see cref="Plan"/>).</summary>
+    private readonly ConditionalWeakTable<ResourceInstance, OnboardingRequest> _onboardingRequests = new();
+
+    private readonly GroupPolicyOnboarding _onboarding;
+
     public RoleManagementPoliciesProvider(ResourceTypeDefinition definition, ResourceTypeCatalog? catalog = null)
+        : this(definition, catalog, null)
+    {
+    }
+
+    /// <param name="definition">The catalog definition of the type.</param>
+    /// <param name="catalog">The catalog.</param>
+    /// <param name="settle">Paces the waits of a group onboarding (<see cref="GroupPolicyOnboarding"/>); <see cref="ReplicationWait.Default"/> when null.</param>
+    public RoleManagementPoliciesProvider(ResourceTypeDefinition definition, ResourceTypeCatalog? catalog, ReplicationWait? settle)
         : base(definition, catalog)
     {
         if (!ResourceIdentifier.TypeEquals(definition.Type, ResourceType))
         {
             throw new ArgumentException($"{nameof(RoleManagementPoliciesProvider)} implements '{ResourceType}', not '{definition.Type}'.", nameof(definition));
         }
+
+        _onboarding = new GroupPolicyOnboarding(settle ?? ReplicationWait.Default, TimeProvider.System);
     }
 
     public RoleManagementPoliciesProvider(ResourceTypeCatalog catalog)
@@ -70,7 +88,8 @@ public sealed class RoleManagementPoliciesProvider : ProviderBase, IDeleteRefusa
 
     /// <summary>
     /// RoleManagementPolicy.ReadWrite.Directory for a directory role policy, RoleManagementPolicy.ReadWrite.AzureADGroup for a group policy (both when the
-    /// scope is computed), and Directory.Read.All for the role and group lookups.
+    /// scope is computed), PrivilegedEligibilitySchedule.ReadWrite.AzureADGroup for a group policy that opts in to onboarding (the temporary eligibility),
+    /// and Directory.Read.All for the role and group lookups.
     /// </summary>
     public override IReadOnlyList<string> RequiredPermissions(ResourceInstance? desired)
     {
@@ -85,6 +104,12 @@ public sealed class RoleManagementPoliciesProvider : ProviderBase, IDeleteRefusa
         if (kind != RoleManagementPolicyRules.DirectoryRoleScope)
         {
             permissions.Add("RoleManagementPolicy.ReadWrite.AzureADGroup");
+            // The declaration too: Plan takes the opt-in out of the evaluated properties.
+            if ((properties is not null && Get(properties, RoleManagementPolicyRules.OnboardingProperty) is not null)
+                || (desired?.Declaration.Properties is JsonObject declared && Get(declared, RoleManagementPolicyRules.OnboardingProperty) is not null))
+            {
+                permissions.Add("PrivilegedEligibilitySchedule.ReadWrite.AzureADGroup");
+            }
         }
 
         permissions.Add("Directory.Read.All");
@@ -213,10 +238,12 @@ public sealed class RoleManagementPoliciesProvider : ProviderBase, IDeleteRefusa
             return Unsupported(desired, existing, $"{desired.Describe()}: {string.Join("; ", findings.Select(f => f.Message))}.", InvalidCode);
         }
 
+        // The onboarding opt-in only steers what happens when the group has no policy yet; it is never compared or sent.
+        var onboarding = TakeOnboarding(desired, properties);
         Normalize(properties);
         if (existing is null)
         {
-            return PlanMissing(desired, properties);
+            return PlanMissing(desired, properties, onboarding);
         }
 
         if (DeclaredRules(properties) is not { } declared)
@@ -248,8 +275,11 @@ public sealed class RoleManagementPoliciesProvider : ProviderBase, IDeleteRefusa
             : change;
     }
 
-    /// <summary>No live policy: an unknown scope is resolved at deployment; a directory role is an error; a group is deferred when this deployment onboards it.</summary>
-    private ResourceChange PlanMissing(ResourceInstance desired, JsonObject properties)
+    /// <summary>
+    /// No live policy: an unknown scope is resolved at deployment; a directory role is an error; a group is deferred when a schedule request of this
+    /// deployment onboards it, onboarded by the create when the declaration opts in (<c>properties.onboarding</c>), and an error otherwise.
+    /// </summary>
+    private ResourceChange PlanMissing(ResourceInstance desired, JsonObject properties, OnboardingRequest? onboarding)
     {
         if (desired.IsSymbolic || UnknownJson.ContainsUnknown(Get(properties, "scopeId")) || UnknownJson.ContainsUnknown(Get(properties, "roleDefinitionId"))
             || Get(properties, "role") is not null || Get(properties, "group") is not null)
@@ -285,22 +315,111 @@ public sealed class RoleManagementPoliciesProvider : ProviderBase, IDeleteRefusa
             };
         }
 
-        return Unsupported(desired, null, $"{desired.Describe()}: {notOnboarded}, and no schedule request of this deployment onboards it. PIM onboards a group on its first eligibility or assignment request (or policy update; Learn: privilegedidentitymanagement-for-groups-api-overview); declare a privilegedAccess/groupEligibilityScheduleRequests (or groupAssignmentScheduleRequests) for the group in the same template, or onboard it in the portal, then deploy again.", EngineDiagnosticCodes.PimPolicyNotAvailable);
+        if (onboarding is not null)
+        {
+            string principal = onboarding.PrincipalId ?? "the principal of properties.onboarding (known at deployment)";
+            return new ResourceChange
+            {
+                Id = desired.Id,
+                ResourceType = TypeName,
+                Type = ChangeType.Create,
+                Mode = ChangeMode.Create,
+                After = JsonDiff.RenderObject(desired.Properties),
+                IsUnknown = desired.HasUnknownProperties || onboarding.PrincipalId is null,
+                Reasons =
+                [
+                    $"group not onboarded: a temporary eligibility for {principal} will onboard it, then be removed",
+                    $"{notOnboarded} yet. The deployment requests a {GroupPolicyOnboarding.TemporaryDuration} {GroupPolicyOnboarding.TemporaryAccess} eligibility for {principal} (justification '{GroupPolicyOnboarding.Justification(scope.ScopeId)}'), waits for Graph to list the group's policy, removes the eligibility, and then applies the declared rules to that policy; nothing else is created",
+                ],
+            };
+        }
+
+        return Unsupported(desired, null, $"{desired.Describe()}: {notOnboarded}, and no schedule request of this deployment onboards it. PIM onboards a group on its first eligibility or assignment request (or policy update; Learn: privilegedidentitymanagement-for-groups-api-overview); declare a privilegedAccess/groupEligibilityScheduleRequests (or groupAssignmentScheduleRequests) for the group in the same template, let this policy onboard the group (properties.onboarding.temporaryEligiblePrincipalId), or onboard it in the portal, then deploy again.", EngineDiagnosticCodes.PimPolicyNotAvailable);
+    }
+
+    /// <summary>
+    /// Removes <c>properties.onboarding</c> from the properties and remembers it for the create; on a second plan of the same instance (the property is
+    /// already gone) the remembered opt-in. The principal is <c>null</c> while it is only known at deployment.
+    /// </summary>
+    private OnboardingRequest? TakeOnboarding(ResourceInstance desired, JsonObject properties)
+    {
+        if (JsonObjects.FindKey(properties, RoleManagementPolicyRules.OnboardingProperty) is not { } key)
+        {
+            return _onboardingRequests.TryGetValue(desired, out var remembered) ? remembered : null;
+        }
+
+        var node = properties[key];
+        properties.Remove(key);
+        if (JsonObjects.IsAbsent(node))
+        {
+            _onboardingRequests.Remove(desired);
+            return null;
+        }
+
+        string? principal = node is JsonObject onboarding && Text(onboarding, RoleManagementPolicyRules.TemporaryEligiblePrincipalIdProperty) is { } id && RoleAssignmentsRules.IsGuid(id)
+            ? RoleAssignmentsRules.NormalizeId(id)
+            : null;
+        var request = new OnboardingRequest(principal);
+        _onboardingRequests.AddOrUpdate(desired, request);
+        return request;
     }
 
     // ---- create ----
 
-    /// <summary>Never creates: a policy exists for every role and onboarded group (Plan reports the missing ones).</summary>
-    public override Task<AppliedResource> CreateAsync(ResourceInstance desired, IGraphClient graph, CancellationToken cancellationToken)
+    /// <summary>
+    /// Never creates a policy (a policy exists for every role and onboarded group; Plan reports the missing ones). The one Create row it plans is a group
+    /// policy that opts in to onboarding: the group is onboarded with a temporary eligibility (<see cref="GroupPolicyOnboarding"/>), and the declared rules
+    /// are applied to the policy Graph lists afterwards. An eligibility that could not be removed fails the resource
+    /// (<see cref="EngineDiagnosticCodes.PimOnboardingEligibilityNotRemoved"/>) after the rules were applied, naming the eligibility.
+    /// </summary>
+    public override async Task<AppliedResource> CreateAsync(ResourceInstance desired, IGraphClient graph, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(desired);
         ArgumentNullException.ThrowIfNull(graph);
-        throw new ProviderException(EngineDiagnosticCodes.PimPolicyNotAvailable, $"{desired.Describe()}: the PIM policy does not exist; role management policies are never created.", desired.Id);
+        var properties = desired.Properties ?? throw new InvalidOperationException($"{desired.Describe()}: properties must be evaluated before creating.");
+        var key = ResolveKey(desired);
+        var scope = ScopeOf(key, desired.Id);
+        if (!scope.IsGroup || !_onboardingRequests.TryGetValue(desired, out var onboarding))
+        {
+            throw new ProviderException(EngineDiagnosticCodes.PimPolicyNotAvailable, $"{desired.Describe()}: the PIM policy does not exist; role management policies are never created.", desired.Id);
+        }
+
+        string principalId = onboarding.PrincipalId
+            ?? throw Invalid(desired, $"properties.{RoleManagementPolicyRules.OnboardingProperty}.{RoleManagementPolicyRules.TemporaryEligiblePrincipalIdProperty} is not a known object id at deployment time");
+
+        // Another declaration of this run (the group's other access) may have onboarded the group since this one was planned: then nothing is requested.
+        var assignment = await RoleManagementPolicyLookup.FindAsync(graph, scope, desired.Api, RetryHint.Default, cancellationToken).ConfigureAwait(false);
+        string? leftover = null;
+        if (assignment is null)
+        {
+            var onboarded = await _onboarding.OnboardAsync(desired, scope, principalId, graph, cancellationToken).ConfigureAwait(false);
+            assignment = onboarded.Assignment;
+            leftover = onboarded.Leftover;
+        }
+
+        AppliedResource applied;
+        try
+        {
+            applied = await ApplyRulesAsync(desired, properties, key, scope, ToExisting(assignment, scope), graph, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (leftover is not null && ex is ProviderException or GraphException or GraphTransportException)
+        {
+            throw new ProviderException(EngineDiagnosticCodes.PimOnboardingEligibilityNotRemoved, $"{desired.Describe()}: the group was onboarded, but applying the rules failed ({ex.Message}); and {leftover}.", desired.Id, ex);
+        }
+
+        if (leftover is not null)
+        {
+            // The policy is applied (recorded as the partial result); the resource fails, and the leftover eligibility is also reported under its own code.
+            var partial = applied with { Warnings = [.. applied.Warnings, new ProviderWarning(EngineDiagnosticCodes.PimOnboardingEligibilityNotRemoved, leftover)] };
+            throw new ProviderException(EngineDiagnosticCodes.PimOnboardingEligibilityNotRemoved, $"the group was onboarded and the rules were applied, but {leftover}", desired.Id) { Partial = partial };
+        }
+
+        return applied;
     }
 
     // ---- update ----
 
-    public override async Task<AppliedResource> UpdateAsync(ResourceInstance desired, ExistingResource existing, ResourceChange change, IGraphClient graph, CancellationToken cancellationToken)
+    public override Task<AppliedResource> UpdateAsync(ResourceInstance desired, ExistingResource existing, ResourceChange change, IGraphClient graph, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(desired);
         ArgumentNullException.ThrowIfNull(existing);
@@ -308,7 +427,12 @@ public sealed class RoleManagementPoliciesProvider : ProviderBase, IDeleteRefusa
         ArgumentNullException.ThrowIfNull(graph);
         var properties = desired.Properties ?? throw new InvalidOperationException($"{desired.Describe()}: properties must be evaluated before updating.");
         var key = ResolveKey(desired);
-        var scope = ScopeOf(key, desired.Id);
+        return ApplyRulesAsync(desired, properties, key, ScopeOf(key, desired.Id), existing, graph, cancellationToken);
+    }
+
+    /// <summary>One PATCH per declared rule that differs from the live rule of <paramref name="existing"/>; then the policy is read back.</summary>
+    private async Task<AppliedResource> ApplyRulesAsync(ResourceInstance desired, JsonObject properties, ResourceKey key, PolicyScope scope, ExistingResource existing, IGraphClient graph, CancellationToken cancellationToken)
+    {
         var declared = DeclaredRules(properties) ?? throw Invalid(desired, "the rules are not known");
         var liveRules = LiveRules(existing.Properties);
         string policyId = existing.GraphId;
@@ -577,6 +701,9 @@ public sealed class RoleManagementPoliciesProvider : ProviderBase, IDeleteRefusa
             properties.Remove(key);
         }
     }
+
+    /// <summary>A declaration's onboarding opt-in: the principal of the temporary eligibility (<c>null</c> while it is only known at deployment).</summary>
+    private sealed record OnboardingRequest(string? PrincipalId);
 
     private static ResourceTypeDefinition RequireDefinition(ResourceTypeCatalog catalog)
     {

@@ -51,8 +51,17 @@ public static class RoleManagementPolicyRules
         new("RoleManagementPolicyNotificationRule", "Notification", ["notificationType", "recipientType", "notificationLevel", "notificationRecipients", "isDefaultRecipientsEnabled"]),
     ];
 
+    /// <summary>
+    /// The EARM property of a group policy that opts in to onboarding the group in PIM for Groups: <c>{ "temporaryEligiblePrincipalId": "…" }</c>, the
+    /// principal a short-lived member eligibility is created for (and removed again) when Graph lists no policy for the group. Never sent to Graph.
+    /// </summary>
+    public const string OnboardingProperty = "onboarding";
+
+    /// <summary>The member of <see cref="OnboardingProperty"/>: the object id of the user or service principal made eligible for the onboarding.</summary>
+    public const string TemporaryEligiblePrincipalIdProperty = "temporaryEligiblePrincipalId";
+
     /// <summary>The property names a policy declaration accepts (ARM names and EARM sugar).</summary>
-    public static IReadOnlyList<string> AllowedProperties { get; } = ["scopeType", "scopeId", "roleDefinitionId", "role", "group", "accessId", "rules"];
+    public static IReadOnlyList<string> AllowedProperties { get; } = ["scopeType", "scopeId", "roleDefinitionId", "role", "group", "accessId", "rules", OnboardingProperty];
 
     public static IReadOnlyList<string> Callers { get; } = ["Admin", "EndUser"];
 
@@ -161,13 +170,66 @@ public static class RoleManagementPolicyRules
         {
             if (!AllowedProperties.Contains(property.Key, StringComparer.OrdinalIgnoreCase))
             {
-                findings.Add(new(JsonPath.Root.Append(property.Key), $"properties.{property.Key} is not a property of a role management policy; expected role, or group and accessId, or scopeType, scopeId and roleDefinitionId, and rules (ARM's read-only displayName, description, scope and effectiveRules are not declared)"));
+                findings.Add(new(JsonPath.Root.Append(property.Key), $"properties.{property.Key} is not a property of a role management policy; expected role, or group and accessId, or scopeType, scopeId and roleDefinitionId, rules, and for a group policy onboarding (ARM's read-only displayName, description, scope and effectiveRules are not declared)"));
             }
         }
 
         CheckScope(properties, isOpaque, findings);
+        CheckOnboarding(properties, isOpaque, findings);
         RoleManagementPolicyRuleChecks.CheckRules(properties, isOpaque, findings);
         return findings;
+    }
+
+    // ---- onboarding ----
+
+    /// <summary>
+    /// <c>properties.onboarding</c> (absent or null: no opt-in): an object with exactly <c>temporaryEligiblePrincipalId</c>, a GUID (or a template expression,
+    /// typically a <c>reference(…).id</c>), and only on a group policy (a directory role always has a policy).
+    /// </summary>
+    private static void CheckOnboarding(JsonObject properties, Func<JsonNode?, bool> isOpaque, List<PimRequestFinding> findings)
+    {
+        if (Property(properties, OnboardingProperty) is not (string key, var node) || IsAbsent(node))
+        {
+            return;
+        }
+
+        var path = JsonPath.Root.Append(key);
+        if (ScopeKind(properties, isOpaque) == DirectoryRoleScope)
+        {
+            findings.Add(new(path, $"properties.{key} applies only to a group policy (PIM for Groups onboarding); a directory role always has a policy, so remove it"));
+            return;
+        }
+
+        if (isOpaque(node))
+        {
+            return;
+        }
+
+        if (node is not JsonObject onboarding)
+        {
+            findings.Add(new(path, $"properties.{key} must be an object: {{ \"{TemporaryEligiblePrincipalIdProperty}\": \"<object id of a user or service principal>\" }}", SchemaCovered: true));
+            return;
+        }
+
+        foreach (var member in onboarding)
+        {
+            if (!member.Key.Equals(TemporaryEligiblePrincipalIdProperty, StringComparison.OrdinalIgnoreCase))
+            {
+                findings.Add(new(path.Append(member.Key), $"properties.{key}.{member.Key} is not a property of onboarding; expected only {TemporaryEligiblePrincipalIdProperty}"));
+            }
+        }
+
+        if (Property(onboarding, TemporaryEligiblePrincipalIdProperty) is not (string principalKey, var principal) || IsAbsent(principal))
+        {
+            findings.Add(new(path.Append(TemporaryEligiblePrincipalIdProperty), $"properties.{key}.{TemporaryEligiblePrincipalIdProperty} is required: the object id of the user or service principal made eligible (member, for an hour) to onboard the group, then removed again"));
+            return;
+        }
+
+        if (!isOpaque(principal) && !(TryString(principal, out string? text) && Guid.TryParse(text, out _)))
+        {
+            string shown = TryString(principal, out string? raw) ? raw : principal?.ToJsonString() ?? "null";
+            findings.Add(new(path.Append(principalKey), $"properties.{key}.{principalKey} '{shown}' is not a GUID; name the principal by its object id, or reference it (for example [reference(resourceId('Microsoft.Entra/users', 'pim-onboarding')).id])", SchemaCovered: true));
+        }
     }
 
     // ---- scope ----

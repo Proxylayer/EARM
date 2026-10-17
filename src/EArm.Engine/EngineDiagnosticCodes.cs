@@ -183,6 +183,21 @@ public static class EngineDiagnosticCodes
     public const string PimPolicyNotAvailable = "PimPolicyNotAvailable";
 
     /// <summary>
+    /// A <c>roleManagementPolicies</c> declaration that opts in to onboarding (<c>properties.onboarding</c>) could not onboard its group in PIM for Groups:
+    /// Graph refused the temporary member eligibility for the named principal (the message carries Graph's answer), or the group's policy was still not
+    /// listed after the eligibility was accepted. The eligibility is removed again before this is reported (or the message names it, see
+    /// <see cref="PimOnboardingEligibilityNotRemoved"/>).
+    /// </summary>
+    public const string PimGroupOnboardingFailed = "PimGroupOnboardingFailed";
+
+    /// <summary>
+    /// The temporary member eligibility EARM created to onboard a group in PIM for Groups (<c>roleManagementPolicies</c> with <c>properties.onboarding</c>)
+    /// could not be removed after the bounded retries (Graph kept answering ActiveDurationTooShort, refused the removal, or the run was cancelled). The
+    /// message names the principal, the group and when the eligibility expires on its own; remove it in PIM (or wait for it to expire).
+    /// </summary>
+    public const string PimOnboardingEligibilityNotRemoved = "PimOnboardingEligibilityNotRemoved";
+
+    /// <summary>
     /// Graph refused a PIM for Groups read or request (<c>/identityGovernance/privilegedAccess/group/*</c>) with 403 UnauthorizedAccessException: the caller
     /// lacks an ACTIVE (not just eligible) directory-scope role that governs the group (Groups Administrator, Identity Governance Administrator, User
     /// Administrator or Directory Writers for a group that is not role-assignable; Privileged Role Administrator for a role-assignable one) and does not own it.
