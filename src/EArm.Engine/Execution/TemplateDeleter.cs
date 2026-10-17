@@ -234,7 +234,8 @@ public sealed class TemplateDeleter
             // The delete in flight is never cancelled (its outcome must be known); the caller's token is checked between objects.
             var provider = _registry.Get(instance.Type);
             var key = provider.ResolveKey(instance);
-            var live = await WithRetryAsync(plan, ct => provider.ReadAsync(key, _graph, ct), CancellationToken.None).ConfigureAwait(false);
+            var retry = new GraphCallRetry(plan.RetryPolicy);
+            var live = await retry.WithRetryAsync(ct => provider.ReadAsync(key, _graph, ct), RetryHint.Default, CancellationToken.None).ConfigureAwait(false);
             if (live is null)
             {
                 return new DeclaredObjectDeletion(target, DeletionStatus.AlreadyGone, null, null, stopwatch.Elapsed);
@@ -252,11 +253,11 @@ public sealed class TemplateDeleter
 
             EngineLog.Deleting(_logger, instance.Id.Id, live.GraphId);
             // The caller's token only cuts a wait between two attempts short (see LaggingDeleteRetry), never an attempt.
-            await lagging.RunAsync(instance.Id.Id, () => WithRetryAsync(plan, async ct =>
+            await lagging.RunAsync(instance.Id.Id, () => retry.WithRetryAsync(async ct =>
             {
                 await provider.DeleteAsync(key, live, _graph, ct).ConfigureAwait(false);
                 return true;
-            }, CancellationToken.None), cancellationToken).ConfigureAwait(false);
+            }, RetryHint.Default, CancellationToken.None), cancellationToken).ConfigureAwait(false);
             return new DeclaredObjectDeletion(target, DeletionStatus.Deleted, null, null, stopwatch.Elapsed);
         }
         catch (GraphException ex) when (ex.IsNotFound)
@@ -275,6 +276,12 @@ public sealed class TemplateDeleter
         {
             return new DeclaredObjectDeletion(target, DeletionStatus.Failed, SecretRegistration.Scrub($"{ex.GetType().Name}: {ex.Message}"), EngineDiagnosticCodes.ResourceDeleted, stopwatch.Elapsed);
         }
+        catch (OperationCanceledException ex)
+        {
+            // The reads and the delete never observe the caller's token (LaggingDeleteRetry rethrows the refusal, not the cancellation): this is an
+            // HTTP timeout, and it fails this object only. Whether a timed-out delete reached Graph is unknown; the next run reads the key again.
+            return new DeclaredObjectDeletion(target, DeletionStatus.Failed, $"{instance.Describe()}: {NonCallerCancellation.Describe(ex)}", EngineDiagnosticCodes.ResourceDeleted, stopwatch.Elapsed);
+        }
     }
 
     /// <summary>Why the object must be kept: the delete guards first (<see cref="EngineDiagnosticCodes.ProtectedObject"/>), then the provider (<see cref="EngineDiagnosticCodes.NotDeletable"/>).</summary>
@@ -291,12 +298,5 @@ public sealed class TemplateDeleter
         }
 
         return (null, EngineDiagnosticCodes.ProtectedObject);
-    }
-
-    private static Task<T> WithRetryAsync<T>(DeploymentPlan plan, Func<CancellationToken, Task<T>> operation, CancellationToken cancellationToken)
-    {
-        return plan.RetryPolicy is null
-            ? operation(cancellationToken)
-            : plan.RetryPolicy.ExecuteAsync(operation, RetryHint.Default, null, cancellationToken);
     }
 }

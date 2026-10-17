@@ -19,7 +19,7 @@ namespace EArm.Tests.Engine;
 /// early extra reads have run: without the overlap they would only start after that write, and the hold would time out. Nothing sleeps: the delay
 /// providers record and return.
 /// </summary>
-public sealed class KeyAbsencePrefetchTests
+public sealed partial class KeyAbsencePrefetchTests
 {
     private const string Units = "/directory/administrativeUnits";
     private static readonly int Extra = KeyAbsenceCheck.Default.ExtraReads;
@@ -148,31 +148,6 @@ public sealed class KeyAbsencePrefetchTests
 
         // One early extra read found it; the executor's own first read then finds it too, so it waits nothing more.
         Assert.Single(host.AbsenceDelays.Delays);
-    }
-
-    [Fact]
-    public async Task APlanWithoutTheWhatIfReads_PrefetchesNothing_AndKeepsTheFullCheckBeforeThePost()
-    {
-        WriteGate? client = null;
-        var host = new EngineHost(graph => client = new WriteGate(graph));
-        int delaysAtGroupWrite = -1;
-        client!.BeforeWrite = request =>
-        {
-            if (request.Path.StartsWith("/groups", StringComparison.Ordinal))
-            {
-                delaysAtGroupWrite = host.AbsenceDelays.Delays.Count;
-            }
-
-            return Task.CompletedTask;
-        };
-
-        // create -y: a Create-mode plan has evaluated no key before the run.
-        var (_, result) = await ExecuteAsync(host, Templates.Resources(GroupThenUnit), planner: host.Options() with { RetryPolicy = null });
-
-        Assert.True(result.Succeeded, string.Join("\n", result.Operations.Select(o => o.Error)));
-        Assert.Equal(0, delaysAtGroupWrite);
-        Assert.Equal(Extra, host.AbsenceDelays.Delays.Count);
-        Assert.Equal(1, PostsTo(host, Units));
     }
 
     [Fact]

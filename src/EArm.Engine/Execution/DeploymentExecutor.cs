@@ -3,7 +3,6 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
-using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 using EArm.Graph;
@@ -56,11 +55,11 @@ public sealed partial class DeploymentExecutor
         ArgumentNullException.ThrowIfNull(plan);
         ArgumentNullException.ThrowIfNull(options);
 
-        var run = new Run(this, plan, options);
+        using var run = new Run(this, plan, options);
         return await run.ExecuteAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    private sealed partial class Run
+    private sealed partial class Run : IDisposable
     {
         private readonly DeploymentExecutor _owner;
         private readonly DeploymentPlan _plan;
@@ -72,7 +71,7 @@ public sealed partial class DeploymentExecutor
         private readonly ConcurrentDictionary<string, ResourceInstance> _graphClaims = new(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<ResourceInstance, string> _skipped = [];
         private readonly RunDiagnostics _diagnostics = new();
-        private readonly ExecutionRetry _retry;
+        private readonly GraphCallRetry _retry;
         private readonly ResourceCreator _creator;
         private readonly ResourceReplacer _replacer;
         private readonly SecureOutputsRecorder _secureOutputs;
@@ -86,7 +85,7 @@ public sealed partial class DeploymentExecutor
             _plan = plan;
             _options = options;
             _planOptions = plan.Options with { PlanMode = PlanMode.Create };
-            _retry = new ExecutionRetry(plan.RetryPolicy);
+            _retry = new GraphCallRetry(plan.RetryPolicy);
             _creator = new ResourceCreator(owner._graph, owner._replicationWait, _retry, _diagnostics, _planOptions, owner._logger);
             var laggingDeletes = new LaggingDeleteRetry(owner._replicationWait, owner._logger);
             _replacer = new ResourceReplacer(plan, options, owner._graph, _creator, laggingDeletes, _retry, _diagnostics, owner._logger);
@@ -95,6 +94,11 @@ public sealed partial class DeploymentExecutor
 
         private ILogger Logger => _owner._logger;
 
+        public void Dispose()
+        {
+            _secureOutputs.Dispose();
+        }
+
         public async Task<DeploymentResult> ExecuteAsync(CancellationToken cancellationToken)
         {
             var stopwatch = Stopwatch.StartNew();
@@ -102,7 +106,7 @@ public sealed partial class DeploymentExecutor
             // Every secure parameter value is masked from here on in whatever an error message echoes (review finding S-02).
             SecretRegistration.RegisterDocument(_plan.Document);
 
-            bool stop = false;
+            bool stop;
             bool cancelled = false;
             bool aborted = false;
             try
@@ -129,12 +133,6 @@ public sealed partial class DeploymentExecutor
             // never observes the caller's cancellation and is guarded so an I/O failure cannot skip the steps after it (E-03). The steps that WRITE
             // to the tenant again (edges) do observe it, between operations: Ctrl-C stops new writes (review round 2, S2-10).
             var none = CancellationToken.None;
-            var outputs = new JsonObject();
-            var secureOutputs = new JsonObject();
-            string? secureFile = null;
-            List<ResourceOperation> operations = [];
-            List<ResourceChange> changes = [];
-            DeploymentStatus status = DeploymentStatus.Failed;
             if (cancelled || aborted)
             {
                 string why = cancelled ? "the run was cancelled" : "the run was aborted by an unexpected error";
@@ -151,8 +149,8 @@ public sealed partial class DeploymentExecutor
             // part B kinds plug into the same pass through the plan's EdgeKinds registry (the providers add the part B kinds).
             await GuardedAsync(() => RunEdgePassAsync(stop, cancellationToken)).ConfigureAwait(false);
 
-            (outputs, secureOutputs) = new OutputEvaluator(_plan, _options.RevealSecureOutputs, _diagnostics).Evaluate(none);
-            secureFile = _secureOutputs.WriteSecureOutputs(secureOutputs);
+            var (outputs, secureOutputs) = new OutputEvaluator(_plan, _options.RevealSecureOutputs, _diagnostics).Evaluate(none);
+            string? secureFile = _secureOutputs.WriteSecureOutputs(secureOutputs);
 
             // Orphan report (read-only): what the template does not declare is listed, never deleted.
             // A cancelled or aborted run does not know whether the instance set was applied in full, so it judges nothing.
@@ -171,10 +169,10 @@ public sealed partial class DeploymentExecutor
             cancelled |= _cancelledInEndPhase;
 
             _diagnostics.Flush(_plan.Batches.SelectMany(b => b.Instances));
-            operations = _plan.Batches.SelectMany(b => b.Instances).Where(_operations.ContainsKey).Select(i => _operations[i]).ToList();
-            changes = _plan.Batches.SelectMany(b => b.Instances).Where(_changes.ContainsKey).Select(i => _changes[i]).ToList();
+            var operations = _plan.Batches.SelectMany(b => b.Instances).Where(_operations.ContainsKey).Select(i => _operations[i]).ToList();
+            var changes = _plan.Batches.SelectMany(b => b.Instances).Where(_changes.ContainsKey).Select(i => _changes[i]).ToList();
             bool anyFailure = aborted || operations.Any(o => o.Status is OperationStatus.Failed or OperationStatus.Skipped) || _diagnostics.Snapshot().Any(d => d.IsError);
-            status = cancelled ? DeploymentStatus.Cancelled : anyFailure ? DeploymentStatus.Failed : DeploymentStatus.Succeeded;
+            var status = cancelled ? DeploymentStatus.Cancelled : anyFailure ? DeploymentStatus.Failed : DeploymentStatus.Succeeded;
 
             stopwatch.Stop();
             if (cancelled)

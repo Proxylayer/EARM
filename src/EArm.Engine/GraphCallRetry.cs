@@ -3,18 +3,24 @@ using System.Threading;
 using System.Threading.Tasks;
 using EArm.Graph;
 
-namespace EArm.Engine.Execution;
+namespace EArm.Engine;
 
-/// <summary>Runs the Graph calls of a deployment run through the plan's retry policy, or directly when the plan carries none.</summary>
-internal sealed class ExecutionRetry
+/// <summary>
+/// Runs the engine's Graph calls (planning, the what-if pass, the executor, the edge pass, the orphan report, <c>deployment delete</c>) through the run's
+/// retry policy, or directly when there is none.
+/// </summary>
+internal sealed class GraphCallRetry
 {
     private readonly RetryPolicy? _policy;
 
-    public ExecutionRetry(RetryPolicy? policy)
+    public GraphCallRetry(RetryPolicy? policy)
     {
         _policy = policy;
     }
 
+    /// <param name="operation">The Graph call; it receives the token to observe.</param>
+    /// <param name="hint">How the policy classifies a 404 or 400 (a plain read, or a write that may race replication).</param>
+    /// <param name="cancellationToken">The caller's token.</param>
     /// <param name="idempotent">
     /// <c>false</c> for a create that is a POST (not an upsert): the outer retry then never repeats it after a failure that may have followed a commit (a 5xx, a timeout,
     /// a dropped connection) - those are answered by the key re-read - and only waits out throttling and replication lag (review round 2, S2-07). Reads and deletes are idempotent.

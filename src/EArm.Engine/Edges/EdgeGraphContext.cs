@@ -20,7 +20,7 @@ namespace EArm.Engine.Edges;
 public sealed class EdgeGraphContext
 {
     private readonly IGraphClient _graph;
-    private readonly RetryPolicy? _retry;
+    private readonly GraphCallRetry _retry;
     private readonly Dictionary<string, ResourceInstance> _instancesByGraphId = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, IReadOnlyList<JsonObject>> _memberOf = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string?> _collections = new(StringComparer.OrdinalIgnoreCase);
@@ -34,7 +34,7 @@ public sealed class EdgeGraphContext
         ArgumentNullException.ThrowIfNull(instances);
         ArgumentNullException.ThrowIfNull(logger);
         _graph = graph;
-        _retry = retryPolicy;
+        _retry = new GraphCallRetry(retryPolicy);
         Resolver = resolver;
         Logger = logger;
         _signedInPrincipalId = signedInPrincipalId;
@@ -88,7 +88,7 @@ public sealed class EdgeGraphContext
     public Task<T> WithRetryAsync<T>(Func<CancellationToken, Task<T>> operation, RetryHint hint, CancellationToken cancellationToken, bool idempotent = true)
     {
         ArgumentNullException.ThrowIfNull(operation);
-        return _retry is null ? operation(cancellationToken) : _retry.ExecuteAsync(operation, hint, null, cancellationToken, idempotent);
+        return _retry.WithRetryAsync(operation, hint, cancellationToken, idempotent);
     }
 
     /// <summary>GET inside the retry policy; <c>null</c> for a 404.</summary>

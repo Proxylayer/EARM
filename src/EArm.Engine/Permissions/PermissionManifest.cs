@@ -238,8 +238,8 @@ public static class PermissionManifest
         }
 
         var permissions = new List<PermissionEntry>();
-        permissions.AddRange(graph.Build(kind, mode));
-        permissions.AddRange(azure.Build(PermissionKind.AzureRbac, mode));
+        permissions.AddRange(graph.Build(kind));
+        permissions.AddRange(azure.Build(PermissionKind.AzureRbac));
 
         var roleRequirements = roles.BuildGroups();
 

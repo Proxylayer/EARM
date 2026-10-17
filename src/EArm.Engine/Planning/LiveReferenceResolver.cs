@@ -186,9 +186,14 @@ public sealed class LiveReferenceResolver : IReferenceResolver
         {
             outcome = lookup(id, apiVersion, CancellationToken).GetAwaiter().GetResult();
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (CancellationToken.IsCancellationRequested)
         {
             throw;
+        }
+        catch (OperationCanceledException ex)
+        {
+            // Not the caller's cancellation (an HTTP timeout): the reference stays a placeholder and is reported as unresolved, like any failed lookup.
+            outcome = ExistingLookupResult.Unresolvable(NonCallerCancellation.Describe(ex));
         }
         catch (Exception ex) when (ex is not ExpressionException)
         {

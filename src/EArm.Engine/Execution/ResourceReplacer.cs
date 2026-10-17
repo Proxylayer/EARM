@@ -16,11 +16,11 @@ internal sealed class ResourceReplacer
     private readonly IGraphClient _graph;
     private readonly ResourceCreator _creator;
     private readonly LaggingDeleteRetry _laggingDeletes;
-    private readonly ExecutionRetry _retry;
+    private readonly GraphCallRetry _retry;
     private readonly RunDiagnostics _diagnostics;
     private readonly ILogger _logger;
 
-    public ResourceReplacer(DeploymentPlan plan, ExecuteOptions options, IGraphClient graph, ResourceCreator creator, LaggingDeleteRetry laggingDeletes, ExecutionRetry retry, RunDiagnostics diagnostics, ILogger logger)
+    public ResourceReplacer(DeploymentPlan plan, ExecuteOptions options, IGraphClient graph, ResourceCreator creator, LaggingDeleteRetry laggingDeletes, GraphCallRetry retry, RunDiagnostics diagnostics, ILogger logger)
     {
         _plan = plan;
         _options = options;

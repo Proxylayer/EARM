@@ -27,7 +27,7 @@ public sealed class GraphEntraLookup : IEntraLookup
     private static readonly string[] RoleProperties = ["id", "displayName", "isBuiltIn"];
 
     private readonly IGraphClient _graph;
-    private readonly RetryPolicy? _retryPolicy;
+    private readonly GraphCallRetry _retry;
     private readonly ConcurrentDictionary<string, Lazy<Task<Permissions?>>> _permissions = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, Lazy<Task<EntraLookupResult>>> _roles = new(StringComparer.OrdinalIgnoreCase);
 
@@ -35,7 +35,7 @@ public sealed class GraphEntraLookup : IEntraLookup
     {
         ArgumentNullException.ThrowIfNull(graph);
         _graph = graph;
-        _retryPolicy = retryPolicy;
+        _retry = new GraphCallRetry(retryPolicy);
     }
 
     public CancellationToken CancellationToken { get; set; }
@@ -150,9 +150,7 @@ public sealed class GraphEntraLookup : IEntraLookup
 
     private Task<JsonNode?> GetAsync(GraphRequest request)
     {
-        return _retryPolicy is null
-            ? _graph.GetAsync(request, CancellationToken)
-            : _retryPolicy.ExecuteAsync(ct => _graph.GetAsync(request, ct), RetryHint.Default, null, CancellationToken);
+        return _retry.WithRetryAsync(ct => _graph.GetAsync(request, ct), RetryHint.Default, CancellationToken);
     }
 
     private static string? FindMemberId(JsonArray members, string value)

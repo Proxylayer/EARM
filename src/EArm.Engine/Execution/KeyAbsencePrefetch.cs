@@ -13,16 +13,18 @@ namespace EArm.Engine.Execution;
 /// <summary>
 /// Overlaps the absence confirmation of <see cref="KeyAbsenceCheck"/> with the batches before it. Without it, every dependency batch that creates a
 /// new object of a type whose key read lags (<see cref="IResourceProvider.KeyReadLagsCreate"/>) waits the whole check (3 extra reads, 12 s) right
-/// before its POST, one batch after the other. With a plan that the what-if pass has read (<see cref="PlanMode.WhatIf"/>: a create without <c>-y</c>,
-/// or with <c>-c</c>), the key of each such planned create of a LATER batch is already known when the run starts, so its extra reads start then, in
-/// the background, while the earlier batches deploy.
+/// before its POST, one batch after the other. When the key of such a planned create of a LATER batch is known when the run starts, its extra reads
+/// start then, in the background, while the earlier batches deploy. A plan the what-if pass has read (<see cref="PlanMode.WhatIf"/>: a create without
+/// <c>-y</c>, or with <c>-c</c>) knows the keys from its reads; a <see cref="PlanMode.Create"/> plan (<c>-y</c>) has evaluated nothing, so the keys come
+/// from a sandboxed dry run (<see cref="SpeculativeKey"/>) that makes no live lookup and fills no cache of the run; a key that depends on a deploy-time
+/// value is not prefetched.
 /// <para>
 /// Safety is unchanged: when the instance's turn comes, the executor resolves its key again; the early confirmation counts only for the SAME key
 /// (<see cref="TryTake"/>) and only when every early extra read was empty, and the executor then still reads the key once more right before the POST
 /// (that read is the final look, as the last extra read was before). An object any read finds is adopted, never created again. A key that changed, an
-/// early read that found the object or failed, or an instance that was not prefetched falls back to the full check. A <see cref="PlanMode.Create"/> plan
-/// (<c>-y</c>) has evaluated nothing before the run, so nothing is prefetched: the keys of later batches would need a speculative evaluation, which
-/// would also run the live <c>reference()</c> lookups early.
+/// early read that found the object or failed, or an instance that was not prefetched falls back to the full check. A key that another instance of the
+/// run may also lead to (the same key twice, or an instance of the type whose key is not known yet) is never prefetched: an object an earlier batch
+/// creates under it is only seen through the lag by the full check.
 /// </para>
 /// </summary>
 internal sealed class KeyAbsencePrefetch : IAsyncDisposable
@@ -40,9 +42,9 @@ internal sealed class KeyAbsencePrefetch : IAsyncDisposable
     }
 
     /// <summary>
-    /// Starts the extra reads of every planned create of a later batch whose key read lags and whose key the what-if pass resolved. <paramref name="read"/>
-    /// reads a key once (with the run's retry policy); at most <paramref name="parallelism"/> early reads are in flight at a time. Nothing is started for a
-    /// plan that was not read by the what-if pass, or when the check is disabled.
+    /// Starts the extra reads of every planned create of a later batch whose key read lags and whose key is known before the run (see the type).
+    /// <paramref name="read"/> reads a key once (with the run's retry policy); at most <paramref name="parallelism"/> early reads are in flight at a time.
+    /// Nothing is started when the check is disabled.
     /// </summary>
     public static KeyAbsencePrefetch Start(
         DeploymentPlan plan,
@@ -61,20 +63,13 @@ internal sealed class KeyAbsencePrefetch : IAsyncDisposable
         var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var reads = new SemaphoreSlim(Math.Max(1, parallelism));
         var prefetch = new KeyAbsencePrefetch(entries, stop, reads);
-        if (plan.PlanMode != PlanMode.WhatIf || check.ExtraReads == 0)
+        if (check.ExtraReads == 0)
         {
             return prefetch;
         }
 
-        // The first batch gains nothing: its instances reach their own check at once.
-        foreach (var instance in plan.Batches.Skip(1).SelectMany(b => b.Instances))
+        foreach (var (instance, provider, key) in Candidates(plan))
         {
-            if (Candidate(plan, instance) is not { } candidate)
-            {
-                continue;
-            }
-
-            var (provider, key) = candidate;
             var confirmation = ConfirmAsync(check, provider, key, read, reads, logger, stop.Token);
             entries[instance] = new Entry(Identity(key), confirmation);
             prefetch._started.Add(confirmation);
@@ -124,34 +119,105 @@ internal sealed class KeyAbsencePrefetch : IAsyncDisposable
         _reads.Dispose();
     }
 
-    private static (IResourceProvider Provider, ResourceKey Key)? Candidate(DeploymentPlan plan, ResourceInstance instance)
+    /// <summary>
+    /// The planned creates of the later batches (the first batch gains nothing: its instances reach their own check at once) whose type's key read lags
+    /// and whose key is known before the run. A key that another instance of the plan may also lead to is never prefetched: when an earlier batch creates
+    /// that object, only the full check right before the second POST can see it through the lag. So every deployed, writable instance of such a type
+    /// must have a known key, and the candidate's key must be the only one of its kind.
+    /// </summary>
+    private static List<(ResourceInstance Instance, IResourceProvider Provider, ResourceKey Key)> Candidates(DeploymentPlan plan)
     {
-        if (instance.IsDeployment || instance.IsSymbolic || instance.Declaration.IsExisting || instance.Condition != true)
+        var later = new HashSet<ResourceInstance>(plan.Batches.Skip(1).SelectMany(b => b.Instances));
+        var found = new List<(ResourceInstance Instance, IResourceProvider Provider, ResourceKey Key)>();
+        var unknownKeyTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        // Graph compares these names without regard to case, so two keys that differ only in case are the same object.
+        var keyCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (var instance in plan.Batches.SelectMany(b => b.Instances))
+        {
+            // Existing and adopt-only resources are never created: they cannot become a duplicate, nor make one.
+            if (instance.IsDeployment || instance.Declaration.IsExisting || instance.Declaration.AdoptOnly is not null || instance.IsIgnored)
+            {
+                continue;
+            }
+
+            var provider = plan.Registry.Get(instance.Type);
+            if (!provider.KeyReadLagsCreate)
+            {
+                continue;
+            }
+
+            var key = KnownKey(plan, instance, provider, out bool notDeployed);
+            if (notDeployed)
+            {
+                continue;
+            }
+
+            if (key is null)
+            {
+                unknownKeyTypes.Add(instance.Type);
+                continue;
+            }
+
+            string identity = Identity(key);
+            keyCounts[identity] = keyCounts.GetValueOrDefault(identity) + 1;
+            if (later.Contains(instance) && IsPlannedCreate(plan, instance))
+            {
+                found.Add((instance, provider, key));
+            }
+        }
+
+        found.RemoveAll(c => unknownKeyTypes.Contains(c.Instance.Type) || keyCounts[Identity(c.Key)] > 1);
+        return found;
+    }
+
+    /// <summary>
+    /// The key the instance resolves to, known before the run: from the properties the what-if pass evaluated (<see cref="PlanMode.WhatIf"/>; the executor
+    /// evaluates them again before it compares the key in <see cref="TryTake"/>), or from a sandboxed dry run of a plan that evaluated nothing
+    /// (<see cref="PlanMode.Create"/>, <c>-y</c>: <see cref="SpeculativeKey"/>).
+    /// </summary>
+    private static ResourceKey? KnownKey(DeploymentPlan plan, ResourceInstance instance, IResourceProvider provider, out bool notDeployed)
+    {
+        notDeployed = false;
+        if (instance.IsSymbolic)
         {
             return null;
         }
 
-        if (plan.ChangeFor(instance) is not { Type: ChangeType.Create, IsUnknown: false, IsSymbolicId: false, HasError: false, IsConditionFalse: false })
+        if (plan.PlanMode == PlanMode.Create)
         {
+            return SpeculativeKey.Resolve(plan, instance, provider, out notDeployed);
+        }
+
+        if (plan.ChangeFor(instance) is { IsConditionFalse: true })
+        {
+            notDeployed = true;
             return null;
         }
 
-        var provider = plan.Registry.Get(instance.Type);
-        if (!provider.KeyReadLagsCreate)
+        if (instance.Condition != true || !instance.IsEvaluated)
         {
             return null;
         }
 
         try
         {
-            // The properties the what-if pass evaluated; the executor evaluates them again before it compares the key (TryTake).
             var key = provider.ResolveKey(instance);
-            return key.IsResolved ? (provider, key) : null;
+            return key.IsResolved ? key : null;
         }
         catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or ProviderException or NotSupportedException)
         {
             return null;
         }
+    }
+
+    /// <summary>
+    /// True when the executor is expected to create the instance: a clean Create row of the what-if pass, or any instance of a <see cref="PlanMode.Create"/>
+    /// plan (it has no rows; an object that exists is found by the first early read, which ends the prefetch of that key).
+    /// </summary>
+    private static bool IsPlannedCreate(DeploymentPlan plan, ResourceInstance instance)
+    {
+        return plan.PlanMode == PlanMode.Create
+            || plan.ChangeFor(instance) is { Type: ChangeType.Create, IsUnknown: false, IsSymbolicId: false, HasError: false, IsConditionFalse: false };
     }
 
     private static async Task<bool> ConfirmAsync(

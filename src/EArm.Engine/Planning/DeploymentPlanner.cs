@@ -31,6 +31,7 @@ public sealed class DeploymentPlanner
     private readonly PlannerOptions _options;
     private readonly ILogger _logger;
     private readonly KeyAbsenceCheck _keyAbsenceCheck;
+    private readonly GraphCallRetry _retry;
 
     public DeploymentPlanner(ProviderRegistry registry, IGraphClient graph, PlannerOptions options, ILogger<DeploymentPlanner> logger)
     {
@@ -44,6 +45,7 @@ public sealed class DeploymentPlanner
         _logger = logger;
         var check = options.KeyAbsenceCheck ?? KeyAbsenceCheck.Default;
         _keyAbsenceCheck = options.ConfirmKeyAbsence ? check : check with { ExtraReads = 0 };
+        _retry = new GraphCallRetry(options.RetryPolicy);
     }
 
     /// <summary>
@@ -321,7 +323,7 @@ public sealed class DeploymentPlanner
 
         try
         {
-            var found = await WithRetryAsync(ct => lookup.ReadExistingAsync(id, apiVersion, _graph, ct), RetryHint.Default, cancellationToken).ConfigureAwait(false);
+            var found = await _retry.WithRetryAsync(ct => lookup.ReadExistingAsync(id, apiVersion, _graph, ct), RetryHint.Default, cancellationToken).ConfigureAwait(false);
             return ExistingLookupResult.Of(found);
         }
         catch (ProviderException ex)
@@ -334,12 +336,5 @@ public sealed class DeploymentPlanner
             EngineLog.ExistingLookupUnresolved(_logger, id.Id, apiVersion, ex.Message);
             return ExistingLookupResult.Unresolvable(ex.Message);
         }
-    }
-
-    private Task<T> WithRetryAsync<T>(Func<CancellationToken, Task<T>> operation, RetryHint hint, CancellationToken cancellationToken)
-    {
-        return _options.RetryPolicy is null
-            ? operation(cancellationToken)
-            : _options.RetryPolicy.ExecuteAsync(operation, hint, null, cancellationToken);
     }
 }

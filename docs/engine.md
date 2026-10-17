@@ -173,14 +173,19 @@ load ──► validate ──► expand ──► graph ──► [per batch: r
   Complete-mode what-if can list such an object as an orphan). `create -y` plans no reads at all. Cost: objects that exist and types keyed by an id or an
   alternate key pay nothing; a genuinely new object of these types costs nothing extra in `what-if`, and 3 more reads and 12 s of waiting in `create`
   and in the planner of `deployment delete` (reads of one batch run in parallel, so the wait is per batch, not per object). **The waits of later batches
-  overlap the earlier ones** when `create` runs a plan the what-if pass read (without `-y`, or with `-c`): that pass already resolved the key of every
-  planned create, so at the start of the run the executor starts the extra reads of each planned create of a lagging type in a later batch, in the
-  background (`KeyAbsencePrefetch`, at most `--parallelism` early reads in flight). When the instance's turn comes, the executor resolves its key again;
+  overlap the earlier ones**: at the start of the run the executor starts the extra reads of each planned create of a lagging type in a later batch whose
+  key is already known, in the background (`KeyAbsencePrefetch`, at most `--parallelism` early reads in flight). A plan the what-if pass read (`create`
+  without `-y`, or with `-c`) knows the keys from its reads. `create -y` plans without reads, so the keys come from a dry run of each later instance in a
+  sandbox (`SpeculativeKey`): every `reference()` and tenant lookup (`appRole()`, `roleTemplate()`...) is a placeholder there, variables are evaluated in a
+  store of their own and the instance itself is not touched, so the dry run makes no Graph call and leaves nothing in the run's caches (an early
+  `reference(id, apiVersion)` NotFound in particular), and only instances of the main template are considered. A key that depends on a value only known
+  at deployment (a name built from an object an earlier batch creates) is not prefetched, and while any instance of a type has such a key, or two
+  instances share a key, no instance of that type is: the full check before the second `POST` is what sees an object an earlier batch just created.
+  When the instance's turn comes, the executor resolves its key again (for real);
   only when it is the same key and every early read was empty does it skip its own extra reads, and it still reads the key once more right before the
   `POST` (that read is now the final look, and an object it finds is adopted). A changed key, an early read that found the object or failed, or an
-  instance that was not prefetched gets the full check, so the duplicate protection is the same. `create -y` plans without reads, so the keys of later
-  batches are not known before the run (they would need a speculative evaluation, which would also run the live `reference()` lookups early) and every
-  batch still waits its own check. This is a probability
+  instance that was not prefetched gets the full check, so the duplicate protection is the same. An adopt-only resource is never created, so it gets no
+  extra reads at all: one empty read fails it (`AdoptOnlyNotFound`). This is a probability
   reduction, not a guarantee: a list that stays empty through all four reads while the object exists still creates the object again (Graph has no
   unique key for these types to refuse the duplicate). Logging: each extra read is a Debug line (event 2082); one Information line summarizes the
   confirmed absences, per planner batch (event 2084) and per executor check (event 2085, or 2086 when the extra reads ran early), only when extra reads
