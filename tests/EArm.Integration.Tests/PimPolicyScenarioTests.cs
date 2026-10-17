@@ -168,6 +168,55 @@ public sealed class PimPolicyScenarioTests : IntegrationTestBase
         Assert.True(guard.Pending.Count == 0, "The group policy could not be restored to its snapshot (the fixture retries at teardown):" + Environment.NewLine + string.Join(Environment.NewLine, log));
     }
 
+    [Fact]
+    public async Task It_PimPolicy_GroupPolicyWithOnboardingOptInIsAppliedInOneRunAndRemovesItsEligibility()
+    {
+        Fixture.Require(Needs.Domain | PolicyNeeds);
+        var guard = Fixture.PimPolicies;
+        string policyName = Guid.NewGuid().ToString("D");
+        var run = Fixture.NewRun("ppolonb", "pim-policy-group-onboarding.entra.json")
+            .WithParameter("domain", Fixture.Domain)
+            .WithParameter("policyName", policyName);
+
+        // What-if: the group does not exist yet, so the policy row is unknown until deployment; nothing is written.
+        var preview = await Fixture.Cli.WhatIfAsync(run, Ct, "--exit-code-on-changes");
+        AssertExit(5, preview, "what-if before the first create");
+        Observe($"what-if before the first create: the policy row is {preview.ChangeTypeOf("/" + policyName)}");
+
+        // One run: the temporary eligibility onboards the group, is removed, and the rules are applied to the post-onboarding policy.
+        var created = await Fixture.Cli.CreateAsync(run, Ct);
+        AssertCreated(created, "create with the onboarding opt-in");
+        string groupId = Output(created, "groupId");
+        string userId = Output(created, "userId");
+        var scope = PimPolicyRestoreGuard.GroupAccess(groupId, "member");
+        Assert.False(
+            created.Combined.Contains(EngineDiagnosticCodes.PimOnboardingEligibilityNotRemoved, StringComparison.Ordinal),
+            $"The create left the onboarding eligibility behind:{Environment.NewLine}{Tail(created.Combined)}");
+
+        var rules = await EventuallyAsync(
+            async () => PimPolicyRestoreGuard.RulesOf(await guard.ReadAsync(scope, Ct)),
+            found => HasValues(found, "PT3H", ["Justification", "Ticketing"]),
+            seconds: 120,
+            stepSeconds: 5);
+        ObserveRules("after the onboarding create", rules, ExpirationRule, EnablementRule);
+        AssertValues(rules, "PT3H", ["Justification", "Ticketing"], "the group policy after the onboarding create");
+
+        var remaining = await EventuallyAsync(
+            async () => PimReads.OfAccess(await PimReads.ByGroupAsync(Graph, GroupSchedulesLookup.EligibilitySchedulesPath, groupId, Ct), userId, "member"),
+            found => found.Count == 0,
+            seconds: 120,
+            stepSeconds: 5);
+        Assert.True(remaining.Count == 0, $"The temporary onboarding eligibility of {userId} on group {groupId} is still listed: {string.Join("; ", remaining.Select(PimReads.DescribeSchedule))}");
+
+        // The rerun finds the onboarded group's policy: no changes, no eligibility requested again.
+        await AssertNoChangesEventuallyAsync(() => Fixture.Cli.WhatIfAsync(run, Ct, "--exit-code-on-changes"), "rerun after the onboarding create");
+
+        // deployment delete keeps the policy (NotDeletable); the user and the group (and with it the policy) go.
+        var deleted = await Fixture.Cli.DeleteAllAsync(run, Ct);
+        AssertExit(0, deleted, "deployment delete");
+        AssertKeptNotDeletable(deleted, policyName);
+    }
+
     // ---- helpers (shared with PimPolicyProbes) ----
 
     /// <summary>

@@ -104,6 +104,7 @@ internal static class IntegrationScopes
         new("auth-methods.entra.json", Needs.AuthMethods, Empty()),
         new("pim-policy-role.entra.json", Needs.Pim | Needs.PimPolicies, With(("approverGroupId", PlaceholderGuid1))),
         new("pim-policy-group.entra.json", Needs.Domain | Needs.Pim | Needs.PimPolicies, With(("domain", "example.onmicrosoft.com"), ("eligibilityName", PlaceholderGuid1))),
+        new("pim-policy-group-onboarding.entra.json", Needs.Domain | Needs.Pim | Needs.PimPolicies, With(("domain", "example.onmicrosoft.com"))),
         new("access-packages.entra.json", Needs.AccessPackages, Empty()),
         new("access-packages-eligible.entra.json", Needs.Domain | Needs.Pim | Needs.AccessPackages, With(("domain", "example.onmicrosoft.com"))),
     ];

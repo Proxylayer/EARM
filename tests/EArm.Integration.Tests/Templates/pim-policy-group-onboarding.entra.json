@@ -1,0 +1,65 @@
+{
+  "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "The PIM for Groups membership policy of a prefixed security group that opts in to onboarding: no schedule request of the deployment onboards the group, so the policy names a disabled test user (properties.onboarding.temporaryEligiblePrincipalId) for a temporary member eligibility. The create requests the eligibility, waits for Graph to list the group's policy, removes the eligibility and applies the rules, all in one run. The group is deleted at the end (its policy with it); deployment delete keeps the policy (NotDeletable). Needs Microsoft Entra ID P2 or ID Governance."
+  },
+  "parameters": {
+    "prefix":          { "type": "string" },
+    "domain":          { "type": "string" },
+    "policyName":      { "type": "string", "defaultValue": "00000000-0000-0000-0000-0000000000b3", "metadata": { "description": "GUID label of the policy resource." } },
+    "maximumDuration": { "type": "string", "defaultValue": "PT3H", "metadata": { "description": "ISO 8601 maximum activation duration (Expiration_EndUser_Assignment)." } },
+    "enabledRules":    { "type": "string", "defaultValue": "Justification,Ticketing", "metadata": { "description": "Comma-separated enabledRules of Enablement_EndUser_Assignment." } }
+  },
+  "variables": {
+    "user":  "[format('{0}-ppou@{1}', parameters('prefix'), parameters('domain'))]",
+    "group": "[format('{0}-ppogrp', parameters('prefix'))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Entra/users",
+      "apiVersion": "2026-10-01-preview",
+      "name": "[variables('user')]",
+      "properties": {
+        "displayName": "[format('{0}-ppou', parameters('prefix'))]",
+        "accountEnabled": false,
+        "jobTitle": "EARM integration test user (PIM for Groups onboarding)"
+      }
+    },
+    {
+      "type": "Microsoft.Entra/groups",
+      "apiVersion": "2026-10-01-preview",
+      "name": "[variables('group')]",
+      "properties": {
+        "displayName": "[variables('group')]",
+        "mailEnabled": false,
+        "mailNickname": "[variables('group')]",
+        "securityEnabled": true
+      }
+    },
+    {
+      "type": "Microsoft.Entra/roleManagementPolicies",
+      "apiVersion": "2026-10-01-preview",
+      "name": "[parameters('policyName')]",
+      "properties": {
+        "group": "[reference(variables('group')).id]",
+        "accessId": "member",
+        "onboarding": {
+          "temporaryEligiblePrincipalId": "[reference(variables('user')).id]"
+        },
+        "rules": [
+          { "id": "Expiration_EndUser_Assignment", "ruleType": "RoleManagementPolicyExpirationRule", "isExpirationRequired": true, "maximumDuration": "[parameters('maximumDuration')]" },
+          { "id": "Enablement_EndUser_Assignment", "ruleType": "RoleManagementPolicyEnablementRule", "enabledRules": "[split(parameters('enabledRules'), ',')]" }
+        ]
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Entra/users', variables('user'))]",
+        "[resourceId('Microsoft.Entra/groups', variables('group'))]"
+      ]
+    }
+  ],
+  "outputs": {
+    "userId":  { "type": "string", "value": "[reference(variables('user')).id]" },
+    "groupId": { "type": "string", "value": "[reference(variables('group')).id]" }
+  }
+}
