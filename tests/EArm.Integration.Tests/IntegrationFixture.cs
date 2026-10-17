@@ -47,6 +47,7 @@ namespace EArm.Integration.Tests;
 public sealed class IntegrationFixture : IAsyncLifetime
 {
     private readonly ConcurrentQueue<string> _trackedPaths = new();
+    private readonly ConcurrentQueue<string> _mustBeRemovedByTeardown = new();
     private readonly ConcurrentDictionary<string, byte> _reservedContextIds = new(StringComparer.OrdinalIgnoreCase);
     private readonly CapturingLoggerProvider _logCapture = new();
     private ILoggerFactory? _loggerFactory;
@@ -278,6 +279,7 @@ public sealed class IntegrationFixture : IAsyncLifetime
             if (Session is not null && _graph is not null)
             {
                 await SweepNowAsync(CancellationToken.None, "teardown");
+                await VerifyRemovedByTeardownAsync();
                 if (_leftovers.Count > 0)
                 {
                     throw new InvalidOperationException(
@@ -296,6 +298,36 @@ public sealed class IntegrationFixture : IAsyncLifetime
     }
 
     private List<string> _leftovers = [];
+
+    /// <summary>
+    /// Asks the teardown to prove that its sweep deletes <paramref name="entityPath"/> (a tracked object with the run prefix): the path is tracked, and after
+    /// the teardown sweep it is read again; an object that is still there is a leftover, which fails the teardown. This replaces a sweep in the middle of the
+    /// run (a full prefix sweep costs about 20 s), so the cleanup test's proof rides on the sweep that runs anyway.
+    /// </summary>
+    internal void ExpectRemovedByTeardown(string entityPath)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(entityPath);
+        Track(entityPath);
+        _mustBeRemovedByTeardown.Enqueue(entityPath);
+    }
+
+    private async Task VerifyRemovedByTeardownAsync()
+    {
+        foreach (string path in _mustBeRemovedByTeardown)
+        {
+            try
+            {
+                if (await _graph!.GetObjectAsync(new GraphRequest(path), CancellationToken.None) is not null)
+                {
+                    _leftovers.Add($"{path}: the teardown sweep did not delete this tracked object (CleanupScenarioTests expects it gone)");
+                }
+            }
+            catch (Exception ex) when (ex is GraphException or GraphTransportException)
+            {
+                _leftovers.Add($"{path}: could not be read after the teardown sweep to prove it was deleted: {ex.Message}");
+            }
+        }
+    }
 
     /// <summary>
     /// The cleanup guard: sweeps the prefix and purges soft-deleted copies. Safe to call repeatedly; each call appends a

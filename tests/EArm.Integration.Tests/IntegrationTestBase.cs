@@ -25,10 +25,14 @@ public abstract class IntegrationTestBase
 
     protected static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    /// <summary>Writes a diagnostic line that the test runner shows next to the test.</summary>
+    /// <summary>
+    /// Records an observation of the test: in the test's own output (kept in the TRX file for passing tests too, and printed with a failure),
+    /// and as a diagnostic message (shown when the runner enables diagnostic messages), as <see cref="ProbeReport"/> does.
+    /// </summary>
     protected static void Observe(string message)
     {
         TestContext.Current.SendDiagnosticMessage(message);
+        TestContext.Current.TestOutputHelper?.WriteLine(message);
     }
 
     /// <summary>A password that satisfies the tenant complexity rules (upper, lower, digit, symbol, 36 characters).</summary>
@@ -37,15 +41,21 @@ public abstract class IntegrationTestBase
         return "Aa1!" + Convert.ToHexString(RandomNumberGenerator.GetBytes(16));
     }
 
-    /// <summary>Re-reads until <paramref name="done"/> accepts the value or the time is up (Graph is eventually consistent); returns the last value read.</summary>
+    /// <summary>
+    /// Re-reads until <paramref name="done"/> accepts the value or the time is up (Graph is eventually consistent); returns the last value read. The
+    /// waits between reads grow 1, 2, 4 s up to <paramref name="stepSeconds"/>: most values settle within a second or two, so a fixed step only added
+    /// slack to a passing test; <paramref name="seconds"/> (the bound for a value that never settles) is unchanged.
+    /// </summary>
     protected static async Task<T> EventuallyAsync<T>(Func<Task<T>> read, Func<T, bool> done, int seconds = 45, int stepSeconds = 3)
     {
         var deadline = DateTime.UtcNow.AddSeconds(seconds);
         T value = await read();
+        int step = 1;
         while (!done(value) && DateTime.UtcNow < deadline)
         {
-            await Task.Delay(TimeSpan.FromSeconds(stepSeconds), Ct);
+            await Task.Delay(TimeSpan.FromSeconds(step), Ct);
             value = await read();
+            step = Math.Min(step * 2, Math.Max(1, stepSeconds));
         }
 
         return value;
@@ -96,7 +106,7 @@ public abstract class IntegrationTestBase
     /// <summary>
     /// <see cref="AssertNoChanges"/> for a what-if that follows a write: Graph is eventually consistent on property values and
     /// edges (docs/engine.md, "Stale property values after an out-of-band change"), so a read right after a successful write can
-    /// still land on a replica that serves the previous state. The what-if is re-run (every 5 s, up to <paramref name="seconds"/>)
+    /// still land on a replica that serves the previous state. The what-if is re-run (after 1, 2, 4 s, then every 5 s, up to <paramref name="seconds"/>)
     /// until it reports no changes; the assertion and its message use the last attempt.
     /// </summary>
     internal static async Task AssertNoChangesEventuallyAsync(Func<Task<CliResult>> whatIf, string step, int seconds = 90)

@@ -219,6 +219,8 @@ when tests failed, the fixture removes whatever is left:
 4. **Report**: `%TEMP%\earm-it\<prefix>\cleanup.log` and a diagnostic message list every action. Each sweep (a manual sweep, the teardown)
    appends its own section, headed `==== EARM integration cleanup (<trigger>) ...`; the file is never overwritten. A `deleted ...` line means
    Graph accepted the DELETE. Anything that could not be removed is a `LEFTOVER` line and makes the fixture teardown fail.
+   `It_Cleanup_SweepRemovesTrackedGroupWithThePrefix` rides on this sweep instead of running one of its own: it creates and tracks a prefixed group,
+   and after the teardown sweep the fixture reads the group again; a group that is still there is a leftover, so the teardown fails.
 
 The sweep is what catches the objects `deployment delete` cannot: an object a test renamed (a new key is a new object, the old one stays), the old
 assignment of a changed tuple (retained, never removed by EARM), and anything a failed run or a test left behind. Its PIM lines start with `pim:`
@@ -298,7 +300,8 @@ principal ends them as well); PIM assignments are also visible under *Entra ID >
 ## How to read probe failures
 
 A probe asserts an assumption the code makes and names the file to change; the observations go to the test output (diagnostic messages,
-`-Detailed` shows them). Letters follow the verification TODOs:
+`-Detailed` shows them). The scenarios' own observations (`Observe`, for example how many what-if attempts a convergence took) go to the test's
+output too, and so are kept in the TRX file for passing tests. Letters follow the verification TODOs:
 
 | Probe | Asserts | A red test means |
 |---|---|---|
