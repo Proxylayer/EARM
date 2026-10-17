@@ -404,6 +404,13 @@ at most **2,000,000 JSON values** (objects, arrays and leaves); they are counted
 file of millions of tiny nodes is refused without allocating its tree. Files must be UTF-8 (a byte-order mark is accepted); UTF-16 and UTF-32
 are named as such instead of failing with a byte-level syntax error. A directory passed as the template file is reported as a directory.
 
+**ARM limits are warnings.** Azure Resource Manager limits a template to 256 parameters, 512 variables, 64 outputs, 800 resources (copy counts
+included) and 4 MB ([template limits](https://learn.microsoft.com/azure/azure-resource-manager/templates/best-practices#template-limits); the
+[syntax](https://learn.microsoft.com/azure/azure-resource-manager/templates/syntax#variables) page still says 256 variables, EARM warns from the
+higher, more recent figure). EARM reports each as an `ArmLimitExceeded` warning and accepts the template; its own hard limits are the ones in
+this section and in [Evaluation limits](#evaluation-limits) (8 MiB of input, 5,000 resource instances, the evaluation budget). The resource count
+uses the literal `copy.count` of each loop; a count computed by an expression counts once.
+
 ## Parameters and parameter files
 
 Parameter types: `string`, `securestring`, `int`, `bool`, `object`, `secureObject`, `array`, compared case-insensitively as in ARM (`secureString` and `SecureObject` are accepted, in the schema too). An `int` accepts any JSON number whose exact

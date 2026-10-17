@@ -54,6 +54,9 @@ public sealed record TemplateDocument
     /// <summary>Line/column lookup for paths inside the template file.</summary>
     public SourceMap SourceMap { get; init; } = SourceMap.Empty;
 
+    /// <summary>The size of the template text in UTF-8 bytes, for the ARM template size limit.</summary>
+    public long SourceByteLength { get; init; }
+
     /// <summary>The top-level keys present in the file, in document order.</summary>
     public IReadOnlyList<string> TopLevelKeys { get; init; } = [];
 

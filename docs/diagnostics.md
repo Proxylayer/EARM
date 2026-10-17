@@ -65,6 +65,7 @@ diagnostic codes, so they have no table row here; see "Graph batch item codes" i
 | `UnrecognizedSchema` | Error | `$schema` is missing or is not `https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#`. |
 | `InvalidContentVersion` | Error | `contentVersion` is not a string. Any string is accepted, as in ARM. |
 | `MissingRequiredProperty` | Error | A required key is missing: root `contentVersion`/`resources`, output `type`/`value`, function `namespace`/`members`/`output`, function parameter `name`/`type`. |
+| `ArmLimitExceeded` | Warning | The template exceeds a limit Azure Resource Manager enforces (256 parameters, 512 variables, 64 outputs, 800 resources counting literal copy counts, 4 MB of text). EARM accepts it; its own hard limits are in [format.md](format.md#input-limits). |
 | `UnknownTopLevelProperty` | Warning | A top-level key is not part of the format (`$schema`, `contentVersion`, `metadata`, `parameters`, `variables`, `functions`, `resources`, `outputs`) and is ignored. |
 
 ## Resources

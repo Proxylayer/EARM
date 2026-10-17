@@ -119,6 +119,7 @@ public sealed class TemplateLoader : ITemplateLoader
             Root = root,
             RootElement = element,
             SourcePath = sourcePath,
+            SourceByteLength = utf8.Length,
             Schema = TemplateJson.AsString(root["$schema"]),
             ContentVersion = TemplateJson.AsString(root["contentVersion"]),
             Metadata = root["metadata"] as JsonObject,
