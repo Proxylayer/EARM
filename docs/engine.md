@@ -24,7 +24,9 @@ load ──► validate ──► expand ──► graph ──► [per batch: r
    Any error throws `ValidationFailedException` (CLI exit 2).
 3. **Expand** (`ResourceExpander`): one `ResourceInstance` per declaration, or one per `copy` iteration
    (`copy.name/count/mode/batchSize`, concrete `copyIndex()`, name re-evaluated per index). `condition` is
-   evaluated per instance; `false` keeps the instance as an `Ignore` row. Ids must be unique after expansion
+   evaluated per instance; `false` leaves the instance out of the deployment: it is never read or written, and the
+   what-if lists it only as skipped (`skipped[]`, never a row in `changes[]`; see
+   [whatif.md](whatif.md#change-types)). Internally the plan still carries it so the what-if can report it. Ids must be unique after expansion
    (`DuplicateResourceId`). A child whose parent is declared in the template is linked to the parent instance.
    The static index (`TemplateResourceIndex`) only holds ids computable without a copy frame; right after
    expansion the planner adds the concrete id of every copy iteration to the deployment's index (shared by every
