@@ -49,9 +49,8 @@ public sealed class AccessPackageOnboardingTests
         Assert.Equal("Eligible Member", t.Host.Directory.EntitlementManagement.RoleScopes.Single()["role"]!["displayName"]!.GetValue<string>());
     }
 
-    // Needs the correctness branch, which splits a whole-properties expression into literal values per key (AccessPackageApplyOrder matches literals).
-    // Remove the Skip when that branch is merged.
-    [Fact(Skip = "Pending the whole-properties literal split of the engine-correctness branch; enable after merging it.")]
+    // The whole-properties expression is split into literal values per key (InstanceEvaluator.WithPropertiesExpressionSplit), which AccessPackageApplyOrder matches.
+    [Fact]
     public async Task ARoleScopeWhosePropertiesAreOneExpression_IsStillOrderedAfterTheRequestThatOnboardsItsGroup()
     {
         var t = NewTenant();
