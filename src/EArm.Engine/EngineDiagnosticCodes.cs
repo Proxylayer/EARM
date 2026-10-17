@@ -280,6 +280,18 @@ public static class EngineDiagnosticCodes
     /// <summary>Graph refused to delete an access package or an assignment policy that still has assignments.</summary>
     public const string AccessPackageAssignmentsExist = "AccessPackageAssignmentsExist";
 
+    /// <summary>
+    /// Graph refused an eligible group role (Eligible Member / Eligible Owner) of an access package with 400 <c>NoGovernanceSku</c>: the tenant has no
+    /// Microsoft Entra ID Governance licence, which eligible access package roles need.
+    /// </summary>
+    public const string GovernanceLicenseRequired = "GovernanceLicenseRequired";
+
+    /// <summary>
+    /// (Warning) An access package assignment policy lets an assignment last longer than the eligibility maximum the template's PIM for Groups policy
+    /// sets for the group an eligible role of the same package grants (its <c>Expiration_Admin_Eligibility</c> rule).
+    /// </summary>
+    public const string AccessPackageExpirationExceedsEligibility = "AccessPackageExpirationExceedsEligibility";
+
     // ---- Edge pass: app-only tokens and forbidden reads ----
 
     /// <summary>A declared relationship cannot be read or changed with an application (app-only) token: <c>ownerOf</c> on a user (Learn: user-list-ownedobjects). The row is reported and skipped.</summary>

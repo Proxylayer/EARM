@@ -13,6 +13,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   Administrator together with Privileged Role Administrator (role-assignable template group) or with Groups Administrator, Intune
   Administrator or User Administrator (any other template group); an application adding a role-assignable group also needs
   `RoleManagement.ReadWrite.Directory`.
+- `GovernanceLicenseRequired`: Graph's 400 `NoGovernanceSku` on an eligible access package role (Eligible Member / Eligible Owner) is
+  reported with the licence it needs and what to do instead. Apply-time only: the what-if does not read `subscribedSkus`.
 
 **Changed**
 

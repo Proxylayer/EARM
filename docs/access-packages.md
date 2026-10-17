@@ -149,7 +149,10 @@ The caveats:
 
 - The PIM integration is labelled **Preview** on the reference page
   ([PIM and access packages](https://learn.microsoft.com/en-us/entra/id-governance/entitlement-management-access-package-pim-reference)) and needs
-  Microsoft Entra ID Governance (or the Entra Suite).
+  Microsoft Entra ID Governance (or the Entra Suite). Without the licence Graph refuses the role scope's create with 400 `NoGovernanceSku`, which EARM
+  reports as **`GovernanceLicenseRequired`** (assign the licence, or grant Member / Owner instead). The what-if does not predict it: telling a
+  Governance SKU apart in `GET /subscribedSkus` needs a list of service plan ids Learn does not publish for this feature, and the read would add
+  `LicenseAssignment.Read.All` (or `Organization.Read.All`) to every template that grants an eligible role, so the check is apply-time only.
 - Graph v1.0 has no flag for it: `accessPackageResourceRole.type` (`active` / `eligible`) only applies to Azure resources
   ([resource role](https://learn.microsoft.com/en-us/graph/api/resources/accesspackageresourcerole?view=graph-rest-1.0)). The eligible group roles are
   separate roles in the catalog's role list, and their `originId` format is **not documented**. That is why EARM discovers the role by its display

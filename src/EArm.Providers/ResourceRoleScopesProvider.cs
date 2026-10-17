@@ -40,6 +40,12 @@ public sealed class ResourceRoleScopesProvider : ProviderBase, IApplyOrderSource
     /// <summary>The code when an eligible role is not offered because PIM for Groups has not onboarded the group.</summary>
     public const string NotOnboarded = EngineDiagnosticCodes.PimGroupNotOnboarded;
 
+    /// <summary>The code when Graph refuses an eligible role because the tenant has no Entra ID Governance licence (400 <c>NoGovernanceSku</c>).</summary>
+    public const string GovernanceLicenseRequired = EngineDiagnosticCodes.GovernanceLicenseRequired;
+
+    /// <summary>Graph's error code for an eligible access package role in a tenant without an Entra ID Governance licence.</summary>
+    internal const string NoGovernanceSku = "NoGovernanceSku";
+
     private const string PackageProperty = "accessPackageId";
 
     private const string OriginIdProperty = "resourceOriginId";
@@ -317,7 +323,20 @@ public sealed class ResourceRoleScopesProvider : ProviderBase, IApplyOrderSource
             ["scope"] = new JsonObject { ["originId"] = groupId, ["originSystem"] = originSystem, ["isRootScope"] = true },
         };
 
-        var response = await graph.PostAsync(new GraphRequest(ScopesPath(packageId), desired.Api, hint: desired.RetryHint), body, cancellationToken).ConfigureAwait(false);
+        GraphResponse response;
+        try
+        {
+            response = await graph.PostAsync(new GraphRequest(ScopesPath(packageId), desired.Api, hint: desired.RetryHint), body, cancellationToken).ConfigureAwait(false);
+        }
+        catch (GraphException ex) when (IsNoGovernanceSku(ex))
+        {
+            throw new ProviderException(
+                GovernanceLicenseRequired,
+                $"{desired.Describe()}: Graph refused the '{role}' role of group {groupId} ({ex.Code}: {ex.GraphMessage}). Eligible group roles in an access package need a Microsoft Entra ID Governance licence in the tenant (Learn: entitlement-management-access-package-eligible, licensing-fundamentals). Assign the licence, or grant 'Member' / 'Owner' instead of the eligible role.",
+                desired.Id,
+                ex);
+        }
+
         var live = response.Body as JsonObject
             ?? throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{desired.Describe()}: Graph returned no object for the created resource role scope.", desired.Id);
         string id = JsonObjects.GetId(live)
@@ -395,6 +414,13 @@ public sealed class ResourceRoleScopesProvider : ProviderBase, IApplyOrderSource
     }
 
     // ---- helpers ----
+
+    /// <summary>Graph's 400 <c>NoGovernanceSku</c> (matched on the code, any casing; the message as a fallback when the code is generic).</summary>
+    internal static bool IsNoGovernanceSku(GraphException ex)
+    {
+        return ex.Code.Equals(NoGovernanceSku, StringComparison.OrdinalIgnoreCase)
+            || (ex.Status == System.Net.HttpStatusCode.BadRequest && ex.GraphMessage.Contains(NoGovernanceSku, StringComparison.OrdinalIgnoreCase));
+    }
 
     private static string ScopesPath(string packageId)
     {

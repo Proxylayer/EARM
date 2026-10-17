@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using EArm.Engine;
 using EArm.Engine.Execution;
 using EArm.Engine.Providers;
+using EArm.Graph;
 using EArm.Providers.Tests.Infrastructure;
 using Xunit;
 using static EArm.Providers.Tests.AccessPackagesProviderTests;
@@ -148,6 +149,34 @@ public sealed class AccessPackageOnboardingTests
         t.Host.Directory.EntitlementManagement.AssignmentsForbidden = true;
         plan = await t.Host.Planner().PlanAsync(document, Engine.Planning.DeploymentMode.Incremental, Engine.Planning.PlanMode.WhatIf, ProviderHost.Ct);
         Assert.Contains("could not be read", (await t.Host.Deleter().FindDeclaredObjectsAsync(plan, ProviderHost.Ct)).Single(o => o.Instance.Type == ResourceRoleScopesProvider.ResourceType).Risk, StringComparison.Ordinal);
+    }
+
+    // ---- licence ----
+
+    [Fact]
+    public async Task NoGovernanceSku_OnAnEligibleRole_IsGovernanceLicenseRequired_WithWhatToDo()
+    {
+        var (t, template) = Onboarding();
+        t.Host.Fake.Failures.Add("POST", "/resourceRoleScopes", request => new GraphException(
+            System.Net.HttpStatusCode.BadRequest, "NoGovernanceSku", "The tenant does not have a valid governance SKU.", request.Hint));
+
+        var run = await t.Host.CreateAsync(t.Host.Resources(template), continueOnError: true);
+
+        var op = run.OpOfType(ResourceRoleScopesProvider.ResourceType);
+        Assert.Equal(EngineDiagnosticCodes.GovernanceLicenseRequired, op.ErrorCode);
+        Assert.Contains("Microsoft Entra ID Governance licence", op.Error, StringComparison.Ordinal);
+        Assert.Contains("'Eligible Member'", op.Error, StringComparison.Ordinal);
+        Assert.Empty(t.Host.Directory.EntitlementManagement.RoleScopes);
+    }
+
+    [Theory]
+    [InlineData("NoGovernanceSku", "anything", true)]
+    [InlineData("nogovernancesku", "anything", true)]
+    [InlineData("BadRequest", "Error code: NoGovernanceSku", true)]
+    [InlineData("BadRequest", "Some other problem", false)]
+    public void IsNoGovernanceSku_MatchesTheCode_OrTheMessageOfAGeneric400(string code, string message, bool expected)
+    {
+        Assert.Equal(expected, ResourceRoleScopesProvider.IsNoGovernanceSku(new GraphException(System.Net.HttpStatusCode.BadRequest, code, message)));
     }
 
     [Fact]
