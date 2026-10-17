@@ -13,9 +13,9 @@ namespace EArm.Engine.Execution;
 
 /// <summary>
 /// The secure outputs file of a deployment run: the one-time secrets saved the moment the object that returned them is applied, and the secure
-/// outputs merged in at the end of the run.
+/// outputs merged in at the end of the run. Disposed by the run that owns it, once its batches and end phase are over.
 /// </summary>
-internal sealed class SecureOutputsRecorder
+internal sealed class SecureOutputsRecorder : IDisposable
 {
     private readonly string? _path;
     private readonly RunDiagnostics _diagnostics;
@@ -124,5 +124,10 @@ internal sealed class SecureOutputsRecorder
             _diagnostics.Add(Diagnostic.Error(EngineDiagnosticCodes.SecureOutputsWriteFailed, $"The secure outputs could not be written to '{path}': {message}{detail}"));
             return null;
         }
+    }
+
+    public void Dispose()
+    {
+        _secretsFileGate.Dispose();
     }
 }

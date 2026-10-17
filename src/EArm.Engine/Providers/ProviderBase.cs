@@ -223,7 +223,7 @@ public abstract partial class ProviderBase : IResourceProvider, IExistingResourc
         });
     }
 
-    /// <summary>Replaces every <c>{name}</c> in a path pattern; throws <see cref="ProviderException"/> when a value is missing.</summary>
+    /// <summary>The <see cref="ProviderException"/> (<see cref="EngineDiagnosticCodes.ResourceKeyUnresolved"/>) for a <c>{name}</c> of the Graph path that has no value yet; the caller throws it.</summary>
     protected ProviderException MissingPathValue(string name, ResourceIdentifier? id)
     {
         return new ProviderException(EngineDiagnosticCodes.ResourceKeyUnresolved, $"{TypeName}: the Graph path '{Definition.GraphPath}' needs a value for '{{{name}}}' that is not known yet.", id);

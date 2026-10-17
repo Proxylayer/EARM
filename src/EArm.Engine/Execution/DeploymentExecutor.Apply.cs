@@ -277,7 +277,6 @@ public sealed partial class DeploymentExecutor
             EngineLog.Applied(Logger, instance.Id.Id, change.Type.ToString(), applied.GraphId, stopwatch.ElapsedMilliseconds);
         }
 
-        /// <summary>Claims a Graph id for an instance; false (with the claimant) when another instance of this run already manages that object.</summary>
         /// <summary>
         /// The executor's read of <paramref name="key"/> before it plans and applies <paramref name="instance"/>. Normally the full <see cref="KeyAbsenceCheck"/>
         /// (first read, then the extra reads when it is empty and the key read lags). When the extra reads of this very key already ran during the earlier
@@ -311,6 +310,7 @@ public sealed partial class DeploymentExecutor
             return await check.ReadAsync(provider, key, Read, Logger, batch: null, cancellationToken).ConfigureAwait(false);
         }
 
+        /// <summary>Claims a Graph id for an instance; false (with the claimant) when another instance of this run already manages that object.</summary>
         private bool TryClaim(ResourceInstance instance, string graphId, out ResourceInstance? other)
         {
             if (string.IsNullOrEmpty(graphId))

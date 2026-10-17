@@ -72,10 +72,8 @@ internal sealed class PermissionAccumulator
         return string.Join(" + ", parts.Select(p => string.Join('|', p)));
     }
 
-    public IEnumerable<PermissionEntry> Build(PermissionKind kind, PermissionMode mode)
+    public IEnumerable<PermissionEntry> Build(PermissionKind kind)
     {
-        _ = mode;
-
         // Application.ReadWrite.All implies Application.ReadWrite.OwnedBy: when both are needed only the broader grant is listed
         // (the resources that would manage with OwnedBy alone stay visible under it).
         if (_items.TryGetValue(PermissionManifest.OwnedBy, out var owned) && _items.TryGetValue("Application.ReadWrite.All", out var all))
