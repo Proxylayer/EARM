@@ -138,6 +138,12 @@ public static class InstanceEvaluator
         ArgumentNullException.ThrowIfNull(evaluator);
         ArgumentNullException.ThrowIfNull(instance);
 
+        if (instance.Declaration.Properties is { } whole and not JsonObject)
+        {
+            EvaluateWholeProperties(evaluator, instance, whole);
+            return;
+        }
+
         var objectRaw = new JsonObject();
         var edgeRaw = new JsonObject();
         var edgeCopies = new HashSet<string>(StringComparer.Ordinal);
@@ -195,6 +201,91 @@ public static class InstanceEvaluator
             edgeProperties[property.Key] = value?.Parent is null ? value : JsonValues.Clone(value);
         }
 
+        instance.Properties = objectProperties;
+        instance.EdgeProperties = edgeProperties;
+        instance.HasUnknownProperties = UnknownJson.ContainsUnknown(objectProperties);
+    }
+
+    /// <summary>
+    /// The declaration of one instance whose whole <c>properties</c> is a single expression (<c>"properties": "[variables('groups')[copyIndex()].properties]"</c>,
+    /// which ARM accepts): the expression is evaluated in the instance's context, and when it yields an object the returned copy of the declaration
+    /// declares one expression per key of that object, each selecting its key from the same expression
+    /// (<c>"displayName": "[variables('groups')[copyIndex()].properties['displayName']]"</c>). Everything that reads the declared properties (the
+    /// split into object and edge properties, the edge pass, declaration conflicts, apply orders, the permission manifest) then sees which properties
+    /// the instance declares, exactly as for an object literal, and every value is still evaluated by the evaluator, so secrets stay tainted and
+    /// deploy-time values stay unknown. The declaration is returned unchanged for an object literal, a template-level resource (a nested deployment
+    /// reads its own <c>properties</c>), and when the expression fails or its value is only known at deployment
+    /// (<see cref="EvaluateProperties"/> then evaluates it as a whole).
+    /// </summary>
+    public static ResourceDeclaration WithPropertiesExpressionSplit(ExpressionEvaluator evaluator, ResourceDeclaration declaration, ResourceTypeDefinition definition, EvaluationContext context)
+    {
+        ArgumentNullException.ThrowIfNull(evaluator);
+        ArgumentNullException.ThrowIfNull(declaration);
+        ArgumentNullException.ThrowIfNull(definition);
+        ArgumentNullException.ThrowIfNull(context);
+
+        if (definition.IsTemplateLevel || TemplateJson.AsString(declaration.Properties) is not { } expression || !ExpressionSyntax.IsExpression(expression))
+        {
+            return declaration;
+        }
+
+        JsonNode? value;
+        try
+        {
+            value = evaluator.EvaluateTree(declaration.Properties, context);
+        }
+        catch (ExpressionException)
+        {
+            return declaration;
+        }
+
+        if (value is not JsonObject evaluated)
+        {
+            return declaration;
+        }
+
+        string inner = expression[1..^1];
+        var split = new JsonObject();
+        foreach (var property in evaluated)
+        {
+            split[property.Key] = JsonValue.Create($"[{inner}['{property.Key.Replace("'", "''", StringComparison.Ordinal)}']]");
+        }
+
+        return declaration with { Properties = split };
+    }
+
+    /// <summary>
+    /// <c>properties</c> declared as one expression that could not be split at expansion (<see cref="WithPropertiesExpressionSplit"/>): its value is
+    /// evaluated as a whole and split by key into object and edge properties. A value only known at deployment cannot be split (which of its keys
+    /// are edges is not known) and fails the instance.
+    /// </summary>
+    private static void EvaluateWholeProperties(ExpressionEvaluator evaluator, ResourceInstance instance, JsonNode whole)
+    {
+        var value = evaluator.EvaluateTree(whole, instance.Context);
+        if (UnknownJson.IsUnknown(value, out var unknown))
+        {
+            throw new ExpressionEvaluationException(
+                DiagnosticCodes.ExpressionEvaluationFailed,
+                $"properties is a single expression whose value is only known at deployment ({unknown.Symbol}): which properties the resource declares must be known when it is planned; declare properties as an object whose values are expressions.");
+        }
+
+        var evaluated = value switch
+        {
+            null => new JsonObject(),
+            JsonObject obj => obj,
+            _ => throw new ExpressionEvaluationException(DiagnosticCodes.ExpressionEvaluationFailed, $"properties must evaluate to an object, got {JsonValues.Describe(value)}."),
+        };
+
+        var objectProperties = new JsonObject();
+        var edgeProperties = new JsonObject();
+        foreach (var property in evaluated.ToList())
+        {
+            var node = property.Value;
+            evaluated.Remove(property.Key);
+            (instance.Definition.IsRelationshipProperty(property.Key) ? edgeProperties : objectProperties)[property.Key] = node;
+        }
+
+        TaintSecrets(objectProperties, instance.Definition.Secure);
         instance.Properties = objectProperties;
         instance.EdgeProperties = edgeProperties;
         instance.HasUnknownProperties = UnknownJson.ContainsUnknown(objectProperties);

@@ -296,6 +296,8 @@ public sealed class ResourceExpander
             nameValue = evaluation.Value;
         }
 
+        // "properties": "[variables('groups')[copyIndex()].properties]": the instance declares the keys of that value (one expression per key).
+        declaration = InstanceEvaluator.WithPropertiesExpressionSplit(_evaluator, declaration, definition, context);
         var instance = new ResourceInstance(declaration, resolved, definition, DeclarationOffset + index, id, symbolic, nameValue, context, copy);
 
         if (declaration.Condition is null)

@@ -329,6 +329,15 @@ transport to the built-in Microsoft Graph HTTP client.
 
 ### Fixed
 
+- A resource whose whole `properties` is one expression (`"properties": "[variables('groups')[copyIndex()].properties]"`)
+  was planned and deployed with `properties: {}` ("required property displayName missing from 'properties'"): only an
+  object literal was evaluated. The expression is now evaluated for each instance at expansion, and the instance declares
+  the keys of its value, relationship properties included.
+- Adopting an existing group by display name no longer fails with "Immutable property properties.isAssignableToRole ...
+  differs" when the template declares `isAssignableToRole: false`: Graph reads `null` back for a group created without it,
+  which is now read as `false`.
+- The what-if of an Incremental deployment no longer warns `OrphanReportIncomplete` for the eligibilities and assignments
+  of a principal the same run creates: nothing live can match them yet, and the other declared principals are listed.
 - A large template no longer fails `what-if`, `create`, `delete` or `validate --validation-level Provider` with
   `EvaluationBudgetExceeded` ("more than 5,000,000 value elements in total") while plain `validate` passes. Reading part of
   a variable (`variables('x')[copyIndex()].name`) copied and counted the whole variable on every read, so copy loops over
