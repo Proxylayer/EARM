@@ -10,7 +10,6 @@ using EArm.Core.Json;
 using EArm.Core.Types;
 using EArm.Engine.Planning;
 using EArm.Engine.Providers;
-using EArm.Expressions;
 using EArm.Expressions.Values;
 using GraphApi = EArm.Graph.GraphApi;
 
@@ -40,8 +39,8 @@ public sealed class EdgePlanner
     private readonly PlanMode _mode;
     private readonly IReadOnlySet<string> _createdGraphIds;
     private readonly IReadOnlyList<ResourceInstance> _unreliableDeclarers;
-    private readonly Dictionary<string, EdgeTargetState> _targets = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, EdgePrincipalState> _principals = new(StringComparer.OrdinalIgnoreCase);
+    private readonly EdgeDeclarationCollector _collector;
+    private readonly EdgeLiveStates _states;
     private readonly Dictionary<string, EdgeOperation> _operations = new(StringComparer.Ordinal);
     private readonly Dictionary<ResourceInstance, EdgeRow> _rows = [];
     private readonly List<Diagnostic> _diagnostics = [];
@@ -61,6 +60,8 @@ public sealed class EdgePlanner
         _mode = mode;
         _createdGraphIds = createdGraphIds ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         _unreliableDeclarers = unreliableDeclarers ?? [];
+        _collector = new EdgeDeclarationCollector(plan, context, _kinds, _diagnostics);
+        _states = new EdgeLiveStates(context);
     }
 
     /// <summary>True when the instance takes part in the edge pass: it declares a relationship property of an edge kind.</summary>
@@ -89,7 +90,7 @@ public sealed class EdgePlanner
         foreach (var instance in candidates)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var row = await CollectAsync(instance, cancellationToken).ConfigureAwait(false);
+            var row = await _collector.CollectAsync(instance, cancellationToken).ConfigureAwait(false);
             if (row is not null)
             {
                 rows.Add(row);
@@ -97,7 +98,7 @@ public sealed class EdgePlanner
             }
         }
 
-        var authoritative = BuildAuthoritativeSets(rows);
+        var authoritative = AuthoritativeEdgeSet.BuildAll(rows);
         foreach (var set in authoritative.Values)
         {
             await PlanAuthoritativeAsync(set, cancellationToken).ConfigureAwait(false);
@@ -130,279 +131,13 @@ public sealed class EdgePlanner
         return new EdgePlan(rows, _operations.Values.ToList(), _diagnostics);
     }
 
-    // ---- collection ----
-
-    private async Task<EdgeRow?> CollectAsync(ResourceInstance instance, CancellationToken cancellationToken)
-    {
-        if (instance.IsSymbolic || instance.IsIgnored)
-        {
-            return null;
-        }
-
-        var specs = instance.Definition.Relationships.Where(s => EdgeKinds.TryFromRelationship(s.Kind, out _)).ToList();
-        if (specs.Count == 0)
-        {
-            return null;
-        }
-
-        bool declaresAny = instance.Declaration.Properties is JsonObject raw && specs.Any(s => PropertyCopyBlock.Declares(raw, s.Property));
-        if (!declaresAny)
-        {
-            return null;
-        }
-
-        var row = new EdgeRow(instance) { SelfId = GraphIdOf(instance) };
-        var evaluated = new JsonObject();
-        try
-        {
-            evaluated = Evaluate(instance);
-        }
-        catch (ExpressionException ex)
-        {
-            row.Errors.Add($"{instance.Describe()}: {ex.MessageWithOffset}");
-        }
-
-        foreach (var spec in specs)
-        {
-            EdgeKinds.TryFromRelationship(spec.Kind, out var kind);
-            bool declared = JsonObjects.TryGetIgnoreCase(evaluated, spec.Property, out var value);
-            if (!declared)
-            {
-                continue;
-            }
-
-            if (!_kinds.TryGet(kind, out var handler))
-            {
-                _diagnostics.Add(Diagnostic.Warning(EngineDiagnosticCodes.EdgeKindNotSupported, $"{instance.Describe()}: properties.{spec.Property} ({kind}) is not applied by this version of the executor; the property was ignored.", instance.Declaration.Path.Append("properties").Append(spec.Property)));
-                continue;
-            }
-
-            var property = new EdgePropertyPlan(spec, handler, isDeclared: true);
-            row.Properties[spec.Property] = property;
-
-            var basePath = JsonPath.Of("properties", spec.Property);
-            if (handler.IsSingleValued)
-            {
-                var declaration = new EdgeDeclaration(instance, spec, kind, -1, basePath) { SelfId = row.SelfId };
-                var item = await handler.ResolveItemAsync(value, declaration.Side, instance, instance.Api, _context, cancellationToken).ConfigureAwait(false);
-                if (Apply(declaration, item, row, property))
-                {
-                    property.Declarations.Add(declaration);
-                }
-
-                continue;
-            }
-
-            if (EdgeReads.IsNull(value))
-            {
-                // null ≡ absent: the property is not declared this run.
-                property.IsDeclared = false;
-                continue;
-            }
-
-            if (UnknownJson.IsUnknown(value, out var unknownArray))
-            {
-                property.HasUnknown = true;
-                property.Declarations.Add(new EdgeDeclaration(instance, spec, kind, 0, basePath) { SelfId = row.SelfId, IsUnknown = true, Symbol = unknownArray.Symbol });
-                continue;
-            }
-
-            if (value is not JsonArray array)
-            {
-                row.Errors.Add($"{instance.Describe()}: properties.{spec.Property} must be an array of object ids, got {JsonValues.Describe(value)}.");
-                property.IsDeclared = false;
-                continue;
-            }
-
-            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            for (int i = 0; i < array.Count; i++)
-            {
-                var declaration = new EdgeDeclaration(instance, spec, kind, i, basePath.Append(i)) { SelfId = row.SelfId };
-                var item = await handler.ResolveItemAsync(array[i], declaration.Side, instance, instance.Api, _context, cancellationToken).ConfigureAwait(false);
-                if (!Apply(declaration, item, row, property))
-                {
-                    continue;
-                }
-
-                if (declaration.OtherId is not null && !seen.Add(Edge.NormalizeId(declaration.OtherId)))
-                {
-                    // The same id twice in one array: one edge.
-                    continue;
-                }
-
-                property.Declarations.Add(declaration);
-            }
-        }
-
-        return row;
-    }
-
-    private static bool Apply(EdgeDeclaration declaration, EdgeItem item, EdgeRow row, EdgePropertyPlan property)
-    {
-        if (item.Error is not null)
-        {
-            row.Errors.Add($"{declaration.Describe()}: {item.Error}");
-            return false;
-        }
-
-        declaration.OtherId = item.OtherId;
-        declaration.TargetCollection = item.TargetCollection;
-        declaration.Extra = item.Extra;
-        declaration.IsUnknown = item.IsUnknown;
-        declaration.Symbol = item.Symbol;
-        declaration.IsClear = item.IsClear;
-        if (item.IsUnknown)
-        {
-            property.HasUnknown = true;
-        }
-
-        return true;
-    }
-
-    /// <summary>Evaluates <c>properties</c> against the live resolver and keeps the relationship subset on the instance.</summary>
-    private JsonObject Evaluate(ResourceInstance instance)
-    {
-        var evaluated = _plan.Evaluator.EvaluateTree(instance.Declaration.Properties, instance.Context) as JsonObject ?? new JsonObject();
-        var edges = new JsonObject();
-        foreach (var property in evaluated.ToList())
-        {
-            if (instance.Definition.IsRelationshipProperty(property.Key))
-            {
-                evaluated.Remove(property.Key);
-                edges[property.Key] = property.Value;
-            }
-        }
-
-        instance.EdgeProperties = (JsonObject)JsonValues.Clone(edges)!;
-        return edges;
-    }
-
-    private string? GraphIdOf(ResourceInstance instance)
-    {
-        if (_plan.Resolver.TryGetGraphId(instance.Id, out var graphId) || _plan.Resolver.TryGetGraphId(instance.PlannedId, out graphId))
-        {
-            return graphId;
-        }
-
-        return null;
-    }
-
     // ---- authoritative sets (target side) ----
 
-    private sealed class DesiredPrincipal
-    {
-        public DesiredPrincipal(string id)
-        {
-            Id = id;
-        }
-
-        public string Id { get; }
-
-        public List<EdgeDeclaration> Declarations { get; } = [];
-    }
-
-    private sealed class AuthoritativeSet
-    {
-        public AuthoritativeSet(EdgeRow row, EdgePropertyPlan property, string targetId, string? collection)
-        {
-            Row = row;
-            Property = property;
-            TargetId = targetId;
-            Collection = collection;
-        }
-
-        public EdgeRow Row { get; }
-
-        public EdgePropertyPlan Property { get; }
-
-        public IEdgeKindHandler Handler => Property.Handler;
-
-        public string TargetId { get; }
-
-        public string? Collection { get; }
-
-        /// <summary>Desired principals by normalised id: declared on the target, or on principals naming this target.</summary>
-        public Dictionary<string, DesiredPrincipal> Desired { get; } = new(StringComparer.OrdinalIgnoreCase);
-
-        public void Add(string principalId, EdgeDeclaration declaration)
-        {
-            string key = Edge.NormalizeId(principalId);
-            if (!Desired.TryGetValue(key, out var desired))
-            {
-                desired = new DesiredPrincipal(principalId);
-                Desired[key] = desired;
-            }
-
-            desired.Declarations.Add(declaration);
-        }
-    }
-
-    private static string SetKey(EdgeKind kind, string targetId)
-    {
-        return kind + "|" + Edge.NormalizeId(targetId);
-    }
-
-    private static Dictionary<string, AuthoritativeSet> BuildAuthoritativeSets(List<EdgeRow> rows)
-    {
-        var sets = new Dictionary<string, AuthoritativeSet>(StringComparer.Ordinal);
-        foreach (var row in rows)
-        {
-            if (row.SelfId is null)
-            {
-                continue;
-            }
-
-            foreach (var property in row.Properties.Values)
-            {
-                if (property.Spec.Side != RelationshipSide.Target || !property.IsDeclared || property.Handler.IsSingleValued)
-                {
-                    continue;
-                }
-
-                string? collection = property.Declarations.FirstOrDefault(d => d.TargetCollection is not null)?.TargetCollection ?? EdgeGraphContext.CollectionOf(row.Declarer.Type);
-                var set = new AuthoritativeSet(row, property, row.SelfId, collection);
-                sets[SetKey(property.Handler.Kind, row.SelfId)] = set;
-                foreach (var declaration in property.Declarations)
-                {
-                    if (declaration.OtherId is not null)
-                    {
-                        set.Add(declaration.OtherId, declaration);
-                    }
-                }
-            }
-        }
-
-        // Principal-side declarations naming an authoritative target are merged into its set (de-duplication across sides).
-        foreach (var row in rows)
-        {
-            foreach (var property in row.Properties.Values)
-            {
-                if (property.Spec.Side != RelationshipSide.Principal || !property.IsDeclared || property.Handler.IsSingleValued)
-                {
-                    continue;
-                }
-
-                foreach (var declaration in property.Declarations)
-                {
-                    if (declaration.OtherId is null || row.SelfId is null || !sets.TryGetValue(SetKey(property.Handler.Kind, declaration.OtherId), out var set))
-                    {
-                        continue;
-                    }
-
-                    declaration.GovernedByTarget = true;
-                    set.Add(row.SelfId, declaration);
-                }
-            }
-        }
-
-        return sets;
-    }
-
-    private async Task PlanAuthoritativeAsync(AuthoritativeSet set, CancellationToken cancellationToken)
+    private async Task PlanAuthoritativeAsync(AuthoritativeEdgeSet set, CancellationToken cancellationToken)
     {
         var handler = set.Handler;
         var api = set.Row.Declarer.Api;
-        var state = await ReadTargetAsync(handler, set.TargetId, set.Collection, includeEdges: true, api, cancellationToken).ConfigureAwait(false);
+        var state = await _states.ReadTargetAsync(handler, set.TargetId, set.Collection, includeEdges: true, api, cancellationToken).ConfigureAwait(false);
         if (!state.Exists)
         {
             string message = $"{set.Row.Declarer.Describe()}: the live object ({set.TargetId}) could not be read to reconcile properties.{set.Property.Name}.";
@@ -473,7 +208,7 @@ public sealed class EdgePlanner
     }
 
     /// <summary>The description of a declared resource that did not apply and that has a principal-side property of the set's kind in its declaration; <c>null</c> when none could contribute.</summary>
-    private string? UnreliableContributor(AuthoritativeSet set)
+    private string? UnreliableContributor(AuthoritativeEdgeSet set)
     {
         foreach (var instance in _unreliableDeclarers)
         {
@@ -546,13 +281,13 @@ public sealed class EdgePlanner
                 continue;
             }
 
-            principal ??= await ReadPrincipalAsync(handler, row.SelfId, row.Declarer.Type, api, cancellationToken).ConfigureAwait(false);
+            principal ??= await _states.ReadPrincipalAsync(handler, row.SelfId, row.Declarer.Type, api, cancellationToken).ConfigureAwait(false);
             if (principal.Edges.ContainsKey(Edge.NormalizeId(declaration.OtherId!)))
             {
                 continue;
             }
 
-            var target = await ReadTargetAsync(handler, declaration.OtherId!, declaration.TargetCollection, includeEdges: false, api, cancellationToken).ConfigureAwait(false);
+            var target = await _states.ReadTargetAsync(handler, declaration.OtherId!, declaration.TargetCollection, includeEdges: false, api, cancellationToken).ConfigureAwait(false);
             if (!target.Exists)
             {
                 row.Errors.Add($"{declaration.Describe()}: '{declaration.OtherId}' does not exist or is not a {Noun(handler.Kind)}.");
@@ -602,7 +337,7 @@ public sealed class EdgePlanner
             return;
         }
 
-        var principal = await ReadPrincipalAsync(handler, row.SelfId, row.Declarer.Type, api, cancellationToken).ConfigureAwait(false);
+        var principal = await _states.ReadPrincipalAsync(handler, row.SelfId, row.Declarer.Type, api, cancellationToken).ConfigureAwait(false);
         if (principal.SkipReason is not null)
         {
             SkipProperty(row, property, EngineDiagnosticCodes.ManagerReadForbidden, $"{row.Declarer.Describe()}: {principal.SkipReason}");
@@ -632,7 +367,7 @@ public sealed class EdgePlanner
             return;
         }
 
-        var target = await ReadTargetAsync(handler, declaration.OtherId!, null, includeEdges: false, api, cancellationToken).ConfigureAwait(false);
+        var target = await _states.ReadTargetAsync(handler, declaration.OtherId!, null, includeEdges: false, api, cancellationToken).ConfigureAwait(false);
         if (!target.Exists)
         {
             row.Errors.Add($"{declaration.Describe()}: '{declaration.OtherId}' does not exist or is not a user.");
@@ -727,32 +462,6 @@ public sealed class EdgePlanner
         operation.Warning = message;
         row.Warnings.Add(message);
         _diagnostics.Add(Diagnostic.Warning(EngineDiagnosticCodes.SignedInPrincipalRemoved, message));
-    }
-
-    private async Task<EdgeTargetState> ReadTargetAsync(IEdgeKindHandler handler, string targetId, string? collectionHint, bool includeEdges, GraphApi api, CancellationToken cancellationToken)
-    {
-        string key = handler.Kind + "|" + Edge.NormalizeId(targetId);
-        if (_targets.TryGetValue(key, out var cached) && (!includeEdges || cached.Edges is not null || !cached.Exists))
-        {
-            return cached;
-        }
-
-        var state = await handler.ReadTargetAsync(targetId, collectionHint, includeEdges, api, _context, cancellationToken).ConfigureAwait(false);
-        _targets[key] = state;
-        return state;
-    }
-
-    private async Task<EdgePrincipalState> ReadPrincipalAsync(IEdgeKindHandler handler, string principalId, string principalType, GraphApi api, CancellationToken cancellationToken)
-    {
-        string key = handler.Kind + "|" + Edge.NormalizeId(principalId);
-        if (_principals.TryGetValue(key, out var cached))
-        {
-            return cached;
-        }
-
-        var state = await handler.ReadPrincipalAsync(principalId, principalType, api, _context, cancellationToken).ConfigureAwait(false);
-        _principals[key] = state;
-        return state;
     }
 
     private void FinishRow(EdgeRow row)
