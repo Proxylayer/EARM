@@ -2,6 +2,7 @@ using System;
 using System.CommandLine;
 using System.CommandLine.Help;
 using System.CommandLine.Invocation;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -59,6 +60,10 @@ internal static class Program
 
         // The registry of secret values is created before the try block so a failure reported below still scrubs what the run learned.
         using var secrets = SecretScrubber.Begin();
+
+        // -o jsonc|yaml|yamlc|tsv and --query: the verb writes its JSON document into this buffer, rendered onto the real output at the end.
+        StructuredOutput? structured = null;
+        StringWriter? captured = null;
         try
         {
             var parseResult = (rootFactory?.Invoke() ?? BuildRootCommand()).Parse(args, CreateParserConfiguration());
@@ -75,6 +80,17 @@ internal static class Program
 
                 // A usage error: the message goes to standard error already; the help that follows it must not pollute standard output.
                 configuration.Output = error;
+            }
+            else if (GlobalOptions.IsQueryOnTable(parseResult))
+            {
+                error.WriteLine("--query needs a document output format: -o json, jsonc, yaml, yamlc or tsv (the table output is text).");
+                return ExitCodes.Failure;
+            }
+            else if (GlobalOptions.GetStructuredOutput(parseResult) is { } rendering)
+            {
+                structured = rendering;
+                captured = new StringWriter(CultureInfo.InvariantCulture);
+                configuration.Output = captured;
             }
 
             using var run = EvaluationBudget.BeginRun(GlobalOptions.GetEvaluationLimits(parseResult));
@@ -97,10 +113,29 @@ internal static class Program
         }
         finally
         {
+            if (structured is not null && captured is not null)
+            {
+                RenderCaptured(structured, captured.ToString(), output, error, debug);
+            }
+
             configuration.Output = rawOutput;
             configuration.Error = rawError;
             output.Flush();
             error.Flush();
+        }
+    }
+
+    /// <summary>Writes what a verb wrote for <c>-o jsonc|yaml|yamlc|tsv</c> / <c>--query</c>; a failure to render is reported like any unexpected error.</summary>
+    private static void RenderCaptured(StructuredOutput structured, string text, TextWriter output, TextWriter error, bool debug)
+    {
+        try
+        {
+            structured.Write(text, output, error, WhatIfWriter.UseColors(output));
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            output.Write(text);
+            ReportUnexpected(ex, error, debug);
         }
     }
 
@@ -198,6 +233,7 @@ internal static class Program
         });
 
         root.Options.Add(GlobalOptions.Output);
+        root.Options.Add(GlobalOptions.Query);
         root.Options.Add(GlobalOptions.Auth);
         root.Options.Add(GlobalOptions.Tenant);
         root.Options.Add(GlobalOptions.ClientId);

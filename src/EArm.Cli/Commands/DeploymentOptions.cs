@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.CommandLine;
 using System.IO;
+using System.Linq;
 using EArm.Graph;
 using EArm.Cli.Hosting;
 using EArm.Engine.Planning;
@@ -31,6 +32,12 @@ internal sealed record DeploymentInvocation
     // what-if
     public ResultFormat ResultFormat { get; init; } = ResultFormat.FullResourcePayloads;
 
+    /// <summary><c>--exclude-change-types</c> / <c>--what-if-exclude-change-types</c>: change types the what-if does not show (never what is deployed).</summary>
+    public IReadOnlySet<WhatIfChangeType> ExcludeChangeTypes { get; init; } = new HashSet<WhatIfChangeType>();
+
+    /// <summary><c>--no-prompt</c>: never ask for the value of a parameter that has none (the run then fails with <c>MissingParameterValue</c>).</summary>
+    public bool NoPrompt { get; init; }
+
     public bool ExitCodeOnChanges { get; init; }
 
     public bool NoPrettyPrint { get; init; }
@@ -39,6 +46,9 @@ internal sealed record DeploymentInvocation
     public bool WhatIf { get; init; }
 
     public bool ConfirmWithWhatIf { get; init; }
+
+    /// <summary><c>--proceed-if-no-change</c>: with <c>-c</c>, deploy without asking when the what-if shows no change.</summary>
+    public bool ProceedIfNoChange { get; init; }
 
     public bool Yes { get; init; }
 
@@ -80,18 +90,17 @@ internal sealed record DeploymentInvocation
 /// </summary>
 internal sealed class DeploymentOptions
 {
+    // The what-if result format and exclusion options of the command built (what-if and create name them differently, as the Azure CLI does).
+    private Option<string>? _resultFormat;
+    private Option<string[]>? _exclude;
+
     public Option<string> TemplateFile { get; } = new("--template-file", "-f")
     {
         Description = "Path to the template (*.entra.json).",
         Required = true,
     };
 
-    public Option<string[]> Parameters { get; } = new("--parameters", "-p")
-    {
-        Description = "Parameter values: @file.json (ARM deploymentParameters shape) or name=value. Repeatable; later values win.",
-        AllowMultipleArgumentsPerToken = false,
-        DefaultValueFactory = _ => [],
-    };
+    public Option<string[]> Parameters { get; } = ParameterArguments.CreateOption();
 
     public Option<string?> Name { get; } = new("--name", "-n")
     {
@@ -114,8 +123,12 @@ internal sealed class DeploymentOptions
         Description = "When the signed-in user must consent to a delegated scope this run needs, prompt with the device-code flow instead of a browser (interactive terminals only).",
     };
 
+    public Option<bool> NoPrompt { get; } = CreateNoPrompt();
+
     // what-if
-    public Option<string> ResultFormat { get; } = CreateChoice("--result-format", "What-if detail: FullResourcePayloads (default) or ResourceIdOnly.", "FullResourcePayloads", "FullResourcePayloads", "ResourceIdOnly");
+    public Option<string> ResultFormat { get; } = CreateResultFormat("--result-format", "-r");
+
+    public Option<string[]> ExcludeChangeTypes { get; } = CreateExcludeChangeTypes("--exclude-change-types", ["-x"], "Space-separated change types the what-if does not show (Create, Delete, Deploy, Ignore, Modify, NoChange, Unsupported); they are still deployed.");
 
     public Option<bool> ExitCodeOnChanges { get; } = new("--exit-code-on-changes")
     {
@@ -128,9 +141,18 @@ internal sealed class DeploymentOptions
     };
 
     // create
-    public Option<bool> WhatIf { get; } = new("--what-if")
+    public Option<bool> WhatIf { get; } = new("--what-if", "-w")
     {
         Description = "Show what the deployment would do and exit without applying anything.",
+    };
+
+    public Option<string> WhatIfResultFormat { get; } = CreateResultFormat("--what-if-result-format", "-r", "--result-format");
+
+    public Option<string[]> WhatIfExcludeChangeTypes { get; } = CreateExcludeChangeTypes("--what-if-exclude-change-types", ["-x", "--exclude-change-types"], "Space-separated change types the what-if of --what-if / -c does not show (Create, Delete, Deploy, Ignore, Modify, NoChange, Unsupported); they are still deployed.");
+
+    public Option<bool> ProceedIfNoChange { get; } = new("--proceed-if-no-change")
+    {
+        Description = "With --confirm-with-what-if: deploy without asking when the what-if shows no change (only NoChange and Ignore rows, after --what-if-exclude-change-types).",
     };
 
     public Option<bool> ConfirmWithWhatIf { get; } = new("--confirm-with-what-if", "-c")
@@ -169,14 +191,18 @@ internal sealed class DeploymentOptions
         command.Options.Add(AllowCaEnforce);
         command.Options.Add(OnSoftDeletedConflict);
         command.Options.Add(DeviceCode);
+        command.Options.Add(NoPrompt);
     }
 
     public void AddWhatIf(Command command)
     {
         ArgumentNullException.ThrowIfNull(command);
         command.Options.Add(ResultFormat);
+        command.Options.Add(ExcludeChangeTypes);
         command.Options.Add(ExitCodeOnChanges);
         command.Options.Add(NoPrettyPrint);
+        _resultFormat = ResultFormat;
+        _exclude = ExcludeChangeTypes;
     }
 
     public void AddCreate(Command command)
@@ -184,13 +210,17 @@ internal sealed class DeploymentOptions
         ArgumentNullException.ThrowIfNull(command);
         command.Options.Add(WhatIf);
         command.Options.Add(ConfirmWithWhatIf);
+        command.Options.Add(ProceedIfNoChange);
         command.Options.Add(Yes);
         command.Options.Add(ContinueOnError);
         command.Options.Add(RevealSecureOutputs);
         command.Options.Add(SecureOutputsFile);
-        command.Options.Add(ResultFormat);
+        command.Options.Add(WhatIfResultFormat);
+        command.Options.Add(WhatIfExcludeChangeTypes);
         command.Options.Add(ExitCodeOnChanges);
         command.Options.Add(NoPrettyPrint);
+        _resultFormat = WhatIfResultFormat;
+        _exclude = WhatIfExcludeChangeTypes;
     }
 
     public DeploymentInvocation Read(ParseResult parseResult)
@@ -206,7 +236,10 @@ internal sealed class DeploymentOptions
             Parallelism = parallelism,
             AllowCaEnforce = parseResult.GetValue(AllowCaEnforce),
             OnSoftDeletedConflict = Enum.Parse<SoftDeletedConflict>(parseResult.GetValue(OnSoftDeletedConflict) ?? "error", ignoreCase: true),
-            ResultFormat = Enum.Parse<ResultFormat>(parseResult.GetValue(ResultFormat) ?? "FullResourcePayloads", ignoreCase: true),
+            ResultFormat = Enum.Parse<ResultFormat>((_resultFormat is null ? null : parseResult.GetValue(_resultFormat)) ?? "FullResourcePayloads", ignoreCase: true),
+            ExcludeChangeTypes = ParseChangeTypes(_exclude is null ? null : parseResult.GetValue(_exclude)),
+            NoPrompt = parseResult.GetValue(NoPrompt),
+            ProceedIfNoChange = parseResult.GetResult(ProceedIfNoChange) is not null && parseResult.GetValue(ProceedIfNoChange),
             ExitCodeOnChanges = parseResult.GetValue(ExitCodeOnChanges),
             NoPrettyPrint = parseResult.GetValue(NoPrettyPrint),
             WhatIf = parseResult.GetValue(WhatIf),
@@ -220,6 +253,56 @@ internal sealed class DeploymentOptions
             LogLevel = GlobalOptions.GetLogLevel(parseResult),
             DeviceCode = parseResult.GetValue(DeviceCode),
         };
+    }
+
+    /// <summary>
+    /// <c>--no-prompt</c> (as the Azure CLI: a flag, or <c>--no-prompt true|false</c>): never ask on the console for the value of a parameter that has none.
+    /// </summary>
+    public static Option<bool> CreateNoPrompt()
+    {
+        return new Option<bool>("--no-prompt")
+        {
+            Description = "Do not ask for the value of a parameter that has none (an interactive run asks otherwise); the run then fails with MissingParameterValue. Accepts true or false.",
+            Arity = ArgumentArity.ZeroOrOne,
+        };
+    }
+
+    private static Option<string> CreateResultFormat(string name, params string[] aliases)
+    {
+        var option = new Option<string>(name, aliases)
+        {
+            Description = "What-if detail: FullResourcePayloads (default) or ResourceIdOnly (resource ids only; an existing declared resource is reported as Deploy).",
+            DefaultValueFactory = _ => "FullResourcePayloads",
+        };
+        option.AcceptOnlyFromAmongIgnoreCase("FullResourcePayloads", "ResourceIdOnly");
+        return option;
+    }
+
+    private static Option<string[]> CreateExcludeChangeTypes(string name, string[] aliases, string description)
+    {
+        var option = new Option<string[]>(name, aliases)
+        {
+            Description = description,
+            AllowMultipleArgumentsPerToken = true,
+            Arity = ArgumentArity.OneOrMore,
+            DefaultValueFactory = _ => [],
+        };
+        option.AcceptOnlyFromAmongIgnoreCase(Enum.GetNames<WhatIfChangeType>());
+        return option;
+    }
+
+    private static HashSet<WhatIfChangeType> ParseChangeTypes(string[]? values)
+    {
+        var set = new HashSet<WhatIfChangeType>();
+        foreach (var value in values ?? [])
+        {
+            if (WhatIfView.TryParseChangeType(value, out var type))
+            {
+                set.Add(type);
+            }
+        }
+
+        return set;
     }
 
     /// <summary>An integer option with a lower bound: a value below it is a usage error (a negative <c>--parallelism</c> used to be clamped silently).</summary>

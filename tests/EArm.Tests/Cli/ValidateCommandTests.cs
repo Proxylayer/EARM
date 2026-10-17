@@ -66,7 +66,7 @@ public sealed class ValidateCommandTests
     [Fact]
     public async Task Validate_WithAnUnknownOutputFormat_FailsWithExitCodeOne()
     {
-        var result = await CliRunner.RunAsync("deployment", "validate", "-f", NestedSample, "-o", "yaml");
+        var result = await CliRunner.RunAsync("deployment", "validate", "-f", NestedSample, "-o", "xml");
 
         Assert.Equal(1, result.ExitCode);
         Assert.NotEqual(string.Empty, result.StandardError);
@@ -251,10 +251,16 @@ public sealed class ValidateCommandTests
         Assert.All(result.Diagnostics, d => Assert.Equal("MissingParameterValue", Code(d)));
     }
 
-    [Fact]
-    public void BuildParameterSet_AppliesFilesThenInlineOverrides()
+    private static async Task<(ParameterSet Set, string? File)> BuildAsync(params string[] tokens)
     {
-        var set = ValidateCommand.BuildParameterSet(["@" + SampleParameters, "env=dev", "", "extra=1"], out var parameterFile);
+        var result = await ParameterArguments.BuildAsync(tokens, TestContext.Current.CancellationToken);
+        return (result.Parameters, result.ParameterFile);
+    }
+
+    [Fact]
+    public async Task BuildParameterSet_AppliesFilesThenInlineOverrides()
+    {
+        var (set, parameterFile) = await BuildAsync("@" + SampleParameters, "env=dev", "", "extra=1");
 
         Assert.Equal(SampleParameters, parameterFile);
         Assert.Equal(3, set.Values.Count);
@@ -262,19 +268,20 @@ public sealed class ValidateCommandTests
         Assert.True(set.Values["env"].IsInline);
         Assert.True(set.Values["initialPassword"].IsKeyVaultReference);
 
-        Assert.Throws<ArgumentException>(() => ValidateCommand.BuildParameterSet(["notatoken"], out _));
-        Assert.Throws<TemplateLoadException>(() => ValidateCommand.BuildParameterSet(["@" + TestPaths.Sample("missing.json")], out _));
-        Assert.Null(ValidateCommand.BuildParameterSet([], out var none).SourcePath);
+        await Assert.ThrowsAsync<ArgumentException>(() => BuildAsync("notatoken"));
+        await Assert.ThrowsAsync<TemplateLoadException>(() => BuildAsync("@" + TestPaths.Sample("missing.json")));
+        var (empty, none) = await BuildAsync();
+        Assert.Null(empty.SourcePath);
         Assert.Null(none);
     }
 
     [Fact]
-    public void BuildParameterSet_IsOrderBased_ALaterParameterFileOverridesAnEarlierInlineValue()
+    public async Task BuildParameterSet_IsOrderBased_ALaterParameterFileOverridesAnEarlierInlineValue()
     {
         // az deployment group create --parameters: "Parameters are evaluated in order, so when a value is assigned twice, the latter value will be used."
-        var fileLast = ValidateCommand.BuildParameterSet(["env=dev", "@" + SampleParameters], out _);
-        var inlineLast = ValidateCommand.BuildParameterSet(["@" + SampleParameters, "env=dev"], out _);
-        var inlineTwice = ValidateCommand.BuildParameterSet(["env=dev", "env=test"], out _);
+        var (fileLast, _) = await BuildAsync("env=dev", "@" + SampleParameters);
+        var (inlineLast, _) = await BuildAsync("@" + SampleParameters, "env=dev");
+        var (inlineTwice, _) = await BuildAsync("env=dev", "env=test");
 
         Assert.False(fileLast.Values["env"].IsInline);
         Assert.Equal("prod", fileLast.Values["env"].Value!.GetValue<string>());

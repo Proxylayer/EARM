@@ -37,12 +37,7 @@ internal static class PermissionsCommand
             Required = true,
         };
 
-        var parameters = new Option<string[]>("--parameters", "-p")
-        {
-            Description = "Parameter values: @file.json (ARM deploymentParameters shape) or name=value. Repeatable; later values win. Values decide copy counts and conditions.",
-            AllowMultipleArgumentsPerToken = false,
-            DefaultValueFactory = _ => [],
-        };
+        var parameters = ParameterArguments.CreateOption();
 
         var mode = new Option<string>("--mode")
         {

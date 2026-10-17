@@ -297,7 +297,7 @@ public sealed class ReviewFixesCliTests
 
     [Theory]
     [InlineData("--mode", "sometimes")]
-    [InlineData("-o", "yaml")]
+    [InlineData("-o", "xml")]
     public async Task ChoiceOptions_StillRejectAnUnknownValue(string option, string value)
     {
         using var sandbox = new CliSandbox(nameof(ChoiceOptions_StillRejectAnUnknownValue));

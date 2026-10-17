@@ -29,10 +29,10 @@ namespace EArm.Cli.Output;
 internal sealed class ConsoleSanitizer : TextWriter
 {
     /// <summary>
-    /// The only escape sequences passed through: the colour codes the what-if text writes itself (set a foreground colour or bold red, reset).
-    /// They can only recolour text; any other sequence, including every sequence that came from a template, is shown escaped.
+    /// The only escape sequences passed through: the colour codes the what-if text and <c>-o jsonc</c> / <c>yamlc</c> write themselves (set a foreground
+    /// colour or bold red, reset). They can only recolour text; any other sequence, including every sequence that came from a template, is shown escaped.
     /// </summary>
-    private static readonly string[] AllowedSequences = ["\u001b[0m", "\u001b[31m", "\u001b[32m", "\u001b[35m", "\u001b[36m", "\u001b[90m", "\u001b[1;31m"];
+    private static readonly string[] AllowedSequences = ["\u001b[0m", "\u001b[31m", "\u001b[32m", "\u001b[34m", "\u001b[35m", "\u001b[36m", "\u001b[90m", "\u001b[1;31m"];
 
     private readonly object _gate = new();
     private readonly TextWriter _inner;

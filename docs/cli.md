@@ -27,7 +27,8 @@ Valid on every verb (recursive).
 
 | Option | Meaning |
 |---|---|
-| `-o`, `--output table\|json\|none` | Output format. Default `table`. `none` prints nothing (useful with `--exit-code-on-changes`). |
+| `-o`, `--output table\|json\|jsonc\|yaml\|yamlc\|tsv\|none` | Output format. Default `table` (the Azure CLI defaults to `json`; EARM keeps the human table, see [Document formats and `--query`](#document-formats-and---query)). `json` is the verb's one JSON document; `jsonc` and `yamlc` are coloured JSON and YAML (plain on a redirected output or with `NO_COLOR`), `yaml` the same document as YAML, `tsv` tab-separated values. `none` prints nothing (useful with `--exit-code-on-changes`). |
+| `--query <JMESPath>` | A [JMESPath](https://jmespath.org) query applied to the verb's JSON document before it is printed, as the Azure CLI's `--query`. Without `-o` it selects `-o json`; with an explicit `-o table` it is a usage error (exit 1). An invalid expression is a usage error. |
 | `--auth auto\|default\|interactive` | How tokens are obtained. Default: `EARM_AUTH`, then `auto` (a cached `earm auth login` sign-in when there is one, else the default credential chain). |
 | `--tenant <id\|domain>` | Tenant to sign in to. Default: `EARM_TENANT_ID`. |
 | `--client-id <guid>` | Public-client app the interactive sign-in uses. Default: `EARM_CLIENT_ID`, then the client of the stored sign-in, then Microsoft Graph Command Line Tools (`14d82eec-204b-4c2f-b7e8-296a70dab67e`; none in the `china` cloud, where `earm auth login` requires `--client-id`). |
@@ -51,6 +52,26 @@ Environment: `EARM_AUTH`, `EARM_TENANT_ID`, `EARM_CLIENT_ID`, `EARM_EVALUATION_T
 Code four is retired: it meant a locked local state, and EARM keeps no local state. It is not reused, so the other codes keep their meaning.
 
 ## Output, errors and prompts
+
+### Document formats and `--query`
+
+Every verb's machine-readable result is one JSON document (`-o json`). The other document formats are renderings of that same document, after
+`--query` when one is given:
+
+| `-o` | Output |
+|---|---|
+| `json` | The document as the verb writes it (compact with `--no-pretty-print`). With `--query`, the query result, indented with two spaces (on one line when the verb wrote one line). |
+| `jsonc` | As `json`, with keys, strings and literals coloured on a terminal; plain JSON when standard output is redirected or `NO_COLOR` / `AZURE_CORE_NO_COLOR` is set. |
+| `yaml` | The document in YAML block style (`key: value`, `- item`), as the Azure CLI writes it, except that keys keep the document order (the Azure CLI sorts them). Strings are quoted whenever they could be read back as another type. |
+| `yamlc` | As `yaml`, coloured on a terminal. |
+| `tsv` | Tab-separated values with the Azure CLI's rules: an array is one row per item, anything else one row; an object row holds its values ordered by key; inside a row a nested array is its length and a nested object an empty cell; `null` is `None` and booleans `True` / `False`. Pick the columns with `--query`, for example `--query "changes[].[changeType, resourceId]" -o tsv`. |
+
+`--query` takes a JMESPath expression (evaluated by JmesPath.Net) and applies it to the document of every verb, failures included (`--query diagnostics[0].code`).
+A query that selects nothing prints nothing. Output that is not a JSON document (`--help`, `--version`) is printed unchanged, with a note on standard error
+when `--query` was given. Exit codes never depend on the query or the format.
+
+**Default output.** The Azure CLI prints `json` unless told otherwise; EARM prints `table` (the human what-if, the deployment summary) because its
+users read the preview before they deploy. Scripts should always pass `-o json` (or another document format); `--query` alone implies `-o json`.
 
 - **Standard output** carries the result of the verb (`-o json` is one JSON document); **standard error** carries messages, logs, usage errors
   **and the help that follows a usage error**, and the confirmation prompts (`Are you sure ...? (y/n):`), so `-o json` output can always be parsed.
@@ -111,7 +132,7 @@ Unattended runs (CI, scheduled jobs) do not sign in as a user at all: use a serv
 |---|---|
 | `--scopes <list>` | Extra delegated scopes, space- or comma-separated: Microsoft Graph names (`Group.ReadWrite.All`), Graph scopes qualified with the cloud's Graph origin, or the Key Vault scope (`https://vault.azure.net/user_impersonation`). |
 | `-f`, `--template-file <template>` | Consent the scopes one run of the template requests (the set `earm permissions -f <template> --verb <verb>` lists), computed offline. When the template has Key Vault parameter references, a second interactive request consents `https://<vault suffix>/user_impersonation` as the same account. |
-| `-p`, `--parameters <value>` | Parameter values of `-f`, as for the deployment verbs (`@file.json` or `name=value`; they decide copy counts and conditions). |
+| `-p`, `--parameters <value>` | Parameter values of `-f`, as for the deployment verbs (every form of the deployment verbs, several per `-p`; they decide copy counts and conditions). |
 | `--verb create\|whatif\|delete` | Which run of `-f` to consent for. Default `create`. |
 
 `--scopes` and `-f` combine (union, plus the base set). An unloadable template exits 1, a template with validation errors 2, as `earm permissions` does.
@@ -198,14 +219,21 @@ PowerShell are no longer prerequisites (PowerShell remains only for the reposito
 | Option | Meaning |
 |---|---|
 | `-f`, `--template-file <path>` | The template (`*.entra.json`). Required. |
-| `-p`, `--parameters <…>` | Repeatable, **one value per `-p`** (on every command that takes it: a stray token such as `-p @f.json -n x` is a usage error naming the unknown option instead of being swallowed as another value). `@file.json` loads a parameter file ([format.md](format.md#parameters-and-parameter-files)); `name=value` sets one value. In PowerShell write the file form in single quotes, `-p '@file.json'`: a bare `@` there is the splatting operator and a parse error. Values are applied **in command-line order** and a later value wins, whichever form it has (as `az deployment group create --parameters`): in `-p '@f.json' -p env=dev` the inline value overrides the file, in `-p env=dev -p '@f.json'` the file's `env` overrides it. Put the parameter file first and override selectively with `name=value`. A parameter no `-p` sets falls back to its `defaultValue`. |
-| `-o`, `--output table\|json\|none` | Output format (a global option, valid on every verb). Default `table`. `none` prints nothing. |
+| `-p`, `--parameters <…>` | Parameter values in the forms `az deployment … --parameters` accepts. **Several values per `-p`** (`-p '@base.json' env=dev owner=@owner.txt`), and the option repeats; the values of one `-p` end at the next option (`-p '@f.json' -n x` passes `-n` to the command; an unknown option is reported by name). The forms: `@file.json` or a path to an existing file (with or without `@`) loads a parameter file ([format.md](format.md#parameters-and-parameter-files)); `https://…/params.json` downloads one (see below); an inline JSON object, `-p '{"env":{"value":"dev"}}'` (the `deploymentParameters` document or its `parameters` object); `name=value` sets one value; `name=@file` sets one value to the content of a file (UTF-8, used as is; an object or array file for an object or array parameter; a missing file is an error, so a literal value that starts with `@` goes in a parameter file or an inline JSON object). A `.bicepparam` file is refused (`InvalidArgument`): it needs the Bicep compiler; `bicep build-params` turns it into a JSON parameter file. In PowerShell write the file forms in single quotes, `-p '@file.json'`: a bare `@` there is the splatting operator and a parse error. Values are applied **in command-line order** and a later value wins, whichever form it has (as `az deployment group create --parameters`): in `-p '@f.json' env=dev` the inline value overrides the file, in `-p env=dev '@f.json'` the file's `env` overrides it. Put the parameter file first and override selectively with `name=value`. A parameter no `-p` sets falls back to its `defaultValue`. **Download**: HTTPS only (`http://` is refused before anything is sent), no credentials of any kind are sent (a URL with a user name or password is refused), redirects are never followed (a redirect is an error naming its status: use the final URL), the answer is limited to 1 MiB and the request to 120 s, as the Key Vault fetch. A query string (a SAS token) is sent but never shown: messages and the reported parameter file name carry the URL without it. A failed download is `ParameterDownloadFailed` (exit 1). |
+| `--no-prompt [true\|false]` | Never ask for a parameter value. Without it, an **interactive** `what-if` or `create` (standard input and standard error on a terminal) asks for each parameter that has neither a value nor a `defaultValue`, as the Azure CLI does: `Please provide string value for 'env' (? for help):` on standard error (`?` prints the parameter's description and allowed values; a secure parameter is read without echo), and the answer is used as `-p name=value`. With `--no-prompt`, or when nobody can answer (redirected input, a pipeline), the run fails with `MissingParameterValue` (exit 2) as before. `validate` accepts the flag but never asks (a missing value is a warning there). |
+| `-o`, `--output table\|json\|jsonc\|yaml\|yamlc\|tsv\|none` | Output format (a global option, valid on every verb). Default `table`. `none` prints nothing. See [Document formats and `--query`](#document-formats-and---query). |
 
 ### `deployment validate`
 
-`earm deployment validate -f <template> [-p …] [-o table|json]`. There is no `-n`: validate is offline and has no deployment name. Offline: JSON Schema (envelope and per-type property schemas), the type
+`earm deployment validate -f <template> [-p …] [--validation-level Template|Provider|ProviderNoRbac] [--no-prompt] [-o table|json]`. There is no `-n`: validate has no deployment name. By default (`--validation-level Template`) it is offline: JSON Schema (envelope and per-type property schemas), the type
 catalog, semantic checks, expression syntax and static evaluation (names, `dependsOn`, references, outputs, and every expression inside `properties`, which is evaluated far enough to report an undefined variable or parameter and an unknown function). No tenant access. Exit 0 with
-no errors (warnings allowed), 2 with errors, 1 when a file cannot be loaded. Every code is in [diagnostics.md](diagnostics.md). At most 50 diagnostics of one code and severity are listed; the rest are summarised in one line (`suppressedCount` and `suppressed[]` in JSON, the counts stay exact).
+no errors (warnings allowed), 2 with errors, 1 when a file cannot be loaded.
+
+`--validation-level` takes the Azure CLI's values (case-insensitive). `Template` (EARM's default; the Azure CLI defaults to `Provider`) is the offline validation above. `Provider` adds the
+steps of `what-if` up to the plan, once the offline checks pass: sign-in, the preflight with its consent check for the **write** scopes `create` would request,
+Key Vault parameter references and the live read of every declared resource; the plan's findings (warnings, a missing parameter value, a change that cannot be applied
+as planned such as an immutable property) are added to the report. Nothing is written and no what-if is printed. `ProviderNoRbac` is the same with the **read-only** scopes
+of `what-if` (the Azure CLI's "check only read permissions"). The online levels exit 3 when the sign-in or the preflight fails. Every code is in [diagnostics.md](diagnostics.md). At most 50 diagnostics of one code and severity are listed; the rest are summarised in one line (`suppressedCount` and `suppressed[]` in JSON, the counts stay exact).
 
 ### `deployment what-if` and `deployment create`
 
@@ -223,11 +251,15 @@ secrets, named in the error). Outside a deployment run, `auth login` writes its 
 | `--allow-ca-enforce` | both | Apply a Conditional Access policy's declared `state: enabled`. Without it the enforcement is held back (warning `ConditionalAccessEnforcementNotAllowed`, never an error): a new policy is created report-only (`enabledForReportingButNotEnforced`) and an existing policy keeps its live `state` (the other declared properties still update). What-if shows exactly what create will do. Declared `disabled` / report-only need no flag. |
 | `--on-soft-deleted-conflict error\|restore` | both | What to do when a key to create is held by a soft-deleted object: fail with a hint (default), or restore it and continue. Nothing is ever purged. |
 | `--device-code` | both | When the run must ask the signed-in user for a delegated consent (see [Consent](#consent)), prompt with the device-code flow instead of a browser. |
-| `--result-format FullResourcePayloads\|ResourceIdOnly` | both | What-if detail. |
+| `-r`, `--result-format FullResourcePayloads\|ResourceIdOnly` | both | What-if detail. `ResourceIdOnly` lists resource ids only and, as ARM, reports an existing declared resource as `Deploy` (`!`) instead of `Modify` / `NoChange`, see [whatif.md](whatif.md#change-types). On `create` the Azure CLI's name `--what-if-result-format` is accepted too. |
+| `--what-if-result-format FullResourcePayloads\|ResourceIdOnly` | `create` | The Azure CLI's name of `--result-format` on `create` (the format of the `--what-if` / `-c` what-if). |
+| `-x`, `--exclude-change-types <type> …` | both | Change types the what-if does **not show**, space-separated, ARM's names, case-insensitive: `Create`, `Delete`, `Deploy`, `Ignore`, `Modify`, `NoChange`, `Unsupported`. The filter applies to the reported change type (a row that cannot be applied as planned is `Unsupported`; `Deploy` exists only with `ResourceIdOnly`), to the text and the JSON alike; the summary and the edge counts describe the rows shown and the text adds `Not shown: n row(s) of the excluded change types (...); they are still deployed.` It never changes what is deployed: `--exit-code-on-changes` and the replacement confirmation still see every row. On `create` the Azure CLI's name `--what-if-exclude-change-types` is accepted too. |
+| `--what-if-exclude-change-types <type> …` | `create` | The Azure CLI's name of `-x` on `create` (applies to the `--what-if` / `-c` what-if). |
 | `--exit-code-on-changes` | both | `what-if`: exit 5 when the what-if contains a Create, Modify or Delete, or an edge change. `create`: exit 5 when the deployment succeeded and applied at least one of them (a resource created, updated, replaced or deleted, or a relationship entry added or removed); with `-c` too it is the applied run that counts, not the what-if shown before it. A failure exits 1 first; orphan report rows never count. |
 | `--no-pretty-print` | both | Compact JSON for `-o json`. |
-| `--what-if` | `create` | Alias of `deployment what-if`. |
+| `-w`, `--what-if` | `create` | Alias of `deployment what-if`. |
 | `-c`, `--confirm-with-what-if` | `create` | Print the what-if, ask `Are you sure you want to execute the deployment? (y/n):`, then apply the same plan. With `-o json` standard output stays **one** document: the what-if is not printed on its own but embedded in the deployment result as `whatIf` (the what-if document), the prompt shows the what-if as text on standard error, and a declined prompt prints `{ "status": "Failed", "diagnostics": [ { "code": "NotConfirmed", "message": "Deployment not started." } ], "whatIf": {...} }` with `Deployment not started.` on standard error (exit 1). |
+| `--proceed-if-no-change` | `create` | With `-c`: deploy without asking when the what-if shows no change, as the Azure CLI does: every row shown (after `--what-if-exclude-change-types`) is `NoChange` or `Ignore` and no relationship entry is added or removed. A replacement hidden by the exclusion is still confirmed (or needs `-y`). Ignored without `-c`. |
 | `-y`, `--yes` | `create` | Skip the confirmations: the one `--confirm-with-what-if` asks (the deployment is applied right after the what-if), and the one a plain `create` asks before it **replaces** objects (an immutable property changed: delete, then create again). Without `-y`, standard input must be interactive for either question; a non-interactive `create` that would replace objects fails before any write (`RecreateNotConfirmed`, exit 1). A plain `create` without replacements never prompts. |
 | `--continue-on-error` | `create` | Keep deploying resources that do not depend on a failed one (default: stop at the batch boundary). |
 | `--reveal-secure-outputs` | `create` | Print `securestring` / `secureObject` outputs in clear text instead of `***`. |
@@ -257,6 +289,36 @@ the orphan report (the table output lists them under "Not declared in the templa
 exit code. The former `detached` and `deleted` counts are gone.
 
 With `-o json` the standard output of a verb that fails **before** it has anything else to report (a preflight failure, exit 3; a replacement refusal of a plain `create`) is **one JSON document** `{ "status": "Failed", "diagnostics": [ { "severity": "Error", "code": "...", "message": "..." } ] }` instead of prose on stderr; a multi-line message uses `\n` line breaks. A declined `-c` prompt with `-o json` is the same kind of document with code `NotConfirmed` and the what-if under `whatIf`; with `-o table` the what-if text is already on stdout and the decline stays on stderr. The read-only planning pass of a plain `create` without `-y` is never printed: its stdout carries only the result (or the refusal) document.
+
+### Compared with `az deployment`
+
+`earm deployment` follows `az deployment group|sub|mg|tenant` option for option where the option means something for Microsoft Entra. EARM
+deploys to one scope (the tenant the credential signs in to) and keeps no deployment record, which accounts for most of the differences.
+
+| `az deployment` | EARM | Notes |
+|---|---|---|
+| `validate`, `what-if`, `create` | Same verbs | `delete` exists but deletes the objects the template declares (az deletes a history record). |
+| `show`, `list`, `cancel`, `export`, `wait`, `operation`, `--no-wait` | Omitted | No deployment history exists in Entra; a run is synchronous and leaves nothing to query. |
+| `-g`, `--subscription`, `--management-group-id`, `-l` / `--location` | Omitted | One scope only: the signed-in tenant (`--tenant` picks it). |
+| `--template-uri`, `--template-spec`, `--query-string` | Omitted | Local `-f` templates only. |
+| `-p` forms (file, `@file`, JSON string, `name=value`, `name=@file`, https URL, several per `-p`) | Same | `.bicepparam` is refused (needs the Bicep compiler). |
+| `-n`, `--mode`, `-c`, `-y`, `-w`, `--proceed-if-no-change` | Same | Complete mode reports orphans and never deletes. |
+| `-x` / `--exclude-change-types`, `--what-if-exclude-change-types` | Same | ARM's change type names and casing. |
+| `-r` / `--result-format`, `--what-if-result-format`, `--no-pretty-print` | Same | `ResourceIdOnly` reports `Deploy` for an existing declared resource. |
+| `--no-prompt` | Same | Interactive `what-if` / `create` ask for missing parameter values. |
+| `--validation-level` | `validate` only | `Template` (EARM's default) is offline; `Provider` / `ProviderNoRbac` plan against the tenant read-only. `what-if` and `create` always read the tenant, so the option is not offered there. |
+| `--rollback-on-error` | Omitted | See below. |
+| `-o json\|jsonc\|yaml\|yamlc\|tsv\|table\|none`, `--query` | Same | Default `table` instead of `json`. |
+| Exit codes | Different | `1` usage or failure, `2` validation, `3` sign-in or preflight, `5` changes with `--exit-code-on-changes`. |
+
+**Why there is no `--rollback-on-error`.** ARM's option redeploys the last successful deployment from the deployment history when a deployment fails.
+EARM has no history to redeploy, and an automatic undo of the failed run would not be a safe substitute: the planning snapshots hold secret-bearing
+properties as `***` (a modified credential or password cannot be put back), a replaced object comes back with a new object id, and several Graph
+writes have effects that a later write does not reverse (a PIM schedule request, an admin consent grant, an added credential's one-time secret, a
+Conditional Access policy that was enforced for a while). A partial undo would leave the tenant in a state that matches neither template. The equivalent
+of ARM's behaviour is to deploy the last known-good template again from source control, `earm deployment create -f <template> -p …`, which
+re-applies its declared state; objects the failed run created that the good template does not declare show up in its orphan report (`--mode Complete`),
+where you can review and remove them.
 
 ### `deployment delete`
 

@@ -18,7 +18,7 @@ public sealed class RunScopesTests
     private static async Task<TemplateDocument> LoadAsync(string template, string? parameters = null)
     {
         string[] tokens = parameters is null ? [] : ["@" + TestPaths.Sample(parameters)];
-        var set = ValidateCommand.BuildParameterSet(tokens, out _);
+        var set = (await ParameterArguments.BuildAsync(tokens, TestContext.Current.CancellationToken)).Parameters;
         return await new TemplateLoader(ResourceTypeCatalog.Default).LoadAsync(TestPaths.Sample(template), set, TestContext.Current.CancellationToken);
     }
 
@@ -345,7 +345,7 @@ public sealed class RunScopesTests
     [Fact]
     public async Task BrokenTemplate_IsRejected_AndItsExpansionCarriesTheErrors()
     {
-        var set = ValidateCommand.BuildParameterSet([], out _);
+        var set = ParameterSet.Empty;
         var document = await new TemplateLoader(ResourceTypeCatalog.Default).LoadAsync(TestPaths.InvalidFixture("unknown-type.entra.json"), set, TestContext.Current.CancellationToken);
         var registry = ProviderDiscovery.CreateRegistry(ResourceTypeCatalog.Default);
 

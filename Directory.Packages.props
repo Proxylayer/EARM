@@ -11,6 +11,7 @@
     <PackageVersion Include="Azure.Identity" Version="1.21.0" />
     <PackageVersion Include="System.CommandLine" Version="2.0.13" />
     <PackageVersion Include="JsonSchema.Net" Version="9.4.1" />
+    <PackageVersion Include="JmesPath.Net" Version="1.1.0" />
     <PackageVersion Include="Microsoft.Extensions.Logging" Version="10.0.13" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.13" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Console" Version="10.0.13" />

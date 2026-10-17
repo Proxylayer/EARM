@@ -51,7 +51,7 @@ internal static class TemplateRunScopes
         string? parameterFile;
         try
         {
-            parameters = ValidateCommand.BuildParameterSet(parameterTokens, out parameterFile);
+            (parameters, parameterFile) = await ParameterArguments.BuildAsync(parameterTokens, cancellationToken).ConfigureAwait(false);
         }
         catch (TemplateLoadException ex)
         {

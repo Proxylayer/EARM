@@ -79,7 +79,7 @@ public sealed class CliArgumentErrorTests
         string template = sandbox.WriteEmptyTemplate();
 
         var mode = await CliRunner.RunAsync("permissions", "-f", template, "--mode", "everything");
-        var format = await CliRunner.RunAsync("permissions", "-f", template, "-o", "yaml");
+        var format = await CliRunner.RunAsync("permissions", "-f", template, "-o", "xml");
         var noTemplate = await CliRunner.RunAsync("permissions");
 
         Assert.Equal(1, mode.ExitCode);

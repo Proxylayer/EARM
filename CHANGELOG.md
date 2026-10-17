@@ -43,8 +43,26 @@ transport to the built-in Microsoft Graph HTTP client.
   warning.
 - Templates that relied on EARM resetting an undeclared property to its default (for example re-enabling a disabled
   user or service principal) must now declare that property.
+- Scripts that read a condition-false resource from the what-if JSON (`changeType: Ignore`, reason
+  `condition evaluated to false`) read it from `skipped[]` now. Scripts that used `-p a=1 b=2` to get a usage error get both
+  values applied instead.
 
 ### Added
+
+- `az deployment` options for the CLI (see `docs/cli.md`, "Compared with `az deployment`"):
+  - `-x` / `--exclude-change-types` on `what-if` and `--what-if-exclude-change-types` (also `-x`) on `create`: hide change types from the what-if
+    (ARM's names, case-insensitive); the deployment, `--exit-code-on-changes` and the replacement confirmation still see every row.
+  - `--proceed-if-no-change` on `create -c`: deploy without the prompt when the what-if shows only `NoChange` / `Ignore` rows.
+  - `-o jsonc`, `yaml`, `yamlc` and `tsv`, rendered from the verb's JSON document, and `--query` (JMESPath, through the JmesPath.Net package,
+    Apache-2.0) on every verb; `--query` without `-o` selects `json`. The default output stays `table`.
+  - `-p` in every form the Azure CLI takes: several values per `-p`, a parameter file without `@`, an inline JSON object, `name=@file`, and an
+    `https://` URL (no credentials, no redirects, 1 MiB, 120 s; new diagnostic `ParameterDownloadFailed`). A `.bicepparam` file is refused
+    with a message.
+  - Interactive `what-if` / `create` ask for parameters that have no value (`Please provide string value for 'x' (? for help):`, secure ones
+    without echo); `--no-prompt` (also on `validate`) turns this off.
+  - `validate --validation-level Template|Provider|ProviderNoRbac`: `Template` (default) is the offline validation; the others sign in and plan
+    read-only against the tenant with the write or read scopes.
+  - `-w` for `create --what-if`, `-r` for `--result-format`, and `--what-if-result-format` on `create`.
 
 - New resource types for Microsoft Entra entitlement management (access packages, see `docs/access-packages.md`):
   - `Microsoft.Entra/entitlementManagement/catalogs`, found by `displayName`; `state` and `isExternallyVisible`
@@ -141,6 +159,15 @@ transport to the built-in Microsoft Graph HTTP client.
 - Graph errors carry the request-id, client-request-id and date that Graph returned, for support tickets.
 
 ### Changed
+
+- What-if change types follow ARM: a resource whose condition is false is no longer an `Ignore` row (ARM's `Ignore` means "exists but not
+  managed by this template"); it is left out of the changes, listed in the JSON's new `skipped[]` / `summary.skipped` and, in the text, only
+  with `--verbose`. With `--result-format ResourceIdOnly` an existing declared resource is reported as `Deploy` (`!`) instead of
+  `Modify` / `NoChange`, as ARM does. The JSON summary gains `deploy` and `skipped`.
+- `-p` takes several values per occurrence, as the Azure CLI does (it took one value per `-p`).
+- `--rollback-on-error` is not offered, by decision: EARM has no deployment history to roll back to, and an automatic undo of a failed run cannot
+  restore secrets, replaced object ids or Graph writes such as PIM requests and consent grants. Deploy the last known-good template again instead
+  (see `docs/cli.md`).
 
 - A `reference()` whose arguments use a lambda variable is refused with a message that points to property and output copy
   loops (ARM does not support lambda variables inside `reference()`); a `reference()` inside a lambda that uses no lambda

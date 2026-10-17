@@ -9,8 +9,9 @@ using Xunit;
 namespace EArm.Tests.Cli;
 
 /// <summary>
-/// Review round 4, K3: <c>-p</c> / <c>--parameters</c> takes ONE value per occurrence on every command, so
-/// <c>-p @file -n name</c> is no longer swallowed as a second value of <c>-p</c>, while the option can still be repeated and an unknown token after a value is a usage error.
+/// Review round 4, K3, revised for Azure CLI fidelity: <c>-p</c> / <c>--parameters</c> takes several values per occurrence (<c>-p @file a=1 b=2</c>, as
+/// <c>az deployment ... --parameters</c>) and repeats; <c>-p @file -n name</c> still ends the values at the next option, and an unknown option after a value
+/// is reported by name.
 /// </summary>
 [Collection(CliCollection.Name)]
 public sealed class Review4K_CliTests
@@ -49,16 +50,35 @@ public sealed class Review4K_CliTests
     [Theory]
     [InlineData("what-if")]
     [InlineData("create")]
-    public async Task AStrayTokenAfterAPValue_IsAUsageError_NamingIt_AndNothingIsSent(string verb)
+    public async Task SeveralValuesAfterOneP_AreAllApplied_InOrder(string verb)
     {
-        using var sandbox = new CliSandbox(nameof(AStrayTokenAfterAPValue_IsAUsageError_NamingIt_AndNothingIsSent) + verb);
+        using var sandbox = new CliSandbox(nameof(SeveralValuesAfterOneP_AreAllApplied_InOrder) + verb);
+        sandbox.UsePreflightOk();
+        string template = sandbox.WriteTemplate("p.entra.json", TemplateBody);
+        string parameters = ParameterFile(sandbox);
+        string[] arguments = ["deployment", verb, "-f", template, "-p", "@" + parameters, "a=over", "b=2", "-o", "json", .. verb == "create" ? new[] { "-y" } : []];
+
+        var result = await CliRunner.RunAsync(arguments);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.DoesNotContain(result.Diagnostics, d => d!["code"]!.GetValue<string>() is "MissingParameterValue" or "UnknownParameter" or "InvalidArgument");
+        if (verb == "create")
+        {
+            Assert.Equal("over2", result.Json["outputs"]!["joined"]!["value"]!.GetValue<string>());
+        }
+    }
+
+    [Fact]
+    public async Task AValueInNoAcceptedForm_IsAnInvalidArgument_NamingIt_AndNothingIsSent()
+    {
+        using var sandbox = new CliSandbox(nameof(AValueInNoAcceptedForm_IsAnInvalidArgument_NamingIt_AndNothingIsSent));
         sandbox.UsePreflightOk();
         string template = sandbox.WriteTemplate("p.entra.json", TemplateBody);
 
-        var result = await CliRunner.RunAsync("deployment", verb, "-f", template, "-p", "a=1", "b=2");
+        var result = await CliRunner.RunAsync("deployment", "what-if", "-f", template, "-p", "a=1", "stray");
 
         Assert.Equal(1, result.ExitCode);
-        Assert.Contains("'b=2'", result.StandardError, StringComparison.Ordinal);
+        Assert.Contains("'stray'", result.StandardError, StringComparison.Ordinal);
         Assert.Empty(sandbox.RecordedCommands());
     }
 
