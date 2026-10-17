@@ -148,7 +148,8 @@ public sealed class ResourceTypeCatalogTests
 
         Assert.NotEmpty(definition.Permissions.Application);
         Assert.NotEmpty(definition.Permissions.Delegated);
-        Assert.NotEmpty(definition.Permissions.Roles);
+        // Every type names the Entra roles a user needs: alternatives (roles), or roles needed together (rolesAllOf: catalog resources).
+        Assert.True(definition.Permissions.Roles.Count > 0 || definition.Permissions.Raw?["rolesAllOf"] is System.Text.Json.Nodes.JsonArray { Count: > 1 }, "roles or rolesAllOf");
         Assert.NotNull(definition.Permissions.Raw);
         Assert.NotNull(definition.Schema);
         Assert.StartsWith(EmbeddedSchemas.TypeSchemaPrefix, definition.SchemaResourceName);

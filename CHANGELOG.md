@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+**Added**
+
+- `earm permissions` expresses Entra roles needed together: a `together: A + (B | C)` line in the table, an entry with an empty
+  `anyOf` and an `allOf` array of parts in the JSON (the overlay key `rolesAllOf`). A catalog resource now needs Identity Governance
+  Administrator together with Privileged Role Administrator (role-assignable template group) or with Groups Administrator, Intune
+  Administrator or User Administrator (any other template group); an application adding a role-assignable group also needs
+  `RoleManagement.ReadWrite.Directory`.
+
+**Changed**
+
+- `earm permissions`: a languageVersion 2.0 `"existing": true` resource needs only the read variant of its type's permissions and no
+  Entra role.
+- `earm permissions`: PIM for Groups requests (and a group policy that onboards its group) list User Administrator and Directory
+  Writers as alternatives besides Privileged Role Administrator, Identity Governance Administrator and Groups Administrator.
+
 ## [0.2.0] - 2026-10-17
 
 This is the first release. Everything below describes the changes since the switch from the Azure CLI / PowerShell

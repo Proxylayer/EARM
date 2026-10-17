@@ -112,7 +112,7 @@
     "permissions": {
       "application": ["PrivilegedEligibilitySchedule.ReadWrite.AzureADGroup", "Directory.Read.All"],
       "delegated": ["PrivilegedEligibilitySchedule.ReadWrite.AzureADGroup", "Directory.Read.All"],
-      "roles": ["Privileged Role Administrator", "Identity Governance Administrator", "Groups Administrator"],
+      "roles": ["Privileged Role Administrator", "Identity Governance Administrator", "Groups Administrator", "User Administrator", "Directory Writers"],
       "notes": "Learn (privilegedaccessgroup-post-eligibilityschedulerequests, privilegedaccessgroup-list-eligibilityschedules): PrivilegedEligibilitySchedule.ReadWrite.AzureADGroup is the least privileged permission for the requests (delegated and application); reads need PrivilegedEligibilitySchedule.Read.AzureADGroup. Delegated callers need Privileged Role Administrator for a role-assignable group; for other groups Identity Governance Administrator, Groups Administrator, Directory Writer or User Administrator suffice (or the caller owns the group). Directory.Read.All covers the principal-kind check and the group uniqueName lookup. The first request onboards the group in PIM for Groups permanently. The tenant needs Microsoft Entra ID Governance (or P2)."
     }
   }

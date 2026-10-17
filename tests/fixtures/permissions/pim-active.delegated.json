@@ -65,11 +65,15 @@
   "entraRoles": [
     {
       "anyOf": [
-        "Groups Administrator"
+        "Directory Writers",
+        "Groups Administrator",
+        "Identity Governance Administrator",
+        "Privileged Role Administrator",
+        "User Administrator"
       ],
       "resources": [
-        "/providers/Microsoft.Entra/groups/pim-incident-responders",
-        "/providers/Microsoft.Entra/groups/pim-ops-oncall"
+        "/providers/Microsoft.Entra/privilegedAccess/groupAssignmentScheduleRequests/3066302a-69c6-5647-a198-04a876afffda",
+        "/providers/Microsoft.Entra/privilegedAccess/groupAssignmentScheduleRequests/de7e1b20-d92d-558c-9b8a-e3e43b4e76e8"
       ],
       "reasons": [
         "provider"
@@ -77,13 +81,11 @@
     },
     {
       "anyOf": [
-        "Groups Administrator",
-        "Identity Governance Administrator",
-        "Privileged Role Administrator"
+        "Groups Administrator"
       ],
       "resources": [
-        "/providers/Microsoft.Entra/privilegedAccess/groupAssignmentScheduleRequests/3066302a-69c6-5647-a198-04a876afffda",
-        "/providers/Microsoft.Entra/privilegedAccess/groupAssignmentScheduleRequests/de7e1b20-d92d-558c-9b8a-e3e43b4e76e8"
+        "/providers/Microsoft.Entra/groups/pim-incident-responders",
+        "/providers/Microsoft.Entra/groups/pim-ops-oncall"
       ],
       "reasons": [
         "provider"

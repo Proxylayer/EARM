@@ -35,12 +35,16 @@ Microsoft Graph application permissions
       (every deployment)
       (preflight: GET /organization)
   RoleManagement.ReadWrite.Directory
+      /providers/Microsoft.Entra/entitlementManagement/catalogResources/483b04ee-9d33-5047-8997-e46df1ffbe97
+      /providers/Microsoft.Entra/entitlementManagement/catalogResources/63f5563d-f1a0-5d2b-871e-501c889959eb
+      /providers/Microsoft.Entra/entitlementManagement/catalogResources/6fbaed3d-5da3-5aea-92f9-49eef10c231c
+      /providers/Microsoft.Entra/entitlementManagement/catalogResources/7326e0e8-e55e-5c59-95ab-b5894bfd505a
       /providers/Microsoft.Entra/groups/pg-dev-approvers
       /providers/Microsoft.Entra/groups/pg-dev-operational-access
       /providers/Microsoft.Entra/groups/pg-dev-privileged-access
       /providers/Microsoft.Entra/groups/pg-dev-read-only-access
       /providers/Microsoft.Entra/groups/pg-tenant-approvers
-      (provider)
+      (provider; provider: the group is role-assignable)
 
 note: Application permissions are Microsoft Graph app roles granted (with admin consent) to the service principal EARM signs in with (AZURE_CLIENT_ID, or the managed identity). Application.ReadWrite.OwnedBy replaces Application.ReadWrite.All for applications the service principal owns.
 note: Edge permissions are listed for every relationship property the template declares (including an empty array, which removes edges). Key Vault access is an Azure RBAC / access-policy requirement of the signed-in identity, not a Graph permission.

@@ -696,6 +696,9 @@ Conventions of the per-type schemas:
   `defaults`, `immutable`, `createOnly`, `secure`, `relationships`, `memberKey`, `stripOnRead`, `nullable`, `ignoreLiveOnly`, `permissions`) drives the executor.
   `ignoreLiveOnly` lists dotted paths (`web`, `api`, `sessionControls.signInFrequency`) under which sub-properties that exist only on the live object (server-defaulted
   children) are not drift and are not nulled in a PATCH.
+  `permissions` holds `application`, `delegated`, `roles` (Entra roles that are alternatives), `rolesAllOf` (Entra roles needed together: an array of
+  parts, each an array of alternatives, for example a catalog resource's `[["Identity Governance Administrator"], ["Groups Administrator", …]]`),
+  `conditional` (per declared property) and `notes`; [permissions.md](permissions.md) describes how `earm permissions` reads them.
   The property schemas are generated from one table by `tools/New-TypeSchemas.ps1`, which keeps the overlay text untouched.
 
 `earm schema install` writes copies to `%LOCALAPPDATA%\EArm\schemas\2026-10-01\` (with the cross-file references rewritten to
