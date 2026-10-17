@@ -33,7 +33,6 @@ namespace EArm.Expressions.Validation;
 /// </summary>
 public sealed class ExpressionValidator : ITemplateValidator
 {
-    private readonly ResourceTypeCatalog _catalog;
     private readonly FunctionRegistry _functions;
     private readonly StaticEvaluator _evaluator;
 
@@ -62,7 +61,6 @@ public sealed class ExpressionValidator : ITemplateValidator
     {
         ArgumentNullException.ThrowIfNull(catalog);
         ArgumentNullException.ThrowIfNull(functions);
-        _catalog = catalog;
         _functions = functions;
         _evaluator = new StaticEvaluator(ExpressionEvaluator.Default, functions, catalog, deployment, null);
     }

@@ -305,7 +305,7 @@ output too, and so are kept in the TRX file for passing tests. Letters follow th
 
 | Probe | Asserts | A red test means |
 |---|---|---|
-| `A` transport | `%` and `&` and spaces in a `$filter` value survive the percent-encoding, the token is issued for the right tenant and audience, and a 3-page `@odata.nextLink` walk returns every item | Fix `src/EArm.Graph/GraphUrl.cs` (`BuildQuery`) or the paging loop in `HttpGraphClient.cs` |
+| `A` transport | `%` and `&` and spaces in a `$filter` value survive the percent-encoding, the token is issued for the right tenant and audience, and a 3-page `@odata.nextLink` walk returns every item | Fix `GraphUrl.BuildQuery` or the paging loop in `HttpGraphClient.GetAllPagesAsync` |
 | `B1` alternate key + action | `POST /applications/{id}/addPassword` returns `keyId` + `secretText`; the `applications(uniqueName=...)/addPassword` form is **recorded** (works or not), the provider does not depend on it | `PasswordCredentialsProvider.cs`; when the alternate-key form works, the object-id lookup is optional |
 | `B2` role assignment filter | `?$filter=principalId eq '...'` works (what the provider uses); `... and roleDefinitionId eq ...` is **recorded** | `RoleAssignmentsLookup.cs` (only if the single filter fails) |
 | `B3` scope ids | every `WellKnownIds.GraphScopes` / `GraphAppRoles` id equals the live Microsoft Graph service principal's; lists the `Verified: false` entries now confirmed | `src/EArm.Core/WellKnownIds.cs` |

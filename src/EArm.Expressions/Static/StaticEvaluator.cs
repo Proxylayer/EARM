@@ -440,10 +440,5 @@ public sealed class StaticEvaluator
         {
             _diagnostics.Add(Diagnostic.Error(code, message, path, _document.LocationOf(path), _document.SourcePath));
         }
-
-        private void Info(string code, string message, JsonPath path)
-        {
-            _diagnostics.Add(Diagnostic.Info(code, message, path, _document.LocationOf(path), _document.SourcePath));
-        }
     }
 }

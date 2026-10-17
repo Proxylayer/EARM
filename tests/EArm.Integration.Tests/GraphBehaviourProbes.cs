@@ -73,7 +73,7 @@ public sealed partial class GraphBehaviourProbes : IntegrationTestBase
         var paged = await Graph.ListAsync(new GraphRequest("/groups").WithFilter($"startswith(displayName,'{stem} 100% & ')").WithSelect("id", "displayName").WithTop(1), Ct);
         report.Expect(
             paged.Count == 3 && paged.Select(p => p.RequireId()).Distinct(StringComparer.OrdinalIgnoreCase).Count() == 3,
-            $"Following @odata.nextLink returned {paged.Count} item(s) ({paged.Select(p => p.Text("displayName")).Distinct().Count()} distinct) instead of 3. See the paging loop in src/EArm.Graph/HttpGraphClient.cs (GetAllPagesAsync).");
+            $"Following @odata.nextLink returned {paged.Count} item(s) ({paged.Select(p => p.Text("displayName")).Distinct().Count()} distinct) instead of 3. See the paging loop in HttpGraphClient.GetAllPagesAsync.");
 
         report.Complete();
     }
