@@ -35,7 +35,7 @@ The `changeType` values, with ARM's meaning (Learn, "Template deployment what-if
 | `Delete` | Complete mode: the resource exists but isn't defined in the template, and is deleted. | Never emitted: Complete mode reports such objects as orphans and never deletes them (an `Ignore` row, see below). |
 | `Modify` | The resource exists, is defined, and its properties change. | Same (`FullResourcePayloads`). |
 | `NoChange` | The resource exists, is defined, and its properties don't change. | Same (`FullResourcePayloads`). |
-| `Deploy` | The resource exists and is defined; returned with `ResourceIdOnly`, when what-if does not determine whether properties change. | Same: with `--result-format ResourceIdOnly` every existing declared resource (`Modify` or `NoChange`) is `Deploy`, symbol `!`. |
+| `Deploy` | The resource exists and is defined; returned with `ResourceIdOnly`, when what-if does not determine whether properties change. | Same: with `--result-format ResourceIdOnly` every existing declared resource (`Modify` or `NoChange`) is `Deploy`, symbol `!`. A languageVersion 2.0 `"existing": true` resource is read, never deployed, and stays `NoChange`. |
 | `Ignore` | The resource exists but isn't defined in the template (or what-if hit its limits); it is not deployed or modified. | The orphan report rows (live objects not declared, or retained assignments; never written), a resource whose condition is only known at deployment time (`?`), and a resource a provider defers to the next run (PIM not onboarded yet). |
 | `Unsupported` | The change cannot be determined or applied. | A change that cannot be applied as planned (`unsupportedReason`; the text keeps the planned symbol and adds `!`). |
 

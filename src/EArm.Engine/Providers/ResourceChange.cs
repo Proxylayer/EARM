@@ -103,6 +103,12 @@ public sealed record ResourceChange
     /// </summary>
     public bool IsConditionFalse { get; init; }
 
+    /// <summary>
+    /// True for the row of a languageVersion 2.0 <c>"existing": true</c> resource (<see cref="ExistingRead"/>): read only, never deployed, so it stays a
+    /// <see cref="ChangeType.NoChange"/> row in every result format (never a <c>Deploy</c> row under <c>ResourceIdOnly</c>).
+    /// </summary>
+    public bool IsExistingRead { get; init; }
+
     /// <summary>Human-readable reasons (why Ignore, why Recreate, what is unknown).</summary>
     public IReadOnlyList<string> Reasons { get; init; } = [];
 
@@ -182,6 +188,7 @@ public sealed record ResourceChange
             GraphId = live?.GraphId,
             IsUnknown = isUnknown,
             IsSymbolicId = isUnknown,
+            IsExistingRead = true,
         };
     }
 

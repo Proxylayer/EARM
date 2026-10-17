@@ -100,7 +100,7 @@ public sealed class WhatIfRow
 
     /// <summary>
     /// The change type ARM reports for this row in <paramref name="format"/>: <c>Unsupported</c> for a change that cannot be applied as planned; with
-    /// <see cref="ResultFormat.ResourceIdOnly"/> an existing declared resource (<c>Modify</c> / <c>NoChange</c>) is <c>Deploy</c>, as ARM reports it when
+    /// <see cref="ResultFormat.ResourceIdOnly"/> an existing declared resource (<c>Modify</c> / <c>NoChange</c>) is <c>Deploy</c> (a languageVersion 2.0 <c>"existing": true</c> resource, which is never deployed, stays <c>NoChange</c>), as ARM reports it when
     /// it computes no property changes.
     /// </summary>
     public WhatIfChangeType DisplayType(ResultFormat format)
@@ -114,8 +114,7 @@ public sealed class WhatIfRow
         {
             ChangeType.Create => WhatIfChangeType.Create,
             ChangeType.Delete => WhatIfChangeType.Delete,
-            ChangeType.Modify when format == ResultFormat.ResourceIdOnly => WhatIfChangeType.Deploy,
-            ChangeType.NoChange when format == ResultFormat.ResourceIdOnly => WhatIfChangeType.Deploy,
+            ChangeType.Modify or ChangeType.NoChange when IsDeploy(format) => WhatIfChangeType.Deploy,
             ChangeType.Modify => WhatIfChangeType.Modify,
             ChangeType.NoChange => WhatIfChangeType.NoChange,
             _ => WhatIfChangeType.Ignore,
@@ -137,7 +136,7 @@ public sealed class WhatIfRow
     /// <summary>True when the row is an existing declared resource reported as <c>Deploy</c> (ResourceIdOnly): unsupported rows included, the summary counts them as deploys too.</summary>
     internal bool IsDeploy(ResultFormat format)
     {
-        return format == ResultFormat.ResourceIdOnly && !IsOrphan && Change.Type is ChangeType.Modify or ChangeType.NoChange;
+        return format == ResultFormat.ResourceIdOnly && !IsOrphan && !Change.IsExistingRead && Change.Type is ChangeType.Modify or ChangeType.NoChange;
     }
 
     internal static WhatIfRow Create(ResourceChange change, ResourceInstance? instance, ResourceTypeDefinition? definition)

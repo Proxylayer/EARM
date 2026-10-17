@@ -7,6 +7,7 @@ using EArm.Core.Loading;
 using EArm.Engine;
 using EArm.Engine.Execution;
 using EArm.Engine.Providers;
+using EArm.Engine.WhatIf;
 using Xunit;
 
 namespace EArm.Tests.Engine;
@@ -48,6 +49,29 @@ public sealed class LanguageVersion2EngineTests
         Assert.Equal(2, plan.Changes.Count(c => c.Type == ChangeType.Create));
         var team = EngineHost.Evaluated(plan, "/providers/Microsoft.Entra/groups/team-1");
         Assert.Equal($"Admins: {admins["id"]!.GetValue<string>()}", team.Properties!["description"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public async Task WhatIf_ResourceIdOnly_KeepsAnExistingResourceANoChangeRow_WhileDeclaredResourcesAreDeploy()
+    {
+        var host = new EngineHost();
+        host.Directory.AddGroup("portal-admins", "Portal admins");
+        host.Directory.AddGroup("team-0", "Team 0");
+
+        var plan = await host.WhatIfAsync(Template(Existing + ", " + Teams));
+        var report = WhatIfReport.From(plan);
+        var view = WhatIfView.Of(report, ResultFormat.ResourceIdOnly);
+
+        // An "existing": true resource is read, never deployed: it is not a Deploy row ('!') under ResourceIdOnly, unlike a declared resource that exists.
+        var existing = Assert.Single(view.Rows, r => r.Change.Id.Id == AdminGroup);
+        Assert.Equal(WhatIfChangeType.NoChange, existing.DisplayType(ResultFormat.ResourceIdOnly));
+        Assert.Equal("=", existing.MarkerFor(ResultFormat.ResourceIdOnly));
+        var declared = Assert.Single(view.Rows, r => r.Change.Id.Id == "/providers/Microsoft.Entra/groups/team-0");
+        Assert.Equal(WhatIfChangeType.Deploy, declared.DisplayType(ResultFormat.ResourceIdOnly));
+        Assert.Equal("!", declared.MarkerFor(ResultFormat.ResourceIdOnly));
+        var json = WhatIfJson.Build(plan, ResultFormat.ResourceIdOnly);
+        Assert.Equal(1, json["summary"]!["deploy"]!.GetValue<int>());
+        Assert.Equal(1, json["summary"]!["noChange"]!.GetValue<int>());
     }
 
     [Fact]

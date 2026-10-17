@@ -216,7 +216,8 @@ transport to the built-in Microsoft Graph HTTP client.
 - What-if change types follow ARM: a resource whose condition is false is no longer an `Ignore` row (ARM's `Ignore` means "exists but not
   managed by this template"); it is left out of the changes, listed in the JSON's new `skipped[]` / `summary.skipped` and, in the text, only
   with `--verbose`. With `--result-format ResourceIdOnly` an existing declared resource is reported as `Deploy` (`!`) instead of
-  `Modify` / `NoChange`, as ARM does. The JSON summary gains `deploy` and `skipped`.
+  `Modify` / `NoChange`, as ARM does (a languageVersion 2.0 `"existing": true` resource stays `NoChange`: it is never deployed). The JSON
+  summary gains `deploy` and `skipped`.
 - `-p` takes several values per occurrence, as the Azure CLI does (it took one value per `-p`).
 - `--rollback-on-error` is not offered, by decision: EARM has no deployment history to roll back to, and an automatic undo of a failed run cannot
   restore secrets, replaced object ids or Graph writes such as PIM requests and consent grants. Deploy the last known-good template again instead
