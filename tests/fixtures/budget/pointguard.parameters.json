@@ -1,0 +1,10 @@
+{
+  "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "No object ids: the existing groups the template uses (the emergency group, the delete-protection groups and the database groups) are adopted by display name, not referenced by id. The break-glass userPrincipalNames are real and must name the existing accounts. The PIM onboarding account is created by the template (pim-onboarding@ plus the domain of the first break-glass userPrincipalName, disabled; README.md, 'The PIM onboarding account'), so it needs no parameter. accessScopes uses its template default (the five PointGuard subscriptions from the Security Provisioning preflight). The four new Conditional Access policies declare state enabled; a deploy without --allow-ca-enforce creates them report-only and never changes the state of an existing policy, so enforcing them is a deploy with --allow-ca-enforce after a person has reviewed their sign-in impact."
+  },
+  "parameters": {
+    "breakGlassUserPrincipalNames": { "value": [ "breakglass@pgcfo.com", "Gnarwhal@pgcfo.com" ] }
+  }
+}
