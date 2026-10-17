@@ -715,9 +715,9 @@ prepare time. `Plan` then returns: a Create row with the wait in its reasons (wh
 wait timed out (the fallback, the next run creates it); an error row `PimGroupNotOnboarded` when no request onboards the group. A role scope never
 onboards a group by itself (only a `roleManagementPolicies` onboarding opt-in does, see above).
 
-**Delete warning.** `ResourceRoleScopesProvider` implements `IDeleteWarningSource`: `ReadAsync` adds the package's display name and its delivered
-assignment count (`EntitlementManagementGraph.CountDeliveredAssignmentsAsync`, `null` on 400 / 403 / 404) to the live object, and
-`DescribeDeleteRisk` turns them into the warning `deployment delete` shows in its preview and logs before the delete (none when nobody holds the role).
+**Delete warning.** `ResourceRoleScopesProvider` implements `IDeleteWarningSource`: `ReadAsync` adds the package's display name to the live object;
+`DescribeDeleteRiskAsync` (the engine calls it only when a delete is planned: `TemplateDeleter.FindDeclaredObjectsAsync` and a replacement's delete) counts the
+delivered assignments (`EntitlementManagementGraph.CountDeliveredAssignmentsAsync`, `null` on 400 / 403 / 404) and turns them into the warning `deployment delete` shows in its preview and logs before the delete (none when nobody holds the role).
 Tests: `AccessPackagesProviderTests`, `AccessPackageOnboardingTests` and `AccessPackageRulesTests` over `FakeEntitlementManagement` (routed from `FakeDirectory`), and
 `AccessPackageScenarioTests` against a real tenant (`EARM_IT_ALLOW_ACCESS_PACKAGES=1`).
 ## Adding an edge kind

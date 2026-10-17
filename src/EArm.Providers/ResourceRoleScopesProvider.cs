@@ -50,9 +50,6 @@ public sealed class ResourceRoleScopesProvider : ProviderBase, IApplyOrderSource
 
     private const string ScopesExpand = "resourceRoleScopes($expand=role,scope)";
 
-    /// <summary>Synthesized on the live object by <see cref="ReadAsync"/>: the delivered assignments of the package (absent when they could not be read).</summary>
-    internal const string ActiveAssignmentsProperty = "activeAssignmentCount";
-
     private const string PackageNameProperty = "accessPackageDisplayName";
 
     /// <summary>The role scopes whose group a schedule request of the same deployment onboards (found by <see cref="AppliesBefore"/>).</summary>
@@ -250,11 +247,6 @@ public sealed class ResourceRoleScopesProvider : ProviderBase, IApplyOrderSource
             {
                 var view = View(roleScope, packageId, groupId, JsonObjects.GetString((JsonObject)roleScope["role"]!, "displayName") ?? role);
                 view[PackageNameProperty] = JsonObjects.GetString(package, "displayName");
-                if (await EntitlementManagementGraph.CountDeliveredAssignmentsAsync(graph, packageId, key.Api, cancellationToken).ConfigureAwait(false) is { } count)
-                {
-                    view[ActiveAssignmentsProperty] = count;
-                }
-
                 return KeyView(view);
             }
         }
@@ -349,19 +341,36 @@ public sealed class ResourceRoleScopesProvider : ProviderBase, IApplyOrderSource
 
     /// <summary>
     /// The people who lose the role: Graph does not refuse the delete of a role scope while the package has assignments, it removes the role from every
-    /// assignee (Learn: entitlement-management-access-package-resources). The count is the package's delivered assignments read with the role scope.
+    /// assignee (Learn: entitlement-management-access-package-resources). Without a delete planned the assignments are not read (the key read does not
+    /// list them), so this warns that they were not counted; <see cref="DescribeDeleteRiskAsync"/> counts them.
     /// </summary>
     public string? DescribeDeleteRisk(ResourceKey key, ExistingResource live)
     {
         ArgumentNullException.ThrowIfNull(key);
         ArgumentNullException.ThrowIfNull(live);
+        return DeleteRisk(live, null, "were not counted");
+    }
+
+    /// <summary>The warning of <see cref="DescribeDeleteRisk"/> with the package's delivered assignments counted now: only when a delete is planned.</summary>
+    public async Task<string?> DescribeDeleteRiskAsync(ResourceKey key, ExistingResource live, IGraphClient graph, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        ArgumentNullException.ThrowIfNull(live);
+        ArgumentNullException.ThrowIfNull(graph);
+        string? packageId = JsonObjects.GetString(live.Raw, PackageProperty) ?? (key.TryGet(PackageProperty, out var fromKey) ? fromKey : null);
+        int? count = packageId is null ? null : await EntitlementManagementGraph.CountDeliveredAssignmentsAsync(graph, packageId, key.Api, cancellationToken).ConfigureAwait(false);
+        return DeleteRisk(live, count, "could not be read");
+    }
+
+    private static string? DeleteRisk(ExistingResource live, int? delivered, string unknown)
+    {
         string package = JsonObjects.GetString(live.Raw, PackageNameProperty) is { Length: > 0 } name
             ? $"access package '{name}' ({JsonObjects.GetString(live.Raw, PackageProperty)})"
             : $"access package {JsonObjects.GetString(live.Raw, PackageProperty)}";
         string grant = $"the '{JsonObjects.GetString(live.Raw, RoleProperty)}' role of group {JsonObjects.GetString(live.Raw, OriginIdProperty)}";
-        if (!JsonObjects.TryGetIgnoreCase(live.Raw, ActiveAssignmentsProperty, out var node) || node is not JsonValue value || !value.TryGetValue<int>(out int count))
+        if (delivered is not { } count)
         {
-            return $"The active assignments of {package} could not be read: everyone assigned the package loses {grant} when this role scope is deleted (Graph does not refuse it).";
+            return $"The active assignments of {package} {unknown}: everyone assigned the package loses {grant} when this role scope is deleted (Graph does not refuse it).";
         }
 
         return count == 0

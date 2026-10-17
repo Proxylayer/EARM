@@ -123,7 +123,7 @@ public sealed class AccessPackageOnboardingTests
         em.AddAssignment(packageId);
         em.AddAssignment(packageId);
 
-        var preview = TemplateDeleter.FindDeclaredObjects(await t.Host.Planner().PlanAsync(document, Engine.Planning.DeploymentMode.Incremental, Engine.Planning.PlanMode.WhatIf, ProviderHost.Ct));
+        var preview = await t.Host.Deleter().FindDeclaredObjectsAsync(await t.Host.Planner().PlanAsync(document, Engine.Planning.DeploymentMode.Incremental, Engine.Planning.PlanMode.WhatIf, ProviderHost.Ct), ProviderHost.Ct);
         string? risk = preview.Single(o => o.Instance.Type == ResourceRoleScopesProvider.ResourceType).Risk;
 
         Assert.NotNull(risk);
@@ -143,10 +143,30 @@ public sealed class AccessPackageOnboardingTests
         Check.Succeeded(await t.Host.CreateAsync(document));
 
         var plan = await t.Host.Planner().PlanAsync(document, Engine.Planning.DeploymentMode.Incremental, Engine.Planning.PlanMode.WhatIf, ProviderHost.Ct);
-        Assert.Null(TemplateDeleter.FindDeclaredObjects(plan).Single(o => o.Instance.Type == ResourceRoleScopesProvider.ResourceType).Risk);
+        Assert.Null((await t.Host.Deleter().FindDeclaredObjectsAsync(plan, ProviderHost.Ct)).Single(o => o.Instance.Type == ResourceRoleScopesProvider.ResourceType).Risk);
 
         t.Host.Directory.EntitlementManagement.AssignmentsForbidden = true;
         plan = await t.Host.Planner().PlanAsync(document, Engine.Planning.DeploymentMode.Incremental, Engine.Planning.PlanMode.WhatIf, ProviderHost.Ct);
-        Assert.Contains("could not be read", TemplateDeleter.FindDeclaredObjects(plan).Single(o => o.Instance.Type == ResourceRoleScopesProvider.ResourceType).Risk, StringComparison.Ordinal);
+        Assert.Contains("could not be read", (await t.Host.Deleter().FindDeclaredObjectsAsync(plan, ProviderHost.Ct)).Single(o => o.Instance.Type == ResourceRoleScopesProvider.ResourceType).Risk, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AWhatIf_DoesNotReadThePackagesAssignments_OnlyAPlannedDeleteDoes()
+    {
+        var t = NewTenant();
+        var document = t.Host.Resources(All(t));
+        Check.Succeeded(await t.Host.CreateAsync(document));
+        t.Host.Directory.EntitlementManagement.AddAssignment(t.Host.Directory.EntitlementManagement.Packages.Single()["id"]!.GetValue<string>());
+
+        var whatIf = await t.Host.WhatIfAsync(document);
+        Assert.DoesNotContain(whatIf.Requests, r => r.Path.EndsWith("/assignments", StringComparison.Ordinal));
+
+        // The synchronous listing has only the key reads: it says the assignments were not counted.
+        Assert.Contains("were not counted", TemplateDeleter.FindDeclaredObjects(whatIf.Plan).Single(o => o.Instance.Type == ResourceRoleScopesProvider.ResourceType).Risk, StringComparison.Ordinal);
+
+        int before = t.Host.Fake.Requests.Count;
+        var listed = await t.Host.Deleter().FindDeclaredObjectsAsync(whatIf.Plan, ProviderHost.Ct);
+        Assert.Contains("1 active assignment of", listed.Single(o => o.Instance.Type == ResourceRoleScopesProvider.ResourceType).Risk, StringComparison.Ordinal);
+        Assert.Single(t.Host.RequestsSince(before), r => r.Path.EndsWith("/assignments", StringComparison.Ordinal));
     }
 }

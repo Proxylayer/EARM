@@ -522,9 +522,9 @@ run (what-if: an error row, or an unresolved key that does not wait only on `ref
 `Info` diagnostic). Orphans are in `DeploymentPlan.Orphans` (what-if) and `DeploymentResult.Orphans` (create); they never count as changes.
 
 **`deployment delete`** (`TemplateDeleter`, `EArm.Engine.Execution`): the CLI plans the template in what-if mode (identity by live key, read-only), then
-`TemplateDeleter.FindDeclaredObjects(plan)` lists the declared objects that exist, in **reverse dependency order** (the batches reversed, ties by
+`TemplateDeleter.FindDeclaredObjectsAsync(plan)` lists the declared objects that exist, in **reverse dependency order** (the batches reversed, ties by
 `ApplyPhases.DeleteOrderOf` and resource id), each with its `displayName`, the guard's refusal (`DeleteGuards`: the signed-in principal and service principals
-owned by another organization are kept) and the provider's `IDeleteWarningSource` risk (groups: distribution lists and mail-enabled security groups, which Learn
+owned by another organization are kept) and the provider's `IDeleteWarningSource` risk (`DescribeDeleteRiskAsync`, which may read what only the warning needs, such as an access package's delivered assignments; groups: distribution lists and mail-enabled security groups, which Learn
 does not list as restorable; the fido2, temporaryAccessPass and x509Certificate authentication method configurations, whose delete resets them to the Microsoft
 default), and the provider's `IDeleteRefusalSource` refusal (`NotDeletable`: the other authentication method configurations, PIM role management policies, and a
 permanent assignment under the tuple of a time-bound PIM active assignment), which keeps the object as `Refused` without failing the command. After the confirmation `DeleteAsync` re-reads each object by key (it must be the listed one), deletes it through the provider inside

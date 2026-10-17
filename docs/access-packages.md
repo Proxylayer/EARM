@@ -132,8 +132,9 @@ Role scopes have no update ([resource role scope](https://learn.microsoft.com/en
 every property is part of the key, and `deployment delete` uses `DELETE …/accessPackages/{id}/resourceRoleScopes/{id}`
 ([delete](https://learn.microsoft.com/en-us/graph/api/accesspackage-delete-resourcerolescopes?view=graph-rest-1.0)). Graph does **not** refuse that
 delete while the package has assignments: the people assigned lose the role
-([change resource roles](https://learn.microsoft.com/en-us/entra/id-governance/entitlement-management-access-package-resources)). So the role
-scope's read also counts the package's delivered assignments (`GET …/assignments?$filter=accessPackage/id eq '…' and state eq 'delivered'`,
+([change resource roles](https://learn.microsoft.com/en-us/entra/id-governance/entitlement-management-access-package-resources)). So when a delete is
+planned (`deployment delete` and its preview, or the delete half of a replacement) EARM counts the package's delivered assignments, once, instead of on every
+read of the role scope (`GET …/assignments?$filter=accessPackage/id eq '…' and state eq 'delivered'`,
 [list assignments](https://learn.microsoft.com/en-us/graph/api/entitlementmanagement-list-assignments?view=graph-rest-1.0)), and `deployment delete`
 (its preview included) **warns** before it removes a role scope people hold, like the other delete warnings: "2 active assignments of access package
 'PG Development Privileged Access' (…) hold the 'Eligible Member' role of group …". When the assignments cannot be read (403), the warning says so

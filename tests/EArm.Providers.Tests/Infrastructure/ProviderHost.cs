@@ -213,12 +213,19 @@ internal sealed class ProviderHost
         return new Run(plan, result, RequestsSince(before));
     }
 
+    /// <summary>The <c>deployment delete</c> engine over the fake tenant.</summary>
+    public TemplateDeleter Deleter()
+    {
+        return new TemplateDeleter(Registry, Fake, Logs.For<TemplateDeleter>(), new ReplicationWait { Delay = ReplicationDelays });
+    }
+
     /// <summary><c>deployment delete</c>: the objects <paramref name="document"/> declares, found by key, deleted in reverse dependency order.</summary>
     public async Task<TemplateDeleteResult> DeleteDeclaredAsync(TemplateDocument document, bool continueOnError = false)
     {
         var plan = await Planner().PlanAsync(document, DeploymentMode.Incremental, PlanMode.WhatIf, Ct);
-        var targets = TemplateDeleter.FindDeclaredObjects(plan);
-        return await new TemplateDeleter(Registry, Fake, Logs.For<TemplateDeleter>(), new ReplicationWait { Delay = ReplicationDelays }).DeleteAsync(plan, targets, continueOnError, Ct);
+        var deleter = Deleter();
+        var targets = await deleter.FindDeclaredObjectsAsync(plan, Ct);
+        return await deleter.DeleteAsync(plan, targets, continueOnError, Ct);
     }
 
     // ---- directory helpers ----
