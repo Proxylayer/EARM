@@ -211,7 +211,7 @@ internal sealed class NestedDeploymentExpander
                 Parameters = DeploymentInfo.SuppliedParameters(analyzed.ParameterValues),
             }
             : null;
-        var analysis = new ExpressionValidator(_catalog, _functions, info).Analyze(analyzed);
+        var analysis = new ExpressionValidator(_catalog, _functions, info ?? parent.Context.Deployment).Analyze(analyzed);
         found.AddRange(kind == NestedTemplateScope.Inner ? analysis.Diagnostics : analysis.Diagnostics.Where(d => IsUnder(d, "resources") || IsUnder(d, "outputs")));
 
         var scope = parent.Nest(analyzed, analysis.Static, CreateContext(deployment, parent, analyzed, analysis.Static, info, passed, rootContext), location, deployment, kind, prefix);

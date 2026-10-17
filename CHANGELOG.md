@@ -18,6 +18,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   whole value and counts it against the run's 5,000,000 value-node budget on every read; only the selected part is copied,
   as for `variables('x')[i]`. A large array parameter read once per copy iteration could otherwise fail with
   `EvaluationBudgetExceeded`.
+- A resource whose name is built from `deployment().name` got a wrong planned id in `what-if`, `create` and `delete`
+  (`g-validate` instead of `g-<deployment name>`): the static evaluation of names, ids and `dependsOn` used the offline name `validate`. It now uses the deployment
+  name (`-n` or its default); an outer-scope nested template sees the parent's deployment.
 
 ## [0.2.0] - 2026-10-17
 

@@ -416,6 +416,8 @@ The deployment functions:
 
 - `deployment()` returns `{ name, properties: { templateHash, parameters, mode } }`, ARM's shape, and keeps the flat `templateHash`,
   `tenantId` and `mode` of earlier versions as aliases: `deployment().properties.mode` and `deployment().mode` are the same value.
+  `deployment().name` is the deployment name (`-n`, or its default) in `what-if`, `create` and `delete`, also where names, ids and
+  `dependsOn` are worked out before anything is read; only `validate`, which has no deployment name, sees `validate`.
 - `tenant()` returns `{ countryCode, displayName, id, tenantId, defaultDomain }` (`id` is `/tenants/<tenantId>`).
 - `deployer()` returns `{ objectId, tenantId, userPrincipalName }` of the signed-in principal (`userPrincipalName` is empty for an
   app-only sign-in).

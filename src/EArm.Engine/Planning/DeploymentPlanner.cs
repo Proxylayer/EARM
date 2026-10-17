@@ -76,7 +76,8 @@ public sealed class DeploymentPlanner
     {
         var catalog = _options.Catalog;
         var diagnostics = new List<Diagnostic>(new TemplateValidator(catalog).Validate(document));
-        var analysis = new ExpressionValidator(catalog, _options.Functions).Analyze(document);
+        // Static evaluation (names, ids, dependsOn) sees the real deployment name: deployment().name is -n or its default here, never the offline 'validate'.
+        var analysis = new ExpressionValidator(catalog, _options.Functions, DeploymentInfo.Offline with { Name = _options.DeploymentName }).Analyze(document);
         diagnostics.AddRange(analysis.Diagnostics);
         PromoteForDeployment(document, diagnostics, analysis, planMode);
         ThrowIfErrors(diagnostics);
