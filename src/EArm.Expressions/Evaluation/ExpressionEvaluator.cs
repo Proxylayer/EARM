@@ -363,21 +363,28 @@ public sealed class ExpressionEvaluator : IExpressionEvaluator
 
     /// <summary>
     /// Evaluates the target of a property or index access as a value that is only read, never mutated or attached: a chain of accesses rooted in
-    /// <c>variables('x')</c> (a literal name) walks the memoised variable itself, and only the part finally selected is copied (by
-    /// <see cref="EvaluateProperty"/> / <see cref="EvaluateIndex"/>). ARM evaluates a variable once; reading <c>variables('x')[copyIndex()].name</c>
-    /// for every copy instance must not copy, or count against the run's value budget, the whole of <c>x</c> each time. Anything else is evaluated
-    /// as usual.
+    /// <c>variables('x')</c>, <c>parameters('x')</c> or <c>lambdaVariables('x')</c> (a literal name) walks the stored value itself, and only the
+    /// part finally selected is copied (by <see cref="EvaluateProperty"/> / <see cref="EvaluateIndex"/>). ARM evaluates a variable once; reading
+    /// <c>variables('x')[copyIndex()].name</c> for every copy instance must not copy, or count against the run's value budget, the whole of
+    /// <c>x</c> each time (likewise a large array parameter, or the element a lambda is bound to). Anything else is evaluated as usual.
     /// </summary>
     private JsonNode? EvaluateForRead(Expression expression, EvaluationContext context)
     {
         ExpressionStackGuard.Ensure(expression.Offset);
         switch (expression)
         {
-            case CallExpression call when IsLiteralVariableRead(call, context, out string? name):
+            case CallExpression call when IsLiteralStoreRead(call, context, out var implementation, out string? name):
                 {
                     using var unit = EvaluationBudget.BeginUnit();
                     context.Budget.Step(call.Offset);
-                    return DeploymentFunctions.ReadVariable(context, name, call.Offset, name);
+                    if (ReferenceEquals(implementation, DeploymentFunctions.VariablesImplementation))
+                    {
+                        return DeploymentFunctions.ReadVariable(context, name, call.Offset, name);
+                    }
+
+                    return ReferenceEquals(implementation, DeploymentFunctions.ParametersImplementation)
+                        ? DeploymentFunctions.ReadParameter(context, name, call.Offset, name)
+                        : LambdaFunctions.ReadLambdaVariable(context, name, call.Offset, name);
                 }
 
             case PropertyExpression property:
@@ -389,19 +396,31 @@ public sealed class ExpressionEvaluator : IExpressionEvaluator
         }
     }
 
-    /// <summary>True for <c>variables('name')</c> with a literal string name, bound to the built-in <c>variables()</c>.</summary>
-    private static bool IsLiteralVariableRead(CallExpression call, EvaluationContext context, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out string? name)
+    /// <summary>
+    /// True for <c>variables('name')</c>, <c>parameters('name')</c> or <c>lambdaVariables('name')</c> with a literal string name, bound to the
+    /// built-in function; <paramref name="implementation"/> says which.
+    /// </summary>
+    private static bool IsLiteralStoreRead(
+        CallExpression call,
+        EvaluationContext context,
+        [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out FunctionImplementation? implementation,
+        [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out string? name)
     {
+        implementation = null;
         name = null;
         if (call.IsUserFunction
             || call.Arguments.Count != 1
             || call.Arguments[0] is not LiteralExpression { IsString: true } literal
             || !context.Functions.TryGet(call.Name, out var descriptor)
-            || !ReferenceEquals(descriptor.Implementation, DeploymentFunctions.VariablesImplementation))
+            || descriptor.Implementation is not { } found
+            || !(ReferenceEquals(found, DeploymentFunctions.VariablesImplementation)
+                || ReferenceEquals(found, DeploymentFunctions.ParametersImplementation)
+                || ReferenceEquals(found, LambdaFunctions.LambdaVariablesImplementation)))
         {
             return false;
         }
 
+        implementation = found;
         name = literal.StringValue;
         return name is not null;
     }

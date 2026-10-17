@@ -6,6 +6,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- docs/engine.md no longer says a resource whose condition is false is kept as an `Ignore` row: it is left out of the
+  deployment and the what-if lists it only as skipped (`skipped[]`).
+- `union()` and `intersection()` with a single argument are rejected (`InvalidFunctionArguments`), as ARM requires at
+  least two.
+- docs/format.md now states the order of `items()`: sorted alphabetically by key, ignoring case, as ARM returns it (the
+  behaviour was already this; it is now pinned by tests).
+- Reading part of a parameter (`parameters('x')[i]`) or of a lambda binding (`lambdaVariables('x').y`) no longer copies the
+  whole value and counts it against the run's 5,000,000 value-node budget on every read; only the selected part is copied,
+  as for `variables('x')[i]`. A large array parameter read once per copy iteration could otherwise fail with
+  `EvaluationBudgetExceeded`.
+- A resource whose name is built from `deployment().name` got a wrong planned id in `what-if`, `create` and `delete`
+  (`g-validate` instead of `g-<deployment name>`): the static evaluation of names, ids and `dependsOn` used the offline name `validate`. It now uses the deployment
+  name (`-n` or its default); an outer-scope nested template sees the parent's deployment.
+- A secure value now updates an existing object when Graph reads the property back: a conditional access policy whose
+  `state` comes from a `securestring` parameter is switched to `enabled` with `--allow-ca-enforce` (it kept its live state,
+  because every secure value was create-only). Such a value is compared like any other and shown as `*** => ***` when it
+  differs; an equal value is `NoChange`. Write-only secrets (a path the type declares `secure`, such as
+  `passwordProfile.password`, or a value Graph does not return) are still sent only on create, so a rerun neither PATCHes them
+  nor trips `--exit-code-on-changes`.
+- The what-if no longer fails a resource whose whole `properties` is one expression that reads `reference()` of a resource the
+  same run creates ("properties is a single expression whose value is only known at deployment"): it shows the resource as
+  known at deployment (`Ignore`, `?`), and `create` evaluates the expression once the referenced resource exists.
+- A resource whose whole `properties` is one expression is now ordered like the same resource written as an object literal:
+  the known, non-secure values of the expression are declared as literals, so the apply order that matches declared values
+  (a group PIM policy before the eligibility and assignment requests of its group, access package resource ordering) sees
+  them. Secure values and values known only at deployment stay expressions, as in an object literal.
+
 ## [0.2.0] - 2026-10-17
 
 This is the first release. Everything below describes the changes since the switch from the Azure CLI / PowerShell

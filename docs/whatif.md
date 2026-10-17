@@ -36,7 +36,7 @@ The `changeType` values, with ARM's meaning (Learn, "Template deployment what-if
 | `Modify` | The resource exists, is defined, and its properties change. | Same (`FullResourcePayloads`). |
 | `NoChange` | The resource exists, is defined, and its properties don't change. | Same (`FullResourcePayloads`). |
 | `Deploy` | The resource exists and is defined; returned with `ResourceIdOnly`, when what-if does not determine whether properties change. | Same: with `--result-format ResourceIdOnly` every existing declared resource (`Modify` or `NoChange`) is `Deploy`, symbol `!`. A languageVersion 2.0 `"existing": true` resource is read, never deployed, and stays `NoChange`. |
-| `Ignore` | The resource exists but isn't defined in the template (or what-if hit its limits); it is not deployed or modified. | The orphan report rows (live objects not declared, or retained assignments; never written), a resource whose condition is only known at deployment time (`?`), and a resource a provider defers to the next run (PIM not onboarded yet). |
+| `Ignore` | The resource exists but isn't defined in the template (or what-if hit its limits); it is not deployed or modified. | The orphan report rows (live objects not declared, or retained assignments; never written), a resource whose condition is only known at deployment time (`?`), a resource whose whole `properties` is one expression only known at deployment time (`?`: it reads a resource the run creates), and a resource a provider defers to the next run (PIM not onboarded yet). |
 | `Unsupported` | The change cannot be determined or applied. | A change that cannot be applied as planned (`unsupportedReason`; the text keeps the planned symbol and adds `!`). |
 
 **A resource whose condition is false** is not part of the deployment: ARM's what-if does not list it, and neither does EARM (it used to be an `Ignore`
@@ -69,9 +69,12 @@ A second character qualifies the row:
 
 Secure values (`securestring` / `secureObject` parameters, tainted expression results, the type's `secure` overlay
 paths such as `passwordProfile.password`, one-time secrets such as `secretText`) are always `***`, in payloads and on
-both sides of a delta, in both output formats. The CLI never holds a what-if that contains a clear-text secret. Secrets are never compared: on an
-existing object a secret-bearing property is a `NoEffect` delta (shown with `--verbose`), so a rerun of an unchanged template is `NoChange` and
-`--exit-code-on-changes` does not fire for it; a `Create` still sends the secret.
+both sides of a delta, in both output formats. The CLI never holds a what-if that contains a clear-text secret. On an existing object, a secure
+value Graph reads back (a scalar such as a policy `state` or a name passed as a `securestring` parameter) is compared like any value: a `Modify`
+delta shown as `*** => ***` when it differs (and then sent), nothing when it is equal. A write-only secret (a path the type declares `secure`, a
+value Graph does not return, a secure array) cannot be compared: it is a `NoEffect` delta (shown with `--verbose`), so a rerun of an unchanged
+template is `NoChange` and `--exit-code-on-changes` does not fire for it; a `Create` still sends the secret. Unlike an ARM PUT, which carries
+every secure value on every deployment, EARM sends a write-only secret only when it creates the object.
 
 ## Text layout (`-o table`)
 

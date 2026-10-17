@@ -150,15 +150,16 @@ public sealed class EvaluationBudgetPlanningTests
     }
 
     [Fact]
-    public void APropertiesExpression_IsSplitIntoOneExpressionPerKey_PerCopyIteration()
+    public void APropertiesExpression_IsSplitIntoOneDeclaredValuePerKey_PerCopyIteration()
     {
         var expanded = ExpandProperties(
             """{ "groups": [ { "name": "a", "properties": { "displayName": "A", "it's": "quoted", "memberOf": [ "x" ] } }, { "name": "b", "properties": { "displayName": "B" } } ] }""",
             "[variables('groups')[copyIndex()].properties]");
 
+        // Known, non-secure values are declared as literals (WholePropertiesApplyOrderTests covers the values kept as expressions).
         Assert.Equal(2, expanded.Count);
-        Expr.AssertJson("""{ "displayName": "[variables('groups')[copyIndex()].properties['displayName']]", "it's": "[variables('groups')[copyIndex()].properties['it''s']]", "memberOf": "[variables('groups')[copyIndex()].properties['memberOf']]" }""", expanded[0].Declaration.Properties);
-        Expr.AssertJson("""{ "displayName": "[variables('groups')[copyIndex()].properties['displayName']]" }""", expanded[1].Declaration.Properties);
+        Expr.AssertJson("""{ "displayName": "A", "it's": "quoted", "memberOf": [ "x" ] }""", expanded[0].Declaration.Properties);
+        Expr.AssertJson("""{ "displayName": "B" }""", expanded[1].Declaration.Properties);
 
         var evaluator = new ExpressionEvaluator();
         InstanceEvaluator.EvaluateProperties(evaluator, expanded[0]);

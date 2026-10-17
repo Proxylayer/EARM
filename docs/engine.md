@@ -24,7 +24,9 @@ load ──► validate ──► expand ──► graph ──► [per batch: r
    Any error throws `ValidationFailedException` (CLI exit 2).
 3. **Expand** (`ResourceExpander`): one `ResourceInstance` per declaration, or one per `copy` iteration
    (`copy.name/count/mode/batchSize`, concrete `copyIndex()`, name re-evaluated per index). `condition` is
-   evaluated per instance; `false` keeps the instance as an `Ignore` row. Ids must be unique after expansion
+   evaluated per instance; `false` leaves the instance out of the deployment: it is never read or written, and the
+   what-if lists it only as skipped (`skipped[]`, never a row in `changes[]`; see
+   [whatif.md](whatif.md#change-types)). Internally the plan still carries it so the what-if can report it. Ids must be unique after expansion
    (`DuplicateResourceId`). A child whose parent is declared in the template is linked to the parent instance.
    The static index (`TemplateResourceIndex`) only holds ids computable without a copy frame; right after
    expansion the planner adds the concrete id of every copy iteration to the deployment's index (shared by every
@@ -618,10 +620,12 @@ the catalog overlay of the type:
 - `Plan`: the shared `JsonDiff`: scalars replace; scalar arrays are order-insensitive sets;
   object arrays by `memberKey` (else canonical JSON, order-insensitive); nested objects compared whole with an
   explicit `null` (`Delete`; written as `[]` when the live value is a collection) for every live-only sub-property unless `nullable: false` (`NoEffect`); GUIDs
-  case-insensitive; `null` / `[]` ≡ absent; `createOnly` paths skipped on update; secrets never compared
-  (`IsSecret`: on an existing object a secret-bearing value is `NoEffect`, so a rerun neither PATCHes it nor counts it as a change; a create still
-  sends it, and a new secret reaches an existing object only through the type's rotation, such as a password credential's `rotationTag`, or a
-  replacement; the non-secret members of a secret-bearing object are still compared); unknowns flagged (`IsUnknown`). Only declared top-level properties take part (Graph PATCH is a
+  case-insensitive; `null` / `[]` ≡ absent; `createOnly` paths skipped on update; secure values (`IsSecret`): a secure scalar whose live
+  counterpart Graph returns, at a path the type does not declare `secure` (`JsonDiffOptions.Secure`), is compared like any scalar and is a masked
+  `Modify` when it differs; a write-only secret (a declared `secure` path, no live value, a secure array) is `NoEffect` on an existing object, so a
+  rerun neither PATCHes it nor counts it as a change; a create still sends it, and a new write-only secret reaches an existing object only through
+  the type's rotation, such as a password credential's `rotationTag`, or a replacement; the non-secret members of a secret-bearing object are
+  still compared); unknowns flagged (`IsUnknown`). Only declared top-level properties take part (Graph PATCH is a
   merge). An immutable change (a delta on an `immutable` path; for an `immutable: ["*"]` type —
   `ResourceTypeDefinition.ImmutableAll`: password credentials, app role assignments, role assignments — **every**
   effective delta) is `Modify`/`Recreate` when `RecreateOnImmutableChange` is true (it defaults to

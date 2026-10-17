@@ -91,19 +91,52 @@ public sealed class NestedParameters : IReadOnlyDictionary<string, JsonNode?>
     public JsonNode? Get(string name)
     {
         ArgumentNullException.ThrowIfNull(name);
-        if (!_passed.TryGetValue(name, out var node))
+        if (!_passed.ContainsKey(name))
         {
             return _own.Get(name);
         }
 
-        IExpressionEvaluator evaluator;
         lock (_gate)
         {
             if (_memo.TryGetValue(name, out var memoised))
             {
                 return JsonValues.Clone(memoised);
             }
+        }
 
+        return Evaluate(name);
+    }
+
+    /// <summary>
+    /// The value of <paramref name="name"/> without a copy of a memoised value: the caller must only read it (never mutate it or attach it to
+    /// another tree). A value evaluated now is the caller's own.
+    /// </summary>
+    internal JsonNode? GetShared(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        if (!_passed.ContainsKey(name))
+        {
+            return _own.GetShared(name);
+        }
+
+        lock (_gate)
+        {
+            if (_memo.TryGetValue(name, out var memoised))
+            {
+                return memoised;
+            }
+        }
+
+        return Evaluate(name);
+    }
+
+    /// <summary>Evaluates the parent's expression for <paramref name="name"/> and memoises a concrete result; returns a value the caller owns.</summary>
+    private JsonNode? Evaluate(string name)
+    {
+        var node = _passed[name];
+        IExpressionEvaluator evaluator;
+        lock (_gate)
+        {
             evaluator = _evaluator ?? throw new InvalidOperationException("NestedParameters must be bound to a context before it is read (EvaluationContext.Bind).");
         }
 

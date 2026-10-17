@@ -209,11 +209,12 @@ public static class InstanceEvaluator
     /// <summary>
     /// The declaration of one instance whose whole <c>properties</c> is a single expression (<c>"properties": "[variables('groups')[copyIndex()].properties]"</c>,
     /// which ARM accepts): the expression is evaluated in the instance's context, and when it yields an object the returned copy of the declaration
-    /// declares one expression per key of that object, each selecting its key from the same expression
-    /// (<c>"displayName": "[variables('groups')[copyIndex()].properties['displayName']]"</c>). Everything that reads the declared properties (the
-    /// split into object and edge properties, the edge pass, declaration conflicts, apply orders, the permission manifest) then sees which properties
-    /// the instance declares, exactly as for an object literal, and every value is still evaluated by the evaluator, so secrets stay tainted and
-    /// deploy-time values stay unknown. The declaration is returned unchanged for an object literal, a template-level resource (a nested deployment
+    /// declares each key of that object: a fully known, non-secure value as a literal (strings starting with <c>[</c> escaped), anything else as an
+    /// expression selecting its key from the same expression (<c>"description": "[variables('groups')[copyIndex()].properties['description']]"</c>).
+    /// Everything that reads the declared properties (the split into object and edge properties, the edge pass, declaration conflicts, apply orders
+    /// that match declared literals, the permission manifest) then sees the instance exactly as if it declared an object literal, and the values
+    /// kept as expressions are still evaluated by the evaluator, so secrets stay tainted (and out of the declaration) and deploy-time values stay
+    /// unknown. The declaration is returned unchanged for an object literal, a template-level resource (a nested deployment
     /// reads its own <c>properties</c>), and when the expression fails or its value is only known at deployment
     /// (<see cref="EvaluateProperties"/> then evaluates it as a whole).
     /// </summary>
@@ -248,16 +249,95 @@ public static class InstanceEvaluator
         var split = new JsonObject();
         foreach (var property in evaluated)
         {
-            split[property.Key] = JsonValue.Create($"[{inner}['{property.Key.Replace("'", "''", StringComparison.Ordinal)}']]");
+            split[property.Key] = IsPlainData(property.Value)
+                ? AsLiteral(property.Value)
+                : JsonValue.Create($"[{inner}['{property.Key.Replace("'", "''", StringComparison.Ordinal)}']]");
         }
 
         return declaration with { Properties = split };
     }
 
     /// <summary>
+    /// True for a value the split can declare as a literal: fully known, no secure leaf (a secret stays an expression, so it stays tainted and never
+    /// appears in the declaration) and no object that would read as a property copy block.
+    /// </summary>
+    private static bool IsPlainData(JsonNode? value)
+    {
+        return !UnknownJson.ContainsUnknown(value) && !SecretJson.ContainsSecret(value) && !HasCopyBlock(value);
+    }
+
+    private static bool HasCopyBlock(JsonNode? value)
+    {
+        return value switch
+        {
+            JsonObject obj => PropertyCopyBlock.HasBlock(obj) || obj.Any(p => HasCopyBlock(p.Value)),
+            JsonArray array => array.Any(HasCopyBlock),
+            _ => false,
+        };
+    }
+
+    /// <summary>A copy of a plain value as template source: every string that starts with <c>[</c> is escaped (<c>[[</c>) so it stays a literal.</summary>
+    private static JsonNode? AsLiteral(JsonNode? value)
+    {
+        switch (value)
+        {
+            case JsonObject obj:
+                {
+                    var copy = new JsonObject();
+                    foreach (var property in obj)
+                    {
+                        copy[property.Key] = AsLiteral(property.Value);
+                    }
+
+                    return copy;
+                }
+
+            case JsonArray array:
+                {
+                    var copy = new JsonArray();
+                    foreach (var item in array)
+                    {
+                        copy.Add(AsLiteral(item));
+                    }
+
+                    return copy;
+                }
+
+            default:
+                return TemplateJson.AsString(value) is { } text && text.StartsWith('[') ? JsonValue.Create("[" + text) : JsonValues.Clone(value);
+        }
+    }
+
+    /// <summary>
+    /// The symbol of the value of <c>properties</c> when it is one expression that was not split at expansion and whose value is still only known
+    /// at deployment (it reads <c>reference()</c> of a resource the same run creates); <c>null</c> otherwise. The what-if shows such a resource as a
+    /// "known at deployment" row instead of failing it: <see cref="EvaluateProperties"/> can evaluate it once the referenced resource exists. An
+    /// expression that fails is left to <see cref="EvaluateProperties"/>, which reports the error.
+    /// </summary>
+    public static string? WholePropertiesKnownOnlyAtDeployment(ExpressionEvaluator evaluator, ResourceInstance instance)
+    {
+        ArgumentNullException.ThrowIfNull(evaluator);
+        ArgumentNullException.ThrowIfNull(instance);
+        if (instance.Declaration.Properties is not { } whole || whole is JsonObject)
+        {
+            return null;
+        }
+
+        try
+        {
+            return UnknownJson.IsUnknown(evaluator.EvaluateTree(whole, instance.Context), out var unknown) ? unknown.Symbol : null;
+        }
+        catch (ExpressionException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
     /// <c>properties</c> declared as one expression that could not be split at expansion (<see cref="WithPropertiesExpressionSplit"/>): its value is
     /// evaluated as a whole and split by key into object and edge properties. A value only known at deployment cannot be split (which of its keys
-    /// are edges is not known) and fails the instance.
+    /// are edges is not known) and fails the instance (the what-if shows it as known at deployment first:
+    /// <see cref="WholePropertiesKnownOnlyAtDeployment"/>).
     /// </summary>
     private static void EvaluateWholeProperties(ExpressionEvaluator evaluator, ResourceInstance instance, JsonNode whole)
     {

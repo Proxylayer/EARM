@@ -24,6 +24,12 @@ public sealed record JsonDiffOptions
     /// <summary>Paths (relative to <c>properties</c>) that are never compared (create-only properties on an existing object).</summary>
     public IReadOnlyList<JsonPath> Exclude { get; init; } = [];
 
+    /// <summary>
+    /// Paths (relative to <c>properties</c>) the type declares <c>secure</c>: write-only secrets Graph never returns (a password, a client secret). A
+    /// secure value there is never compared and is not sent again to an existing object (see <see cref="JsonDiff"/>).
+    /// </summary>
+    public IReadOnlyList<JsonPath> Secure { get; init; } = [];
+
     /// <summary>The prefix every delta path carries; ARM uses <c>properties</c>.</summary>
     public JsonPath BasePath { get; init; } = JsonPath.Of("properties");
 
@@ -36,6 +42,7 @@ public sealed record JsonDiffOptions
             MemberKey = definition.MemberKey,
             Nullable = definition.Nullable,
             Exclude = existing ? definition.CreateOnly : [],
+            Secure = definition.Secure,
         };
     }
 }
@@ -45,8 +52,10 @@ public sealed record JsonDiffOptions
 /// compare by stable member key when the overlay names one, else by canonical JSON order-insensitively; nested
 /// objects compare whole, generating an explicit <c>null</c> (<see cref="PropertyChangeType.Delete"/>) for every
 /// live-only sub-property unless the overlay marks it <c>nullable: false</c>; GUIDs compare case-insensitively;
-/// <c>null</c> and <c>[]</c> are absent; secrets are never compared (<see cref="PropertyDelta.IsSecret"/>: on an existing object a secret value is
-/// <see cref="PropertyChangeType.NoEffect"/>, so it is not PATCHed again on every run; a create still sends it); a
+/// <c>null</c> and <c>[]</c> are absent; a secure value (<see cref="PropertyDelta.IsSecret"/>) is compared only as a scalar Graph reads back (a
+/// <c>state</c> or a name from a secure parameter: <see cref="PropertyChangeType.Modify"/> when it differs, shown as <c>***</c>); a write-only
+/// secret (a path the type declares <c>secure</c>, a value Graph does not return, a secure array) is <see cref="PropertyChangeType.NoEffect"/> on
+/// an existing object, so it is not PATCHed again on every run (a create still sends it); a
 /// deploy-time-unknown desired value yields an <see cref="PropertyDelta.IsUnknown"/> delta. Only declared
 /// (desired) top-level properties take part: Graph PATCH is a merge and omitted properties stay untouched.
 /// </summary>
@@ -408,11 +417,13 @@ public static class JsonDiff
 
         if (SecretJson.ContainsSecret(desired))
         {
-            // Secrets are never compared, and Graph does not return most of them, so a secret-bearing value always "differed": every run PATCHed it (and
-            // --exit-code-on-changes always fired). Diff only runs against an existing object: the secret was written when the object was created (a
-            // create-only path is excluded on update altogether), so on update it is NoEffect. A new secret reaches an existing object through
-            // the type's own rotation (a password credential's rotationTag) or a replacement. The non-secret members of a secret-bearing object are still
-            // compared; the container stays IsSecret so the what-if masks it whole.
+            // Graph does not return write-only secrets (passwords, client secrets), so comparing them would always "differ": every run would PATCH them
+            // (and --exit-code-on-changes would always fire). Diff only runs against an existing object: a write-only secret was written when the object
+            // was created (a create-only path is excluded on update altogether), so on update it is NoEffect, and a new one reaches an existing object
+            // through the type's own rotation (a password credential's rotationTag) or a replacement. A secure scalar Graph does read back (a policy
+            // state, a display name passed as a secure parameter) is compared like any value and sent when it differs, masked in the what-if; equality
+            // with a value the deployer can read anyway reveals nothing new. The non-secret members of a secret-bearing object are still compared; the
+            // container stays IsSecret so the what-if masks it whole.
             if (desired is JsonObject desiredObject && live is JsonObject liveObject)
             {
                 var children = new List<PropertyDelta>();
@@ -420,6 +431,16 @@ public static class JsonDiff
                 deltas.Add(children.Exists(child => child.HasEffect)
                     ? new PropertyDelta(path, PropertyChangeType.Modify, RenderLive(live, desired), Render(desired), IsSecret: true, Children: children)
                     : new PropertyDelta(path, PropertyChangeType.NoEffect, RenderLive(live, desired), Render(desired), IsSecret: true));
+                return;
+            }
+
+            if (IsReadBackSecretScalar(desired, live, relative, options))
+            {
+                if (!AreEquivalent(SecretJson.Reveal(desired), SecretJson.Reveal(live)))
+                {
+                    deltas.Add(new PropertyDelta(path, PropertyChangeType.Modify, RenderLive(live, desired), Render(desired), IsSecret: true));
+                }
+
                 return;
             }
 
@@ -631,6 +652,28 @@ public static class JsonDiff
     }
 
     // ---- helpers ----
+
+    /// <summary>
+    /// True for a secure scalar whose live counterpart Graph returned (a non-null scalar) at a path the type does not declare <c>secure</c>: such a
+    /// value can be compared. A write-only secret has no live value (or a declared secure path); a secure array or object is not judged whole.
+    /// </summary>
+    private static bool IsReadBackSecretScalar(JsonNode? desired, JsonNode? live, JsonPath relative, JsonDiffOptions options)
+    {
+        if (desired is not JsonValue || live is not JsonValue || JsonObjects.IsAbsent(live))
+        {
+            return false;
+        }
+
+        foreach (var secure in options.Secure)
+        {
+            if (relative.StartsWith(secure))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
 
     private static bool IsExcluded(JsonPath relative, JsonDiffOptions options)
     {

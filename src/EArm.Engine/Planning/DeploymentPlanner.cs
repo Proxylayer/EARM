@@ -76,7 +76,8 @@ public sealed class DeploymentPlanner
     {
         var catalog = _options.Catalog;
         var diagnostics = new List<Diagnostic>(new TemplateValidator(catalog).Validate(document));
-        var analysis = new ExpressionValidator(catalog, _options.Functions).Analyze(document);
+        // Static evaluation (names, ids, dependsOn) sees the real deployment name: deployment().name is -n or its default here, never the offline 'validate'.
+        var analysis = new ExpressionValidator(catalog, _options.Functions, DeploymentInfo.Offline with { Name = _options.DeploymentName }).Analyze(document);
         diagnostics.AddRange(analysis.Diagnostics);
         PromoteForDeployment(document, diagnostics, analysis, planMode);
         ThrowIfErrors(diagnostics);
@@ -405,6 +406,12 @@ public sealed class DeploymentPlanner
         }
 
         SymbolicNames.LinkParent(plan, instance);
+        if (InstanceEvaluator.WholePropertiesKnownOnlyAtDeployment(plan.Evaluator, instance) is { } symbol)
+        {
+            // "properties": "[union(..., reference('created-this-run'))]": its keys are known once the referenced resource exists (create evaluates it then).
+            return ResourceChange.Ignore(instance.Id, instance.Type, $"its properties are one expression whose value is only known at deployment time ({symbol}); it is evaluated when the resource is deployed", isUnknown: true);
+        }
+
         InstanceEvaluator.EvaluateProperties(plan.Evaluator, instance);
         SecretRegistration.RegisterTainted(instance.Properties);
         var provider = plan.Registry.Get(instance.Type);

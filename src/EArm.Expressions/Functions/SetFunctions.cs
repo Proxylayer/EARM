@@ -14,8 +14,8 @@ internal static class SetFunctions
 {
     public static void Register(FunctionRegistry registry, string group)
     {
-        registry.Register(new FunctionDescriptor { Name = "union", Group = group, MinArgs = 1, Implementation = Union });
-        registry.Register(new FunctionDescriptor { Name = "intersection", Group = group, MinArgs = 1, Implementation = Intersection });
+        registry.Register(new FunctionDescriptor { Name = "union", Group = group, MinArgs = 2, Implementation = Union });
+        registry.Register(new FunctionDescriptor { Name = "intersection", Group = group, MinArgs = 2, Implementation = Intersection });
     }
 
     private static JsonNode? Union(FunctionCall call)
