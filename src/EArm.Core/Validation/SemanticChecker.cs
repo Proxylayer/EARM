@@ -19,7 +19,7 @@ internal sealed partial class SemanticChecker
     private const string AdministrativeUnitsType = "Microsoft.Entra/administrativeUnits";
     private const string PasswordCredentialsType = "Microsoft.Entra/applications/passwordCredentials";
 
-    private static readonly string[] KnownTopLevelKeys = ["$schema", "contentVersion", "metadata", "parameters", "variables", "functions", "resources", "outputs"];
+    private static readonly string[] KnownTopLevelKeys = ["$schema", "languageVersion", "contentVersion", "metadata", "definitions", "parameters", "variables", "functions", "resources", "outputs"];
 
     private readonly ResourceTypeCatalog _catalog;
     private readonly TemplateDocument _document;
@@ -69,7 +69,7 @@ internal sealed partial class SemanticChecker
 
         if (!root.ContainsKey("resources"))
         {
-            Error(DiagnosticCodes.MissingRequiredProperty, "The template is missing the required 'resources' array.", JsonPath.Of("resources"));
+            Error(DiagnosticCodes.MissingRequiredProperty, "The template is missing the required 'resources' (an array, or with languageVersion 2.0 an object keyed by symbolic name).", JsonPath.Of("resources"));
         }
 
         foreach (var key in _document.TopLevelKeys)
@@ -88,6 +88,12 @@ internal sealed partial class SemanticChecker
         foreach (var definition in _document.Parameters.Values)
         {
             var typePath = definition.Path.Append("type");
+            if (definition.TypeProblem is not null)
+            {
+                // An unresolvable '$ref' is reported by the type definition checker.
+                continue;
+            }
+
             if (definition.Type is null)
             {
                 Error(DiagnosticCodes.InvalidParameterType, $"Parameter '{definition.Name}' is missing the required 'type' property.", typePath);
@@ -609,7 +615,11 @@ internal sealed partial class SemanticChecker
     {
         foreach (var output in _document.Outputs.Values)
         {
-            if (output.Type is null)
+            if (output.TypeProblem is not null)
+            {
+                // An unresolvable '$ref' is reported by the type definition checker.
+            }
+            else if (output.Type is null)
             {
                 Error(DiagnosticCodes.MissingRequiredProperty, $"Output '{output.Name}' is missing the required 'type' property.", output.Path.Append("type"));
             }

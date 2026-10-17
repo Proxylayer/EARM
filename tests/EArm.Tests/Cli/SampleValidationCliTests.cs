@@ -20,6 +20,7 @@ public sealed class SampleValidationCliTests
     [InlineData("pim-group-onboarding.entra.json", "pim-group-onboarding.parameters.json")]
     [InlineData("privileged-access.entra.json", "privileged-access.parameters.json")]
     [InlineData("scoped-access-groups.entra.json", "scoped-access-groups.parameters.json")]
+    [InlineData("symbolic-names.entra.json", "symbolic-names.parameters.json")]
     public async Task EverySample_WithItsParameterFile_PassesWithNoDiagnosticsAtAll(string template, string parameters)
     {
         var result = await CliRunner.ValidateJsonAsync(TestPaths.Sample(template), "-p", "@" + TestPaths.Sample(parameters));

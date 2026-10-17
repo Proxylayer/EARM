@@ -68,7 +68,7 @@ public sealed class ResourceExpander
 
                 for (int i = instanceMark; i < instances.Count; i++)
                 {
-                    resourceContext.Resources.Add(new TemplateResourceIndex.Entry(instances[i].PlannedId, instances[i].IsSymbolic, instances[i].Declaration, instances[i].Copy?.Name));
+                    resourceContext.Resources.Add(new TemplateResourceIndex.Entry(instances[i].PlannedId, instances[i].IsSymbolic, instances[i].Declaration, instances[i].Copy?.Name, instances[i].Copy?.Index));
                 }
             }
 

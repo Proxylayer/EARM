@@ -163,6 +163,10 @@ public static partial class ReferenceScanner
                 {
                     ScanReference(call, scoped);
                 }
+                else if (call.Is("references"))
+                {
+                    ScanReferences(call, scoped);
+                }
                 else if (call.Is("resourceId"))
                 {
                     ScanResourceId(call, scoped);
@@ -182,7 +186,7 @@ public static partial class ReferenceScanner
         private void ScanReference(CallExpression call, EvaluationContext scoped)
         {
             string callText = call.ToExpressionText();
-            bool existing = call.Arguments.Count >= 2;
+            bool existing = call.Arguments.Count >= 2 && !NamesSymbolicResource(call, scoped);
             if (!scoped.LambdaScope.IsEmpty && call.Arguments.Any(UsesLambdaVariable))
             {
                 // ARM: "Using lambda variables inside the reference function isn't currently supported." The loops that build
@@ -202,6 +206,12 @@ public static partial class ReferenceScanner
             {
                 Error(ex.Code, ex.MessageWithOffset);
                 return;
+            }
+
+            if (call.Arguments.Count == 3 && result is JsonObject envelope)
+            {
+                // reference(..., 'Full'): the runtime state is the envelope's 'properties'.
+                result = envelope["properties"];
             }
 
             if (UnknownJson.IsUnknown(result, out var unknown) && unknown.Source is not null)
@@ -244,6 +254,54 @@ public static partial class ReferenceScanner
             Error(
                 DiagnosticCodes.ReferenceNotStaticallyResolvable,
                 $"The target of {callText} cannot be determined before deployment: a reference() argument must be computable from literals, parameters, variables and copyIndex() (plus references to resources whose name is computable). Offending value: {unknown.Symbol}. (at offset {call.Offset})");
+        }
+
+        /// <summary>
+        /// <c>references(loop[, 'Full'])</c> (languageVersion 2.0): an implicit dependency on every iteration of the loop, as ARM declares it. The
+        /// iterations whose ids are not known statically are resolved by the engine once the loop is expanded.
+        /// </summary>
+        private void ScanReferences(CallExpression call, EvaluationContext scoped)
+        {
+            string callText = call.ToExpressionText();
+            JsonNode? result;
+            try
+            {
+                result = evaluator.EvaluateCall(call, scoped);
+            }
+            catch (ExpressionException ex)
+            {
+                Error(ex.Code, ex.MessageWithOffset);
+                return;
+            }
+
+            if (result is not JsonArray states)
+            {
+                occurrences.Add(new ReferenceOccurrence(ReferenceOccurrenceKind.Deferred, null, path, call.Offset, callText));
+                return;
+            }
+
+            bool full = call.Arguments.Count == 2 && call.Arguments[1] is LiteralExpression { IsString: true } option && string.Equals(option.StringValue, "Full", StringComparison.OrdinalIgnoreCase);
+            foreach (var state in states)
+            {
+                var properties = full && state is JsonObject envelope ? envelope["properties"] : state;
+                if (UnknownJson.IsUnknown(properties, out var unknown) && unknown.Source is not null)
+                {
+                    occurrences.Add(new ReferenceOccurrence(ReferenceOccurrenceKind.Reference, unknown.Source, path, call.Offset, callText));
+                }
+            }
+        }
+
+        /// <summary>True when the first argument of <paramref name="call"/> is a languageVersion 2.0 symbolic name of a resource of this template.</summary>
+        private bool NamesSymbolicResource(CallExpression call, EvaluationContext scoped)
+        {
+            try
+            {
+                return ReferenceFunctions.NamesSymbolicResource(scoped.Resources, evaluator.Evaluate(call.Arguments[0], scoped));
+            }
+            catch (ExpressionException)
+            {
+                return false;
+            }
         }
 
         /// <summary>True when <paramref name="expression"/> calls <c>lambdaVariables()</c> anywhere inside it.</summary>

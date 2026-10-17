@@ -141,6 +141,29 @@ public sealed record ResourceChange
         return new ResourceChange { Id = id, ResourceType = resourceType, Type = ChangeType.Ignore, Mode = ChangeMode.None, GraphId = graphId, Orphan = reason, Reasons = [text] };
     }
 
+    /// <summary>The reason text of a languageVersion 2.0 <c>"existing": true</c> resource's row.</summary>
+    public const string ExistingReason = "existing resource (\"existing\": true): read only, never written";
+
+    /// <summary>
+    /// The row of a languageVersion 2.0 <c>"existing": true</c> resource: <see cref="ChangeType.NoChange"/>, as ARM never deploys an existing
+    /// resource; <paramref name="live"/> is the object that was read (<c>null</c> when its name is only known at deployment).
+    /// </summary>
+    public static ResourceChange ExistingRead(ResourceIdentifier id, string resourceType, ExistingResource? live, bool isUnknown = false)
+    {
+        ArgumentNullException.ThrowIfNull(id);
+        return new ResourceChange
+        {
+            Id = id,
+            ResourceType = resourceType,
+            Type = ChangeType.NoChange,
+            Mode = ChangeMode.None,
+            Reasons = [ExistingReason],
+            GraphId = live?.GraphId,
+            IsUnknown = isUnknown,
+            IsSymbolicId = isUnknown,
+        };
+    }
+
     public static ResourceChange Unsupported(ResourceIdentifier id, string resourceType, ChangeType type, string reason)
     {
         ArgumentNullException.ThrowIfNull(id);

@@ -585,7 +585,7 @@ public sealed class ExpressionValidator : ITemplateValidator
                 Error(DiagnosticCodes.NonDeterministicFunctionNotAllowed, $"{ExpressionEvaluator.NonDeterministicMessage(descriptor)} (at offset {call.Offset})", path);
             }
 
-            if (call.Is("reference"))
+            if (call.Is("reference") || call.Is("references"))
             {
                 CheckReferencePlacement(call, path, scope);
             }
@@ -644,13 +644,17 @@ public sealed class ExpressionValidator : ITemplateValidator
 
         private void CheckReferencePlacement(CallExpression call, JsonPath path, EvaluationScope scope)
         {
+            string function = call.Is("references") ? "references()" : "reference()";
             switch (scope)
             {
                 case EvaluationScope.ParameterDefault:
-                    Error(DiagnosticCodes.ReferenceNotAllowedHere, $"reference() cannot be used in a parameter default value. (at offset {call.Offset})", path);
+                    Error(DiagnosticCodes.ReferenceNotAllowedHere, $"{function} cannot be used in a parameter default value. (at offset {call.Offset})", path);
                     break;
                 case EvaluationScope.UserFunction:
-                    Error(DiagnosticCodes.ReferenceNotAllowedHere, $"reference() cannot be used inside a user-defined function. (at offset {call.Offset})", path);
+                    Error(DiagnosticCodes.ReferenceNotAllowedHere, $"{function} cannot be used inside a user-defined function. (at offset {call.Offset})", path);
+                    break;
+                case EvaluationScope.Variable when call.Is("references"):
+                    Error(DiagnosticCodes.ReferenceNotAllowedHere, $"references() cannot be used in a variable; use it in the resource properties or the outputs. (at offset {call.Offset})", path);
                     break;
                 case EvaluationScope.Variable when call.Arguments.Count < 2:
                     Error(DiagnosticCodes.ReferenceNotAllowedHere, $"A variable cannot reference a resource of this template; only existing resources may be looked up from variables: reference(resourceId(...), apiVersion). (at offset {call.Offset})", path);

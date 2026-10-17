@@ -32,8 +32,11 @@ public sealed class TemplateResourceIndex
     /// <summary>The copy loops of the template by literal <c>copy.name</c>, whether or not their iterations have ids yet.</summary>
     public IReadOnlyList<CopyLoop> CopyLoops => _loops;
 
-    /// <summary>One indexed resource. <see cref="CopyName"/> is the resource's <c>copy.name</c> when it has one.</summary>
-    public sealed record Entry(ResourceIdentifier Id, bool IsSymbolic, ResourceDeclaration? Declaration, string? CopyName = null);
+    /// <summary>
+    /// One indexed resource. <see cref="CopyName"/> is the resource's <c>copy.name</c> when it has one, and <see cref="CopyIndex"/> the iteration
+    /// when the entry is one instance of a copy loop (needed for the languageVersion 2.0 form <c>reference('loop[2]')</c>).
+    /// </summary>
+    public sealed record Entry(ResourceIdentifier Id, bool IsSymbolic, ResourceDeclaration? Declaration, string? CopyName = null, long? CopyIndex = null);
 
     /// <summary>One <c>copy</c> loop: its literal name and the declaration that carries it.</summary>
     public sealed record CopyLoop(string Name, ResourceDeclaration Declaration);
@@ -131,6 +134,53 @@ public sealed class TemplateResourceIndex
     {
         ArgumentNullException.ThrowIfNull(copyName);
         return _entries.Where(e => e.CopyName is not null && string.Equals(e.CopyName, copyName, StringComparison.OrdinalIgnoreCase)).ToList();
+    }
+
+    /// <summary>
+    /// languageVersion 2.0: the declaration whose symbolic name is <paramref name="symbolicName"/> (case-sensitive, as ARM compares them), found
+    /// among the indexed entries and the copy loops; <c>null</c> when none has it (always, in a template whose <c>resources</c> is an array).
+    /// </summary>
+    public ResourceDeclaration? FindSymbolicDeclaration(string symbolicName)
+    {
+        ArgumentNullException.ThrowIfNull(symbolicName);
+        foreach (var entry in _entries)
+        {
+            if (entry.Declaration?.SymbolicName is { } name && string.Equals(name, symbolicName, StringComparison.Ordinal))
+            {
+                return entry.Declaration;
+            }
+        }
+
+        foreach (var loop in _loops)
+        {
+            if (loop.Declaration.SymbolicName is { } name && string.Equals(name, symbolicName, StringComparison.Ordinal))
+            {
+                return loop.Declaration;
+            }
+        }
+
+        foreach (var loop in _pending)
+        {
+            if (loop.Declaration.SymbolicName is { } name && string.Equals(name, symbolicName, StringComparison.Ordinal))
+            {
+                return loop.Declaration;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// The indexed entries of <paramref name="declaration"/>: its one entry, or with <paramref name="copyIndex"/> the entry of that iteration, or
+    /// without it every indexed iteration of a copy loop in iteration order.
+    /// </summary>
+    public IReadOnlyList<Entry> FindByDeclaration(ResourceDeclaration declaration, long? copyIndex = null)
+    {
+        ArgumentNullException.ThrowIfNull(declaration);
+        return _entries
+            .Where(e => ReferenceEquals(e.Declaration, declaration) && (copyIndex is null || e.CopyIndex == copyIndex))
+            .OrderBy(e => e.CopyIndex ?? 0)
+            .ToList();
     }
 
     /// <summary>The ids of the indexed resources, for change detection between static passes.</summary>

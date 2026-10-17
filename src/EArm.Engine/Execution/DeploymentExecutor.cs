@@ -500,6 +500,32 @@ public sealed class DeploymentExecutor
             }
         }
 
+        /// <summary>
+        /// A languageVersion 2.0 <c>"existing": true</c> resource: read by its key and published for <c>reference()</c>, never written. A missing
+        /// object fails the resource (its dependents are skipped), as ARM fails a deployment that reads a resource that does not exist.
+        /// </summary>
+        private async Task ReadExistingAsync(ResourceInstance instance, IResourceProvider provider, int batchIndex, Stopwatch stopwatch, CancellationToken cancellationToken)
+        {
+            var key = provider.ResolveKey(instance);
+            if (!key.IsResolved)
+            {
+                RecordFailure(instance, batchIndex, EngineDiagnosticCodes.ResourceKeyUnresolved, $"{instance.Describe()}: the Graph key of the existing resource cannot be resolved ({key.Describe()}).", stopwatch.Elapsed);
+                return;
+            }
+
+            var existing = await WithRetryAsync(ct => provider.ReadAsync(key, _owner._graph, ct), instance.RetryHint, cancellationToken).ConfigureAwait(false);
+            if (existing is null)
+            {
+                RecordFailure(instance, batchIndex, EngineDiagnosticCodes.ExistingResourceNotFound, DeploymentPlanner.ExistingNotFound(instance), stopwatch.Elapsed);
+                return;
+            }
+
+            _changes[instance] = ResourceChange.ExistingRead(instance.Id, instance.Type, existing);
+            SecretRegistration.RegisterTainted(existing.Raw);
+            _plan.Resolver.Publish(instance.Id, existing.Raw, existing.GraphId, instance.PlannedId);
+            _operations[instance] = new ResourceOperation(instance.Id, instance.Type, batchIndex, OperationStatus.Succeeded, ChangeType.NoChange, ChangeMode.None, existing.GraphId, null, null, stopwatch.Elapsed);
+        }
+
         private async Task ApplyCoreAsync(ResourceInstance instance, int batchIndex, Stopwatch stopwatch, CancellationToken cancellationToken)
         {
             if (instance.Condition is null)
@@ -532,6 +558,11 @@ public sealed class DeploymentExecutor
 
             var provider = _owner._registry.Get(instance.Type);
             instance.RetryHint = instance.Dependencies.Any(_createdThisRun.ContainsKey) ? RetryHint.ExpectReplicationLag : RetryHint.Default;
+            if (instance.Declaration.IsExisting)
+            {
+                await ReadExistingAsync(instance, provider, batchIndex, stopwatch, cancellationToken).ConfigureAwait(false);
+                return;
+            }
 
             // Name sugar and live-data validation (resourceAppId → resourceId, appRole → appRoleId, scopes → scope...) before the key is derived.
             await WithRetryAsync(async ct => { await provider.PrepareAsync(instance, _owner._graph, ct).ConfigureAwait(false); return true; }, RetryHint.Default, cancellationToken).ConfigureAwait(false);

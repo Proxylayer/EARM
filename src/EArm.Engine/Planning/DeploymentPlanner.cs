@@ -135,7 +135,7 @@ public sealed class DeploymentPlanner
         {
             if (instance.Copy is { } copy)
             {
-                index.Add(new TemplateResourceIndex.Entry(instance.PlannedId, instance.IsSymbolic, instance.Declaration, copy.Name));
+                index.Add(new TemplateResourceIndex.Entry(instance.PlannedId, instance.IsSymbolic, instance.Declaration, copy.Name, copy.Index));
             }
         }
 
@@ -362,7 +362,12 @@ public sealed class DeploymentPlanner
 
         if (instance.IsSymbolic)
         {
-            return provider.Plan(instance, null, plan.Options);
+            return instance.Declaration.IsExisting ? ResourceChange.ExistingRead(instance.Id, instance.Type, null, isUnknown: true) : provider.Plan(instance, null, plan.Options);
+        }
+
+        if (instance.Declaration.IsExisting)
+        {
+            return await PlanExistingAsync(plan, instance, provider, cancellationToken).ConfigureAwait(false);
         }
 
         // Name sugar and live-data validation (resourceAppId → resourceId, appRole → appRoleId, scopes → scope...) before the key is derived.
@@ -414,6 +419,35 @@ public sealed class DeploymentPlanner
         }
 
         return plannedChange;
+    }
+
+    /// <summary>
+    /// A languageVersion 2.0 <c>"existing": true</c> resource is read by its key and published for <c>reference()</c>, never planned as a write
+    /// (https://learn.microsoft.com/azure/azure-resource-manager/templates/resource-declaration#declare-existing-resources). It has no properties to
+    /// prepare or compare; a missing object is an error, as in ARM.
+    /// </summary>
+    private async Task<ResourceChange> PlanExistingAsync(DeploymentPlan plan, ResourceInstance instance, IResourceProvider provider, CancellationToken cancellationToken)
+    {
+        var key = provider.ResolveKey(instance);
+        if (!key.IsResolved)
+        {
+            return ResourceChange.Unsupported(instance.Id, instance.Type, ChangeType.NoChange, $"{instance.Describe()}: the Graph key of the existing resource cannot be resolved ({key.Describe()}).") with { UnsupportedCode = EngineDiagnosticCodes.ResourceKeyUnresolved };
+        }
+
+        var live = await WithRetryAsync(ct => provider.ReadAsync(key, _graph, ct), RetryHint.Default, cancellationToken).ConfigureAwait(false);
+        if (live is null)
+        {
+            return ResourceChange.Unsupported(instance.Id, instance.Type, ChangeType.NoChange, ExistingNotFound(instance)) with { UnsupportedCode = EngineDiagnosticCodes.ExistingResourceNotFound };
+        }
+
+        plan.Resolver.Publish(instance.Id, live.Raw, live.GraphId, instance.PlannedId);
+        return ResourceChange.ExistingRead(instance.Id, instance.Type, live);
+    }
+
+    /// <summary>The message of <see cref="EngineDiagnosticCodes.ExistingResourceNotFound"/>.</summary>
+    internal static string ExistingNotFound(ResourceInstance instance)
+    {
+        return $"{instance.Describe()} is declared \"existing\": true but does not exist; an existing resource is only read. Create it first, or remove \"existing\" to let the template create it.";
     }
 
     /// <summary>
