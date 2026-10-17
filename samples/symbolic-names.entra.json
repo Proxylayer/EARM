@@ -1,0 +1,73 @@
+{
+  "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
+  "languageVersion": "2.0",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": { "name": "bicep", "version": "0.30.23.60470", "templateHash": "1866244960133436511" },
+    "description": "languageVersion 2.0, as Bicep compiles it: resources keyed by symbolic name, an existing group read (never written) for its object id, a user-defined type for the team list, a resource loop referenced with references() and one iteration with reference('teamGroups[0]', ..., 'full'), and dependsOn by symbolic name. Deploy with: earm deployment create -f samples/symbolic-names.entra.json -p @samples/symbolic-names.parameters.json"
+  },
+  "definitions": {
+    "team": {
+      "type": "object",
+      "properties": {
+        "key": { "type": "string", "minLength": 2, "maxLength": 12, "metadata": { "description": "Stable key; part of the group's unique name." } },
+        "name": { "type": "string", "metadata": { "description": "Display name of the team." } },
+        "description": { "type": "string", "nullable": true }
+      },
+      "metadata": { "__bicep_export!": true, "description": "One team: a security group is created for each." }
+    }
+  },
+  "parameters": {
+    "env": { "type": "string", "allowedValues": ["dev", "prod"], "metadata": { "description": "Environment; part of every name." } },
+    "teams": { "type": "array", "items": { "$ref": "#/definitions/team" }, "minLength": 1, "metadata": { "description": "The teams, one security group each." } },
+    "adminGroupName": { "type": "string", "metadata": { "description": "uniqueName of an EXISTING group; it is only read." } }
+  },
+  "variables": {
+    "appName": "[format('contoso-{0}-portal', parameters('env'))]"
+  },
+  "resources": {
+    "adminGroup": {
+      "existing": true,
+      "type": "Microsoft.Entra/groups",
+      "apiVersion": "2026-10-01-preview",
+      "name": "[parameters('adminGroupName')]"
+    },
+    "teamGroups": {
+      "copy": { "name": "teamGroups", "count": "[length(parameters('teams'))]" },
+      "type": "Microsoft.Entra/groups",
+      "apiVersion": "2026-10-01-preview",
+      "name": "[format('{0}-team-{1}', parameters('env'), parameters('teams')[copyIndex()].key)]",
+      "properties": {
+        "displayName": "[format('{0} ({1})', parameters('teams')[copyIndex()].name, parameters('env'))]",
+        "description": "[coalesce(tryGet(parameters('teams')[copyIndex()], 'description'), format('Team {0}', parameters('teams')[copyIndex()].name))]",
+        "mailEnabled": false,
+        "securityEnabled": true
+      }
+    },
+    "app": {
+      "type": "Microsoft.Entra/applications",
+      "apiVersion": "2026-10-01-preview",
+      "name": "[variables('appName')]",
+      "properties": {
+        "displayName": "[format('Contoso Portal ({0})', parameters('env'))]",
+        "signInAudience": "AzureADMyOrg"
+      }
+    },
+    "sp": {
+      "type": "Microsoft.Entra/servicePrincipals",
+      "apiVersion": "2026-10-01-preview",
+      "name": "[reference('app').appId]",
+      "properties": {
+        "appRoleAssignmentRequired": true,
+        "notes": "[format('Administered by group {0}.', reference('adminGroup').id)]"
+      },
+      "dependsOn": ["app", "adminGroup"]
+    }
+  },
+  "outputs": {
+    "appId": { "type": "string", "value": "[reference('app').appId]" },
+    "adminGroupId": { "type": "string", "value": "[reference('adminGroup').id]" },
+    "teamGroupIds": { "type": "array", "value": "[map(references('teamGroups'), lambda('g', lambdaVariables('g').id))]" },
+    "firstTeamGroupResourceId": { "type": "string", "value": "[reference('teamGroups[0]', '2026-10-01-preview', 'full').resourceId]" }
+  }
+}

@@ -112,7 +112,8 @@ public sealed class TemplateDeleter
         {
             foreach (var instance in batch.Instances.OrderBy(i => ApplyPhases.DeleteOrderOf(i.Type)).ThenBy(i => i.Id.Id, StringComparer.Ordinal))
             {
-                if (instance.IsSymbolic || instance.IsIgnored)
+                // An "existing": true resource is only read by the template, never owned by it: deleting the template leaves it alone.
+                if (instance.IsSymbolic || instance.IsIgnored || instance.Declaration.IsExisting)
                 {
                     continue;
                 }

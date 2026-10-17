@@ -54,6 +54,8 @@ public sealed class TemplateValidator : ITemplateValidator
         var diagnostics = new List<Diagnostic>(document.LoadDiagnostics);
         new SemanticChecker(_catalog, document, diagnostics).Run();
         new CopyBlockChecker(document, diagnostics).Run();
+        new ArmLimitChecker(document, diagnostics).Run();
+        new TypeDefinitionChecker(document, diagnostics).Run();
         new FederatedCredentialChecker(document, diagnostics).Run();
         new ConditionalAccessPolicyChecker(document, diagnostics).Run();
         new AuthenticationMethodConfigurationChecker(document, diagnostics).Run();
@@ -141,14 +143,15 @@ public sealed class TemplateValidator : ITemplateValidator
         }
     }
 
-    /// <summary>True for a path below <c>resources[n].properties</c> or <c>resources[n].resources[m].properties</c> (the members of a resource's properties, at any depth).</summary>
+    /// <summary>True for a path below <c>resources[n].properties</c> or <c>resources[n].resources[m].properties</c> (or <c>resources.name...</c> with languageVersion 2.0) (the members of a resource's properties, at any depth).</summary>
     private static bool IsInsideResourceProperties(JsonPath path)
     {
         var segments = path.Segments;
         int i = 0;
         for (int level = 0; level < 2; level++)
         {
-            if (i + 1 < segments.Count && !segments[i].IsIndex && segments[i].Name == "resources" && segments[i + 1].IsIndex)
+            // resources[n] (an array of resources), or at the top level resources.<symbolicName> (languageVersion 2.0).
+            if (i + 1 < segments.Count && !segments[i].IsIndex && segments[i].Name == "resources" && (segments[i + 1].IsIndex || level == 0))
             {
                 i += 2;
             }

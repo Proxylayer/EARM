@@ -8,7 +8,8 @@ namespace EArm.Expressions.Evaluation;
 
 /// <summary>
 /// The ARM iterations that build a value rather than resources: property iteration (<c>"copy": [ { name, count, input } ]</c>
-/// inside resource properties) and output iteration (<c>"copy": { count, input }</c> on an output). Each evaluates
+/// inside resource properties and variable values), variable iteration (the same array at the top of <c>variables</c>) and output iteration
+/// (<c>"copy": { count, input }</c> on an output). Each evaluates
 /// <c>input</c> once per position with a concrete <see cref="CopyFrame"/> and collects the results in an array.
 /// </summary>
 public static class CopyExpansion
@@ -18,7 +19,7 @@ public static class CopyExpansion
     /// deployment (or depends on an unresolved <c>copyIndex()</c> of an enclosing loop). Throws when the count is invalid:
     /// not a non-negative integer, above the ARM limit of 800, or computed from a secure value.
     /// </summary>
-    public static long? EvaluateCount(ExpressionEvaluator evaluator, JsonNode? count, EvaluationContext context, string what, out UnknownValue? unknown)
+    public static long? EvaluateCount(IExpressionEvaluator evaluator, JsonNode? count, EvaluationContext context, string what, out UnknownValue? unknown)
     {
         ArgumentNullException.ThrowIfNull(evaluator);
         ArgumentNullException.ThrowIfNull(context);
@@ -59,7 +60,7 @@ public static class CopyExpansion
     /// only known at deployment yields an unknown value with the count's origins. <paramref name="requiresName"/> marks a
     /// property iteration (only <c>copyIndex('name')</c> addresses it).
     /// </summary>
-    public static JsonNode? Expand(ExpressionEvaluator evaluator, string name, JsonNode? count, JsonNode? input, EvaluationContext context, bool requiresName, string what)
+    public static JsonNode? Expand(IExpressionEvaluator evaluator, string name, JsonNode? count, JsonNode? input, EvaluationContext context, bool requiresName, string what)
     {
         ArgumentNullException.ThrowIfNull(evaluator);
         ArgumentNullException.ThrowIfNull(name);

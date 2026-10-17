@@ -12,8 +12,7 @@ namespace EArm.Tests;
 /// <summary>
 /// ARM fidelity of parameters and variables: a value shaped like <c>[...]</c> is data and never bypasses a type check (only template text is an
 /// expression); an expression <c>defaultValue</c> is checked against the type and the constraints once evaluated; <c>minValue</c>/<c>maxValue</c>/
-/// <c>minLength</c>/<c>maxLength</c> may not be expressions; <c>allowedValues</c> of an array parameter constrains its elements; and a <c>copy</c>
-/// block in <c>variables</c> is refused instead of being read as a variable named <c>copy</c>.
+/// <c>minLength</c>/<c>maxLength</c> may not be expressions; <c>allowedValues</c> of an array parameter constrains its elements; and type names compare case-insensitively.
 /// </summary>
 public sealed class ArmFidelityParameterTests
 {
@@ -183,21 +182,35 @@ public sealed class ArmFidelityParameterTests
         Assert.Single(diagnostics, d => d.Code == DiagnosticCodes.DefaultValueNotAllowed);
     }
 
-    // ---- variable copy ----
+    // ---- type names are case-insensitive (ARM) ----
 
-    [Fact]
-    public void ACopyBlockInVariables_IsRefused_NotReadAsAVariableNamedCopy()
+    [Theory]
+    [InlineData("secureString")]
+    [InlineData("SecureObject")]
+    [InlineData("STRING")]
+    [InlineData("Int")]
+    [InlineData("Bool")]
+    [InlineData("Object")]
+    [InlineData("Array")]
+    public void AParameterAndOutputType_IsAcceptedInAnyCase(string type)
     {
-        const string variables = "\"variables\": { \"copy\": [ { \"name\": \"items\", \"count\": 2, \"input\": \"[copyIndex('items')]\" } ], \"other\": 1 }, ";
-        string template = Template("\"p\": { \"type\": \"string\", \"defaultValue\": \"x\" }", variables);
+        string outputValue = TemplateParameterTypes.TryParse(type, out var parsed) && TemplateParameterTypes.IsSecure(parsed) ? "[parameters('p')]" : "[parameters('p')]";
+        string template = Review1C.Template(
+            "\"parameters\": { \"p\": { \"type\": \"" + type + "\" } }, " +
+            "\"functions\": [ { \"namespace\": \"f\", \"members\": { \"id\": { \"parameters\": [ { \"name\": \"x\", \"type\": \"" + type + "\" } ], \"output\": { \"type\": \"" + type + "\", \"value\": \"[parameters('x')]\" } } } } ], " +
+            "\"resources\": [], \"outputs\": { \"o\": { \"type\": \"" + type + "\", \"value\": \"" + outputValue + "\" } }");
 
         var diagnostics = Review1C.Validate(template);
 
-        var diagnostic = Assert.Single(diagnostics, d => d.Code == DiagnosticCodes.InvalidCopy);
-        Assert.Equal("variables.copy", diagnostic.Path!.ToString());
-        Assert.Contains("not supported", diagnostic.Message, StringComparison.Ordinal);
-        var document = Expr.ParseBody(variables + "\"resources\": []");
-        Assert.False(document.Variables.ContainsKey("copy"));
-        Assert.True(document.Variables.ContainsKey("other"));
+        Assert.DoesNotContain(diagnostics, d => d.Code is DiagnosticCodes.InvalidParameterType or DiagnosticCodes.InvalidOutputType or DiagnosticCodes.SchemaViolation);
+        Assert.Equal(type.Contains("secure", StringComparison.OrdinalIgnoreCase), Expr.ParseBody("\"parameters\": { \"p\": { \"type\": \"" + type + "\" } }, \"resources\": []").Parameters["p"].IsSecure);
+    }
+
+    [Fact]
+    public void AnUnknownParameterType_IsStillRefused()
+    {
+        var diagnostics = Review1C.Validate(Template("\"p\": { \"type\": \"strings\" }"));
+
+        Assert.Contains(diagnostics, d => d.Code == DiagnosticCodes.InvalidParameterType);
     }
 }

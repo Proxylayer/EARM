@@ -28,11 +28,29 @@ public sealed record TemplateDocument
 
     public JsonObject? Metadata { get; init; }
 
+    /// <summary>The <c>languageVersion</c> text, or <c>null</c> when the template has none (language version 1).</summary>
+    public string? LanguageVersion { get; init; }
+
+    /// <summary>
+    /// True when <c>resources</c> is an object keyed by symbolic name (languageVersion 2.0): <c>dependsOn</c> and <c>reference()</c> then name
+    /// resources by symbolic name (see <see cref="ResourceDeclaration.SymbolicName"/>).
+    /// </summary>
+    public bool UsesSymbolicNames { get; init; }
+
+    /// <summary>The languageVersion 2.0 user-defined types of <c>definitions</c>, keyed by name (case-sensitive), as authored.</summary>
+    public IReadOnlyDictionary<string, JsonObject> Definitions { get; init; } = new Dictionary<string, JsonObject>();
+
     /// <summary>Parameter definitions keyed by name (case-insensitive).</summary>
     public IReadOnlyDictionary<string, ParameterDefinition> Parameters { get; init; } = new Dictionary<string, ParameterDefinition>();
 
     /// <summary>Variables keyed by name (case-insensitive), unevaluated.</summary>
     public IReadOnlyDictionary<string, JsonNode?> Variables { get; init; } = new Dictionary<string, JsonNode?>();
+
+    /// <summary>
+    /// The variables built by the top-level <c>copy</c> array of <c>variables</c> (variable iteration), keyed by name (case-insensitive). Each also
+    /// appears in <see cref="Variables"/>, with its entry object as the definition; evaluators build the array from the iteration instead.
+    /// </summary>
+    public IReadOnlyDictionary<string, VariableIteration> VariableIterations { get; init; } = new Dictionary<string, VariableIteration>();
 
     public IReadOnlyList<UserFunctionNamespace> Functions { get; init; } = [];
 
@@ -53,6 +71,9 @@ public sealed record TemplateDocument
 
     /// <summary>Line/column lookup for paths inside the template file.</summary>
     public SourceMap SourceMap { get; init; } = SourceMap.Empty;
+
+    /// <summary>The size of the template text in UTF-8 bytes, for the ARM template size limit.</summary>
+    public long SourceByteLength { get; init; }
 
     /// <summary>The top-level keys present in the file, in document order.</summary>
     public IReadOnlyList<string> TopLevelKeys { get; init; } = [];

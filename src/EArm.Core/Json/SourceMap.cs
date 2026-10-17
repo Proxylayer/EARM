@@ -46,6 +46,38 @@ public sealed class SourceMap
         return new SourceMap(offsets, ComputeLineStarts(bytes), bytes);
     }
 
+    /// <summary>
+    /// Builds the map of text that was parsed after <see cref="MultiLineStrings.Escape"/>: paths are read from <paramref name="parsed"/> and their
+    /// positions mapped back through <paramref name="insertions"/> to <paramref name="original"/>, whose lines and columns are reported. Neither
+    /// text may start with a byte-order mark.
+    /// </summary>
+    public static SourceMap Build(ReadOnlyMemory<byte> parsed, ReadOnlyMemory<byte> original, IReadOnlyList<int> insertions)
+    {
+        ArgumentNullException.ThrowIfNull(insertions);
+        if (insertions.Count == 0)
+        {
+            return Build(original);
+        }
+
+        var offsets = new Dictionary<string, int>(StringComparer.Ordinal);
+        try
+        {
+            Record(parsed.ToArray(), offsets);
+        }
+        catch (JsonException)
+        {
+            return Empty;
+        }
+
+        foreach (var key in new List<string>(offsets.Keys))
+        {
+            offsets[key] = MultiLineStrings.ToOriginal(offsets[key], insertions);
+        }
+
+        byte[] bytes = original.ToArray();
+        return new SourceMap(offsets, ComputeLineStarts(bytes), bytes);
+    }
+
     /// <summary>The location of exactly this path, or <c>null</c> when unknown.</summary>
     public SourceLocation? Find(JsonPath path)
     {

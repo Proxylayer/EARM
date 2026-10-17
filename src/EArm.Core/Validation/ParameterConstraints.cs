@@ -33,6 +33,16 @@ public static class ParameterConstraints
             return null;
         }
 
+        if (plain is null && definition.IsNullable)
+        {
+            return null;
+        }
+
+        if (TypeConstraints.AggregateViolation(definition.TypeSchema, plain, definition.TypeDefinitions) is { } aggregate)
+        {
+            return $"{aggregate} (type of parameter '{definition.Name}')";
+        }
+
         if (definition.AllowedValues is { } allowed && !(type == TemplateParameterType.Array && plain is JsonArray elements ? AreAllAllowed(elements, allowed) : IsAllowed(plain, allowed)))
         {
             return $"the value does not match allowedValues of parameter '{definition.Name}'";
@@ -73,6 +83,16 @@ public static class ParameterConstraints
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// True when <paramref name="value"/> has the declared type of <paramref name="definition"/>; a null value matches a <c>nullable</c>
+    /// (languageVersion 2.0) parameter. See <see cref="TemplateParameterTypes.Matches"/>.
+    /// </summary>
+    public static bool TypeMatches(ParameterDefinition definition, TemplateParameterType type, JsonNode? value)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        return (value is null && definition.IsNullable) || TemplateParameterTypes.Matches(value, type);
     }
 
     private static string? LengthViolation(ParameterDefinition definition, int length)

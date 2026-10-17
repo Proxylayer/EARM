@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Text.Json.Nodes;
-using System.Text.RegularExpressions;
 using EArm.Core.Diagnostics;
 using EArm.Core.Json;
 using EArm.Core.Types;
@@ -20,7 +19,7 @@ internal sealed partial class SemanticChecker
     private const string AdministrativeUnitsType = "Microsoft.Entra/administrativeUnits";
     private const string PasswordCredentialsType = "Microsoft.Entra/applications/passwordCredentials";
 
-    private static readonly string[] KnownTopLevelKeys = ["$schema", "contentVersion", "metadata", "parameters", "variables", "functions", "resources", "outputs"];
+    private static readonly string[] KnownTopLevelKeys = ["$schema", "languageVersion", "contentVersion", "metadata", "definitions", "parameters", "variables", "functions", "resources", "outputs"];
 
     private readonly ResourceTypeCatalog _catalog;
     private readonly TemplateDocument _document;
@@ -32,9 +31,6 @@ internal sealed partial class SemanticChecker
         _document = document;
         _diagnostics = diagnostics;
     }
-
-    [GeneratedRegex(@"^\d+\.\d+\.\d+\.\d+$")]
-    private static partial Regex ContentVersionPattern();
 
     public void Run()
     {
@@ -65,14 +61,15 @@ internal sealed partial class SemanticChecker
         {
             Error(DiagnosticCodes.MissingRequiredProperty, "The template is missing the required 'contentVersion' property.", JsonPath.Of("contentVersion"));
         }
-        else if (_document.ContentVersion is null || !ContentVersionPattern().IsMatch(_document.ContentVersion))
+        else if (_document.ContentVersion is null)
         {
-            Error(DiagnosticCodes.InvalidContentVersion, "'contentVersion' must be a literal of the form 'major.minor.build.revision', for example '1.0.0.0'.", JsonPath.Of("contentVersion"));
+            // ARM accepts any value ("You can provide any value for this element"); EARM only requires it to be a string.
+            Error(DiagnosticCodes.InvalidContentVersion, "'contentVersion' must be a string, for example '1.0.0.0'.", JsonPath.Of("contentVersion"));
         }
 
         if (!root.ContainsKey("resources"))
         {
-            Error(DiagnosticCodes.MissingRequiredProperty, "The template is missing the required 'resources' array.", JsonPath.Of("resources"));
+            Error(DiagnosticCodes.MissingRequiredProperty, "The template is missing the required 'resources' (an array, or with languageVersion 2.0 an object keyed by symbolic name).", JsonPath.Of("resources"));
         }
 
         foreach (var key in _document.TopLevelKeys)
@@ -91,6 +88,12 @@ internal sealed partial class SemanticChecker
         foreach (var definition in _document.Parameters.Values)
         {
             var typePath = definition.Path.Append("type");
+            if (definition.TypeProblem is not null)
+            {
+                // An unresolvable '$ref' is reported by the type definition checker.
+                continue;
+            }
+
             if (definition.Type is null)
             {
                 Error(DiagnosticCodes.InvalidParameterType, $"Parameter '{definition.Name}' is missing the required 'type' property.", typePath);
@@ -129,7 +132,7 @@ internal sealed partial class SemanticChecker
                 Warning(DiagnosticCodes.SecureParameterHasDefault, $"Parameter '{definition.Name}' is secure but has a default value; secrets should not be stored in the template.", defaultPath);
             }
 
-            if (!TemplateParameterTypes.MatchesTemplateText(definition.DefaultValue, type))
+            if (!(definition.DefaultValue is null && definition.IsNullable) && !TemplateParameterTypes.MatchesTemplateText(definition.DefaultValue, type))
             {
                 Error(DiagnosticCodes.DefaultValueTypeMismatch, $"Parameter '{definition.Name}': the default value does not match the declared type '{definition.Type}'.", defaultPath);
             }
@@ -225,7 +228,7 @@ internal sealed partial class SemanticChecker
             JsonPath? valuePath = bound.Source == ParameterValueSource.File ? JsonPath.Of("parameters", definition.Name, "value") : null;
             string? valueSource = bound.Source == ParameterValueSource.File ? parameterSource : null;
 
-            if (!TemplateParameterTypes.Matches(bound.Value, type))
+            if (!ParameterConstraints.TypeMatches(definition, type, bound.Value))
             {
                 _diagnostics.Add(Diagnostic.Error(DiagnosticCodes.ParameterValueTypeMismatch, $"The value supplied for parameter '{definition.Name}' does not match the declared type '{definition.Type}'.", valuePath, null, valueSource));
             }
@@ -612,7 +615,11 @@ internal sealed partial class SemanticChecker
     {
         foreach (var output in _document.Outputs.Values)
         {
-            if (output.Type is null)
+            if (output.TypeProblem is not null)
+            {
+                // An unresolvable '$ref' is reported by the type definition checker.
+            }
+            else if (output.Type is null)
             {
                 Error(DiagnosticCodes.MissingRequiredProperty, $"Output '{output.Name}' is missing the required 'type' property.", output.Path.Append("type"));
             }

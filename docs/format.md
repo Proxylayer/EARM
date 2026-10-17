@@ -6,8 +6,9 @@ reference for the format; [edges.md](edges.md) covers relationship properties, [
 Graph permissions a template needs, [cli.md](cli.md) the verbs, and [diagnostics.md](diagnostics.md) every
 validation code. Worked templates are in [`samples/`](../samples/README.md).
 
-- File convention: `*.entra.json` (or `*.entra.jsonc`). The parser accepts `//` and `/* */` comments, trailing commas and
-  a UTF-8 byte-order mark.
+- File convention: `*.entra.json` (or `*.entra.jsonc`). The parser accepts `//` and `/* */` comments, trailing commas,
+  a UTF-8 byte-order mark and multi-line strings (a raw line break inside a string, as Azure CLI and PowerShell accept it:
+  [syntax](https://learn.microsoft.com/azure/azure-resource-manager/templates/syntax#multi-line-strings)), so a long expression can span several lines.
 - Editor support: `earm schema install` maps the JSON Schemas to `**/*.entra.json` in VS Code
   (see [JSON Schemas](#json-schemas)).
 - Validate offline at any time: `earm deployment validate -f template.entra.json -p '@params.json'`.
@@ -17,12 +18,14 @@ validation code. Worked templates are in [`samples/`](../samples/README.md).
 ```json
 {
   "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
+  "languageVersion": "2.0",
   "contentVersion": "1.0.0.0",
   "metadata": { "description": "free-form" },
+  "definitions": { },
   "parameters": { },
   "variables": { },
   "functions": [ ],
-  "resources": [ ],
+  "resources": [ ], /* or { } keyed by symbolic name with languageVersion 2.0 */
   "outputs": { }
 }
 ```
@@ -30,16 +33,18 @@ validation code. Worked templates are in [`samples/`](../samples/README.md).
 | Key | Required | Notes |
 |---|---|---|
 | `$schema` | yes | Exactly `https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#` (the trailing `#` is optional); `UnrecognizedSchema` otherwise. |
-| `contentVersion` | yes | A literal `major.minor.build.revision`, for example `1.0.0.0`. |
+| `contentVersion` | yes | Any string, as in ARM ("You can provide any value for this element", [syntax](https://learn.microsoft.com/azure/azure-resource-manager/templates/syntax#template-format)); `1.0.0.0` by convention. A non-string is `InvalidContentVersion`. |
+| `languageVersion` | no | `"2.0"` enables symbolic names, `existing` resources, `definitions` and the aggregate type constraints; omitted (or `"1.0"`) is the original language. See [languageVersion 2.0](#languageversion-20). Any other value is `InvalidLanguageVersion` (an `-experimental` version is a warning and is read as 2.0). |
 | `metadata` | no | Free-form. |
-| `parameters` | no | Inputs: `type`, `defaultValue`, `allowedValues`, `minValue`/`maxValue`, `minLength`/`maxLength`, `metadata.description`. See [Parameters](#parameters-and-parameter-files). |
-| `variables` | no | Named values computed lazily from parameters and other variables; memoised. |
+| `definitions` | no | languageVersion 2.0: user-defined types, referenced with `"$ref": "#/definitions/<name>"`. |
+| `parameters` | no | Inputs: `type`, `defaultValue`, `allowedValues`, `minValue`/`maxValue`, `minLength`/`maxLength`, `metadata.description`; with languageVersion 2.0 also `$ref`, `nullable`, `properties`, `additionalProperties`, `discriminator`, `items`, `prefixItems`. See [Parameters](#parameters-and-parameter-files). |
+| `variables` | no | Named values computed lazily from parameters and other variables; memoised. A top-level `copy` array declares array variables ([variable iteration](#copy-loops)). |
 | `functions` | no | User-defined functions: `[{ "namespace": "c", "members": { "slug": { "parameters": [...], "output": { "type": "string", "value": "[...]" } } } }]`, called as `c.slug(...)`. They may not call `reference()` or other user functions. |
-| `resources` | yes | An **array** of resources. |
-| `outputs` | no | `{ "name": { "type", "value", "condition" } }` (or `copy` instead of `value`), evaluated after everything is applied. |
+| `resources` | yes | An **array** of resources; with languageVersion 2.0 an **object** keyed by symbolic name. |
+| `outputs` | no | `{ "name": { "type", "value", "condition" } }` (or `copy` instead of `value`; `$ref` instead of `type` with languageVersion 2.0), evaluated after everything is applied. |
 
-There is no `languageVersion`, no symbolic names, no `existing` keyword and no deployment-settings block: deployment
-knobs are command-line flags. Unknown top-level keys are a warning (`UnknownTopLevelProperty`) and are ignored.
+There is no `apiProfile` and no deployment-settings block: deployment knobs are command-line flags. Unknown top-level keys are a warning
+(`UnknownTopLevelProperty`) and are ignored.
 
 ## Resources
 
@@ -64,10 +69,11 @@ knobs are command-line flags. Unknown top-level keys are a warning (`UnknownTopL
 | `apiVersion` | yes | A **literal**. `2026-10-01-preview` is the only normal version and maps to Microsoft Graph `v1.0`; `2026-10-01-preview.beta` maps to `beta` (passthrough, no normalisation guarantees). The format is in preview. The plain `2026-10-01` label was renamed `2026-10-01-preview` and is an `UnknownApiVersion` error with a rename hint; anything else is an `UnknownApiVersion` error too. |
 | `name` | yes | The ARM-style key of the resource (see below). May be an expression, but must be computable before deployment from literals, parameters and variables (or be the same deploy-time computation as another resource: a symbolic name). |
 | `properties` | no | The Graph properties to apply, plus the relationship properties of [edges.md](edges.md). An expression string for the whole object is accepted. |
-| `dependsOn` | no | Resource ids, `type/name`, unique bare names or copy-loop names. Implicit dependencies come from `reference()` and `resourceId()` of template resources (outside relationship properties) and from nesting. |
+| `dependsOn` | no | Resource ids, `type/name`, unique bare names or copy-loop names; with languageVersion 2.0 symbolic names, a loop's symbolic name (every iteration) or `loop[i]` (one iteration). Implicit dependencies come from `reference()`, `references()` and `resourceId()` of template resources (outside relationship properties) and from nesting. |
 | `condition` | no | Boolean or expression; `false` makes the instance an `Ignore` row. |
 | `copy` | no | `name` (literal), `count`, `mode` (`serial`/`parallel`), `batchSize`; `copyIndex([name][, offset])` inside the resource. See [Copy loops](#copy-loops), which also covers property and output iteration. |
 | `resources` | no | Nested child resources (short `type`, short `name`, same `apiVersion` rule); two levels (parent and child) only. |
+| `existing` | no | languageVersion 2.0: `true` reads the resource instead of deploying it (see [languageVersion 2.0](#languageversion-20)). |
 | `comments`, `metadata` | no | Ignored. |
 
 ### Names and resource ids
@@ -122,16 +128,72 @@ deterministic, and what the what-if output and the deployment result print. `res
 | Secure outputs are never returned | `securestring` / `secureObject` outputs are `***` unless `--reveal-secure-outputs`, or written to an owner-only file with `--secure-outputs-file`. |
 | `az deployment` exit codes (0 success, 1 error, 2 command-line parse error, 3 resource not found) | 0 success, 1 failure (usage errors included), 2 validation, 3 authentication / preflight, 5 `--exit-code-on-changes`; 4 is retired ([cli.md](cli.md#exit-codes)). |
 | Implicit parent dependency of a child must be explicit | Inferred for nested children (a superset of the ARM rule). |
-| `existing` resources; `reference(id, apiVersion)` reads any resource | `reference(resourceId('Microsoft.Entra/…', 'name'), '2026-10-01-preview')` (the form **with** an `apiVersion`) always means an object that is **not** in the template: no dependency, an error when not found. Reference a template resource without the `apiVersion`. |
+| `existing` resources; `reference(id, apiVersion)` reads any resource | `existing` resources are supported with languageVersion 2.0 ([languageVersion 2.0](#languageversion-20)): read, never written, a `NoChange` row in what-if. Without symbolic names, `reference(resourceId('Microsoft.Entra/…', 'name'), '2026-10-01-preview')` (the form **with** an `apiVersion`) always means an object that is **not** in the template: no dependency, an error when not found. Reference a template resource without the `apiVersion`. |
+| `reference()` is not allowed in `variables` | **Intentional superset**: the existing-object form `reference(resourceId(...), apiVersion)` is allowed in a variable (a fixed lookup, evaluated once). A reference to a template resource (by name, id or symbolic name) and `references()` are refused in variables, as ARM refuses them. |
+| `reference()` accepts a resource name only without symbolic names | With languageVersion 2.0, EARM still accepts a bare resource name or an id besides the symbolic name (a superset). |
 | Relationships live in separate resources | Arrays inside `properties`, declarable from either side; see [edges.md](edges.md). |
 | Nested and linked deployments (`Microsoft.Resources/deployments`, `templateLink`) | Not supported: a template is deployed on its own. Split the work into several templates and pass values between them through parameter files. |
-| `copy` in `variables` (variable iteration) | Not supported. A `copy` block in `variables` is an `InvalidCopy` error (it is never read as a variable named `copy`); build arrays with `map(range(0, n), lambda('i', ...))` instead (a variable cannot reference template resources in either form). Resource, property and output iteration are supported as in ARM ([Copy loops](#copy-loops)). |
 | Property iteration only in top-level resources | Also accepted in nested child resources (the loader flattens them to top-level declarations). |
 | `uniqueString()` and `guid()` | Deterministic and stable in EARM, but **not** the same values ARM computes for the same inputs (different hash). Do not rely on them to reproduce names or ids created by an ARM or Bicep deployment. |
-| `reference(resourceIdOrName, apiVersion, 'Full')` | `reference()` takes at most two arguments; there is no `'Full'` form (the result is always the Graph object itself). |
-| Other ARM functions | Not available (an unknown-function error): `references`, `deployer`, `dataUri`, `dataUriToString`, `parseCidr`, `cidrSubnet`, `cidrHost`, `listAccountSas` and the other `list*` functions. |
+| `reference(resourceIdOrName, apiVersion, 'Full')` returns the full resource object (`location`, `sku`, `subscriptionId`, ...) | Returns `{ apiVersion, properties, resourceId, isTemplateResource[, symbolicName] }`: the keys that apply to an Entra object, `resourceId` being the EARM id. |
+| Multi-line strings are refused by the REST API, the portal and pipelines, and accepted by Azure CLI and PowerShell | Accepted (EARM is a command-line tool like them). |
+| Template limits (256 parameters, 256 or 512 variables, 64 outputs, 800 resources, 4 MB) are errors | Warnings (`ArmLimitExceeded`); EARM's own, larger hard limits apply ([Input limits](#input-limits)). |
+| `contentVersion` and the parameter type names | Same: any `contentVersion` string; `string`, `secureString`, `SecureObject`, ... in any case. |
+| Other ARM functions | Not available (an unknown-function error): `deployer`, `dataUri`, `dataUriToString`, `parseCidr`, `cidrSubnet`, `cidrHost`, `listAccountSas` and the other `list*` functions. |
 | Bicep-only operators | Expressions are ARM JSON syntax: the Bicep safe-dereference `.?` and non-null assertion `!` operators do not exist. Use `tryGet(obj, 'key')`, `tryIndexFromEnd(array, n)` or `coalesce()`. |
 | Parameter constraints | As in ARM, only `defaultValue` may be an expression; an expression in `minValue`, `maxValue`, `minLength` or `maxLength` is an `InvalidParameterConstraint` error. An expression default is checked against the type and the constraints once it is evaluated. For an `array` parameter, `allowedValues` lists the values its **elements** may take (every element must be one of them). |
+
+## languageVersion 2.0
+
+`"languageVersion": "2.0"` turns on the ARM features Bicep compiles to ([syntax](https://learn.microsoft.com/azure/azure-resource-manager/templates/syntax#languageversion-20)), so a
+Bicep-compiled JSON template of EARM types is accepted unchanged. The original language (no `languageVersion`) behaves as
+before. [`samples/symbolic-names.entra.json`](../samples/symbolic-names.entra.json) shows all of it.
+
+**Symbolic names** ([resource declaration](https://learn.microsoft.com/azure/azure-resource-manager/templates/resource-declaration#use-symbolic-name)). `resources` is an object whose keys are
+the symbolic names: letters, digits and `_`, case-sensitive, unique, and free to overlap with parameter, variable and output names
+(`InvalidSymbolicName` otherwise). A symbolic name is what `dependsOn`, `reference()` and `references()` take:
+
+| Form | Means |
+|---|---|
+| `"dependsOn": [ "app" ]` | the resource `app`; for a copy loop, every iteration ([resource dependency](https://learn.microsoft.com/azure/azure-resource-manager/templates/resource-dependency#dependson)) |
+| `"dependsOn": [ "[format('apps[{0}]', copyIndex())]" ]`, `"apps[1]"` | one iteration of the loop `apps` (the form Bicep emits for `apps[i]`) |
+| `reference('app')`, `reference('apps[1]')` | the live object of the resource or iteration (an implicit dependency, also with an `apiVersion` or `'Full'`); `reference('apps')` without an index is `ReferenceTargetNotFound` |
+| `references('apps'[, 'Full' \| 'Properties'])` | the array of the iterations' objects, in copy-index order, leaving out an iteration whose `condition` is false; not allowed inside the loop it names, nor in a variable ([references](https://learn.microsoft.com/azure/azure-resource-manager/templates/template-functions-resource#references)) |
+
+Resource ids, `type/name` and bare names keep working in `dependsOn` and `reference()`; ARM refuses a bare resource name in `reference()` once
+symbolic names are on, EARM still accepts it. Nested `resources` arrays (children with short types) still work inside a symbolic declaration.
+
+**Existing resources** ([declare existing resources](https://learn.microsoft.com/azure/azure-resource-manager/templates/resource-declaration#declare-existing-resources)). A symbolic declaration
+with `"existing": true` needs only `type`, `apiVersion` and `name` (a `properties` object is `InvalidExistingResource`: it would be ignored).
+The engine reads the object by its key, as it reads any declared resource, and publishes it for `reference()`; it never creates, updates or
+deletes it. In what-if it is a `NoChange` row with the reason "existing resource (\"existing\": true): read only, never written" (ARM never
+deploys an existing resource, so it never shows a change for one); a missing object is an unsupported row in what-if and a failed resource
+(`ExistingResourceNotFound`, its dependents skipped) in a deployment, as ARM fails a deployment that reads a resource that does not exist.
+`deployment delete` leaves it alone, and the orphan report neither lists it nor lets it widen the listing (an existing application does not put its credentials in scope). `existing` resources may have a
+`condition` and a `copy` loop.
+
+**User-defined types** ([type definitions](https://learn.microsoft.com/azure/azure-resource-manager/templates/definitions), [parameters](https://learn.microsoft.com/azure/azure-resource-manager/templates/parameters)). `definitions` holds named types;
+a parameter, an output, a user-defined function parameter or output, and any nested type may use `"$ref": "#/definitions/<name>"` instead of
+`type` (keys written next to the `$ref`, such as `nullable` or `metadata`, take precedence). A type may declare, besides `type`,
+`allowedValues`, `minValue`/`maxValue` and `minLength`/`maxLength`:
+
+| Keyword | Applies to | Rule |
+|---|---|---|
+| `nullable` | any | the value may be `null` or omitted; a nullable parameter without a value or default is `null` (no `MissingParameterValue`) |
+| `properties` | object | a type per property; a property is required unless its type is `nullable` |
+| `additionalProperties` | object | a type for the undeclared properties, or `false` to refuse them (Bicep's `sealed: true` is read as `false`); allowed when absent |
+| `discriminator` | object | `{ "propertyName", "mapping": { "<value>": <object type> } }`: the property's value selects the type the rest is checked against |
+| `prefixItems` | array | a type per leading element |
+| `items` | array | a type for the elements after `prefixItems`, or `false` for none |
+
+Supplied values and defaults are checked against these constraints like the scalar ones (`ParameterValueNotAllowed`,
+`DefaultValueNotAllowed`; the message names the location in the value, never the value). A malformed type (an unknown `type`, an
+unresolvable or cyclic `$ref`, `properties` on a string) is `InvalidTypeDefinition`; a languageVersion 2.0 keyword in a template without
+`"languageVersion": "2.0"` is `InvalidLanguageVersion`. As in the original language, output values are not checked against their declared
+type. `metadata` may be anywhere, and Bicep's markers (`__bicep_export!`, `__bicep_imported_from!`, `_generator`) are accepted and ignored.
+
+Not applicable to EARM: `expressionEvaluationOptions` and `Microsoft.Resources/deployments` (EARM has no nested deployments), and
+`apiProfile`.
 
 ## Resource type catalog
 
@@ -238,7 +300,7 @@ conditions, dependsOn entries, outputs).
 | Logic | `if and or not equals less lessOrEquals greater greaterOrEquals coalesce bool true false` |
 | Numeric | `add sub mul div mod min max int float` |
 | Array and object | `array createArray createObject first last take skip union intersection range items json null objectKeys flatten distinct shallowMerge tryGet indexFromEnd tryIndexFromEnd` and the lambda functions `map mapValues filter reduce sort toObject groupBy lambda lambdaVariables` |
-| Resource and deployment | `resourceId reference copyIndex deployment tenant environment parameters variables` and user functions `namespace.fn(...)` |
+| Resource and deployment | `resourceId reference references copyIndex deployment tenant environment parameters variables` and user functions `namespace.fn(...)` |
 | **Entra** | `wellKnownApp(name)`, `appRole(app, value)`, `permissionScope(app, value)`, `roleTemplate(name)` |
 
 ARM comparison rules apply: `contains()` on a string is case-sensitive (on an object it matches keys case-insensitively), while
@@ -270,7 +332,15 @@ only as parameter defaults.
   evaluated in the edge pass after all objects exist and never creates a dependency (so mutual declarations are never cycles).
   In what-if, the object of a resource that does not exist yet is a `(deploy-time)` placeholder.
 - `reference(resourceId(...), '2026-10-01-preview')` (with an `apiVersion`) looks up an object that is **not** in the template: no
-  dependency, an error if it does not exist. Variables may do this; they may not reference template resources.
+  dependency, an error if it does not exist. Variables may do this; they may not reference template resources. ARM refuses `reference()`
+  in variables altogether ([best practices](https://learn.microsoft.com/azure/azure-resource-manager/templates/best-practices#variables)); EARM allows this existing-object form there on purpose
+  (templates use it to look up a fixed object once), and refuses the other forms in variables as ARM does.
+- `reference(nameOrId, apiVersion, 'Full')` ([reference](https://learn.microsoft.com/azure/azure-resource-manager/templates/template-functions-resource#reference)) returns ARM's full resource object,
+  reduced to what applies to Entra: `{ "apiVersion", "properties", "resourceId", "isTemplateResource" }` (plus `symbolicName` for a
+  languageVersion 2.0 symbolic reference), where `properties` is what the short form returns and `resourceId` is the EARM id
+  (`/providers/Microsoft.Entra/...`, as `resourceId()` renders it). ARM's `location`, `sku`, `subscriptionId`, `resourceGroupName` and
+  the provisioning fields do not exist for Entra objects. `'Full'` is compared case-insensitively; any other third argument is an error.
+- With languageVersion 2.0, `reference()` and `references()` take symbolic names ([languageVersion 2.0](#languageversion-20)).
 - A bare `reference('name')` needs the name to be unique in the template, else `AmbiguousReference`.
 - A resource whose `name` is `[reference('app').appId]` gets a *symbolic id* during static evaluation, so everything that refers
   to it computes the same id before anything exists ([engine.md](engine.md#symbolic-names)).
@@ -284,9 +354,10 @@ only as parameter defaults.
 
 ### Copy loops
 
-ARM's four iterations, three of which EARM supports ([Learn: resource iteration](https://learn.microsoft.com/azure/azure-resource-manager/templates/copy-resources),
+ARM's four iterations, all supported ([Learn: resource iteration](https://learn.microsoft.com/azure/azure-resource-manager/templates/copy-resources),
 [property iteration](https://learn.microsoft.com/azure/azure-resource-manager/templates/copy-properties),
-[output iteration](https://learn.microsoft.com/azure/azure-resource-manager/templates/copy-outputs)). Every count is at most 800, may be 0,
+[output iteration](https://learn.microsoft.com/azure/azure-resource-manager/templates/copy-outputs),
+[variable iteration](https://learn.microsoft.com/azure/azure-resource-manager/templates/copy-variables)). Every count is at most 800, may be 0,
 and must be computable before deployment from literals, parameters and variables (an error otherwise).
 
 | Iteration | Where | Shape | `copyIndex()` |
@@ -294,7 +365,8 @@ and must be computable before deployment from literals, parameters and variables
 | Resource | a resource | `"copy": { "name", "count", "mode", "batchSize" }` | `copyIndex()` or `copyIndex('name')`, optional offset |
 | Property | any object inside a resource's `properties` | `"copy": [ { "name": "<property>", "count", "input" } ]`: one array property per entry, `input` evaluated once per element | `copyIndex('<property>')` only (the name is required: `copyIndex()` without one still means the resource loop) |
 | Output | an output, instead of `value` | `"copy": { "count", "input" }`: the output is the array of `input` evaluated once per element | `copyIndex()` |
-| Variable | `variables` | not supported (`InvalidCopy`); use `map(range(0, n), lambda('i', ...))` | |
+| Variable | the top of `variables` | `"copy": [ { "name": "<variable>", "count", "input" } ]`: one array variable per entry (a clash with another variable is `DuplicateDefinition`) | `copyIndex('<variable>')`, optional offset |
+| Variable property | any object inside a variable's value | the property iteration shape: one array property per entry | `copyIndex('<property>')` |
 
 **References.** During static evaluation every instance of a resource loop whose count is computable is indexed under its evaluated name,
 so `reference()` and `resourceId()` find one instance exactly as they find a single resource. A reference to instance *k* creates a
@@ -404,9 +476,16 @@ at most **2,000,000 JSON values** (objects, arrays and leaves); they are counted
 file of millions of tiny nodes is refused without allocating its tree. Files must be UTF-8 (a byte-order mark is accepted); UTF-16 and UTF-32
 are named as such instead of failing with a byte-level syntax error. A directory passed as the template file is reported as a directory.
 
+**ARM limits are warnings.** Azure Resource Manager limits a template to 256 parameters, 512 variables, 64 outputs, 800 resources (copy counts
+included) and 4 MB ([template limits](https://learn.microsoft.com/azure/azure-resource-manager/templates/best-practices#template-limits); the
+[syntax](https://learn.microsoft.com/azure/azure-resource-manager/templates/syntax#variables) page still says 256 variables, EARM warns from the
+higher, more recent figure). EARM reports each as an `ArmLimitExceeded` warning and accepts the template; its own hard limits are the ones in
+this section and in [Evaluation limits](#evaluation-limits) (8 MiB of input, 5,000 resource instances, the evaluation budget). The resource count
+uses the literal `copy.count` of each loop; a count computed by an expression counts once.
+
 ## Parameters and parameter files
 
-Parameter types: `string`, `securestring`, `int`, `bool`, `object`, `secureObject`, `array`. An `int` accepts any JSON number whose exact
+Parameter types: `string`, `securestring`, `int`, `bool`, `object`, `secureObject`, `array`, compared case-insensitively as in ARM (`secureString` and `SecureObject` are accepted, in the schema too). An `int` accepts any JSON number whose exact
 value is a whole number in the 64-bit range, however it is spelled (`3`, `3.0`, `1.5e3`, `-0.0`); a fraction (`3.5`) or a number outside
 the range is a `ParameterValueTypeMismatch`, and `copy.count` / `copy.batchSize` follow the same rule. A value is supplied by
 `-p name=value` (inline; converted to the parameter type) or by a parameter file (`-p '@file.json'`, quoted in PowerShell); the `-p` values are applied in

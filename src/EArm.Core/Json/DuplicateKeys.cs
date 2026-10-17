@@ -37,7 +37,8 @@ public sealed record DuplicateKeyScan(IReadOnlyList<DuplicateKey> Duplicates, lo
 /// time instead, with the path and position of the repeated key. Property names are compared ignoring letter case, because EARM itself looks
 /// properties up that way (the first match wins), so <c>{"state": "enabledForReportingButNotEnforced", "State": "enabled"}</c> would otherwise
 /// be judged on one key and sent with both. The only exception is the map of names a template declares (<c>parameters</c>, <c>variables</c>,
-/// <c>outputs</c>), whose case variants are reported as <c>DuplicateDefinition</c> by the loader.
+/// <c>outputs</c>, whose case variants are reported as <c>DuplicateDefinition</c> by the loader; and the languageVersion 2.0 maps <c>resources</c> and
+/// <c>definitions</c>, whose symbolic names ARM compares case-sensitively).
 /// </summary>
 public static class DuplicateKeys
 {
@@ -45,7 +46,7 @@ public static class DuplicateKeys
     public const long MaxNodes = 2_000_000;
 
     /// <summary>The top-level properties of a template whose direct children are names (compared by the loader, not here).</summary>
-    public static IReadOnlySet<string> TemplateNameMaps { get; } = new HashSet<string>(StringComparer.Ordinal) { "parameters", "variables", "outputs" };
+    public static IReadOnlySet<string> TemplateNameMaps { get; } = new HashSet<string>(StringComparer.Ordinal) { "parameters", "variables", "outputs", "resources", "definitions" };
 
     /// <summary>
     /// The top-level properties of a parameter file whose direct children are parameter names; the empty string stands for the root itself (the bare

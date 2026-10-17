@@ -259,14 +259,17 @@ public sealed class TemplateValidatorTests
     }
 
     [Theory]
-    [InlineData("1.0.0.0", true)]
-    [InlineData("12.3.4.5", true)]
-    [InlineData("1.0", false)]
-    [InlineData("1.0.0.0-beta", false)]
-    [InlineData("[variables('v')]", false)]
-    public void ContentVersion_MustBeFourDotSeparatedNumbers(string contentVersion, bool valid)
+    [InlineData("\"1.0.0.0\"", true)]
+    [InlineData("\"12.3.4.5\"", true)]
+    [InlineData("\"1.0\"", true)]
+    [InlineData("\"1.0.0.0-beta\"", true)]
+    [InlineData("\"v2 (draft)\"", true)]
+    [InlineData("\"\"", true)]
+    [InlineData("1", false)]
+    [InlineData("null", false)]
+    public void ContentVersion_AcceptsAnyString_AsArmDoes(string contentVersionJson, bool valid)
     {
-        var diagnostics = ValidateText("{ \"$schema\": \"" + SchemaUri + "\", \"contentVersion\": \"" + contentVersion + "\", \"resources\": [] }");
+        var diagnostics = ValidateText("{ \"$schema\": \"" + SchemaUri + "\", \"contentVersion\": " + contentVersionJson + ", \"resources\": [] }");
 
         if (valid)
         {

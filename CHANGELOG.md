@@ -46,6 +46,28 @@ transport to the built-in Microsoft Graph HTTP client.
 
 ### Added
 
+- languageVersion 2.0 (`"languageVersion": "2.0"`), so Bicep-compiled JSON templates of EARM types are accepted unchanged
+  (see `docs/format.md#languageversion-20`):
+  - `resources` as an object keyed by symbolic name; `dependsOn`, `reference()` and `references()` by symbolic name,
+    including a loop's name (every iteration) and `loop[i]` (one iteration);
+  - `"existing": true` resources: read by their key and published for `reference()`, shown as `NoChange` rows, never
+    created, updated or deleted, and left out of `deployment delete` and the orphan report; a missing one is
+    `ExistingResourceNotFound`;
+  - `definitions` (user-defined types) with `$ref`, and the type keywords `nullable`, `properties`,
+    `additionalProperties` (and Bicep's `sealed`), `discriminator`, `items` and `prefixItems`, checked against supplied
+    values and defaults; a nullable parameter may be omitted;
+  - Bicep metadata markers such as `__bicep_export!` are accepted and ignored; new diagnostics `InvalidLanguageVersion`,
+    `InvalidSymbolicName`, `InvalidExistingResource` and `InvalidTypeDefinition`.
+- `references(loop[, 'Full' | 'Properties'])`: the runtime states of a resource loop's iterations, leaving out those whose
+  condition is false.
+- `reference(nameOrId, apiVersion, 'Full')`: `{ apiVersion, properties, resourceId, isTemplateResource }` (plus
+  `symbolicName` for a symbolic reference).
+- Variable iteration: a top-level `copy` array in `variables` declares array variables, and a `copy` array inside a
+  variable's value builds an array property, as in ARM.
+- Multi-line strings (a raw line break inside a template string), as Azure CLI and PowerShell accept them.
+- `ArmLimitExceeded` warnings for templates over ARM's limits (256 parameters, 512 variables, 64 outputs, 800 resources,
+  4 MB); EARM's own limits are unchanged.
+
 - New resource types for Microsoft Entra entitlement management (access packages, see `docs/access-packages.md`):
   - `Microsoft.Entra/entitlementManagement/catalogs`, found by `displayName`; `state` and `isExternallyVisible`
     default to `published` and false only when EARM creates the catalog;
@@ -141,6 +163,10 @@ transport to the built-in Microsoft Graph HTTP client.
 - Graph errors carry the request-id, client-request-id and date that Graph returned, for support tickets.
 
 ### Changed
+
+- `contentVersion` accepts any string, as in ARM (only a non-string is `InvalidContentVersion`).
+- Parameter, output and function type names are accepted in any case (`secureString`, `SecureObject`), in the template
+  schema too.
 
 - A `reference()` whose arguments use a lambda variable is refused with a message that points to property and output copy
   loops (ARM does not support lambda variables inside `reference()`); a `reference()` inside a lambda that uses no lambda
@@ -238,7 +264,7 @@ transport to the built-in Microsoft Graph HTTP client.
 
 ### Fixed
 
-- A `copy` block in `variables` is an `InvalidCopy` error instead of a variable named `copy`;
+- A `copy` block in `variables` is read as ARM variable iteration (see Added) instead of a variable named `copy`;
   `managementGroupResourceId` is rejected with a pointer to `resourceId`.
 - Trusted IP named locations are unmarked before they are deleted (Graph refuses to delete a trusted location); a
   persistent refusal is reported as `NamedLocationTrusted`.

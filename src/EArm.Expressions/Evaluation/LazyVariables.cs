@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Text.Json.Nodes;
+using EArm.Core;
 using EArm.Core.Diagnostics;
 using EArm.Expressions.Values;
 
@@ -21,6 +22,7 @@ public sealed class LazyVariables
     private static List<(LazyVariables Owner, string Name)>? chain;
 
     private readonly Dictionary<string, JsonNode?> _definitions;
+    private readonly IReadOnlyDictionary<string, VariableIteration> _iterations;
     private readonly Dictionary<string, JsonNode?> _memo = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, ExpressionException> _failures = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _gate = new();
@@ -28,8 +30,18 @@ public sealed class LazyVariables
     private EvaluationContext? _context;
 
     public LazyVariables(IReadOnlyDictionary<string, JsonNode?> definitions)
+        : this(definitions, null)
+    {
+    }
+
+    /// <summary>
+    /// The variables of a template; <paramref name="iterations"/> are the names the top-level <c>copy</c> array declares (variable iteration),
+    /// built as arrays from their entry instead of being evaluated as a value.
+    /// </summary>
+    public LazyVariables(IReadOnlyDictionary<string, JsonNode?> definitions, IReadOnlyDictionary<string, VariableIteration>? iterations)
     {
         ArgumentNullException.ThrowIfNull(definitions);
+        _iterations = iterations ?? new Dictionary<string, VariableIteration>();
         _definitions = new Dictionary<string, JsonNode?>(StringComparer.OrdinalIgnoreCase);
         foreach (var pair in definitions)
         {
@@ -124,7 +136,9 @@ public sealed class LazyVariables
         path.Add((this, name));
         try
         {
-            var value = evaluator.EvaluateTree(definition, context);
+            var value = _iterations.TryGetValue(name, out var iteration)
+                ? CopyExpansion.Expand(evaluator, iteration.Name, iteration.Count, iteration.Input, context, requiresName: true, $"variable iteration '{iteration.Name}'")
+                : evaluator.EvaluateTree(definition, context);
             context.Budget.Retain(value);
             lock (_gate)
             {

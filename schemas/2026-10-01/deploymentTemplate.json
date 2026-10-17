@@ -10,13 +10,23 @@
       "type": "string",
       "description": "The template schema: https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#"
     },
+    "languageVersion": {
+      "type": "string",
+      "description": "\"2.0\" enables symbolic resource names (resources as an object), existing resources, definitions (user-defined types) and the aggregate type constraints of parameters and outputs. Omit it (or \"1.0\") for the original language.",
+      "examples": ["2.0"]
+    },
     "contentVersion": {
       "type": "string",
-      "description": "Version of the template in the form major.minor.build.revision, for example 1.0.0.0."
+      "description": "Version of the template, for example 1.0.0.0. Any string is accepted, as in ARM."
     },
     "metadata": {
       "type": "object",
       "description": "Free-form metadata about the template."
+    },
+    "definitions": {
+      "type": "object",
+      "description": "languageVersion 2.0: user-defined types, referenced with \"$ref\": \"#/definitions/<name>\".",
+      "additionalProperties": { "$ref": "#/$defs/typeDefinition" }
     },
     "parameters": {
       "type": "object",
@@ -33,9 +43,15 @@
       "items": { "$ref": "#/$defs/functionNamespace" }
     },
     "resources": {
-      "type": "array",
-      "description": "The Entra resources to deploy.",
-      "items": { "$ref": "#/$defs/resource" }
+      "description": "The Entra resources to deploy: an array, or with languageVersion 2.0 an object keyed by symbolic name.",
+      "anyOf": [
+        { "type": "array", "items": { "$ref": "#/$defs/resource" } },
+        {
+          "type": "object",
+          "propertyNames": { "pattern": "^[A-Za-z0-9_]+$" },
+          "additionalProperties": { "$ref": "#/$defs/resource" }
+        }
+      ]
     },
     "outputs": {
       "type": "object",
@@ -60,33 +76,92 @@
     },
     "parameterType": {
       "type": "string",
-      "enum": ["string", "securestring", "int", "bool", "object", "secureObject", "array"]
+      "description": "string, securestring, int, bool, object, secureObject or array; compared case-insensitively, as in ARM.",
+      "anyOf": [
+        { "enum": ["string", "securestring", "int", "bool", "object", "secureObject", "array"] },
+        { "pattern": "^([Ss][Tt][Rr][Ii][Nn][Gg]|[Ss][Ee][Cc][Uu][Rr][Ee][Ss][Tt][Rr][Ii][Nn][Gg]|[Ii][Nn][Tt]|[Bb][Oo][Oo][Ll]|[Oo][Bb][Jj][Ee][Cc][Tt]|[Ss][Ee][Cc][Uu][Rr][Ee][Oo][Bb][Jj][Ee][Cc][Tt]|[Aa][Rr][Rr][Aa][Yy])$" }
+      ]
     },
     "parameter": {
       "type": "object",
-      "required": ["type"],
+      "description": "A parameter: 'type' or (languageVersion 2.0) '$ref', with optional constraints.",
+      "anyOf": [ { "required": ["type"] }, { "required": ["$ref"] } ],
       "properties": {
         "type": { "$ref": "#/$defs/parameterType" },
-        "defaultValue": { "description": "Value used when none is supplied. Secure parameters should not have one." },
-        "allowedValues": { "type": "array", "description": "The only values the parameter accepts." },
-        "minValue": { "type": "integer", "description": "Minimum for int parameters. A literal integer: ARM allows expressions only in defaultValue." },
-        "maxValue": { "type": "integer", "description": "Maximum for int parameters. A literal integer: ARM allows expressions only in defaultValue." },
-        "minLength": { "type": "integer", "description": "Minimum length for string, securestring and array parameters. A literal integer: ARM allows expressions only in defaultValue." },
-        "maxLength": { "type": "integer", "description": "Maximum length for string, securestring and array parameters. A literal integer: ARM allows expressions only in defaultValue." },
-        "metadata": { "type": "object", "properties": { "description": { "type": "string" } } }
+        "$ref": { "type": "string", "pattern": "^#/definitions/.+$", "description": "languageVersion 2.0: a user-defined type of 'definitions'." },
+        "allowedValues": { "type": "array", "description": "The only values accepted." },
+        "minValue": { "type": "integer", "description": "Minimum for int values. A literal integer: ARM allows expressions only in defaultValue." },
+        "maxValue": { "type": "integer", "description": "Maximum for int values. A literal integer: ARM allows expressions only in defaultValue." },
+        "minLength": { "type": "integer", "description": "Minimum length for string, securestring and array values. A literal integer: ARM allows expressions only in defaultValue." },
+        "maxLength": { "type": "integer", "description": "Maximum length for string, securestring and array values. A literal integer: ARM allows expressions only in defaultValue." },
+        "prefixItems": { "type": "array", "items": { "$ref": "#/$defs/typeDefinition" }, "description": "languageVersion 2.0: the type of the array element at the same index." },
+        "items": { "anyOf": [ { "$ref": "#/$defs/typeDefinition" }, { "type": "boolean" } ], "description": "languageVersion 2.0: the type of the elements after prefixItems, or false for none." },
+        "properties": { "type": "object", "additionalProperties": { "$ref": "#/$defs/typeDefinition" }, "description": "languageVersion 2.0: the type of each object property; a property is required unless its type is nullable." },
+        "additionalProperties": { "anyOf": [ { "$ref": "#/$defs/typeDefinition" }, { "type": "boolean" } ], "description": "languageVersion 2.0: the type of the properties not listed in 'properties', or false to refuse them." },
+        "discriminator": { "$ref": "#/$defs/discriminator" },
+        "sealed": { "type": "boolean", "description": "languageVersion 2.0 (Bicep): true refuses properties not listed in 'properties'." },
+        "nullable": { "type": "boolean", "description": "languageVersion 2.0: the value may be null or omitted." },
+        "metadata": { "type": "object", "description": "Free-form; 'description' is shown to users. Bicep markers such as __bicep_export! are accepted and ignored." },
+        "defaultValue": { "description": "Value used when none is supplied. Secure parameters should not have one." }
+      },
+      "additionalProperties": false
+    },
+    "typeDefinition": {
+      "type": "object",
+      "description": "A type: 'type' or '$ref', with optional constraints (languageVersion 2.0 user-defined types and nested types).",
+      "anyOf": [ { "required": ["type"] }, { "required": ["$ref"] } ],
+      "properties": {
+        "type": { "$ref": "#/$defs/parameterType" },
+        "$ref": { "type": "string", "pattern": "^#/definitions/.+$", "description": "languageVersion 2.0: a user-defined type of 'definitions'." },
+        "allowedValues": { "type": "array", "description": "The only values accepted." },
+        "minValue": { "type": "integer", "description": "Minimum for int values. A literal integer: ARM allows expressions only in defaultValue." },
+        "maxValue": { "type": "integer", "description": "Maximum for int values. A literal integer: ARM allows expressions only in defaultValue." },
+        "minLength": { "type": "integer", "description": "Minimum length for string, securestring and array values. A literal integer: ARM allows expressions only in defaultValue." },
+        "maxLength": { "type": "integer", "description": "Maximum length for string, securestring and array values. A literal integer: ARM allows expressions only in defaultValue." },
+        "prefixItems": { "type": "array", "items": { "$ref": "#/$defs/typeDefinition" }, "description": "languageVersion 2.0: the type of the array element at the same index." },
+        "items": { "anyOf": [ { "$ref": "#/$defs/typeDefinition" }, { "type": "boolean" } ], "description": "languageVersion 2.0: the type of the elements after prefixItems, or false for none." },
+        "properties": { "type": "object", "additionalProperties": { "$ref": "#/$defs/typeDefinition" }, "description": "languageVersion 2.0: the type of each object property; a property is required unless its type is nullable." },
+        "additionalProperties": { "anyOf": [ { "$ref": "#/$defs/typeDefinition" }, { "type": "boolean" } ], "description": "languageVersion 2.0: the type of the properties not listed in 'properties', or false to refuse them." },
+        "discriminator": { "$ref": "#/$defs/discriminator" },
+        "sealed": { "type": "boolean", "description": "languageVersion 2.0 (Bicep): true refuses properties not listed in 'properties'." },
+        "nullable": { "type": "boolean", "description": "languageVersion 2.0: the value may be null or omitted." },
+        "metadata": { "type": "object", "description": "Free-form; 'description' is shown to users. Bicep markers such as __bicep_export! are accepted and ignored." }
+      },
+      "additionalProperties": false
+    },
+    "discriminator": {
+      "type": "object",
+      "description": "languageVersion 2.0: a tagged union; the value of 'propertyName' selects the object type in 'mapping'.",
+      "required": ["propertyName", "mapping"],
+      "properties": {
+        "propertyName": { "type": "string" },
+        "mapping": { "type": "object", "additionalProperties": { "$ref": "#/$defs/typeDefinition" } }
       },
       "additionalProperties": false
     },
     "output": {
       "type": "object",
-      "required": ["type"],
-      "description": "Declares 'value', or 'copy' (an output loop) instead of it.",
+      "description": "Declares 'value', or 'copy' (an output loop) instead of it; 'type' or (languageVersion 2.0) '$ref'.",
+      "anyOf": [ { "required": ["type"] }, { "required": ["$ref"] } ],
       "properties": {
         "type": { "$ref": "#/$defs/parameterType" },
+        "$ref": { "type": "string", "pattern": "^#/definitions/.+$", "description": "languageVersion 2.0: a user-defined type of 'definitions'." },
+        "allowedValues": { "type": "array", "description": "The only values accepted." },
+        "minValue": { "type": "integer", "description": "Minimum for int values. A literal integer: ARM allows expressions only in defaultValue." },
+        "maxValue": { "type": "integer", "description": "Maximum for int values. A literal integer: ARM allows expressions only in defaultValue." },
+        "minLength": { "type": "integer", "description": "Minimum length for string, securestring and array values. A literal integer: ARM allows expressions only in defaultValue." },
+        "maxLength": { "type": "integer", "description": "Maximum length for string, securestring and array values. A literal integer: ARM allows expressions only in defaultValue." },
+        "prefixItems": { "type": "array", "items": { "$ref": "#/$defs/typeDefinition" }, "description": "languageVersion 2.0: the type of the array element at the same index." },
+        "items": { "anyOf": [ { "$ref": "#/$defs/typeDefinition" }, { "type": "boolean" } ], "description": "languageVersion 2.0: the type of the elements after prefixItems, or false for none." },
+        "properties": { "type": "object", "additionalProperties": { "$ref": "#/$defs/typeDefinition" }, "description": "languageVersion 2.0: the type of each object property; a property is required unless its type is nullable." },
+        "additionalProperties": { "anyOf": [ { "$ref": "#/$defs/typeDefinition" }, { "type": "boolean" } ], "description": "languageVersion 2.0: the type of the properties not listed in 'properties', or false to refuse them." },
+        "discriminator": { "$ref": "#/$defs/discriminator" },
+        "sealed": { "type": "boolean", "description": "languageVersion 2.0 (Bicep): true refuses properties not listed in 'properties'." },
+        "nullable": { "type": "boolean", "description": "languageVersion 2.0: the value may be null or omitted." },
+        "metadata": { "type": "object", "description": "Free-form; 'description' is shown to users. Bicep markers such as __bicep_export! are accepted and ignored." },
         "value": { "description": "The output value; usually an expression. Not with 'copy'." },
         "copy": { "$ref": "#/$defs/outputCopy" },
-        "condition": { "$ref": "#/$defs/boolOrExpression" },
-        "metadata": { "type": "object" }
+        "condition": { "$ref": "#/$defs/boolOrExpression" }
       },
       "additionalProperties": false
     },
@@ -116,23 +191,32 @@
       "type": "object",
       "required": ["output"],
       "properties": {
+        "metadata": { "type": "object" },
         "parameters": {
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["name", "type"],
+            "required": ["name"],
+            "anyOf": [ { "required": ["type"] }, { "required": ["$ref"] } ],
             "properties": {
               "name": { "type": "string" },
-              "type": { "$ref": "#/$defs/parameterType" }
+              "type": { "$ref": "#/$defs/parameterType" },
+              "$ref": { "type": "string", "pattern": "^#/definitions/.+$" },
+              "nullable": { "type": "boolean" },
+              "metadata": { "type": "object" }
             },
             "additionalProperties": false
           }
         },
         "output": {
           "type": "object",
-          "required": ["type", "value"],
+          "required": ["value"],
+          "anyOf": [ { "required": ["type"] }, { "required": ["$ref"] } ],
           "properties": {
             "type": { "$ref": "#/$defs/parameterType" },
+            "$ref": { "type": "string", "pattern": "^#/definitions/.+$" },
+            "nullable": { "type": "boolean" },
+            "metadata": { "type": "object" },
             "value": {}
           },
           "additionalProperties": false
@@ -183,6 +267,7 @@
         "copy": { "$ref": "#/$defs/copy" },
         "comments": { "type": "string" },
         "metadata": { "type": "object" },
+        "existing": { "type": "boolean", "description": "languageVersion 2.0: true reads an existing resource instead of deploying it; only type, apiVersion and name are needed." },
         "resources": {
           "type": "array",
           "description": "Nested child resources (short type and name).",

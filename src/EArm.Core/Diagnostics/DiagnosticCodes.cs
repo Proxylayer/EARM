@@ -27,6 +27,11 @@ public static class DiagnosticCodes
     public const string InvalidContentVersion = "InvalidContentVersion";
     public const string UnknownTopLevelProperty = "UnknownTopLevelProperty";
     public const string MissingRequiredProperty = "MissingRequiredProperty";
+    public const string ArmLimitExceeded = "ArmLimitExceeded";
+    public const string InvalidLanguageVersion = "InvalidLanguageVersion";
+    public const string InvalidSymbolicName = "InvalidSymbolicName";
+    public const string InvalidExistingResource = "InvalidExistingResource";
+    public const string InvalidTypeDefinition = "InvalidTypeDefinition";
 
     // ---- Resources ----
     public const string MissingResourceType = "MissingResourceType";

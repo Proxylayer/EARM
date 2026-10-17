@@ -24,6 +24,9 @@ public static class EngineDiagnosticCodes
     /// <summary>A resource name that depends on another resource could not be computed before its apply.</summary>
     public const string SymbolicNameUnresolved = "SymbolicNameUnresolved";
 
+    /// <summary>A languageVersion 2.0 <c>"existing": true</c> resource does not exist: it is only read, never created.</summary>
+    public const string ExistingResourceNotFound = "ExistingResourceNotFound";
+
     /// <summary>The provider could not derive the Graph key of a resource (unknown composite properties).</summary>
     public const string ResourceKeyUnresolved = "ResourceKeyUnresolved";
 

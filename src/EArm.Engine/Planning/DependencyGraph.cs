@@ -448,6 +448,24 @@ public sealed class DependencyGraph
                 return [];
             }
 
+            // languageVersion 2.0: a symbolic name, 'loop' (every iteration) or 'loop[i]' (one iteration).
+            if (SymbolicReference.TryParse(target, out var symbolicName, out var copyIndex))
+            {
+                var symbolic = _instances
+                    .Where(i => !ReferenceEquals(i, instance) && string.Equals(i.Declaration.SymbolicName, symbolicName, StringComparison.Ordinal) && (copyIndex is null || i.Copy?.Index == copyIndex))
+                    .ToList();
+                if (symbolic.Count > 0)
+                {
+                    return symbolic;
+                }
+
+                if (_instances.Any(i => string.Equals(i.Declaration.SymbolicName, symbolicName, StringComparison.Ordinal)))
+                {
+                    Error(DiagnosticCodes.DependsOnTargetNotFound, $"dependsOn entry '{target}' names no iteration of '{symbolicName}'.", path);
+                    return [];
+                }
+            }
+
             ResourceIdentifier? id = null;
             if (target.StartsWith(ResourceIdentifier.ProvidersPrefix, StringComparison.OrdinalIgnoreCase))
             {

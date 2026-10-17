@@ -76,7 +76,13 @@ internal sealed class OrphanReport
                 continue;
             }
 
-            var declared = group.Where(i => !i.IsIgnored).ToList();
+            // An "existing": true resource is only read: it neither puts its type in scope nor widens the listing (its children, its assignments).
+            var declared = group.Where(i => !i.IsIgnored && !i.Declaration.IsExisting).ToList();
+            if (declared.Count == 0 && group.Any(i => !i.IsIgnored && i.Declaration.IsExisting))
+            {
+                continue;
+            }
+
             if (declared.FirstOrDefault(i => i.IsSymbolic || i.Condition is null || !isSettled(i)) is { } unsettled)
             {
                 diagnostics.Add(Diagnostic.Warning(EngineDiagnosticCodes.OrphanReportIncomplete, $"Undeclared objects of type '{group.Key}' were not listed: the live object of {unsettled.Describe()} is not known in this run (a deploy-time name or condition, or a read or apply that failed)."));

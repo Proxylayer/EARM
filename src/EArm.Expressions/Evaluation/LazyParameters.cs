@@ -168,7 +168,7 @@ public sealed class LazyParameters : IReadOnlyDictionary<string, JsonNode?>
             return;
         }
 
-        if (!TemplateParameterTypes.Matches(evaluated, type))
+        if (!ParameterConstraints.TypeMatches(definition, type, evaluated))
         {
             throw new ExpressionEvaluationException(DiagnosticCodes.DefaultValueTypeMismatch, $"Parameter '{definition.Name}': the default value does not match the declared type '{definition.Type}'.");
         }
