@@ -44,7 +44,8 @@ public sealed partial class FakeDirectory
     /// <summary>
     /// Moves a live object to <c>/directory/deletedItems</c> (what Graph does on DELETE for applications, groups, users,
     /// service principals and administrative units) and drops the references to it. <c>DELETE</c> through the client
-    /// still removes objects outright; call this to stage the "key held by a soft-deleted object" scenario.
+    /// soft-deletes too (the types <see cref="IsSoftDeletable"/> names, through <see cref="SoftDeleteWithCascade"/>); call this
+    /// to stage the "key held by a soft-deleted object" scenario without a request.
     /// </summary>
     public JsonObject SoftDelete(string id)
     {

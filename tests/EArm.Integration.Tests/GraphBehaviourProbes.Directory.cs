@@ -28,14 +28,14 @@ public sealed partial class GraphBehaviourProbes
         var byId = await Graph.PostAsync(new GraphRequest(idUrl), new JsonObject { ["passwordCredential"] = new JsonObject { ["displayName"] = "probe-by-id" } }, Ct);
         report.Expect(
             byId.Body is JsonObject credential && credential.Text("keyId") is not null && credential.Text("secretText") is not null,
-            $"POST {idUrl} did not return keyId and secretText: the object-id addPassword path of src/EArm.Providers/PasswordCredentialsProvider.cs (AddPasswordAsync) no longer matches Graph.");
+            $"POST {idUrl} did not return keyId and secretText: the object-id addPassword path of PasswordCredentialsProvider.AddAsync no longer matches Graph.");
 
         // The open question: does the alternate-key form accept the action? Recorded only; the provider does not depend on it.
         string altUrl = GraphPath.AlternateKey("/applications", "uniqueName", name) + "/addPassword";
         try
         {
             var byKey = await Graph.PostAsync(new GraphRequest(altUrl), new JsonObject { ["passwordCredential"] = new JsonObject { ["displayName"] = "probe-by-key" } }, Ct);
-            report.Observe($"POST {altUrl} WORKS (status {byKey.Status}, keys: {string.Join(',', (byKey.Body as JsonObject)?.Select(p => p.Key) ?? [])}). The object-id lookup before addPassword in PasswordCredentialsProvider.cs could be dropped; docs/providers.md ('Action URLs always address the application by object id') can say the alternate-key form is also accepted.");
+            report.Observe($"POST {altUrl} WORKS (status {byKey.Status}, keys: {string.Join(',', (byKey.Body as JsonObject)?.Select(p => p.Key) ?? [])}). The object-id lookup before addPassword (PasswordCredentialsProvider.ResolveParentIdAsync) could be dropped; docs/providers.md ('Action URLs always address the application by object id') can say the alternate-key form is also accepted.");
         }
         catch (GraphException ex)
         {
@@ -61,7 +61,7 @@ public sealed partial class GraphBehaviourProbes
         var single = await Graph.ListAsync(new GraphRequest(RoleAssignmentsPath).WithFilter($"principalId eq '{principal}'"), Ct);
         report.Expect(
             single.Any(a => a.Text("id") == sample.Text("id")),
-            $"GET {RoleAssignmentsPath}?$filter=principalId eq '…' did not return the assignment: RoleAssignmentsLookup (src/EArm.Providers/RoleAssignmentsLookup.cs) relies on it.");
+            $"GET {RoleAssignmentsPath}?$filter=principalId eq '…' did not return the assignment: RoleAssignmentsLookup relies on it.");
 
         // The open question: may conditions be combined? Recorded only.
         foreach (string filter in new[]
@@ -77,7 +77,7 @@ public sealed partial class GraphBehaviourProbes
             }
             catch (GraphException ex)
             {
-                report.Observe($"$filter={filter} is REJECTED: {ProbeReport.Describe(ex)}. Keep the single-condition filter with client-side matching in RoleAssignmentsLookup.cs.");
+                report.Observe($"$filter={filter} is REJECTED: {ProbeReport.Describe(ex)}. Keep the single-condition filter with client-side matching in RoleAssignmentsLookup.");
             }
         }
 
@@ -102,11 +102,11 @@ public sealed partial class GraphBehaviourProbes
         {
             if (!liveScopes.TryGetValue(scope.Value, out string? liveId))
             {
-                report.Expect(false, $"The delegated scope '{scope.Value}' does not exist on Microsoft Graph. Remove or rename it in WellKnownIds.GraphScopes (src/EArm.Core/WellKnownIds.cs).");
+                report.Expect(false, $"The delegated scope '{scope.Value}' does not exist on Microsoft Graph. Remove or rename it in WellKnownIds.GraphScopes.");
             }
             else if (!string.Equals(liveId, scope.Id, StringComparison.OrdinalIgnoreCase))
             {
-                report.Expect(false, $"The delegated scope '{scope.Value}' has id {liveId} on Microsoft Graph, not {scope.Id}. Correct it in WellKnownIds.GraphScopes (src/EArm.Core/WellKnownIds.cs).");
+                report.Expect(false, $"The delegated scope '{scope.Value}' has id {liveId} on Microsoft Graph, not {scope.Id}. Correct it in WellKnownIds.GraphScopes.");
             }
             else if (!scope.Verified)
             {
@@ -118,11 +118,11 @@ public sealed partial class GraphBehaviourProbes
         {
             if (!liveRoles.TryGetValue(role.Value, out string? liveId) || !string.Equals(liveId, role.Id, StringComparison.OrdinalIgnoreCase))
             {
-                report.Expect(false, $"The application permission '{role.Value}' is {(liveId is null ? "missing on" : "id " + liveId + " on")} Microsoft Graph, the table says {role.Id}. Correct WellKnownIds.GraphAppRoles (src/EArm.Core/WellKnownIds.cs).");
+                report.Expect(false, $"The application permission '{role.Value}' is {(liveId is null ? "missing on" : "id " + liveId + " on")} Microsoft Graph, the table says {role.Id}. Correct WellKnownIds.GraphAppRoles.");
             }
         }
 
-        report.Observe($"{confirmed.Count} of {WellKnownIds.GraphScopes.Count(s => !s.Verified)} unverified delegated scope ids confirmed; set Verified (drop ', Verified: false') in src/EArm.Core/WellKnownIds.cs for: {string.Join(", ", confirmed)}.");
+        report.Observe($"{confirmed.Count} of {WellKnownIds.GraphScopes.Count(s => !s.Verified)} unverified delegated scope ids confirmed; set Verified (drop ', Verified: false') in WellKnownIds.GraphScopes for: {string.Join(", ", confirmed)}.");
         report.Complete();
     }
 
@@ -158,7 +158,7 @@ public sealed partial class GraphBehaviourProbes
             var restored = await Graph.PostAsync(new GraphRequest($"/directory/deletedItems/{id}/restore"), null, Ct);
             report.Expect(
                 restored.Body is JsonObject restoredUser && restoredUser.Text("id") == id,
-                $"POST /directory/deletedItems/{id}/restore returned no user object (status {restored.Status}); see UsersProvider.RestoreOrFailAsync in src/EArm.Providers/UsersProvider.cs.");
+                $"POST /directory/deletedItems/{id}/restore returned no user object (status {restored.Status}); see UsersProvider.RestoreOrFailAsync.");
         }
         catch (GraphException ex) when (ex.IsForbidden)
         {

@@ -15,7 +15,7 @@ namespace EArm.Integration.Tests;
 [Trait("Category", "Verify")]
 public sealed class GroupAdoptionProbes : IntegrationTestBase
 {
-    private const string FixHint = "see AdoptUniqueNameAsync in src/EArm.Providers/GroupsProvider.cs and the group adoption notes in docs/providers.md (adoption by display name relies on it)";
+    private const string FixHint = "see GroupsProvider.AdoptUniqueNameAsync and the group adoption notes in docs/providers.md (adoption by display name relies on it)";
 
     public GroupAdoptionProbes(IntegrationFixture fixture)
         : base(fixture)

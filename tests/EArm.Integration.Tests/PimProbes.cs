@@ -50,7 +50,7 @@ public sealed class PimProbes : IntegrationTestBase
             report.Observe("second adminAssign: " + ProbeReport.Describe(ex));
             report.Expect(
                 PimScheduleRequests.IsAlreadyExists(ex),
-                $"a second adminAssign answered {ProbeReport.Describe(ex)}, which PimScheduleRequests.IsAlreadyExists does not recognise: the create path would fail instead of adopting. Fix IsAlreadyExists in src/EArm.Providers/PimScheduleRequests.cs.");
+                $"a second adminAssign answered {ProbeReport.Describe(ex)}, which PimScheduleRequests.IsAlreadyExists does not recognise: the create path would fail instead of adopting. Fix PimScheduleRequests.IsAlreadyExists.");
         }
 
         // adminRemove, then the same adminRemove again: the delete path treats "already gone" as done.
@@ -67,7 +67,7 @@ public sealed class PimProbes : IntegrationTestBase
             report.Observe("adminRemove of a missing eligibility: " + ProbeReport.Describe(ex));
             report.Expect(
                 PimScheduleRequests.IsAlreadyGone(ex),
-                $"an adminRemove of a missing eligibility answered {ProbeReport.Describe(ex)}, which PimScheduleRequests.IsAlreadyGone does not recognise: deployment delete would fail for an eligibility removed outside EARM. Fix GonePattern / IsAlreadyGone in src/EArm.Providers/PimScheduleRequests.cs.");
+                $"an adminRemove of a missing eligibility answered {ProbeReport.Describe(ex)}, which PimScheduleRequests.IsAlreadyGone does not recognise: deployment delete would fail for an eligibility removed outside EARM. Fix PimScheduleRequests.GonePattern / IsAlreadyGone.");
         }
 
         // A policy refusal: the default policies may forbid a permanent group eligibility or a 10-year active role assignment. Whatever Graph refuses
@@ -100,7 +100,7 @@ public sealed class PimProbes : IntegrationTestBase
                 report.Observe($"{label}: {ProbeReport.Describe(ex)}");
                 report.Expect(
                     PimScheduleRequests.IsPolicyViolation(ex),
-                    $"{label} was refused with {ProbeReport.Describe(ex)}, which PimScheduleRequests.IsPolicyViolation does not classify as a policy refusal (PimPolicyViolation). Fix PolicyViolationPattern in src/EArm.Providers/PimScheduleRequests.cs (or, if this 400 is not a policy refusal, the probe's attempt).");
+                    $"{label} was refused with {ProbeReport.Describe(ex)}, which PimScheduleRequests.IsPolicyViolation does not classify as a policy refusal (PimPolicyViolation). Fix PimScheduleRequests.PolicyViolationPattern (or, if this 400 is not a policy refusal, the probe's attempt).");
             }
 
             if (!accepted)
@@ -146,11 +146,11 @@ public sealed class PimProbes : IntegrationTestBase
         string? type = PimReads.ExpirationType(schedule);
         report.Expect(
             type is not null && (type.Equals("afterDuration", StringComparison.OrdinalIgnoreCase) || type.Equals("afterDateTime", StringComparison.OrdinalIgnoreCase)),
-            $"an AfterDuration eligibility reads back with expiration type '{type}'; PimScheduleComparison.AlignSchedule only treats afterDuration and afterDateTime as the same kind, so every rerun would show drift. Fix AlignSchedule in src/EArm.Providers/PimScheduleComparison.cs.");
+            $"an AfterDuration eligibility reads back with expiration type '{type}'; PimScheduleComparison.AlignSchedule only treats afterDuration and afterDateTime as the same kind, so every rerun would show drift. Fix PimScheduleComparison.AlignSchedule.");
         string? standIn = response.Text("targetScheduleId") ?? response.Text("id");
         report.Expect(
             string.Equals(standIn, schedule.Text("id"), StringComparison.OrdinalIgnoreCase),
-            $"the adminAssign response's targetScheduleId ({response.Text("targetScheduleId")}, id {response.Text("id")}) is not the schedule's id ({schedule.Text("id")}); the stand-in used until the schedule is listed would carry a wrong id. Fix StandInFor in src/EArm.Providers/PimScheduleRequestsProvider.cs.");
+            $"the adminAssign response's targetScheduleId ({response.Text("targetScheduleId")}, id {response.Text("id")}) is not the schedule's id ({schedule.Text("id")}); the stand-in used until the schedule is listed would carry a wrong id. Fix PimScheduleRequestsProvider.StandInFor.");
 
         // adminUpdate to a fractional-second end: the comparison tolerates TimeTolerance, the update keeps one Direct schedule for the tuple.
         // Variant "omit" leaves startDateTime out (what UpdateAsync sends for a declared past start); variant "live start" reuses the schedule's own
@@ -171,7 +171,7 @@ public sealed class PimProbes : IntegrationTestBase
 
         report.Expect(
             omitOutcome.Contains("ACCEPTED", StringComparison.Ordinal),
-            $"an adminUpdate without startDateTime was not accepted ({omitOutcome}); PimScheduleRequestsProvider.UpdateSchedule leaves a declared past start out, so switch it to the variant this probe found working (src/EArm.Providers/PimScheduleRequestsProvider.cs).");
+            $"an adminUpdate without startDateTime was not accepted ({omitOutcome}); PimScheduleRequestsProvider.UpdateSchedule leaves a declared past start out, so switch it to the variant this probe found working.");
         Assert.NotNull(update);
         report.Observe($"adminUpdate response: id={update.Text("id")} targetScheduleId={update.Text("targetScheduleId")} status={update.Text("status")}");
         var declaredEnd = end.AddMilliseconds(500);
@@ -185,14 +185,14 @@ public sealed class PimProbes : IntegrationTestBase
         var direct = updated.Where(PimScheduleRequests.IsDirectAndActive).ToList();
         report.Expect(
             direct.Count == 1,
-            $"after an adminUpdate the tuple lists {direct.Count} Direct, active eligibilities; FindAsync takes the first one, so the read could see the old schedule. Fix RoleSchedulesLookup.FindAsync (src/EArm.Providers/RoleSchedulesLookup.cs) or PimScheduleRequests.IsDirectAndActive.");
+            $"after an adminUpdate the tuple lists {direct.Count} Direct, active eligibilities; FindAsync takes the first one, so the read could see the old schedule. Fix RoleSchedulesLookup.FindAsync or PimScheduleRequests.IsDirectAndActive.");
         if (direct.Count == 1 && PimReads.EndDateTime(direct[0]) is { } liveEnd)
         {
             var tolerance = PimScheduleRequestsProvider<RoleScheduleTuple>.TimeTolerance;
             report.Observe($"declared end {PimReads.Iso(end).Replace("Z", ".500Z", StringComparison.Ordinal)} reads back as {direct[0].Nested("scheduleInfo.expiration").Text("endDateTime")} (off by {(liveEnd - declaredEnd).Duration().TotalMilliseconds.ToString(CultureInfo.InvariantCulture)} ms)");
             report.Expect(
                 (liveEnd - declaredEnd).Duration() <= tolerance,
-                $"Graph stores a fractional-second endDateTime {(liveEnd - declaredEnd).Duration().TotalMilliseconds} ms away from the declared one, more than TimeTolerance ({tolerance.TotalSeconds} s): every rerun of such a template would show drift. Widen TimeTolerance in src/EArm.Providers/PimScheduleRequestsProvider.cs.");
+                $"Graph stores a fractional-second endDateTime {(liveEnd - declaredEnd).Duration().TotalMilliseconds} ms away from the declared one, more than TimeTolerance ({tolerance.TotalSeconds} s): every rerun of such a template would show drift. Widen PimScheduleRequestsProvider.TimeTolerance.");
         }
 
         await PimReads.SendAsync(Graph, RoleSchedulesLookup.EligibilityRequestsPath, PimReads.RoleRequest(PimScheduleRequests.AdminRemove, userId, role, null), Ct);
@@ -248,10 +248,10 @@ public sealed class PimProbes : IntegrationTestBase
         report.Observe($"group eligibility as listed: memberType='{schedule.Text("memberType")}' accessId='{schedule.Text("accessId")}' status='{schedule.Text("status")}' {PimReads.DescribeSchedule(schedule)}");
         report.Expect(
             PimScheduleRequests.IsDirectAndActive(schedule),
-            $"a fresh direct group eligibility (memberType '{schedule.Text("memberType")}', status '{schedule.Text("status")}') is not accepted by PimScheduleRequests.IsDirectAndActive, so the provider would never find it. Fix IsDirectAndActive (FailedStatuses, memberType casing) in src/EArm.Providers/PimScheduleRequests.cs.");
+            $"a fresh direct group eligibility (memberType '{schedule.Text("memberType")}', status '{schedule.Text("status")}') is not accepted by PimScheduleRequests.IsDirectAndActive, so the provider would never find it. Fix PimScheduleRequests.IsDirectAndActive (FailedStatuses, memberType casing).");
         report.Expect(
             GroupSchedulesLookup.Matches(schedule, tuple),
-            $"GroupSchedulesLookup.Matches does not match the live schedule to its tuple (accessId '{schedule.Text("accessId")}'). Fix Matches in src/EArm.Providers/GroupSchedulesLookup.cs.");
+            $"GroupSchedulesLookup.Matches does not match the live schedule to its tuple (accessId '{schedule.Text("accessId")}'). Fix GroupSchedulesLookup.Matches.");
 
         // The combined filter FindAsync sends.
         string combined = $"groupId eq '{groupId}' and principalId eq '{userId}'";
@@ -261,11 +261,11 @@ public sealed class PimProbes : IntegrationTestBase
             report.Observe($"$filter={combined}: {found.Count} schedule(s)");
             report.Expect(
                 found.Any(s => string.Equals(s.Text("id"), schedule.Text("id"), StringComparison.OrdinalIgnoreCase)),
-                $"$filter={combined} does not return the eligibility; GroupSchedulesLookup.FindAsync relies on it. Fix FindAsync in src/EArm.Providers/GroupSchedulesLookup.cs (filter on groupId only, match principalId client-side).");
+                $"$filter={combined} does not return the eligibility; GroupSchedulesLookup.FindAsync relies on it. Fix GroupSchedulesLookup.FindAsync (filter on groupId only, match principalId client-side).");
         }
         catch (GraphException ex)
         {
-            report.Expect(false, $"$filter={combined} is refused ({ProbeReport.Describe(ex)}); GroupSchedulesLookup.FindAsync relies on it. Fix FindAsync in src/EArm.Providers/GroupSchedulesLookup.cs (filter on groupId only, match principalId client-side).");
+            report.Expect(false, $"$filter={combined} is refused ({ProbeReport.Describe(ex)}); GroupSchedulesLookup.FindAsync relies on it. Fix GroupSchedulesLookup.FindAsync (filter on groupId only, match principalId client-side).");
         }
 
         string withAccess = $"groupId eq '{groupId}' and accessId eq 'member'";
@@ -294,7 +294,7 @@ public sealed class PimProbes : IntegrationTestBase
             }
             catch (GraphException retry)
             {
-                report.Expect(false, $"adminRemove of a group eligibility is refused also with the live scheduleInfo ({ProbeReport.Describe(retry)}): deployment delete cannot remove group eligibilities. Fix RemoveSchedule in src/EArm.Providers/GroupScheduleRequestsProvider.cs.");
+                report.Expect(false, $"adminRemove of a group eligibility is refused also with the live scheduleInfo ({ProbeReport.Describe(retry)}): deployment delete cannot remove group eligibilities. Fix GroupScheduleRequestsProvider.RemoveSchedule.");
             }
         }
 
@@ -319,7 +319,7 @@ public sealed class PimProbes : IntegrationTestBase
             : "the PIM active member is NOT listed by GET /groups/{id}/members after 150 s");
         report.Expect(
             members.Contains(userId),
-            "a PIM active group member is not a member in /groups/{id}/members: the refusal of a time-bound active membership next to a pruning members list (DeclarationConflicts.GroupAssignment) rests on it being a real member. Revisit src/EArm.Providers/DeclarationConflicts.cs and docs/providers.md (the conflict may be unnecessary).");
+            "a PIM active group member is not a member in /groups/{id}/members: the refusal of a time-bound active membership next to a pruning members list (DeclarationConflicts.GroupAssignment) rests on it being a real member. Revisit DeclarationConflicts.GroupAssignment and docs/providers.md (the conflict may be unnecessary).");
 
         // The real tenant listed the member in /members but answered the active schedule list empty right after: wait for it (observation only).
         var schedules = await EventuallyAsync(
@@ -378,7 +378,7 @@ public sealed class PimProbes : IntegrationTestBase
 
         report.Expect(
             schedules.Count == 1 && PimScheduleComparison.IsPermanent(schedules[0]) && PimScheduleRequests.IsAssigned(schedules[0]) && PimScheduleRequests.IsDirectAndActive(schedules[0]),
-            "a plain (permanent) roleAssignments entry does not read back as one Direct, Assigned, permanent roleAssignmentSchedule; RoleAssignmentScheduleRequestsProvider.LiveConflict would not refuse to adopt it. Fix LiveConflict in src/EArm.Providers/RoleAssignmentScheduleRequestsProvider.cs (or PimScheduleComparison.IsPermanent / PimScheduleRequests.IsAssigned).");
+            "a plain (permanent) roleAssignments entry does not read back as one Direct, Assigned, permanent roleAssignmentSchedule; RoleAssignmentScheduleRequestsProvider.LiveConflict would not refuse to adopt it. Fix RoleAssignmentScheduleRequestsProvider.LiveConflict (or PimScheduleComparison.IsPermanent / PimScheduleRequests.IsAssigned).");
         if (schedules.Count == 1)
         {
             report.Observe($"createdUsing {(string.Equals(schedules[0].Text("createdUsing"), assignment.Text("id"), StringComparison.OrdinalIgnoreCase) ? "EQUALS" : "differs from")} the roleAssignment id");

@@ -9,13 +9,13 @@ public sealed partial class FakeDirectory
 {
     // ---- routing ----
 
-    /// <summary>An entity selector: an id/UPN segment or an alternate key <c>(property='value')</c>.</summary>
     /// <summary>An authentication method configuration's state before a PATCH, still served by the next <see cref="ReadsLeft"/> GETs.</summary>
     private sealed record StaleRead(JsonObject Before)
     {
         public int ReadsLeft { get; set; }
     }
 
+    /// <summary>An entity selector: an id/UPN segment or an alternate key <c>(property='value')</c>.</summary>
     private sealed record Selector(string? Property, string Value)
     {
         public bool IsAlternateKey => Property is not null;
