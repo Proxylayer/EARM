@@ -342,7 +342,13 @@ public sealed class DeploymentFunctionTests
         Assert.Equal("validate", Expr.AssertString(Expr.Eval("[deployment().name]")));
         Assert.Null(Expr.Eval("[deployment().templateHash]"));
         Assert.Null(Expr.Eval("[deployment().tenantId]"));
-        Expr.AssertJson("{\"name\":\"validate\",\"templateHash\":null,\"tenantId\":null,\"mode\":\"Incremental\"}", Expr.Eval("[deployment()]"));
+        Assert.Equal("Incremental", Expr.AssertString(Expr.Eval("[deployment().properties.mode]")));
+        Assert.Null(Expr.Eval("[deployment().properties.templateHash]"));
+
+        // The supplied parameters are only known online.
+        var parameters = Expr.AssertUnknown(Expr.Eval("[deployment().properties.parameters]"));
+        Assert.Equal("deployment().properties.parameters", parameters.Symbol);
+        Assert.Equal(UnknownOrigins.Deployment, parameters.Origins);
     }
 
     [Fact]

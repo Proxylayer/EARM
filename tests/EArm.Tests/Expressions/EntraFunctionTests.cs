@@ -329,7 +329,7 @@ public sealed class EntraFunctionTests
     public static TheoryData<string, EvaluationScope, string> ResourceScopeOnlyCases()
     {
         var data = new TheoryData<string, EvaluationScope, string>();
-        foreach (var expression in new[] { "[appRole('" + Graph + "', 'User.Read.All')]", "[permissionScope('" + Graph + "', 'User.Read')]", "[roleTemplate('Global Reader')]", "[tenant()]" })
+        foreach (var expression in new[] { "[appRole('" + Graph + "', 'User.Read.All')]", "[permissionScope('" + Graph + "', 'User.Read')]", "[roleTemplate('Global Reader')]", "[roleDefinitions('Global Reader')]" })
         {
             data.Add(expression, EvaluationScope.ParameterDefault, "a parameter default value");
             data.Add(expression, EvaluationScope.Variable, "a variable");

@@ -182,7 +182,7 @@ internal sealed class PlannedDeployment : IDisposable
             }
         }
 
-        // 5. Plan (identity by live key). tenant() and environment() come from the preflight; an unreadable organization keeps tenant() unknown.
+        // 5. Plan (identity by live key). tenant(), deployer() and environment() come from the preflight; an unreadable organization keeps tenant() unknown.
         //    Only delete confirms an empty key read with extra reads: it deletes what this plan finds. what-if and create plan on the first read; the
         //    executor of create repeats the full check right before every POST, so a create planned on a false "absent" is adopted, never duplicated.
         var planner = services.CreatePlanner(new PlannerOptions
@@ -191,6 +191,7 @@ internal sealed class PlannedDeployment : IDisposable
             DeploymentName = name,
             TenantId = preflight.TenantId,
             Tenant = DeploymentEnvironment.TenantFromOrganization(preflight.Organization, preflight.TenantId),
+            Deployer = DeploymentEnvironment.Deployer(preflight),
             Environment = DeploymentEnvironment.Environment(preflight.Cloud),
             SignedInPrincipalId = preflight.PrincipalObjectId,
             AppOnlyToken = string.Equals(preflight.PrincipalType, "application", StringComparison.OrdinalIgnoreCase),

@@ -106,7 +106,9 @@ public sealed class DeploymentPlanner
         var deployment = new DeploymentInfo(_options.DeploymentName, templateHash, _options.TenantId, mode.ToString())
         {
             Tenant = _options.Tenant,
+            Deployer = _options.Deployer,
             Environment = _options.Environment,
+            Parameters = DeploymentInfo.SuppliedParameters(document.ParameterValues),
         };
 
         var context = new EvaluationContext
