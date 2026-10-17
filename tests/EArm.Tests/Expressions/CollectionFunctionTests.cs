@@ -10,7 +10,9 @@ public sealed class CollectionFunctionTests
     [InlineData("[createArray()]", "[]")]
     [InlineData("[createArray(1, 'a', createObject())]", "[1,\"a\",{}]")]
     [InlineData("[array('x')]", "[\"x\"]")]
-    [InlineData("[array(createArray(1))]", "[[1]]")]
+    [InlineData("[array(createArray(1))]", "[1]")]
+    [InlineData("[array(createArray())]", "[]")]
+    [InlineData("[array(1)]", "[1]")]
     [InlineData("[array(createObject('a', 1))]", "[{\"a\":1}]")]
     [InlineData("[createObject('a', 1)]", "{\"a\":1}")]
     [InlineData("[createObject()]", "{}")]
@@ -103,11 +105,15 @@ public sealed class CollectionFunctionTests
     }
 
     [Fact]
-    public void Range_ThatOverflowsSixtyFourBits_IsAnEvaluationFailure()
+    public void Range_EnforcesTheThirtyTwoBitLimitOfArm()
     {
-        // Every other checked arithmetic (add/mul/sub, copyIndex offsets) surfaces as ExpressionEvaluationFailed;
-        // range() must not let a raw OverflowException escape past the validator's ExpressionException handling.
-        Expr.Fails("[range(9223372036854775807, 2)]", DiagnosticCodes.ExpressionEvaluationFailed);
+        // ARM: startIndex is an int and startIndex + count may not exceed 2,147,483,647.
+        Expr.Fails("[range(9223372036854775807, 2)]", DiagnosticCodes.InvalidFunctionArguments);
+        Expr.Fails("[range(2147483647, 1)]", DiagnosticCodes.InvalidFunctionArguments);
+        Expr.Fails("[range(-2147483649, 1)]", DiagnosticCodes.InvalidFunctionArguments);
+        Expr.AssertJson("[2147483646]", Expr.Eval("[range(2147483646, 1)]"));
+        Expr.AssertJson("[]", Expr.Eval("[range(2147483647, 0)]"));
+        Expr.AssertJson("[-2147483648]", Expr.Eval("[range(-2147483648, 1)]"));
     }
 
     [Fact]

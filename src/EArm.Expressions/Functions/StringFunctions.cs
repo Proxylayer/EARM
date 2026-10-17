@@ -53,6 +53,8 @@ internal static class StringFunctions
         registry.Register(new FunctionDescriptor { Name = "dateTimeAdd", Group = Group, MinArgs = 2, MaxArgs = 3, Implementation = DateTimeAdd });
         registry.Register(new FunctionDescriptor { Name = "dateTimeFromEpoch", Group = Group, MinArgs = 1, MaxArgs = 1, Implementation = DateTimeFromEpoch });
         registry.Register(new FunctionDescriptor { Name = "dateTimeToEpoch", Group = Group, MinArgs = 1, MaxArgs = 1, Implementation = DateTimeToEpoch });
+        EncodingFunctions.Register(registry, Group);
+        WildcardFunctions.Register(registry, Group);
     }
 
     /// <summary>Counts the work of looking at <paramref name="text"/> against the run's budget and returns it (see <see cref="EvaluationBudget.ChargeText"/>).</summary>
@@ -656,10 +658,14 @@ internal static class StringFunctions
         var node = call.Arg(0);
         string text = JsonValues.TryGetInt64(node, out long number) ? number.ToString(CultureInfo.InvariantCulture) : call.String(0);
         int total = call.Int32(1);
-        if (total < 0 || total > 16)
+        if (total < 0)
         {
-            throw call.Error($"total length must be between 0 and 16 (ARM limit), got {call.Redact(1, Invariant(total))}.");
+            throw call.Error($"total length must not be negative, got {call.Redact(1, Invariant(total))}.");
         }
+
+        // ARM documents no upper bound; the result is held to EARM's string length limit like any other built string.
+        call.Context.Budget.CheckStringLength(total, call.Offset);
+        call.Context.Budget.ChargeText(Math.Max(total, text.Length), call.Offset);
 
         char pad = ' ';
         if (call.Has(2))
