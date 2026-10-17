@@ -27,6 +27,12 @@ public static class EngineDiagnosticCodes
     /// <summary>A languageVersion 2.0 <c>"existing": true</c> resource does not exist: it is only read, never created.</summary>
     public const string ExistingResourceNotFound = "ExistingResourceNotFound";
 
+    /// <summary>An adopt-only resource (<c>"x-earm": { "adoptOnly": true }</c>) does not exist: it is adopted and managed, never created.</summary>
+    public const string AdoptOnlyNotFound = "AdoptOnlyNotFound";
+
+    /// <summary>The object an adopt-only resource's key leads to is not the one its <c>x-earm.objectId</c> pins (or the pin cannot be evaluated before deployment).</summary>
+    public const string AdoptedObjectMismatch = "AdoptedObjectMismatch";
+
     /// <summary>The provider could not derive the Graph key of a resource (unknown composite properties).</summary>
     public const string ResourceKeyUnresolved = "ResourceKeyUnresolved";
 

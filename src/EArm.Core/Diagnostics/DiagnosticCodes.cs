@@ -31,6 +31,7 @@ public static class DiagnosticCodes
     public const string InvalidLanguageVersion = "InvalidLanguageVersion";
     public const string InvalidSymbolicName = "InvalidSymbolicName";
     public const string InvalidExistingResource = "InvalidExistingResource";
+    public const string InvalidAdoptOnly = "InvalidAdoptOnly";
     public const string InvalidTypeDefinition = "InvalidTypeDefinition";
 
     // ---- Resources ----

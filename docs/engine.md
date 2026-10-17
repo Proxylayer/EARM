@@ -285,6 +285,12 @@ every name-keyed type) and caches the result. Lookups that cannot be performed (
 unresolvable key) stay placeholders and are listed in `DeploymentPlan.UnresolvedReferences` / the what-if
 diagnostics.
 
+**Adopt-only resources** (`"x-earm": { "adoptOnly": true, "objectId": "…" }`, [format.md](format.md#adopt-only-resources)): `AdoptOnlyCheck` is applied to
+the change the provider planned from the key read, in the what-if (`DeploymentPlanner`) and right before applying (`DeploymentExecutor`): a planned
+create becomes the unsupported `AdoptOnlyNotFound` row (nothing is created), and a found object whose Graph id is not the pinned `objectId`
+(evaluated in the instance's context; it must be known before deployment) becomes `AdoptedObjectMismatch`. `TemplateDeleter` skips adopt-only
+resources, as it skips `"existing": true` ones.
+
 ### Entra lookups and `tenant()` / `deployer()` / `environment()`
 
 `appRole(ref, value)`, `permissionScope(ref, value)`, `roleTemplate(nameOrId)` and `roleDefinitions(name)` resolve ids in three steps, in

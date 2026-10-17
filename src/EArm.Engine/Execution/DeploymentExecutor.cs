@@ -617,7 +617,7 @@ public sealed class DeploymentExecutor
                 return;
             }
 
-            var change = provider.Plan(instance, existing, _planOptions);
+            var change = AdoptOnlyCheck.Apply(_plan.Evaluator, instance, existing, provider.Plan(instance, existing, _planOptions));
             _changes[instance] = change;
             foreach (var reasonWarning in ProviderWarningReasons.DiagnosticsOf(instance, change))
             {

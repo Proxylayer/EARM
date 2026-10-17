@@ -139,7 +139,8 @@ public sealed class TemplateDeleter
             {
                 // An "existing": true resource is only read by the template, never owned by it: deleting the template leaves it alone.
                 // A nested deployment owns nothing itself: the resources of its template are in the plan and are deleted as declared objects.
-                if (instance.IsSymbolic || instance.IsIgnored || instance.Declaration.IsExisting || instance.IsDeployment)
+                // An adopt-only resource ("x-earm": { "adoptOnly": true }) was never created by the template: it is managed, but not deleted with it.
+                if (instance.IsSymbolic || instance.IsIgnored || instance.Declaration.IsExisting || instance.Declaration.AdoptOnly is not null || instance.IsDeployment)
                 {
                     continue;
                 }

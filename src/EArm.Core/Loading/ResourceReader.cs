@@ -156,6 +156,7 @@ internal sealed partial class ResourceReader
             DeclaredName = declaredName,
             SymbolicName = symbolicName,
             IsExisting = ReadExisting(resource, path, symbolicName),
+            AdoptOnly = ReadAdoptOnly(resource, path, fullType),
             StaticId = ComputeStaticId(fullType, name),
             Properties = DeploymentResourceType.Is(fullType) ? DeploymentProperties(resource["properties"]) : resource["properties"],
             DependsOn = dependsOn,
@@ -242,6 +243,79 @@ internal sealed partial class ResourceReader
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// <c>"x-earm": { "adoptOnly": true, "objectId": "…" }</c>, EARM's resource-level extension (the <c>x-</c> prefix marks it as not ARM's): the resource
+    /// must already exist and is adopted and managed, never created (nor deleted by <c>deployment delete</c>); <c>objectId</c>, when given, pins the
+    /// Graph object id the key must lead to and implies <c>adoptOnly</c>. <c>null</c> when the resource does not declare it (or declares it invalidly:
+    /// <see cref="DiagnosticCodes.InvalidAdoptOnly"/>).
+    /// </summary>
+    private AdoptOnlyDeclaration? ReadAdoptOnly(JsonObject resource, JsonPath path, string? fullType)
+    {
+        if (!resource.TryGetPropertyValue(AdoptOnlyDeclaration.Key, out var node))
+        {
+            return null;
+        }
+
+        var extensionPath = path.Append(AdoptOnlyDeclaration.Key);
+        if (node is not JsonObject extension)
+        {
+            _context.Error(DiagnosticCodes.InvalidAdoptOnly, $"'{AdoptOnlyDeclaration.Key}' must be an object: {{ \"adoptOnly\": true, \"objectId\": \"<object id>\" }}.", extensionPath);
+            return null;
+        }
+
+        bool valid = true;
+        foreach (var (key, _) in extension)
+        {
+            if (key is not (AdoptOnlyDeclaration.AdoptOnlyProperty or AdoptOnlyDeclaration.ObjectIdProperty))
+            {
+                _context.Error(DiagnosticCodes.InvalidAdoptOnly, $"Unknown '{AdoptOnlyDeclaration.Key}' property '{key}'; the known properties are '{AdoptOnlyDeclaration.AdoptOnlyProperty}' and '{AdoptOnlyDeclaration.ObjectIdProperty}'.", extensionPath.Append(key));
+                valid = false;
+            }
+        }
+
+        bool? adoptOnly = null;
+        if (extension.TryGetPropertyValue(AdoptOnlyDeclaration.AdoptOnlyProperty, out var flag))
+        {
+            adoptOnly = TemplateJson.AsBool(flag);
+            if (adoptOnly is null)
+            {
+                _context.Error(DiagnosticCodes.InvalidAdoptOnly, $"'{AdoptOnlyDeclaration.AdoptOnlyProperty}' must be the literal true or false.", extensionPath.Append(AdoptOnlyDeclaration.AdoptOnlyProperty));
+                valid = false;
+            }
+        }
+
+        extension.TryGetPropertyValue(AdoptOnlyDeclaration.ObjectIdProperty, out var objectId);
+        if (objectId is not null)
+        {
+            string? text = TemplateJson.AsString(objectId);
+            if (string.IsNullOrWhiteSpace(text) || (!ExpressionSyntax.IsExpression(text) && !Guid.TryParse(text, out _)))
+            {
+                _context.Error(DiagnosticCodes.InvalidAdoptOnly, $"'{AdoptOnlyDeclaration.ObjectIdProperty}' must be the Graph object id (a GUID) of the object to adopt, or an expression that yields it.", extensionPath.Append(AdoptOnlyDeclaration.ObjectIdProperty));
+                valid = false;
+            }
+
+            if (adoptOnly == false)
+            {
+                _context.Error(DiagnosticCodes.InvalidAdoptOnly, $"'{AdoptOnlyDeclaration.ObjectIdProperty}' pins an object that must already exist, so it cannot be combined with \"{AdoptOnlyDeclaration.AdoptOnlyProperty}\": false.", extensionPath.Append(AdoptOnlyDeclaration.AdoptOnlyProperty));
+                valid = false;
+            }
+        }
+
+        if (resource.ContainsKey("existing") && TemplateJson.AsBool(resource["existing"]) == true)
+        {
+            _context.Error(DiagnosticCodes.InvalidAdoptOnly, $"An \"existing\": true resource is only read; '{AdoptOnlyDeclaration.Key}' adopts an object to manage it. Declare one of them.", extensionPath);
+            valid = false;
+        }
+
+        if (fullType is not null && DeploymentResourceType.Is(fullType))
+        {
+            _context.Error(DiagnosticCodes.InvalidAdoptOnly, $"A nested deployment ({DeploymentResourceType.Type}) has no Graph object to adopt; remove '{AdoptOnlyDeclaration.Key}'.", extensionPath);
+            valid = false;
+        }
+
+        return valid && (adoptOnly == true || objectId is not null) ? new AdoptOnlyDeclaration(objectId, extensionPath) : null;
     }
 
     /// <summary>

@@ -18,6 +18,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `AccessPackageExpirationExceedsEligibility` (warning, before planning): an access package assignment policy whose assignments outlive
   (or never end, `noExpiration`) the `Expiration_Admin_Eligibility` maximum the template's `roleManagementPolicies` requires for a group
   the package grants as Eligible Member / Eligible Owner. `DeclarationConflict` gains a `Severity` so a conflict source can warn.
+- Adopt-only resources: `"x-earm": { "adoptOnly": true, "objectId": "…" }` on any resource (groups and users in particular) adopts and
+  manages an object that must already exist and never creates it (`AdoptOnlyNotFound` instead of a create; a user needs none of the
+  create-only properties); `objectId` pins the Graph object id the key must lead to (`AdoptedObjectMismatch`), which makes an adoption
+  by `displayName` a hard check. `deployment delete` leaves adopt-only objects alone. Malformed declarations are `InvalidAdoptOnly`.
 
 **Changed**
 

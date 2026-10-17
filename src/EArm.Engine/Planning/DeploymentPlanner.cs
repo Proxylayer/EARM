@@ -460,7 +460,7 @@ public sealed class DeploymentPlanner
             plan.Resolver.Publish(instance.Id, existing.Raw, existing.GraphId, instance.PlannedId);
         }
 
-        var plannedChange = provider.Plan(instance, existing, plan.Options);
+        var plannedChange = AdoptOnlyCheck.Apply(plan.Evaluator, instance, existing, provider.Plan(instance, existing, plan.Options));
         if (existing is not null && plannedChange is { Type: ChangeType.Modify, Mode: ChangeMode.Recreate, HasError: false })
         {
             plannedChange = GuardRecreate(plan, instance, existing, plannedChange, warnings);

@@ -27,6 +27,12 @@ public sealed record ResourceDeclaration
     /// </summary>
     public bool IsExisting { get; init; }
 
+    /// <summary>
+    /// <c>"x-earm": { "adoptOnly": true }</c> (optionally with a pinned <c>objectId</c>): the object must already exist; it is adopted and managed, never
+    /// created, and <c>deployment delete</c> leaves it alone. <c>null</c> for an ordinary resource.
+    /// </summary>
+    public AdoptOnlyDeclaration? AdoptOnly { get; init; }
+
     /// <summary>The <c>type</c> text as authored (the short type for nested children).</summary>
     public string? DeclaredType { get; init; }
 
@@ -91,6 +97,23 @@ public sealed record ResourceDeclaration
 
         return "resource at " + Path;
     }
+}
+
+/// <summary>
+/// A resource's adopt-only declaration, EARM's resource-level extension <c>"x-earm": { "adoptOnly": true, "objectId": "…" }</c>: the object is found by
+/// the resource's key as always, but a missing object is an error instead of a create, and a pinned <see cref="ObjectId"/> (a GUID or an expression,
+/// unevaluated) must be the found object's Graph id.
+/// </summary>
+/// <param name="ObjectId">The pinned Graph object id as declared (literal or expression); <c>null</c> when only <c>adoptOnly</c> is declared.</param>
+/// <param name="Path">Where <c>x-earm</c> sits in the file.</param>
+public sealed record AdoptOnlyDeclaration(JsonNode? ObjectId, JsonPath Path)
+{
+    /// <summary>The resource-level key.</summary>
+    public const string Key = "x-earm";
+
+    public const string AdoptOnlyProperty = "adoptOnly";
+
+    public const string ObjectIdProperty = "objectId";
 }
 
 /// <summary>The <c>copy</c> block of a resource, unevaluated.</summary>
