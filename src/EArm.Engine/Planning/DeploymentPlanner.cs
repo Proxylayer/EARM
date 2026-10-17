@@ -599,7 +599,7 @@ public sealed class DeploymentPlanner
         }
     }
 
-    /// <summary>True when the what-if knows the live identity of the instance: it was read without error and found (published), or its key is resolved and nothing exists under it.</summary>
+    /// <summary>True when the what-if knows the live identity of the instance: it was read without error and found (published), or it is a Create whose key is resolved (nothing exists under it) or waits only on objects this run creates (nothing can exist under it yet).</summary>
     private static bool IsSettled(DeploymentPlan plan, ResourceInstance instance)
     {
         if (plan.ChangeFor(instance) is not { HasError: false } change)
@@ -612,7 +612,9 @@ public sealed class DeploymentPlanner
             return true;
         }
 
-        return change.Type == ChangeType.Create && instance.IsEvaluated && plan.Registry.Get(instance.Type).ResolveKey(instance).IsResolved;
+        // A Create whose key waits on objects this run creates (an eligibility of a group created in the same run) has no live object to hide.
+        return change.Type == ChangeType.Create && instance.IsEvaluated
+            && (plan.Registry.Get(instance.Type).ResolveKey(instance).IsResolved || OrphanReport.KeyWaitsOnlyOnObjectsCreatedThisRun(plan, instance));
     }
 
     // ---- existing-resource lookups ----

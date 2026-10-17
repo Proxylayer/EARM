@@ -1,12 +1,14 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 using EArm.Core;
 using EArm.Core.Diagnostics;
 using EArm.Engine.Execution;
 using EArm.Engine.Providers;
+using EArm.Expressions.Values;
 using EArm.Graph;
 
 namespace EArm.Engine.Planning;
@@ -143,6 +145,60 @@ internal sealed class OrphanReport
         }
 
         return new OrphanReportResult(rows, diagnostics);
+    }
+
+    /// <summary>
+    /// True when a what-if Create's key is unresolved only because it holds values of objects this run creates (every unknown in its properties comes
+    /// out of <c>reference()</c> of a declared resource planned as a Create): an eligibility of a group the template creates in the same run. No live
+    /// object can carry such a key yet, so the instance cannot hide one from the listing, and its type is listed for the other declared principals
+    /// instead of being skipped with <see cref="EngineDiagnosticCodes.OrphanReportIncomplete"/>.
+    /// </summary>
+    internal static bool KeyWaitsOnlyOnObjectsCreatedThisRun(DeploymentPlan plan, ResourceInstance instance)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+        ArgumentNullException.ThrowIfNull(instance);
+        if (!instance.IsEvaluated)
+        {
+            return false;
+        }
+
+        var unknowns = new List<UnknownValue>();
+        CollectUnknowns(instance.Properties, unknowns);
+        return unknowns.Count > 0 && unknowns.All(u =>
+            u.Origins == UnknownOrigins.Reference
+            && u.Source is { } source
+            && plan.FindInstance(source) is { } target
+            && !ReferenceEquals(target, instance)
+            && plan.ChangeFor(target) is { Type: ChangeType.Create, HasError: false });
+    }
+
+    private static void CollectUnknowns(JsonNode? root, List<UnknownValue> unknowns)
+    {
+        var stack = new Stack<JsonNode?>();
+        stack.Push(root);
+        while (stack.Count > 0)
+        {
+            switch (stack.Pop())
+            {
+                case JsonObject obj:
+                    foreach (var property in obj)
+                    {
+                        stack.Push(property.Value);
+                    }
+
+                    break;
+                case JsonArray array:
+                    foreach (var item in array)
+                    {
+                        stack.Push(item);
+                    }
+
+                    break;
+                case var leaf when UnknownJson.IsUnknown(leaf, out var unknown):
+                    unknowns.Add(unknown);
+                    break;
+            }
+        }
     }
 
     /// <summary>What bounds the listing of one type; <c>null</c> when nothing is in scope (no declared parent exists yet).</summary>

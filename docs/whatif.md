@@ -293,7 +293,9 @@ declared resource matches by key: an `Ignore` row with `orphan: undeclared`. The
 | Authentication method configurations, PIM role management policies | Nothing: every method configuration and every role's (or onboarded group's) PIM policy always exists and is never created, so none can be an orphan (no listing, no diagnostic). |
 
 Only types the template declares are looked at. A type is not listed (warning `OrphanReportIncomplete`) when one of its declared resources is not known in the run (a
-deploy-time name or condition, a failed read or apply): its live object could otherwise be mistaken for an orphan. A resource whose condition is false declares
+deploy-time name or condition, a failed read or apply): its live object could otherwise be mistaken for an orphan. A resource the what-if plans as a Create whose key
+waits only on objects the same run creates (an eligibility or assignment of a group the template creates: its principal id is deploy-time) is known: no live object
+can carry that key yet, so it does not stop the listing for the other declared principals and no warning is shown. A resource whose condition is false declares
 nothing, so its live object is listed (ARM's Complete mode deletes it; EARM only reports it).
 
 **Retained assignments.** The identity of an assignment or grant is its tuple (principal, role or app role, scope / resource, consent type; for PIM for

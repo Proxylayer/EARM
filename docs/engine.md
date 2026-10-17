@@ -518,7 +518,7 @@ target groups the declared resources name). Authentication method configurations
 always exist, so none can be an orphan; no Graph call). A candidate whose Graph id no declared resource of the type holds is an orphan: an `Ignore` row marked
 `ResourceChange.Orphan` (`Undeclared`; `Retained` for the `DeclaredPrincipals` and `DeclaredTargetGroups` scopes, with an `AssignmentRetained` warning). Incremental
 mode runs only those two retained scopes (the old tuple of a changed assignment or eligibility is retained and still grants access, so the what-if says so). A type is skipped with `OrphanReportIncomplete` when one of its declared resources is not settled in the
-run (what-if: an error row or an unresolved key; executor: not succeeded) or its listing fails; applications, groups and users are tenant-wide and never listed (an
+run (what-if: an error row, or an unresolved key that does not wait only on `reference()` of resources planned as Create in the same run; executor: not succeeded) or its listing fails; applications, groups and users are tenant-wide and never listed (an
 `Info` diagnostic). Orphans are in `DeploymentPlan.Orphans` (what-if) and `DeploymentResult.Orphans` (create); they never count as changes.
 
 **`deployment delete`** (`TemplateDeleter`, `EArm.Engine.Execution`): the CLI plans the template in what-if mode (identity by live key, read-only), then
