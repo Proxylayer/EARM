@@ -53,12 +53,23 @@ public sealed class ExpressionValidator : ITemplateValidator
     }
 
     public ExpressionValidator(ResourceTypeCatalog catalog, FunctionRegistry functions)
+        : this(catalog, functions, null)
+    {
+    }
+
+    /// <param name="catalog">The type catalog.</param>
+    /// <param name="functions">The function registry.</param>
+    /// <param name="deployment">
+    /// What <c>deployment()</c> returns during static evaluation; <c>null</c> is <see cref="DeploymentInfo.Offline"/>. The template of an inner-scope
+    /// nested deployment passes its own (its name is the nested deployment's).
+    /// </param>
+    public ExpressionValidator(ResourceTypeCatalog catalog, FunctionRegistry functions, DeploymentInfo? deployment)
     {
         ArgumentNullException.ThrowIfNull(catalog);
         ArgumentNullException.ThrowIfNull(functions);
         _catalog = catalog;
         _functions = functions;
-        _evaluator = new StaticEvaluator(ExpressionEvaluator.Default, functions, catalog, null, null);
+        _evaluator = new StaticEvaluator(ExpressionEvaluator.Default, functions, catalog, deployment, null);
     }
 
     public IReadOnlyList<Diagnostic> Validate(TemplateDocument document)

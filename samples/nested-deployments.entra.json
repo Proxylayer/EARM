@@ -1,0 +1,104 @@
+{
+  "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "Nested and linked deployments (Microsoft.Resources/deployments): an inline template in the outer scope (it sees this template's parameters), an inline template in the inner scope with its own parameters, copied once per team, whose outputs are read back with reference(), and a linked template next to this file (templateLink.relativePath) that receives the output of another deployment. Deploy with: earm deployment create -f samples/nested-deployments.entra.json -p @samples/nested-deployments.parameters.json"
+  },
+  "parameters": {
+    "env": { "type": "string", "allowedValues": ["dev", "prod"], "metadata": { "description": "Environment; part of every name." } },
+    "teams": { "type": "array", "minLength": 1, "metadata": { "description": "Team keys; one security group each (an inner-scope nested deployment per team)." } }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "shared",
+      "properties": {
+        "mode": "Incremental",
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "resources": [
+            {
+              "type": "Microsoft.Entra/groups",
+              "apiVersion": "2026-10-01-preview",
+              "name": "[format('contoso-{0}-portal-owners', parameters('env'))]",
+              "properties": {
+                "displayName": "[format('Contoso Portal owners ({0})', parameters('env'))]",
+                "mailEnabled": false,
+                "securityEnabled": true
+              }
+            }
+          ],
+          "outputs": {
+            "ownersGroupName": { "type": "string", "value": "[format('contoso-{0}-portal-owners', parameters('env'))]" }
+          }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "[format('team-{0}', parameters('teams')[copyIndex()])]",
+      "copy": { "name": "teamDeployments", "count": "[length(parameters('teams'))]" },
+      "properties": {
+        "mode": "Incremental",
+        "expressionEvaluationOptions": { "scope": "inner" },
+        "parameters": {
+          "env": { "value": "[parameters('env')]" },
+          "team": { "value": "[parameters('teams')[copyIndex()]]" }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "parameters": {
+            "env": { "type": "string" },
+            "team": { "type": "string" }
+          },
+          "variables": {
+            "groupName": "[format('contoso-{0}-team-{1}', parameters('env'), parameters('team'))]"
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Entra/groups",
+              "apiVersion": "2026-10-01-preview",
+              "name": "[variables('groupName')]",
+              "properties": {
+                "displayName": "[format('Team {0} ({1})', parameters('team'), parameters('env'))]",
+                "description": "[format('Deployed by nested deployment {0}.', deployment().name)]",
+                "mailEnabled": false,
+                "securityEnabled": true
+              }
+            }
+          ],
+          "outputs": {
+            "groupId": { "type": "string", "value": "[reference(variables('groupName')).id]" }
+          }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "portal",
+      "properties": {
+        "mode": "Incremental",
+        "templateLink": { "relativePath": "linked/portal-app.entra.json", "contentVersion": "1.0.0.0" },
+        "parameters": {
+          "env": { "value": "[parameters('env')]" },
+          "ownersGroupName": { "value": "[reference('shared').outputs.ownersGroupName.value]" }
+        }
+      }
+    }
+  ],
+  "outputs": {
+    "portalAppId": { "type": "string", "value": "[reference('portal').outputs.appId.value]" },
+    "teamGroupIds": {
+      "type": "array",
+      "copy": {
+        "count": "[length(parameters('teams'))]",
+        "input": "[reference(format('team-{0}', parameters('teams')[copyIndex()])).outputs.groupId.value]"
+      }
+    }
+  }
+}

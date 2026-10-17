@@ -201,10 +201,20 @@ internal sealed class NestedDeploymentExpander
             };
         }
 
-        var analysis = new ExpressionValidator(_catalog, _functions).Analyze(analyzed);
+        // deployment() in an inner-scope template is the nested deployment (its name); in the outer scope it is the parent's.
+        var info = kind == NestedTemplateScope.Inner
+            ? rootContext.Deployment with
+            {
+                Name = deployment.Id.Name,
+                TemplateHash = "sha256:" + CanonicalJson.Hash(analyzed.Root),
+                Mode = "Incremental",
+                Parameters = DeploymentInfo.SuppliedParameters(analyzed.ParameterValues),
+            }
+            : null;
+        var analysis = new ExpressionValidator(_catalog, _functions, info).Analyze(analyzed);
         found.AddRange(kind == NestedTemplateScope.Inner ? analysis.Diagnostics : analysis.Diagnostics.Where(d => IsUnder(d, "resources") || IsUnder(d, "outputs")));
 
-        var scope = parent.Nest(analyzed, analysis.Static, CreateContext(deployment, parent, analyzed, analysis.Static, kind, passed, rootContext), location, deployment, kind, prefix);
+        var scope = parent.Nest(analyzed, analysis.Static, CreateContext(deployment, parent, analyzed, analysis.Static, info, passed, rootContext), location, deployment, kind, prefix);
         bool failed = false;
         foreach (var finding in found)
         {
@@ -400,8 +410,8 @@ internal sealed class NestedDeploymentExpander
         return document with { ParameterValues = bound, SuppliedParameters = fileParameters };
     }
 
-    /// <summary>The base context of the template's resources.</summary>
-    private EvaluationContext CreateContext(ResourceInstance deployment, TemplateScope parent, TemplateDocument document, Expressions.Static.StaticContext staticContext, NestedTemplateScope kind, Dictionary<string, JsonNode?> passed, EvaluationContext rootContext)
+    /// <summary>The base context of the template's resources: its own (inner scope, <paramref name="info"/> set) or the parent's stores (outer scope).</summary>
+    private EvaluationContext CreateContext(ResourceInstance deployment, TemplateScope parent, TemplateDocument document, Expressions.Static.StaticContext staticContext, DeploymentInfo? info, Dictionary<string, JsonNode?> passed, EvaluationContext rootContext)
     {
         // Names and symbolic names resolve within the template (ARM: reference('name') and dependsOn name resources of the same template).
         var index = new TemplateResourceIndex();
@@ -415,19 +425,11 @@ internal sealed class NestedDeploymentExpander
             index.AddCopyLoop(loop);
         }
 
-        if (kind == NestedTemplateScope.Outer)
+        if (info is null)
         {
-            // The parent's parameters, variables, functions and deployment(): its stores are already bound to its context.
+            // Outer scope: the parent's parameters, variables, functions and deployment(); its stores are already bound to its context.
             return parent.Context with { Resources = index, CopyStack = [], Scope = EvaluationScope.Resource };
         }
-
-        var info = rootContext.Deployment with
-        {
-            Name = deployment.Id.Name,
-            TemplateHash = "sha256:" + CanonicalJson.Hash(document.Root),
-            Mode = "Incremental",
-            Parameters = DeploymentInfo.SuppliedParameters(document.ParameterValues),
-        };
 
         return new EvaluationContext
         {

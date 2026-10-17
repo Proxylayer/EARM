@@ -1,0 +1,37 @@
+{
+  "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "Linked template of samples/nested-deployments.entra.json (templateLink.relativePath): an application and its service principal; it returns the appId. It is not deployed on its own."
+  },
+  "parameters": {
+    "env": { "type": "string", "metadata": { "description": "Environment; part of every name." } },
+    "ownersGroupName": { "type": "string", "metadata": { "description": "The unique name of the group the parent created for the owners (passed from the outputs of another nested deployment)." } }
+  },
+  "variables": {
+    "appName": "[format('contoso-{0}-portal', parameters('env'))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Entra/applications",
+      "apiVersion": "2026-10-01-preview",
+      "name": "[variables('appName')]",
+      "properties": {
+        "displayName": "[format('Contoso Portal ({0})', parameters('env'))]",
+        "signInAudience": "AzureADMyOrg",
+        "notes": "[format('Owned by the members of {0}.', parameters('ownersGroupName'))]"
+      }
+    },
+    {
+      "type": "Microsoft.Entra/servicePrincipals",
+      "apiVersion": "2026-10-01-preview",
+      "name": "[reference(variables('appName')).appId]",
+      "properties": {
+        "appRoleAssignmentRequired": true
+      }
+    }
+  ],
+  "outputs": {
+    "appId": { "type": "string", "value": "[reference(variables('appName')).appId]" }
+  }
+}

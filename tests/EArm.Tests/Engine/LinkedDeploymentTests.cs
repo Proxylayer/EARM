@@ -223,6 +223,25 @@ public sealed class LinkedDeploymentTests
     }
 
     [Fact]
+    public async Task The_nested_deployments_sample_deploys_and_returns_the_outputs_of_its_nested_templates()
+    {
+        var parameters = ParameterSet.FromFile(TestPaths.Sample("nested-deployments.parameters.json"));
+        var document = await new TemplateLoader().LoadAsync(TestPaths.Sample("nested-deployments.entra.json"), parameters, TestContext.Current.CancellationToken);
+
+        var host = new EngineHost();
+        var (plan, result) = await host.CreateAsync(document);
+
+        Assert.Equal(DeploymentStatus.Succeeded, result.Status);
+        Assert.Equal("portal", EngineHost.Instance(plan, "/providers/Microsoft.Entra/applications/contoso-dev-portal").DeploymentPath);
+        var app = host.Directory.Find("applications", "uniqueName", "contoso-dev-portal");
+        Assert.NotNull(app);
+        Assert.Equal("Owned by the members of contoso-dev-portal-owners.", app["notes"]?.GetValue<string>());
+        Assert.Equal(app["appId"]!.GetValue<string>(), result.Outputs["portalAppId"]!["value"]!.GetValue<string>());
+        Assert.Equal(2, result.Outputs["teamGroupIds"]!["value"]!.AsArray().Count);
+        Assert.Equal("Deployed by nested deployment team-search.", host.Directory.Find("groups", "uniqueName", "contoso-dev-team-search")?["description"]?.GetValue<string>());
+    }
+
+    [Fact]
     public void RelativePath_must_be_relative()
     {
         var ex = Assert.Throws<ArgumentException>(() => LinkedTemplateReader.ResolveRelative("C:/elsewhere/child.json", "C:/templates/main.json", null));
