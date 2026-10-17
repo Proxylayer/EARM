@@ -14,8 +14,9 @@ namespace EArm.TestSupport;
 /// <item><c>GET /policies/roleManagementPolicyAssignments?$filter=scopeId eq '…' and scopeType eq '…' [and roleDefinitionId eq '…']</c> (the scope filter is
 /// required, as Graph says), with <c>$expand=policy($expand=rules)</c>. A directory role (scopeType DirectoryRole or Directory, scopeId '/') has a policy
 /// for every role id except <see cref="RolesWithoutPolicy"/>; a group (scopeType Group) has a member and an owner policy once it exists, and before PIM for
-/// Groups onboards it only when <see cref="PoliciesBeforeOnboarding"/> (the default, as Learn implies: ids change on onboarding); otherwise the list answers
-/// <c>404 ResourceNotFound</c>, as a real tenant does.</item>
+/// Groups onboards it only when <see cref="PoliciesBeforeOnboarding"/> (the default, as Learn implies: ids change on onboarding); otherwise the expanded list
+/// answers <c>404 ResourceNotFound</c> and the plain list by member role an assignment with a pre-onboarding policy id
+/// (<see cref="PreOnboardingPolicyId"/>, not a policy), as a real tenant does (probe PP7), and the policy appears on onboarding with its new id.</item>
 /// <item><c>GET /policies/roleManagementPolicies/{id}</c> (with <c>$expand=rules</c>).</item>
 /// <item><c>PATCH /policies/roleManagementPolicies/{id}/rules/{ruleId}</c>: the body must carry the rule's <c>@odata.type</c> (400 otherwise); an unknown
 /// policy or rule id is a 404; the top-level members of the body replace the rule's. A group policy PATCH onboards the group.</item>
@@ -140,7 +141,14 @@ public sealed class FakeRoleManagementPolicies
             Reconcile(scopeId, onboardedElsewhere);
             if (!PoliciesBeforeOnboarding && !IsOnboarded(scopeId, onboardedElsewhere))
             {
-                // Graph answers the assignment list of a group PIM for Groups has not onboarded with a 404, not an empty collection.
+                if (!expandPolicy && roleDefinitionId is "member" or "owner")
+                {
+                    // Real tenant (probe PP7): the plain lookup by member role lists an assignment whose policy id is a pre-onboarding id, which is not
+                    // a policy (GET and PATCH answer 404) and differs from the id the group's policy gets on onboarding.
+                    return new JsonObject { ["value"] = new JsonArray(PreOnboardingAssignment(scopeId, roleDefinitionId)) };
+                }
+
+                // Graph answers the (expanded) assignment list of a group PIM for Groups has not onboarded with a 404, not an empty collection.
                 throw new GraphException(HttpStatusCode.NotFound, "ResourceNotFound", $"The resource '{scopeId}' could not be found.", hint);
             }
 
@@ -154,6 +162,28 @@ public sealed class FakeRoleManagementPolicies
         }
 
         return new JsonObject { ["value"] = new JsonArray(found.Select(p => (JsonNode?)p.Assignment(expandPolicy, expandRules)).ToArray()) };
+    }
+
+    /// <summary>
+    /// The policy id the plain member-role assignment lookup exposes for a group before onboarding when <see cref="PoliciesBeforeOnboarding"/> is false
+    /// (a real tenant): not a policy, and never the id of the group's policy after onboarding.
+    /// </summary>
+    public static string PreOnboardingPolicyId(string groupId, string accessId)
+    {
+        return "Group_" + groupId.ToLowerInvariant() + "_" + StableGuid("pre-onboarding", groupId) + "_" + accessId.ToLowerInvariant();
+    }
+
+    private static JsonObject PreOnboardingAssignment(string groupId, string accessId)
+    {
+        string policyId = PreOnboardingPolicyId(groupId, accessId);
+        return new JsonObject
+        {
+            ["id"] = policyId + "_" + accessId.ToLowerInvariant(),
+            ["policyId"] = policyId,
+            ["scopeId"] = groupId.ToLowerInvariant(),
+            ["scopeType"] = "Group",
+            ["roleDefinitionId"] = accessId.ToLowerInvariant(),
+        };
     }
 
     private JsonObject PatchRule(Policy policy, string ruleId, JsonNode? body, RetryHint hint, Func<string, bool> onboardedElsewhere)
@@ -245,8 +275,10 @@ public sealed class FakeRoleManagementPolicies
         var policy = _policies.FirstOrDefault(p => p.Matches(kind, scopeId, roleDefinitionId));
         if (policy is null)
         {
+            // Without policies before onboarding (a real tenant) a group's policy first appears on onboarding, with its post-onboarding id.
+            string groupSuffix = !PoliciesBeforeOnboarding && _onboarded.Contains(scopeId) ? StableGuid("onboarded", scopeId) : StableGuid("group", scopeId);
             string id = kind == "Group"
-                ? "Group_" + scopeId.ToLowerInvariant() + "_" + StableGuid("group", scopeId) + "_" + roleDefinitionId.ToLowerInvariant()
+                ? "Group_" + scopeId.ToLowerInvariant() + "_" + groupSuffix + "_" + roleDefinitionId.ToLowerInvariant()
                 : "DirectoryRole_" + TenantId + "_" + StableGuid("role", roleDefinitionId);
             policy = new Policy(id, kind, kind == "Group" ? scopeId.ToLowerInvariant() : "/", roleDefinitionId.ToLowerInvariant(), DefaultRules(kind == "Group"));
             _policies.Add(policy);

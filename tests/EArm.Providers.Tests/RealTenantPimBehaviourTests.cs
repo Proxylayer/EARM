@@ -141,7 +141,8 @@ public sealed class RealTenantPimBehaviourTests
 
         var raw = await Assert.ThrowsAsync<GraphException>(async () =>
         {
-            await foreach (var _ in host.Fake.GetAllPagesAsync(new GraphRequest(RoleManagementPolicyLookup.AssignmentsPath, GraphApi.V1).WithFilter(RoleManagementPolicyLookup.Filter(scope)), ProviderHost.Ct))
+            // The provider's lookup expands the policy; the plain lookup by member role lists a pre-onboarding policy id instead (probe PP7).
+            await foreach (var _ in host.Fake.GetAllPagesAsync(new GraphRequest(RoleManagementPolicyLookup.AssignmentsPath, GraphApi.V1).WithFilter(RoleManagementPolicyLookup.Filter(scope)).WithExpand("policy($expand=rules)"), ProviderHost.Ct))
             {
             }
         });

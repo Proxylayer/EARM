@@ -69,6 +69,12 @@ public sealed class FakeGroupScheduleRequests
     /// <summary>How many adminUpdate requests answer <c>400 RoleAssignmentExists</c> first (a schedule that was just replaced and is still settling).</summary>
     public int ExistsOnUpdate { get; set; }
 
+    /// <summary>How many adminRemove requests answer <c>400 ActiveDurationTooShort</c> first (PIM refuses to remove a schedule younger than five minutes).</summary>
+    public int TooNewOnRemove { get; set; }
+
+    /// <summary>Every adminRemove answers <c>400 InvalidRequest</c> (the removal is refused; nothing is removed).</summary>
+    public bool RefuseRemove { get; set; }
+
     /// <summary>
     /// The caller lacks the active role PIM for Groups requires (only eligible for it, or Privileged Role Administrator on a group that is not
     /// role-assignable): every schedule list and request answers <c>403 UnauthorizedAccessException</c>, as Graph does.
@@ -210,6 +216,17 @@ public sealed class FakeGroupScheduleRequests
                 if (current is null)
                 {
                     throw new GraphException(HttpStatusCode.BadRequest, "RoleAssignmentDoesNotExist", "The Role assignment does not exist.", hint);
+                }
+
+                if (RefuseRemove)
+                {
+                    throw new GraphException(HttpStatusCode.BadRequest, "InvalidRequest", "The removal request was refused.", hint);
+                }
+
+                if (TooNewOnRemove > 0)
+                {
+                    TooNewOnRemove--;
+                    throw new GraphException(HttpStatusCode.BadRequest, "ActiveDurationTooShort", "The Active duration is too short. Minimum Required is 5 minutes.", hint);
                 }
 
                 schedules.Remove(current);
