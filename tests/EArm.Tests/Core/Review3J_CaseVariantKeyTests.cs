@@ -115,7 +115,6 @@ public sealed class Review3J_CaseVariantKeyTests
 
     [Theory]
     [InlineData("[createObject('state', 'a', 'State', 'b')]")]
-    [InlineData("[union(createObject('state', 'a'), createObject('State', 'b'))]")]
     [InlineData("[toObject(createArray('state', 'State'), lambda('x', lambdaVariables('x')))]")]
     public void AnObjectBuiltWithCaseVariantKeys_IsRejectedWhenTheTreeIsEvaluated(string expression)
     {
@@ -131,8 +130,8 @@ public sealed class Review3J_CaseVariantKeyTests
     [Fact]
     public void Items_ThenToObject_WithCaseVariantKeys_IsRejected_ButDistinctKeysAreNot()
     {
-        var okTree = new JsonObject { ["a"] = JsonValue.Create("[union(createObject('state', 'a'), createObject('other', 'b'))]") };
-        var badTree = new JsonObject { ["a"] = JsonValue.Create("[union(createObject('k', 1), createObject('K', 2), createObject('x', 3))]") };
+        var okTree = new JsonObject { ["a"] = JsonValue.Create("[toObject(items(createObject('state', 'a', 'other', 'b')), lambda('e', lambdaVariables('e').key), lambda('e', lambdaVariables('e').value))]") };
+        var badTree = new JsonObject { ["a"] = JsonValue.Create("[toObject(items(createObject('k', 1, 'K', 2, 'x', 3)), lambda('e', lambdaVariables('e').key), lambda('e', lambdaVariables('e').value))]") };
 
         Assert.Equal("b", Expr.Evaluator.EvaluateTree(okTree, Expr.Context())!["a"]!["other"]!.GetValue<string>());
         Assert.Equal(DiagnosticCodes.DuplicateJsonKey, Assert.Throws<ExpressionEvaluationException>(() => Expr.Evaluator.EvaluateTree(badTree, Expr.Context())).Code);
@@ -167,13 +166,25 @@ public sealed class Review3J_CaseVariantKeyTests
     public void TheGuardAndTheBody_SeeTheSameKeys_ForTheTemplateOfTheReviewer()
     {
         // The reviewer's template, with the repeated key moved into an expression result: the evaluated properties must fail, not reach a provider.
-        string text = Review1C.Template("\"resources\": [ { \"type\": \"Microsoft.Entra/conditionalAccess/policies\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"p\", \"properties\": \"[union(createObject('displayName', 'p', 'state', 'enabledForReportingButNotEnforced'), createObject('State', 'enabled'))]\" } ]");
+        string text = Review1C.Template("\"resources\": [ { \"type\": \"Microsoft.Entra/conditionalAccess/policies\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"p\", \"properties\": \"[createObject('displayName', 'p', 'state', 'enabledForReportingButNotEnforced', 'State', 'enabled')]\" } ]");
         var document = new TemplateLoader().Parse(text, "ca.entra.json", ParameterSet.Empty);
 
         var properties = document.Resources.Single().Properties;
         var error = Assert.Throws<ExpressionEvaluationException>(() => Expr.Evaluator.EvaluateTree(properties, Expr.Context()));
 
         Assert.Equal(DiagnosticCodes.DuplicateJsonKey, error.Code);
+    }
+
+    [Fact]
+    public void Union_MergesCaseVariantKeysAcrossArguments_AsArmDoes()
+    {
+        // ARM matches object keys case-insensitively: the later State replaces state under the first spelling, so no duplicate reaches a provider.
+        var tree = new JsonObject { ["p"] = JsonValue.Create("[union(createObject('displayName', 'p', 'state', 'enabledForReportingButNotEnforced'), createObject('State', 'enabled'))]") };
+
+        var properties = Expr.Evaluator.EvaluateTree(tree, Expr.Context())!["p"]!.AsObject();
+
+        Assert.Equal(2, properties.Count);
+        Assert.Equal("enabled", properties["state"]!.GetValue<string>());
     }
 
     // ---- mutants of DuplicateKeys (DK02, DK03, DK06, DK07) ----

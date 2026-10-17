@@ -68,6 +68,9 @@ public sealed partial class StringFunctionTests
     [InlineData("[padLeft(7, 3, '0')]", "\"007\"")]
     [InlineData("[padLeft('ab', 4)]", "\"  ab\"")]
     [InlineData("[padLeft('abcdef', 3)]", "\"abcdef\"")]
+    [InlineData("[padLeft('123', 10, '0')]", "\"0000000123\"")]
+    [InlineData("[padLeft(13, 5)]", "\"   13\"")]
+    [InlineData("[padLeft('a', 20, '-')]", "\"-------------------a\"")]
     [InlineData("[string(true())]", "\"true\"")]
     [InlineData("[string(42)]", "\"42\"")]
     [InlineData("[string(json('1.5'))]", "\"1.5\"")]
@@ -116,7 +119,7 @@ public sealed partial class StringFunctionTests
     [InlineData("[length(123)]", DiagnosticCodes.InvalidFunctionArguments)]
     [InlineData("[empty(1)]", DiagnosticCodes.InvalidFunctionArguments)]
     [InlineData("[contains(createObject('a', 1), 1)]", DiagnosticCodes.InvalidFunctionArguments)]
-    [InlineData("[padLeft('a', 17)]", DiagnosticCodes.InvalidFunctionArguments)]
+    [InlineData("[padLeft('a', 2000000)]", DiagnosticCodes.EvaluationBudgetExceeded)]
     [InlineData("[padLeft('a', -1)]", DiagnosticCodes.InvalidFunctionArguments)]
     [InlineData("[padLeft('a', 3, 'xy')]", DiagnosticCodes.InvalidFunctionArguments)]
     [InlineData("[string(null())]", DiagnosticCodes.InvalidFunctionArguments)]
@@ -202,12 +205,12 @@ public sealed partial class StringFunctionTests
     }
 
     [Fact]
-    public void MurmurHash_MatchesTheReferenceVector()
+    public void MurmurHash_EmptyInputIsZeroAndSeedMatters()
     {
-        // MurmurHash64A("", seed 0) is 0; the full-block and tail paths both contribute for longer inputs.
-        Assert.Equal(0UL, Hashing.MurmurHash64A([], 0));
-        Assert.NotEqual(Hashing.MurmurHash64A("abcdefgh"u8, 0), Hashing.MurmurHash64A("abcdefghi"u8, 0));
-        Assert.Equal(Hashing.MurmurHash64A("abc"u8, 0), Hashing.MurmurHash64A("abc"u8, 0));
-        Assert.NotEqual(Hashing.MurmurHash64A("abc"u8, 0), Hashing.MurmurHash64A("abc"u8, 1));
+        // The empty input hashes to 0 (which is why uniqueString('') is all 'a'); the full-block and tail paths both contribute for longer inputs.
+        Assert.Equal(0UL, Hashing.MurmurHash64([]));
+        Assert.NotEqual(Hashing.MurmurHash64("abcdefgh"u8), Hashing.MurmurHash64("abcdefghi"u8));
+        Assert.Equal(Hashing.MurmurHash64("abc"u8), Hashing.MurmurHash64("abc"u8));
+        Assert.NotEqual(Hashing.MurmurHash64("abc"u8), Hashing.MurmurHash64("abc"u8, 1));
     }
 }

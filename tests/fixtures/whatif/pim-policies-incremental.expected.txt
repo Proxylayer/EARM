@@ -11,7 +11,20 @@ Resource and property changes are indicated with these symbols:
 
 The deployment would make the following changes:
 
-  ~ /providers/Microsoft.Entra/roleManagementPolicies/3e6225bf-09cb-57bc-bb3d-d280f41cc170 [Microsoft.Entra/roleManagementPolicies]
+  ~ /providers/Microsoft.Entra/roleManagementPolicies/6d9fb633-9db3-530c-86fc-ef7e782f70a7 [Microsoft.Entra/roleManagementPolicies]
+      ~ properties.rules: [
+          ~ Expiration_Admin_Eligibility:
+              ~ isExpirationRequired: true => false
+          ~ Notification_Admin_EndUser_Assignment:
+              + notificationRecipients: [
+                  0: "security@contoso.com"
+                ]
+        ]
+      (each changed rule is updated in place (PATCH of the rule); undeclared rules are left as they are)
+
+  = /providers/Microsoft.Entra/roleManagementPolicies/8f9fe0c5-f1ea-5d56-9d16-cda33a729eda [Microsoft.Entra/roleManagementPolicies]
+
+  ~ /providers/Microsoft.Entra/roleManagementPolicies/d25174d0-da60-5820-8cca-566739778f1f [Microsoft.Entra/roleManagementPolicies]
       ~ properties.rules: [
           ~ Expiration_EndUser_Assignment:
               ~ maximumDuration: "PT8H" => "PT4H"
@@ -39,19 +52,6 @@ The deployment would make the following changes:
                     ]
         ]
       (each changed rule is updated in place (PATCH of the rule); undeclared rules are left as they are)
-
-  ~ /providers/Microsoft.Entra/roleManagementPolicies/583aff4d-b6c4-590b-9467-a224fcf16270 [Microsoft.Entra/roleManagementPolicies]
-      ~ properties.rules: [
-          ~ Expiration_Admin_Eligibility:
-              ~ isExpirationRequired: true => false
-          ~ Notification_Admin_EndUser_Assignment:
-              + notificationRecipients: [
-                  0: "security@contoso.com"
-                ]
-        ]
-      (each changed rule is updated in place (PATCH of the rule); undeclared rules are left as they are)
-
-  = /providers/Microsoft.Entra/roleManagementPolicies/c49bac1c-fc5b-57b6-b28a-624d71946e33 [Microsoft.Entra/roleManagementPolicies]
 
 Resource changes: 0 to create, 2 to modify, 0 to delete, 1 unchanged, 0 ignored.
 Edges: 0 to add, 0 to remove.

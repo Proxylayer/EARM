@@ -38,9 +38,9 @@ public sealed class Review1C_ValueDepthTests
         Assert.DoesNotContain(diagnostics, d => d.Code == DiagnosticCodes.ExpressionEvaluationFailed);
     }
 
+    // array() is not in this list: as in ARM, array(anArray) returns the array unchanged, so a chain of array() calls adds no depth.
     [Theory]
     [InlineData("createArray")]
-    [InlineData("array")]
     public void TheDepthLimit_IsExactly64Levels(string function)
     {
         // v{k} wraps v{k-1}: depth k. 64 passes, 65 fails.

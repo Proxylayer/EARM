@@ -11,8 +11,16 @@ Resource and property changes are indicated with these symbols:
 
 The deployment would make the following changes:
 
-  + /providers/Microsoft.Entra/roleEligibilityScheduleRequests/2d7e4bc7-98c2-5547-aafa-449e7b532251 [Microsoft.Entra/roleEligibilityScheduleRequests]
-      name: "2d7e4bc7-98c2-5547-aafa-449e7b532251"
+  ~ /providers/Microsoft.Entra/roleEligibilityScheduleRequests/87db8ad7-33f9-5e46-9001-762293479248 [Microsoft.Entra/roleEligibilityScheduleRequests]
+      ~ properties.scheduleInfo:
+          ~ expiration:
+              ~ endDateTime: "2028-06-30T00:00:00Z" => "2029-06-30T00:00:00Z"
+      (the eligibility is changed in place with a PIM adminUpdate request)
+
+  = /providers/Microsoft.Entra/roleEligibilityScheduleRequests/a5d605b2-f85b-5f48-a740-b8fc6ca50f5c [Microsoft.Entra/roleEligibilityScheduleRequests]
+
+  + /providers/Microsoft.Entra/roleEligibilityScheduleRequests/b5f7e968-d982-5c93-ba99-c95bc504aec0 [Microsoft.Entra/roleEligibilityScheduleRequests]
+      name: "b5f7e968-d982-5c93-ba99-c95bc504aec0"
       type: "Microsoft.Entra/roleEligibilityScheduleRequests"
       apiVersion: "2026-10-01-preview"
       properties:
@@ -24,14 +32,6 @@ The deployment would make the following changes:
         roleDefinitionId: "fe930be7-5e62-47db-91af-98c3a49a38b1"
         directoryScopeId: "/"
         justification: "Deployed by earm"
-
-  = /providers/Microsoft.Entra/roleEligibilityScheduleRequests/3a4cf7f1-dab9-5087-8f08-13ac03823e72 [Microsoft.Entra/roleEligibilityScheduleRequests]
-
-  ~ /providers/Microsoft.Entra/roleEligibilityScheduleRequests/3a68d02a-3ccf-526b-a71b-f5304078a044 [Microsoft.Entra/roleEligibilityScheduleRequests]
-      ~ properties.scheduleInfo:
-          ~ expiration:
-              ~ endDateTime: "2028-06-30T00:00:00Z" => "2029-06-30T00:00:00Z"
-      (the eligibility is changed in place with a PIM adminUpdate request)
 
   * /providers/Microsoft.Entra/roleEligibilityScheduleRequests/33333333-0000-0000-0000-000000000003 [Microsoft.Entra/roleEligibilityScheduleRequests] (orphan: retained)
       (retained: no longer declared; still grants access (eligible: principalId '22222222-0000-0000-0000-000000000001', roleDefinitionId '88d8e3e3-8f55-4a1e-953a-9b9898b8876b', directoryScopeId '/'). Assignments are never removed: delete it yourself if the access should end.)

@@ -15,11 +15,11 @@ conditions with the offline context, and asks every resource provider what it ne
    example `Application.ReadWrite.OwnedBy` instead of `.All` when the application declares `owners`, `RoleManagement.ReadWrite.Directory`
    on a group only when it declares `isAssignableToRole: true`); a type without a registered provider falls back to its schema overlay;
 2. **the edge kinds** of the relationship properties the template declares (table below), including an empty array (which removes edges);
-3. **the tenant lookups of expression functions**: `appRole()` / `permissionScope()` read service principals (`Application.Read.All`), `roleTemplate()`
-   reads custom role definitions (`RoleManagement.Read.Directory`), `tenant()` reads `/organization`, and a `reference(resourceId('Microsoft.Entra/<type>', …), apiVersion)`
+3. **the tenant lookups of expression functions**: `appRole()` / `permissionScope()` read service principals (`Application.Read.All`), `roleTemplate()` and `roleDefinitions()`
+   read custom role definitions (`RoleManagement.Read.Directory`), `tenant()` reads `/organization`, and a `reference(resourceId('Microsoft.Entra/<type>', …), apiVersion)`
    existing-resource lookup needs the read variant of that type's permissions. A lookup that a write permission of the same family already covers
    (`Application.ReadWrite.All` ⊇ `Application.Read.All`) is folded away;
-4. **the preflight**: every online verb reads `GET /organization?$select=id,displayName,verifiedDomains` (`Organization.Read.All`, app mode; the same read feeds `tenant()`);
+4. **the preflight**: every online verb reads `GET /organization?$select=id,displayName,verifiedDomains,countryLetterCode` (`Organization.Read.All`, app mode; the same read feeds `tenant()`);
 5. **Key Vault parameter references** as an Azure requirement of the signed-in identity (not a Graph permission).
 
 Resources whose name depends on another resource (a service principal named `[reference('app').appId]`) are computed from their declaration

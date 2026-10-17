@@ -20,6 +20,9 @@ public sealed record PlannerOptions
     /// <summary>What <c>tenant()</c> returns (<see cref="DeploymentEnvironment.ReadTenantAsync"/>); <c>null</c> keeps it a deploy-time unknown.</summary>
     public JsonObject? Tenant { get; init; }
 
+    /// <summary>What <c>deployer()</c> returns (<see cref="DeploymentEnvironment.Deployer"/>); <c>null</c> keeps it a deploy-time unknown.</summary>
+    public JsonObject? Deployer { get; init; }
+
     /// <summary>What <c>environment()</c> returns (<see cref="DeploymentEnvironment.Environment"/>); <c>null</c> keeps it a deploy-time unknown.</summary>
     public JsonObject? Environment { get; init; }
 

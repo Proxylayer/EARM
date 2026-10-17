@@ -7,9 +7,9 @@ Microsoft Graph delegated permissions
       (edge: administrativeUnits; edge: members; provider)
   Application.Read.All
       (expression lookups)
-      /providers/Microsoft.Entra/appRoleAssignments/4969f686-a5b1-5d65-8c0b-9f158025db97
+      /providers/Microsoft.Entra/appRoleAssignments/5de41bdb-189d-55a8-94b5-edac77f041a8
       /providers/Microsoft.Entra/conditionalAccess/policies/CA-Orders-Admins-MFA
-      /providers/Microsoft.Entra/oauth2PermissionGrants/30936788-431e-536d-82b1-38b2a5ed43fb
+      /providers/Microsoft.Entra/oauth2PermissionGrants/85f92584-0a42-5177-9594-99fc0b0d300a
       /providers/Microsoft.Entra/users/bg-orders@contoso.com
       reference(Microsoft.Entra/servicePrincipals, apiVersion)
       (edge: appRoleAssignments; lookup: appRole(); lookup: existing resource; lookup: permissionScope(); provider)
@@ -23,17 +23,17 @@ Microsoft Graph delegated permissions
       /providers/Microsoft.Entra/users/bg-orders@contoso.com
       (edge: members (when a member is a service principal); edge: ownerOf (when a target is an application or service principal); provider)
   AppRoleAssignment.ReadWrite.All
-      /providers/Microsoft.Entra/appRoleAssignments/4969f686-a5b1-5d65-8c0b-9f158025db97
+      /providers/Microsoft.Entra/appRoleAssignments/5de41bdb-189d-55a8-94b5-edac77f041a8
       /providers/Microsoft.Entra/users/bg-orders@contoso.com
       (edge: appRoleAssignments; provider)
   AuthenticationContext.ReadWrite.All
       /providers/Microsoft.Entra/conditionalAccess/authenticationContextClassReferences/c10
       (provider)
   DelegatedPermissionGrant.ReadWrite.All
-      /providers/Microsoft.Entra/oauth2PermissionGrants/30936788-431e-536d-82b1-38b2a5ed43fb
+      /providers/Microsoft.Entra/oauth2PermissionGrants/85f92584-0a42-5177-9594-99fc0b0d300a
       (provider)
   Directory.Read.All
-      /providers/Microsoft.Entra/appRoleAssignments/4969f686-a5b1-5d65-8c0b-9f158025db97
+      /providers/Microsoft.Entra/appRoleAssignments/5de41bdb-189d-55a8-94b5-edac77f041a8
       /providers/Microsoft.Entra/applications/contoso-prod-api
       /providers/Microsoft.Entra/groups/contoso-prod-orders-admins
       /providers/Microsoft.Entra/roleAssignments/guid(ref(/providers/Microsoft.Entra/applications/contoso-prod-api).appId, 'Directory Readers', '/')
@@ -80,8 +80,8 @@ Entra roles (the signed-in user needs at least one role of each group)
       /providers/Microsoft.Entra/applications/contoso-prod-api/passwordCredentials/ci-secret
       (provider)
   Application Administrator | Cloud Application Administrator
-      /providers/Microsoft.Entra/appRoleAssignments/4969f686-a5b1-5d65-8c0b-9f158025db97
-      /providers/Microsoft.Entra/oauth2PermissionGrants/30936788-431e-536d-82b1-38b2a5ed43fb
+      /providers/Microsoft.Entra/appRoleAssignments/5de41bdb-189d-55a8-94b5-edac77f041a8
+      /providers/Microsoft.Entra/oauth2PermissionGrants/85f92584-0a42-5177-9594-99fc0b0d300a
       /providers/Microsoft.Entra/servicePrincipals/ref(/providers/Microsoft.Entra/applications/contoso-prod-api).appId
       /providers/Microsoft.Entra/users/bg-orders@contoso.com
       (edge: appRoleAssignments; provider)

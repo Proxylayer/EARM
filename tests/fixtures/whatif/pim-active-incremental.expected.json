@@ -5,10 +5,10 @@
   "mode": "Incremental",
   "changes": [
     {
-      "resourceId": "/providers/Microsoft.Entra/privilegedAccess/groupAssignmentScheduleRequests/1c8ea0c7-236b-5e71-8db3-dc985d283dfe",
+      "resourceId": "/providers/Microsoft.Entra/privilegedAccess/groupAssignmentScheduleRequests/fdc854c0-29e2-5e83-b015-6c3662b9201f",
       "changeType": "Modify",
       "before": {
-        "name": "1c8ea0c7-236b-5e71-8db3-dc985d283dfe",
+        "name": "fdc854c0-29e2-5e83-b015-6c3662b9201f",
         "type": "Microsoft.Entra/privilegedAccess/groupAssignmentScheduleRequests",
         "apiVersion": "2026-10-01-preview",
         "properties": {
@@ -25,7 +25,7 @@
         }
       },
       "after": {
-        "name": "1c8ea0c7-236b-5e71-8db3-dc985d283dfe",
+        "name": "fdc854c0-29e2-5e83-b015-6c3662b9201f",
         "type": "Microsoft.Entra/privilegedAccess/groupAssignmentScheduleRequests",
         "apiVersion": "2026-10-01-preview",
         "properties": {
@@ -87,10 +87,10 @@
       ]
     },
     {
-      "resourceId": "/providers/Microsoft.Entra/roleAssignmentScheduleRequests/3faba3b6-1c65-52f2-a22e-1c2e50f1e153",
+      "resourceId": "/providers/Microsoft.Entra/roleAssignmentScheduleRequests/3e834882-5738-5ce3-9890-1a5e0bc0f644",
       "changeType": "NoChange",
       "before": {
-        "name": "3faba3b6-1c65-52f2-a22e-1c2e50f1e153",
+        "name": "3e834882-5738-5ce3-9890-1a5e0bc0f644",
         "type": "Microsoft.Entra/roleAssignmentScheduleRequests",
         "apiVersion": "2026-10-01-preview",
         "properties": {
@@ -107,7 +107,7 @@
         }
       },
       "after": {
-        "name": "3faba3b6-1c65-52f2-a22e-1c2e50f1e153",
+        "name": "3e834882-5738-5ce3-9890-1a5e0bc0f644",
         "type": "Microsoft.Entra/roleAssignmentScheduleRequests",
         "apiVersion": "2026-10-01-preview",
         "properties": {
@@ -126,10 +126,10 @@
       "unsupportedReason": null
     },
     {
-      "resourceId": "/providers/Microsoft.Entra/roleAssignmentScheduleRequests/ce8ab368-cd5d-5625-a18b-d3103e5ca9a8",
+      "resourceId": "/providers/Microsoft.Entra/roleAssignmentScheduleRequests/b299c0bf-7172-5522-9eac-0ad0865b1e4b",
       "changeType": "Create",
       "after": {
-        "name": "ce8ab368-cd5d-5625-a18b-d3103e5ca9a8",
+        "name": "b299c0bf-7172-5522-9eac-0ad0865b1e4b",
         "type": "Microsoft.Entra/roleAssignmentScheduleRequests",
         "apiVersion": "2026-10-01-preview",
         "properties": {

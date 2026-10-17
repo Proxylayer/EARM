@@ -1,42 +1,43 @@
 using System;
+using System.Buffers.Binary;
+using System.Numerics;
 using System.Security.Cryptography;
 using System.Text;
 
 namespace EArm.Expressions.Functions;
 
 /// <summary>
-/// Deterministic hashes behind <c>guid()</c> and <c>uniqueString()</c>.
+/// Deterministic hashes behind <c>guid()</c> and <c>uniqueString()</c>, reproducing the values Azure Resource Manager computes.
 /// <para>
-/// ARM does not document either algorithm. <see cref="UniqueString"/> follows the widely used community port
-/// (MurmurHash64A, seed 0, over the UTF-8 text; 13 base-32 characters, alphabet <c>a-z2-7</c>, 5 bits per character
-/// from the low end of the 64-bit hash). <see cref="GuidV5"/> is an RFC 4122 version-5 UUID (SHA-1) in a fixed
-/// EARM namespace. Neither is guaranteed to reproduce the value Azure Resource Manager would compute for the
-/// same input; they are stable across EARM runs, which is what <c>guid()</c>-named resources need.
+/// <see cref="GuidV5"/> is an RFC 4122 version-5 UUID (SHA-1) over the UTF-8 text; <c>guid()</c> uses ARM's namespace
+/// <see cref="GuidNamespace"/> (documented on Microsoft Learn). <see cref="UniqueString"/> is ARM's 64-bit Murmur variant
+/// (<see cref="MurmurHash64"/>, seed 0, over the UTF-8 text) written as 13 base-32 characters (alphabet <c>a-z2-7</c>, 5 bits per character
+/// from the high end of the hash). Both are checked against values produced by Azure Resource Manager (see the unit tests).
 /// </para>
 /// </summary>
 public static class Hashing
 {
-    /// <summary>The namespace of EARM's <c>guid()</c> (RFC 4122 v5).</summary>
-    public static readonly Guid GuidNamespace = new("3f8a2c6e-7b1d-4e5a-9c0f-6d2b8e4a1c73");
+    /// <summary>The namespace of ARM's <c>guid()</c> (RFC 4122 v5).</summary>
+    public static readonly Guid GuidNamespace = new("11fb06fb-712d-4ddd-98c7-e71bbd588830");
 
     private const string Base32Alphabet = "abcdefghijklmnopqrstuvwxyz234567";
 
-    /// <summary>13-character base-32 hash of <paramref name="text"/>.</summary>
+    /// <summary>13-character base-32 hash of <paramref name="text"/>, as ARM's <c>uniqueString()</c> computes it.</summary>
     public static string UniqueString(string text)
     {
         ArgumentNullException.ThrowIfNull(text);
-        ulong hash = MurmurHash64A(Encoding.UTF8.GetBytes(text), 0);
+        ulong hash = MurmurHash64(Encoding.UTF8.GetBytes(text));
         var sb = new StringBuilder(13);
         for (int i = 0; i < 13; i++)
         {
-            sb.Append(Base32Alphabet[(int)(hash & 31)]);
-            hash >>= 5;
+            sb.Append(Base32Alphabet[(int)(hash >> 59)]);
+            hash <<= 5;
         }
 
         return sb.ToString();
     }
 
-    /// <summary>RFC 4122 version-5 UUID of <paramref name="name"/> under <paramref name="namespaceId"/>.</summary>
+    /// <summary>RFC 4122 version-5 UUID of <paramref name="name"/> (UTF-8) under <paramref name="namespaceId"/>.</summary>
     public static Guid GuidV5(Guid namespaceId, string name)
     {
         ArgumentNullException.ThrowIfNull(name);
@@ -59,6 +60,70 @@ public static class Hashing
         return new Guid(result);
     }
 
+    /// <summary>
+    /// The 64-bit Murmur variant of ARM's <c>uniqueString()</c>: two 32-bit MurmurHash3-style lanes over 8-byte blocks (little-endian), combined
+    /// and finalised with the MurmurHash3 mixer; the second lane is the high half of the result.
+    /// </summary>
+    public static ulong MurmurHash64(ReadOnlySpan<byte> data, uint seed = 0)
+    {
+        const uint c1 = 597399067;
+        const uint c2 = 2869860233;
+        int length = data.Length;
+        uint h1 = seed;
+        uint h2 = seed;
+        int index = 0;
+        for (; index + 7 < length; index += 8)
+        {
+            uint k1 = BinaryPrimitives.ReadUInt32LittleEndian(data.Slice(index, 4));
+            uint k2 = BinaryPrimitives.ReadUInt32LittleEndian(data.Slice(index + 4, 4));
+
+            k1 *= c1;
+            k1 = BitOperations.RotateLeft(k1, 15);
+            k1 *= c2;
+            h1 ^= k1;
+            h1 = BitOperations.RotateLeft(h1, 19);
+            h1 += h2;
+            h1 = (h1 * 5) + 1444728091;
+
+            k2 *= c2;
+            k2 = BitOperations.RotateLeft(k2, 17);
+            k2 *= c1;
+            h2 ^= k2;
+            h2 = BitOperations.RotateLeft(h2, 13);
+            h2 += h1;
+            h2 = (h2 * 5) + 197830471;
+        }
+
+        int tail = length - index;
+        if (tail > 0)
+        {
+            uint k1 = ReadPartial(data.Slice(index, Math.Min(tail, 4)));
+            k1 *= c1;
+            k1 = BitOperations.RotateLeft(k1, 15);
+            k1 *= c2;
+            h1 ^= k1;
+
+            if (tail > 4)
+            {
+                uint k2 = ReadPartial(data.Slice(index + 4, tail - 4));
+                k2 *= c2;
+                k2 = BitOperations.RotateLeft(k2, 17);
+                k2 *= c1;
+                h2 ^= k2;
+            }
+        }
+
+        h1 ^= (uint)length;
+        h2 ^= (uint)length;
+        h1 += h2;
+        h2 += h1;
+        h1 = Mix(h1);
+        h2 = Mix(h2);
+        h1 += h2;
+        h2 += h1;
+        return ((ulong)h2 << 32) | h1;
+    }
+
     private static void SwapGuidByteOrder(byte[] guid)
     {
         (guid[0], guid[3]) = (guid[3], guid[0]);
@@ -67,58 +132,26 @@ public static class Hashing
         (guid[6], guid[7]) = (guid[7], guid[6]);
     }
 
-    /// <summary>MurmurHash64A (Austin Appleby), 64-bit variant for 64-bit platforms.</summary>
-    public static ulong MurmurHash64A(ReadOnlySpan<byte> data, ulong seed)
+    /// <summary>Up to four bytes as a little-endian integer.</summary>
+    private static uint ReadPartial(ReadOnlySpan<byte> bytes)
     {
-        const ulong m = 0xc6a4a7935bd1e995UL;
-        const int r = 47;
-
-        ulong h = seed ^ ((ulong)data.Length * m);
-        int blocks = data.Length / 8;
-        for (int i = 0; i < blocks; i++)
+        uint value = 0;
+        for (int i = bytes.Length - 1; i >= 0; i--)
         {
-            ulong k = BitConverter.ToUInt64(data.Slice(i * 8, 8));
-            k *= m;
-            k ^= k >> r;
-            k *= m;
-            h ^= k;
-            h *= m;
+            value = (value << 8) | bytes[i];
         }
 
-        int remaining = data.Length & 7;
-        if (remaining > 0)
-        {
-            var tail = data[(blocks * 8)..];
-            switch (remaining)
-            {
-                case 7:
-                    h ^= (ulong)tail[6] << 48;
-                    goto case 6;
-                case 6:
-                    h ^= (ulong)tail[5] << 40;
-                    goto case 5;
-                case 5:
-                    h ^= (ulong)tail[4] << 32;
-                    goto case 4;
-                case 4:
-                    h ^= (ulong)tail[3] << 24;
-                    goto case 3;
-                case 3:
-                    h ^= (ulong)tail[2] << 16;
-                    goto case 2;
-                case 2:
-                    h ^= (ulong)tail[1] << 8;
-                    goto case 1;
-                case 1:
-                    h ^= tail[0];
-                    h *= m;
-                    break;
-            }
-        }
+        return value;
+    }
 
-        h ^= h >> r;
-        h *= m;
-        h ^= h >> r;
+    /// <summary>The MurmurHash3 32-bit finaliser.</summary>
+    private static uint Mix(uint h)
+    {
+        h ^= h >> 16;
+        h *= 2246822507;
+        h ^= h >> 13;
+        h *= 3266489909;
+        h ^= h >> 16;
         return h;
     }
 }

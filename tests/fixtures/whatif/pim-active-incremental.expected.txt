@@ -11,16 +11,16 @@ Resource and property changes are indicated with these symbols:
 
 The deployment would make the following changes:
 
-  ~ /providers/Microsoft.Entra/privilegedAccess/groupAssignmentScheduleRequests/1c8ea0c7-236b-5e71-8db3-dc985d283dfe [Microsoft.Entra/privilegedAccess/groupAssignmentScheduleRequests]
+  ~ /providers/Microsoft.Entra/privilegedAccess/groupAssignmentScheduleRequests/fdc854c0-29e2-5e83-b015-6c3662b9201f [Microsoft.Entra/privilegedAccess/groupAssignmentScheduleRequests]
       ~ properties.scheduleInfo:
           ~ expiration:
               ~ endDateTime: "2026-12-31T00:00:00Z" => "2027-03-31T00:00:00Z"
       (the active assignment is changed in place with a PIM adminUpdate request)
 
-  = /providers/Microsoft.Entra/roleAssignmentScheduleRequests/3faba3b6-1c65-52f2-a22e-1c2e50f1e153 [Microsoft.Entra/roleAssignmentScheduleRequests]
+  = /providers/Microsoft.Entra/roleAssignmentScheduleRequests/3e834882-5738-5ce3-9890-1a5e0bc0f644 [Microsoft.Entra/roleAssignmentScheduleRequests]
 
-  + /providers/Microsoft.Entra/roleAssignmentScheduleRequests/ce8ab368-cd5d-5625-a18b-d3103e5ca9a8 [Microsoft.Entra/roleAssignmentScheduleRequests]
-      name: "ce8ab368-cd5d-5625-a18b-d3103e5ca9a8"
+  + /providers/Microsoft.Entra/roleAssignmentScheduleRequests/b299c0bf-7172-5522-9eac-0ad0865b1e4b [Microsoft.Entra/roleAssignmentScheduleRequests]
+      name: "b299c0bf-7172-5522-9eac-0ad0865b1e4b"
       type: "Microsoft.Entra/roleAssignmentScheduleRequests"
       apiVersion: "2026-10-01-preview"
       properties:

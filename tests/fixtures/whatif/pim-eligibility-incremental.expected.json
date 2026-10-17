@@ -5,71 +5,10 @@
   "mode": "Incremental",
   "changes": [
     {
-      "resourceId": "/providers/Microsoft.Entra/roleEligibilityScheduleRequests/2d7e4bc7-98c2-5547-aafa-449e7b532251",
-      "changeType": "Create",
-      "after": {
-        "name": "2d7e4bc7-98c2-5547-aafa-449e7b532251",
-        "type": "Microsoft.Entra/roleEligibilityScheduleRequests",
-        "apiVersion": "2026-10-01-preview",
-        "properties": {
-          "principalId": "22222222-0000-0000-0000-000000000001",
-          "scheduleInfo": {
-            "expiration": {
-              "type": "afterDuration",
-              "duration": "P90D"
-            }
-          },
-          "roleDefinitionId": "fe930be7-5e62-47db-91af-98c3a49a38b1",
-          "directoryScopeId": "/",
-          "justification": "Deployed by earm"
-        }
-      },
-      "unsupportedReason": null
-    },
-    {
-      "resourceId": "/providers/Microsoft.Entra/roleEligibilityScheduleRequests/3a4cf7f1-dab9-5087-8f08-13ac03823e72",
-      "changeType": "NoChange",
-      "before": {
-        "name": "3a4cf7f1-dab9-5087-8f08-13ac03823e72",
-        "type": "Microsoft.Entra/roleEligibilityScheduleRequests",
-        "apiVersion": "2026-10-01-preview",
-        "properties": {
-          "principalId": "22222222-0000-0000-0000-000000000001",
-          "roleDefinitionId": "f2ef992c-3afb-46b9-b7cf-a126ee74c451",
-          "directoryScopeId": "/",
-          "justification": "Quarterly review",
-          "scheduleInfo": {
-            "expiration": {
-              "type": "afterDateTime",
-              "endDateTime": "2030-01-01T00:00:00Z"
-            }
-          }
-        }
-      },
-      "after": {
-        "name": "3a4cf7f1-dab9-5087-8f08-13ac03823e72",
-        "type": "Microsoft.Entra/roleEligibilityScheduleRequests",
-        "apiVersion": "2026-10-01-preview",
-        "properties": {
-          "principalId": "22222222-0000-0000-0000-000000000001",
-          "justification": "Quarterly review",
-          "scheduleInfo": {
-            "expiration": {
-              "type": "afterDateTime",
-              "endDateTime": "2030-01-01T00:00:00Z"
-            }
-          },
-          "roleDefinitionId": "f2ef992c-3afb-46b9-b7cf-a126ee74c451",
-          "directoryScopeId": "/"
-        }
-      },
-      "unsupportedReason": null
-    },
-    {
-      "resourceId": "/providers/Microsoft.Entra/roleEligibilityScheduleRequests/3a68d02a-3ccf-526b-a71b-f5304078a044",
+      "resourceId": "/providers/Microsoft.Entra/roleEligibilityScheduleRequests/87db8ad7-33f9-5e46-9001-762293479248",
       "changeType": "Modify",
       "before": {
-        "name": "3a68d02a-3ccf-526b-a71b-f5304078a044",
+        "name": "87db8ad7-33f9-5e46-9001-762293479248",
         "type": "Microsoft.Entra/roleEligibilityScheduleRequests",
         "apiVersion": "2026-10-01-preview",
         "properties": {
@@ -90,7 +29,7 @@
         }
       },
       "after": {
-        "name": "3a68d02a-3ccf-526b-a71b-f5304078a044",
+        "name": "87db8ad7-33f9-5e46-9001-762293479248",
         "type": "Microsoft.Entra/roleEligibilityScheduleRequests",
         "apiVersion": "2026-10-01-preview",
         "properties": {
@@ -154,6 +93,67 @@
       "reasons": [
         "the eligibility is changed in place with a PIM adminUpdate request"
       ]
+    },
+    {
+      "resourceId": "/providers/Microsoft.Entra/roleEligibilityScheduleRequests/a5d605b2-f85b-5f48-a740-b8fc6ca50f5c",
+      "changeType": "NoChange",
+      "before": {
+        "name": "a5d605b2-f85b-5f48-a740-b8fc6ca50f5c",
+        "type": "Microsoft.Entra/roleEligibilityScheduleRequests",
+        "apiVersion": "2026-10-01-preview",
+        "properties": {
+          "principalId": "22222222-0000-0000-0000-000000000001",
+          "roleDefinitionId": "f2ef992c-3afb-46b9-b7cf-a126ee74c451",
+          "directoryScopeId": "/",
+          "justification": "Quarterly review",
+          "scheduleInfo": {
+            "expiration": {
+              "type": "afterDateTime",
+              "endDateTime": "2030-01-01T00:00:00Z"
+            }
+          }
+        }
+      },
+      "after": {
+        "name": "a5d605b2-f85b-5f48-a740-b8fc6ca50f5c",
+        "type": "Microsoft.Entra/roleEligibilityScheduleRequests",
+        "apiVersion": "2026-10-01-preview",
+        "properties": {
+          "principalId": "22222222-0000-0000-0000-000000000001",
+          "justification": "Quarterly review",
+          "scheduleInfo": {
+            "expiration": {
+              "type": "afterDateTime",
+              "endDateTime": "2030-01-01T00:00:00Z"
+            }
+          },
+          "roleDefinitionId": "f2ef992c-3afb-46b9-b7cf-a126ee74c451",
+          "directoryScopeId": "/"
+        }
+      },
+      "unsupportedReason": null
+    },
+    {
+      "resourceId": "/providers/Microsoft.Entra/roleEligibilityScheduleRequests/b5f7e968-d982-5c93-ba99-c95bc504aec0",
+      "changeType": "Create",
+      "after": {
+        "name": "b5f7e968-d982-5c93-ba99-c95bc504aec0",
+        "type": "Microsoft.Entra/roleEligibilityScheduleRequests",
+        "apiVersion": "2026-10-01-preview",
+        "properties": {
+          "principalId": "22222222-0000-0000-0000-000000000001",
+          "scheduleInfo": {
+            "expiration": {
+              "type": "afterDuration",
+              "duration": "P90D"
+            }
+          },
+          "roleDefinitionId": "fe930be7-5e62-47db-91af-98c3a49a38b1",
+          "directoryScopeId": "/",
+          "justification": "Deployed by earm"
+        }
+      },
+      "unsupportedReason": null
     },
     {
       "resourceId": "/providers/Microsoft.Entra/roleEligibilityScheduleRequests/33333333-0000-0000-0000-000000000003",

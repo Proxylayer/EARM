@@ -11,7 +11,7 @@ namespace EArm.Graph;
 
 /// <summary>What the preflight learned about the signed-in identity.</summary>
 /// <param name="TenantId">The tenant id: the token's <c>tid</c> claim, else the <c>id</c> of <c>GET /organization</c>.</param>
-/// <param name="Organization">The first element of <c>GET /organization?$select=id,displayName,verifiedDomains</c>, or null when the identity may not read it (the one call also feeds <c>tenant()</c>).</param>
+/// <param name="Organization">The first element of <c>GET /organization?$select=id,displayName,verifiedDomains,countryLetterCode</c>, or null when the identity may not read it (the one call also feeds <c>tenant()</c>).</param>
 /// <param name="PrincipalObjectId">The signed-in principal's object id (the <c>oid</c> claim): a user, or the service principal of an app-only token.</param>
 /// <param name="PrincipalName">The user principal name, or the app id for an app-only token.</param>
 /// <param name="PrincipalType"><c>user</c> or <c>application</c>.</param>
@@ -36,7 +36,7 @@ public sealed record GraphPreflightResult(
 
 /// <summary>
 /// Verifies the sign-in before a deployment: acquires a Graph token (failing with the sign-in guidance, exit code 3 in the CLI), decodes its
-/// claims for the tenant and the signed-in principal, and reads <c>GET /organization?$select=id,displayName,verifiedDomains</c> once to confirm that
+/// claims for the tenant and the signed-in principal, and reads <c>GET /organization?$select=id,displayName,verifiedDomains,countryLetterCode</c> once to confirm that
 /// Graph accepts the token and to fetch the tenant information that <c>tenant()</c> returns. App-only tokens have no <c>/me</c>, which is why the
 /// principal comes from the token.
 /// </summary>
@@ -86,7 +86,7 @@ public sealed class GraphPreflight
         JsonObject? organization = null;
         try
         {
-            var response = await _graph.GetAsync(new GraphRequest("/organization").WithSelect("id", "displayName", "verifiedDomains"), cancellationToken).ConfigureAwait(false);
+            var response = await _graph.GetAsync(new GraphRequest("/organization").WithSelect("id", "displayName", "verifiedDomains", "countryLetterCode"), cancellationToken).ConfigureAwait(false);
             if (response is JsonObject envelope && envelope["value"] is JsonArray values && values.Count > 0 && values[0] is JsonObject first)
             {
                 organization = first;

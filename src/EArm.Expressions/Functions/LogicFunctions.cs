@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json.Nodes;
 using EArm.Expressions.Values;
 
@@ -6,7 +7,9 @@ namespace EArm.Expressions.Functions;
 /// <summary>
 /// Group 3: <c>if and or not equals less lessOrEquals greater greaterOrEquals coalesce bool true false</c>.
 /// <c>if</c> evaluates only the selected branch (ARM rule); <c>and</c>/<c>or</c> evaluate every argument.
-/// <c>equals</c> is case-sensitive for strings (ARM: Bicep <c>==</c>).
+/// <c>equals</c> is case-sensitive for strings (ARM: Bicep <c>==</c>). <c>and</c>/<c>or</c> take at least two arguments, as in ARM.
+/// <c>less</c>/<c>greater</c> and their <c>OrEquals</c> forms order strings like ARM, by culture-aware (invariant culture) comparison,
+/// not by character code: lowercase sorts before uppercase of the same letter, so <c>greater('A', 'a')</c> is true.
 /// </summary>
 internal static class LogicFunctions
 {
@@ -15,8 +18,8 @@ internal static class LogicFunctions
     public static void Register(FunctionRegistry registry)
     {
         registry.Register(new FunctionDescriptor { Name = "if", Group = Group, MinArgs = 3, MaxArgs = 3, Lazy = true, Implementation = If });
-        registry.Register(new FunctionDescriptor { Name = "and", Group = Group, MinArgs = 1, Implementation = call => AllOrAny(call, all: true) });
-        registry.Register(new FunctionDescriptor { Name = "or", Group = Group, MinArgs = 1, Implementation = call => AllOrAny(call, all: false) });
+        registry.Register(new FunctionDescriptor { Name = "and", Group = Group, MinArgs = 2, Implementation = call => AllOrAny(call, all: true) });
+        registry.Register(new FunctionDescriptor { Name = "or", Group = Group, MinArgs = 2, Implementation = call => AllOrAny(call, all: false) });
         registry.Register(new FunctionDescriptor { Name = "not", Group = Group, MinArgs = 1, MaxArgs = 1, Implementation = call => JsonValue.Create(!call.Bool(0)) });
         registry.Register(new FunctionDescriptor { Name = "equals", Group = Group, MinArgs = 2, MaxArgs = 2, Implementation = call => JsonValue.Create(JsonValues.AreEqual(call.Arg(0), call.Arg(1))) });
         registry.Register(new FunctionDescriptor { Name = "less", Group = Group, MinArgs = 2, MaxArgs = 2, Implementation = call => JsonValue.Create(Compare(call) < 0) });
@@ -76,7 +79,7 @@ internal static class LogicFunctions
 
         if (JsonValues.TryGetString(left, out var sl) && JsonValues.TryGetString(right, out var sr))
         {
-            return string.CompareOrdinal(sl, sr);
+            return string.Compare(sl, sr, CultureInfo.InvariantCulture, CompareOptions.None);
         }
 
         throw call.Error($"both arguments must be numbers or both strings, got {JsonValues.Describe(left)} and {JsonValues.Describe(right)}.");

@@ -7,8 +7,8 @@
       "name": "Directory.Read.All",
       "kind": "graphDelegated",
       "resources": [
-        "/providers/Microsoft.Entra/roleManagementPolicies/27724e29-3e43-5123-a37f-300a338c6792",
-        "/providers/Microsoft.Entra/roleManagementPolicies/ebdfa042-55c6-511e-946e-f899ef80c54e"
+        "/providers/Microsoft.Entra/roleManagementPolicies/05d04bfd-8f36-52b9-977f-5aaefcec171b",
+        "/providers/Microsoft.Entra/roleManagementPolicies/6615fd9c-5c4f-593a-acf5-c72e3a936d5d"
       ],
       "reasons": [
         "provider"
@@ -28,8 +28,8 @@
       "name": "PrivilegedEligibilitySchedule.ReadWrite.AzureADGroup",
       "kind": "graphDelegated",
       "resources": [
-        "/providers/Microsoft.Entra/roleManagementPolicies/27724e29-3e43-5123-a37f-300a338c6792",
-        "/providers/Microsoft.Entra/roleManagementPolicies/ebdfa042-55c6-511e-946e-f899ef80c54e"
+        "/providers/Microsoft.Entra/roleManagementPolicies/05d04bfd-8f36-52b9-977f-5aaefcec171b",
+        "/providers/Microsoft.Entra/roleManagementPolicies/6615fd9c-5c4f-593a-acf5-c72e3a936d5d"
       ],
       "reasons": [
         "provider"
@@ -39,8 +39,8 @@
       "name": "RoleManagementPolicy.ReadWrite.AzureADGroup",
       "kind": "graphDelegated",
       "resources": [
-        "/providers/Microsoft.Entra/roleManagementPolicies/27724e29-3e43-5123-a37f-300a338c6792",
-        "/providers/Microsoft.Entra/roleManagementPolicies/ebdfa042-55c6-511e-946e-f899ef80c54e"
+        "/providers/Microsoft.Entra/roleManagementPolicies/05d04bfd-8f36-52b9-977f-5aaefcec171b",
+        "/providers/Microsoft.Entra/roleManagementPolicies/6615fd9c-5c4f-593a-acf5-c72e3a936d5d"
       ],
       "reasons": [
         "provider"
@@ -66,8 +66,8 @@
         "Privileged Role Administrator"
       ],
       "resources": [
-        "/providers/Microsoft.Entra/roleManagementPolicies/27724e29-3e43-5123-a37f-300a338c6792",
-        "/providers/Microsoft.Entra/roleManagementPolicies/ebdfa042-55c6-511e-946e-f899ef80c54e"
+        "/providers/Microsoft.Entra/roleManagementPolicies/05d04bfd-8f36-52b9-977f-5aaefcec171b",
+        "/providers/Microsoft.Entra/roleManagementPolicies/6615fd9c-5c4f-593a-acf5-c72e3a936d5d"
       ],
       "reasons": [
         "condition: onboarding"
@@ -78,8 +78,8 @@
         "Privileged Role Administrator"
       ],
       "resources": [
-        "/providers/Microsoft.Entra/roleManagementPolicies/27724e29-3e43-5123-a37f-300a338c6792",
-        "/providers/Microsoft.Entra/roleManagementPolicies/ebdfa042-55c6-511e-946e-f899ef80c54e"
+        "/providers/Microsoft.Entra/roleManagementPolicies/05d04bfd-8f36-52b9-977f-5aaefcec171b",
+        "/providers/Microsoft.Entra/roleManagementPolicies/6615fd9c-5c4f-593a-acf5-c72e3a936d5d"
       ],
       "reasons": [
         "provider"

@@ -20,8 +20,9 @@ namespace EArm.Expressions.Functions;
 /// first. Offline and not in a table they yield deploy-time unknowns.
 /// <para>
 /// Phase rule: <c>appRole</c>, <c>permissionScope</c>, <c>roleTemplate</c> and
-/// <c>tenant</c> need the tenant and are rejected in parameter defaults, variables and user-defined functions
-/// (<c>FunctionNotAllowedHere</c>); <c>wellKnownApp</c> is pure and allowed anywhere.
+/// <c>roleDefinitions</c> may ask the tenant and are rejected in parameter defaults, variables and user-defined functions
+/// (<c>FunctionNotAllowedHere</c>); <c>wellKnownApp</c> is pure and allowed anywhere. (<c>tenant()</c> is not restricted: its data comes from
+/// the preflight, before any expression is evaluated.)
 /// </para>
 /// </summary>
 internal static class EntraFunctions
@@ -29,7 +30,7 @@ internal static class EntraFunctions
     private const string Group = "entra";
 
     /// <summary>The functions that are only legal in resource properties and outputs.</summary>
-    public static readonly IReadOnlyList<string> ResourceScopeOnly = ["appRole", "permissionScope", "roleTemplate", "tenant"];
+    public static readonly IReadOnlyList<string> ResourceScopeOnly = ["appRole", "permissionScope", "roleTemplate", "roleDefinitions"];
 
     /// <summary>The resource types the first argument of <c>appRole()</c>/<c>permissionScope()</c> may name.</summary>
     public static readonly IReadOnlyList<string> ApplicationTypes = ["Microsoft.Entra/applications", "Microsoft.Entra/servicePrincipals"];
@@ -40,6 +41,7 @@ internal static class EntraFunctions
         registry.Register(new FunctionDescriptor { Name = "appRole", Group = Group, MinArgs = 2, MaxArgs = 2, HandlesUnknown = true, Implementation = call => Permission(call, appRoles: true) });
         registry.Register(new FunctionDescriptor { Name = "permissionScope", Group = Group, MinArgs = 2, MaxArgs = 2, HandlesUnknown = true, Implementation = call => Permission(call, appRoles: false) });
         registry.Register(new FunctionDescriptor { Name = "roleTemplate", Group = Group, MinArgs = 1, MaxArgs = 1, Implementation = RoleTemplate });
+        registry.Register(new FunctionDescriptor { Name = "roleDefinitions", Group = Group, MinArgs = 1, MaxArgs = 1, Implementation = RoleDefinitions });
     }
 
     /// <summary>True when <paramref name="function"/> is one of <see cref="ResourceScopeOnly"/>.</summary>
@@ -172,7 +174,37 @@ internal static class EntraFunctions
     private static JsonNode? RoleTemplate(FunctionCall call)
     {
         RequireResourceOrOutputScope(call);
-        string text = call.String(0);
+        return ResolveRoleDefinitionId(call, call.String(0));
+    }
+
+    /// <summary>
+    /// <c>roleDefinitions(roleName)</c>, ARM's name-based role helper applied to Microsoft Entra directory roles: <c>{ id, roleDefinitionId, name,
+    /// templateId }</c> of the directory role definition with that display name (built-in roles from the table, custom roles from the tenant;
+    /// a GUID passes through). ARM's <c>id</c> is an Azure resource id; a directory role definition is addressed by its GUID, so <c>id</c>,
+    /// <c>roleDefinitionId</c> and <c>templateId</c> all hold it (a directory role definition's id is its template id), which is what
+    /// <c>Microsoft.Entra/roleAssignments</c> and the PIM types take as <c>roleDefinitionId</c>.
+    /// </summary>
+    private static JsonNode? RoleDefinitions(FunctionCall call)
+    {
+        RequireResourceOrOutputScope(call);
+        string name = call.String(0);
+        var id = ResolveRoleDefinitionId(call, name);
+        if (UnknownJson.IsUnknown(id))
+        {
+            return call.Unknown(UnknownOrigins.Deployment, call.IsTainted);
+        }
+
+        return new JsonObject
+        {
+            ["id"] = JsonValues.Clone(id),
+            ["roleDefinitionId"] = JsonValues.Clone(id),
+            ["name"] = name,
+            ["templateId"] = JsonValues.Clone(id),
+        };
+    }
+
+    private static JsonNode? ResolveRoleDefinitionId(FunctionCall call, string text)
+    {
         if (Guid.TryParse(text, out _))
         {
             return JsonValue.Create(text);

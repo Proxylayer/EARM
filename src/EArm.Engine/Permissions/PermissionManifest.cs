@@ -48,7 +48,7 @@ public sealed record PermissionReport(
 /// needs (<c>IResourceProvider.RequiredPermissions</c>, the conditional rules inside the providers), what the
 /// relationship properties it declares need (the edge kinds: group and administrative unit
 /// membership, ownership, manager, app role assignments, directory roles, licenses), what the expression functions
-/// that read the tenant need (<c>appRole()</c>, <c>permissionScope()</c>, <c>roleTemplate()</c>,
+/// that read the tenant need (<c>appRole()</c>, <c>permissionScope()</c>, <c>roleTemplate()</c>, <c>roleDefinitions()</c>,
 /// <c>reference(id, apiVersion)</c>) and what the signed-in identity needs for Key Vault parameter references.
 /// No Graph access: the instances are the offline expansion of the template.
 /// </summary>
@@ -62,6 +62,7 @@ public static class PermissionManifest
     private static readonly Regex AppRoleFunction = new(@"\bapprole\s*\(", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
     private static readonly Regex PermissionScopeFunction = new(@"\bpermissionscope\s*\(", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
     private static readonly Regex RoleTemplateFunction = new(@"\broletemplate\s*\(", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
+    private static readonly Regex RoleDefinitionsFunction = new(@"\broledefinitions\s*\(", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
     private static readonly Regex TenantFunction = new(@"\btenant\s*\(", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
     private static readonly Regex ReferenceFunction = new(@"\breference\s*\(", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
     private static readonly Regex ApiVersionLiteral = new(@"'\d{4}-\d{2}-\d{2}(-preview(\.beta)?)?'", RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
@@ -387,6 +388,7 @@ public static class PermissionManifest
         bool appRole = false;
         bool permissionScope = false;
         bool roleTemplate = false;
+        bool roleDefinitions = false;
         bool tenant = false;
         var existing = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -395,6 +397,7 @@ public static class PermissionManifest
             appRole |= AppRoleFunction.IsMatch(text);
             permissionScope |= PermissionScopeFunction.IsMatch(text);
             roleTemplate |= RoleTemplateFunction.IsMatch(text);
+            roleDefinitions |= RoleDefinitionsFunction.IsMatch(text);
             tenant |= TenantFunction.IsMatch(text);
 
             if (ReferenceFunction.IsMatch(text) && ApiVersionLiteral.IsMatch(text))
@@ -420,6 +423,11 @@ public static class PermissionManifest
         if (roleTemplate)
         {
             graph.Add("RoleManagement.Read.Directory", lookups, "lookup: roleTemplate() (custom role names)");
+        }
+
+        if (roleDefinitions)
+        {
+            graph.Add("RoleManagement.Read.Directory", lookups, "lookup: roleDefinitions() (custom role names)");
         }
 
         if (tenant)

@@ -12,8 +12,10 @@ using EArm.Expressions.Values;
 namespace EArm.Expressions.Functions;
 
 /// <summary>
-/// Group 1: <c>parameters variables resourceId reference references copyIndex deployment tenant environment</c> (<c>reference</c> and
-/// <c>references</c> are implemented by <see cref="ReferenceFunctions"/>).
+/// Group 1: <c>parameters variables resourceId reference references copyIndex deployment tenant deployer environment</c> (<c>reference</c> and
+/// <c>references</c> are implemented by <see cref="ReferenceFunctions"/>). <c>deployment()</c>,
+/// <c>tenant()</c>, <c>deployer()</c> and <c>environment()</c> come from the preflight, which runs before any expression is evaluated, so they are
+/// legal everywhere (parameter defaults and variables included); offline they are unknown values.
 /// </summary>
 internal static class DeploymentFunctions
 {
@@ -28,7 +30,8 @@ internal static class DeploymentFunctions
         registry.Register(new FunctionDescriptor { Name = "references", Group = Group, MinArgs = 1, MaxArgs = 2, Implementation = ReferenceFunctions.References });
         registry.Register(new FunctionDescriptor { Name = "copyIndex", Group = Group, MinArgs = 0, MaxArgs = 2, Implementation = CopyIndex });
         registry.Register(new FunctionDescriptor { Name = "deployment", Group = Group, MinArgs = 0, MaxArgs = 0, Implementation = call => call.Context.Deployment.ToDeploymentObject() });
-        registry.Register(new FunctionDescriptor { Name = "tenant", Group = Group, MinArgs = 0, MaxArgs = 0, Implementation = Tenant });
+        registry.Register(new FunctionDescriptor { Name = "tenant", Group = Group, MinArgs = 0, MaxArgs = 0, Implementation = call => call.Context.Deployment.TenantValue() });
+        registry.Register(new FunctionDescriptor { Name = "deployer", Group = Group, MinArgs = 0, MaxArgs = 0, Implementation = call => call.Context.Deployment.DeployerValue() });
         registry.Register(new FunctionDescriptor { Name = "environment", Group = Group, MinArgs = 0, MaxArgs = 0, Implementation = call => call.Context.Deployment.EnvironmentValue() });
     }
 
@@ -56,13 +59,6 @@ internal static class DeploymentFunctions
     {
         var list = names.ToList();
         return list.Count == 0 ? "the function declares no parameters" : string.Join(", ", list);
-    }
-
-    /// <summary><c>tenant()</c>: the organization data from preflight; unknown offline; phase-restricted like the Entra lookups.</summary>
-    private static JsonNode? Tenant(FunctionCall call)
-    {
-        EntraFunctions.RequireResourceOrOutputScope(call);
-        return call.Context.Deployment.TenantValue();
     }
 
     private static JsonNode? Variables(FunctionCall call)

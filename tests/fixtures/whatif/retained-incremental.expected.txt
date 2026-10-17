@@ -24,8 +24,8 @@ The deployment would make the following changes:
             @odata.type: "#microsoft.graph.iPv4CidrRange"
         ]
 
-  + /providers/Microsoft.Entra/roleAssignments/83d54051-352a-5a0a-8f33-4f6dbe6a70ec [Microsoft.Entra/roleAssignments]
-      name: "83d54051-352a-5a0a-8f33-4f6dbe6a70ec"
+  + /providers/Microsoft.Entra/roleAssignments/893e86a7-4cc8-5d67-a878-fbdac8e4d740 [Microsoft.Entra/roleAssignments]
+      name: "893e86a7-4cc8-5d67-a878-fbdac8e4d740"
       type: "Microsoft.Entra/roleAssignments"
       apiVersion: "2026-10-01-preview"
       properties:

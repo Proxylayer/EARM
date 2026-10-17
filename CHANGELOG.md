@@ -25,6 +25,12 @@ transport to the built-in Microsoft Graph HTTP client.
   application, so consent is requested for that application; the China cloud requires `--client-id`.
 - Defaults are applied only when EARM creates an object (see Changed): an existing object's undeclared properties are
   no longer reset.
+- `guid()` and `uniqueString()` now compute the values Azure Resource Manager computes, so every value they produce
+  changes once (see Migration).
+- `less`, `lessOrEquals`, `greater` and `greaterOrEquals` order strings as ARM does (culture-aware, lowercase before
+  uppercase of the same letter: `greater('A', 'a')` is now true); `and()` and `or()` need at least two arguments;
+  `array()` of an array returns it unchanged instead of wrapping it; `union()` and `intersection()` match object keys
+  case-insensitively; `range()` refuses a start outside 32 bits or a `start + count` above 2,147,483,647.
 
 ### Migration
 
@@ -43,6 +49,13 @@ transport to the built-in Microsoft Graph HTTP client.
   warning.
 - Templates that relied on EARM resetting an undeclared property to its default (for example re-enabling a disabled
   user or service principal) must now declare that property.
+- `guid()` names: what-if shows renamed labels; no objects move. The `name` of the GUID-named types (role assignments,
+  PIM requests and policies, app role assignments, grants, catalog resources, resource role scopes) is only a label,
+  and the objects are found by their composite key, so the first run after the upgrade shows each such resource under
+  its new id with the same change it had before. Anything else built from `guid()` or `uniqueString()` (a display
+  name, a `mailNickname`, an app role or scope `id`, a `uniqueName`) gets a new value: review the what-if, and pin
+  such values with a parameter or a literal where they must not change (an enabled app role or scope cannot be
+  removed by Graph). The new values match what an ARM or Bicep deployment computes for the same inputs.
 
 ### Added
 
@@ -67,7 +80,10 @@ transport to the built-in Microsoft Graph HTTP client.
 - Multi-line strings (a raw line break inside a template string), as Azure CLI and PowerShell accept them.
 - `ArmLimitExceeded` warnings for templates over ARM's limits (256 parameters, 512 variables, 64 outputs, 800 resources,
   4 MB); EARM's own limits are unchanged.
-
+- Template functions `like` (case-insensitive `*` wildcard), `base64ToJson`, `dataUri`, `dataUriToString`,
+  `deployer()` (`{ objectId, tenantId, userPrincipalName }` of the signed-in principal; empty `userPrincipalName` for
+  an app-only sign-in) and `roleDefinitions(name)`, ARM's name-based role helper applied to Microsoft Entra directory
+  roles (`{ id, roleDefinitionId, name, templateId }`; custom roles need `RoleManagement.Read.Directory`).
 - New resource types for Microsoft Entra entitlement management (access packages, see `docs/access-packages.md`):
   - `Microsoft.Entra/entitlementManagement/catalogs`, found by `displayName`; `state` and `isExternallyVisible`
     default to `published` and false only when EARM creates the catalog;
@@ -167,6 +183,19 @@ transport to the built-in Microsoft Graph HTTP client.
 - `contentVersion` accepts any string, as in ARM (only a non-string is `InvalidContentVersion`).
 - Parameter, output and function type names are accepted in any case (`secureString`, `SecureObject`), in the template
   schema too.
+- Template functions follow ARM more closely:
+  - `deployment()` returns ARM's shape, `{ name, properties: { templateHash, parameters, mode } }`; `parameters`
+    lists the values supplied by parameter files and `-p` (never secure ones). The flat `templateHash`, `tenantId` and
+    `mode` keys remain as aliases.
+  - `tenant()` returns `{ countryCode, displayName, id, tenantId, defaultDomain }` (`id` is `/tenants/<tenantId>`;
+    the preflight now also reads the organization's `countryLetterCode`) and, like `environment()`, is allowed in
+    variables and parameter defaults.
+  - `environment()` adds `portal`, `resourceManager`, `authentication.audiences`, `authentication.tenant`,
+    `authentication.identityProvider` and `suffixes.keyvaultDns`; `graph` stays the Microsoft Graph endpoint.
+  - `guid()` uses ARM's namespace and `uniqueString()` ARM's hash, checked against values Azure Resource Manager
+    produced (see Breaking changes and Migration).
+  - String comparisons, `and`/`or`, `array`, `union`/`intersection` and `range` as listed under Breaking changes.
+  - `padLeft()` accepts any total length up to the 1 MiB string limit (it was capped at 16).
 
 - A `reference()` whose arguments use a lambda variable is refused with a message that points to property and output copy
   loops (ARM does not support lambda variables inside `reference()`); a `reference()` inside a lambda that uses no lambda

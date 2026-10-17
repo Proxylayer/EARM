@@ -134,12 +134,17 @@ deterministic, and what the what-if output and the deployment result print. `res
 | Relationships live in separate resources | Arrays inside `properties`, declarable from either side; see [edges.md](edges.md). |
 | Nested and linked deployments (`Microsoft.Resources/deployments`, `templateLink`) | Not supported: a template is deployed on its own. Split the work into several templates and pass values between them through parameter files. |
 | Property iteration only in top-level resources | Also accepted in nested child resources (the loader flattens them to top-level declarations). |
-| `uniqueString()` and `guid()` | Deterministic and stable in EARM, but **not** the same values ARM computes for the same inputs (different hash). Do not rely on them to reproduce names or ids created by an ARM or Bicep deployment. |
 | `reference(resourceIdOrName, apiVersion, 'Full')` returns the full resource object (`location`, `sku`, `subscriptionId`, ...) | Returns `{ apiVersion, properties, resourceId, isTemplateResource[, symbolicName] }`: the keys that apply to an Entra object, `resourceId` being the EARM id. |
 | Multi-line strings are refused by the REST API, the portal and pipelines, and accepted by Azure CLI and PowerShell | Accepted (EARM is a command-line tool like them). |
 | Template limits (256 parameters, 256 or 512 variables, 64 outputs, 800 resources, 4 MB) are errors | Warnings (`ArmLimitExceeded`); EARM's own, larger hard limits apply ([Input limits](#input-limits)). |
 | `contentVersion` and the parameter type names | Same: any `contentVersion` string; `string`, `secureString`, `SecureObject`, ... in any case. |
-| Other ARM functions | Not available (an unknown-function error): `deployer`, `dataUri`, `dataUriToString`, `parseCidr`, `cidrSubnet`, `cidrHost`, `listAccountSas` and the other `list*` functions. |
+| `deployment()` returns `{ name, properties: { template, templateHash, parameters, mode, provisioningState, templateLink } }` | `{ name, properties: { templateHash, parameters, mode } }`, plus the flat aliases `templateHash`, `tenantId` and `mode` of earlier EARM versions. There is no `template` (the template is in the file), no `provisioningState` (nothing is stored) and no `templateLink` (EARM deploys local files only). `templateHash` is EARM's `sha256:` hash of the template, not ARM's numeric hash. `properties.parameters` lists the values supplied by parameter files and `-p` as `{ name: { value } }`, without secure parameters, Key Vault references or defaults; offline (`deployment validate`) it is a deploy-time unknown. |
+| `tenant()` returns `{ countryCode, displayName, id, tenantId }` | The same fields (`countryCode` is the organization's `countryLetterCode`, `id` is `/tenants/<tenantId>`), plus `defaultDomain` (the default verified domain). When the identity may not read `/organization` (or offline) `tenant()` is a deploy-time unknown. |
+| `deployer()` returns the principal that started the deployment | The principal EARM signed in as: `{ objectId, tenantId, userPrincipalName }`, with an empty `userPrincipalName` for an app-only sign-in (a service principal or managed identity), as in ARM. A deploy-time unknown offline. |
+| `environment()` describes the Azure environment, `graph` being Azure AD Graph (`https://graph.windows.net/`) | Only the fields that mean something for Entra: `name`, `portal`, `resourceManager`, `authentication` (`loginEndpoint`, `audiences`, `tenant`, `identityProvider`) and `suffixes.keyvaultDns`. **`graph` is the Microsoft Graph endpoint** EARM talks to (`https://graph.microsoft.com` in the public cloud). The storage, SQL, batch, gallery and other Azure suffixes and endpoints are absent. The US Government DoD cloud reports the US Government Resource Manager endpoints. A deploy-time unknown offline. |
+| `roleDefinitions(roleName)` resolves an **Azure RBAC** role by name to `{ id, roleDefinitionId }` | Resolves a **Microsoft Entra directory role** by display name: `{ id, roleDefinitionId, name, templateId }`, where `id`, `roleDefinitionId` and `templateId` all hold the role definition GUID (a directory role is addressed by its GUID, which is what `roleAssignments` and the PIM types take as `roleDefinitionId`). Built-in roles come from the embedded table, custom roles from the tenant; a GUID passes through. Legal where `roleTemplate()` is. |
+| `padLeft()` | ARM documents no upper bound on `totalLength`; EARM allows any length up to its string limit (1 MiB, `EvaluationBudgetExceeded` beyond). |
+| Other ARM functions | Not available (an unknown-function error): `parseCidr`, `cidrSubnet`, `cidrHost`, `listAccountSas` and the other `list*` functions. |
 | Bicep-only operators | Expressions are ARM JSON syntax: the Bicep safe-dereference `.?` and non-null assertion `!` operators do not exist. Use `tryGet(obj, 'key')`, `tryIndexFromEnd(array, n)` or `coalesce()`. |
 | Parameter constraints | As in ARM, only `defaultValue` may be an expression; an expression in `minValue`, `maxValue`, `minLength` or `maxLength` is an `InvalidParameterConstraint` error. An expression default is checked against the type and the constraints once it is evaluated. For an `array` parameter, `allowedValues` lists the values its **elements** may take (every element must be one of them). |
 
@@ -296,16 +301,24 @@ conditions, dependsOn entries, outputs).
 
 | Group | Functions |
 |---|---|
-| String | `concat format toLower toUpper substring replace split join trim startsWith endsWith contains length empty indexOf lastIndexOf padLeft string base64 base64ToString uri uriComponent uriComponentToString guid uniqueString newGuid utcNow dateTimeAdd dateTimeFromEpoch dateTimeToEpoch` |
+| String | `concat format toLower toUpper substring replace split join trim startsWith endsWith contains like length empty indexOf lastIndexOf padLeft string base64 base64ToString base64ToJson dataUri dataUriToString uri uriComponent uriComponentToString guid uniqueString newGuid utcNow dateTimeAdd dateTimeFromEpoch dateTimeToEpoch` |
 | Logic | `if and or not equals less lessOrEquals greater greaterOrEquals coalesce bool true false` |
 | Numeric | `add sub mul div mod min max int float` |
 | Array and object | `array createArray createObject first last take skip union intersection range items json null objectKeys flatten distinct shallowMerge tryGet indexFromEnd tryIndexFromEnd` and the lambda functions `map mapValues filter reduce sort toObject groupBy lambda lambdaVariables` |
-| Resource and deployment | `resourceId reference references copyIndex deployment tenant environment parameters variables` and user functions `namespace.fn(...)` |
-| **Entra** | `wellKnownApp(name)`, `appRole(app, value)`, `permissionScope(app, value)`, `roleTemplate(name)` |
+| Resource and deployment | `resourceId reference references copyIndex deployment tenant deployer environment parameters variables` and user functions `namespace.fn(...)` |
+| **Entra** | `wellKnownApp(name)`, `appRole(app, value)`, `permissionScope(app, value)`, `roleTemplate(name)`, `roleDefinitions(name)` |
 
 ARM comparison rules apply: `contains()` on a string is case-sensitive (on an object it matches keys case-insensitively), while
-`startsWith`, `endsWith`, `indexOf` and `lastIndexOf` on strings ignore case. `union()` of objects merges nested objects recursively
-(arrays are replaced, the last one wins); `shallowMerge()` replaces nested objects whole. `tryGet()` and `tryIndexFromEnd()` return
+`startsWith`, `endsWith`, `indexOf` and `lastIndexOf` on strings ignore case. `less`, `lessOrEquals`, `greater` and `greaterOrEquals` order
+strings as ARM does, by culture-aware comparison rather than character code: a lowercase letter sorts before the same uppercase letter, so
+`greater('A', 'a')` is true. `like(text, pattern)` ignores case and knows one wildcard, `*` (any run of characters, possibly empty); every
+other character, `?` included, matches only itself. `and` and `or` take at least two arguments. `union()` of objects merges nested objects
+recursively (arrays are replaced, the last one wins) and, like `intersection()`, matches property names case-insensitively (the first
+spelling is kept); `shallowMerge()` replaces nested objects whole. `array()` returns an array argument unchanged and wraps anything else.
+`range(start, count)` needs `count` between 0 and 10,000 and `start + count` at most 2,147,483,647, as in ARM. `guid()` and
+`uniqueString()` compute the same values as ARM: `guid()` is the RFC 4122 version 5 UUID in ARM's namespace
+`11fb06fb-712d-4ddd-98c7-e71bbd588830` of the arguments joined with `-` (UTF-8), `uniqueString()` ARM's 13-character hash of the same
+text. `dataUri()` writes `data:text/plain;charset=utf8;base64,...`; `dataUriToString()` reads any `data:` URI, base64 or percent-encoded. `tryGet()` and `tryIndexFromEnd()` return
 `null` for a missing key or an out-of-range index; `indexFromEnd(array, 1)` is the last element.
 
 The Entra functions:
@@ -318,12 +331,24 @@ The Entra functions:
   template resource (an implicit dependency).
 - `roleTemplate('Global Reader')` returns the role template id of a built-in directory role (GUIDs pass through; custom roles are
   resolved by display name from the tenant, or referenced as `reference('Custom role name').id`).
-- `tenant()` returns `{ tenantId, defaultDomain, displayName }`, `environment()` returns `{ name, graph, authentication.loginEndpoint }`,
-  `deployment()` returns `{ name, templateHash, tenantId, mode }`.
+- `roleDefinitions('Global Reader')` is ARM's name-based role helper for directory roles: `{ id, roleDefinitionId, name, templateId }`
+  of the role (see [Differences from ARM](#differences-from-arm)).
 
-`appRole`, `permissionScope`, `roleTemplate` and `tenant` need the tenant, so they are legal in resource properties, names and
-outputs but not in parameter defaults, variables or user functions (`FunctionNotAllowedHere`). `utcNow()` and `newGuid()` are legal
-only as parameter defaults.
+The deployment functions:
+
+- `deployment()` returns `{ name, properties: { templateHash, parameters, mode } }`, ARM's shape, and keeps the flat `templateHash`,
+  `tenantId` and `mode` of earlier versions as aliases: `deployment().properties.mode` and `deployment().mode` are the same value.
+- `tenant()` returns `{ countryCode, displayName, id, tenantId, defaultDomain }` (`id` is `/tenants/<tenantId>`).
+- `deployer()` returns `{ objectId, tenantId, userPrincipalName }` of the signed-in principal (`userPrincipalName` is empty for an
+  app-only sign-in).
+- `environment()` returns `{ name, graph, portal, resourceManager, authentication: { loginEndpoint, audiences, tenant, identityProvider },
+  suffixes: { keyvaultDns } }` for the selected cloud; `graph` is Microsoft Graph.
+
+`deployment()`, `tenant()`, `deployer()` and `environment()` come from the sign-in check that runs before anything is evaluated, so they
+are legal everywhere, parameter defaults and variables included; offline (`deployment validate`) they, or the parts that need the tenant,
+are deploy-time unknowns. `appRole`, `permissionScope`, `roleTemplate` and `roleDefinitions` may ask the tenant while resources are
+applied, so they are legal in resource properties, names and outputs but not in parameter defaults, variables or user functions
+(`FunctionNotAllowedHere`). `utcNow()` and `newGuid()` are legal only as parameter defaults.
 
 ### `reference()` and `resourceId()`
 
@@ -440,7 +465,7 @@ passes or fails the same way everywhere); the work limits bound one run of a com
 | Limit | Value | Diagnostic |
 |---|---|---|
 | JSON nesting of a template or parameter file | 64 levels (the reader's limit) | `InvalidJson` |
-| Nesting of a **value** an expression builds (`createArray`, `createObject`, `array`, `union`, `items`, `map`, user function outputs, a wrapped parameter) | 64 levels. The JSON output of a command allows 256, so a 64-level value fits inside the structure around it. | `ValueTooDeep` |
+| Nesting of a **value** an expression builds (`createArray`, `createObject`, `array` of a non-array, `union`, `items`, `map`, user function outputs, a wrapped parameter) | 64 levels. The JSON output of a command allows 256, so a 64-level value fits inside the structure around it. | `ValueTooDeep` |
 | Nesting of one expression (calls, indexers, lambda bodies) | 100 levels | `ExpressionTooDeep` |
 | Length of one expression | 24,576 characters | `ExpressionTooLong` |
 | Length of one string a function produces | 1 MiB (1,048,576 characters) | `EvaluationBudgetExceeded` |

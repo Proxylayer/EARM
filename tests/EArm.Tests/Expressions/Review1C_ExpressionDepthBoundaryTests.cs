@@ -16,10 +16,10 @@ public sealed class Review1C_ExpressionDepthBoundaryTests
 {
     private const int Limit = ExpressionParser.MaxNestingDepth;
 
-    /// <summary><paramref name="calls"/> nested <c>or(</c> calls around <paramref name="leaf"/>: <c>calls + 1</c> levels.</summary>
+    /// <summary><paramref name="calls"/> nested <c>bool(</c> calls around <paramref name="leaf"/>: <c>calls + 1</c> levels.</summary>
     private static string Calls(int calls, string leaf = "true()")
     {
-        return "[" + string.Concat(Enumerable.Repeat("or(", calls)) + leaf + new string(')', calls) + "]";
+        return "[" + string.Concat(Enumerable.Repeat("bool(", calls)) + leaf + new string(')', calls) + "]";
     }
 
     private static void AssertAccepted(string expression)

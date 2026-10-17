@@ -17,16 +17,16 @@ Microsoft Graph application permissions
   Directory.Read.All
       /providers/Microsoft.Entra/groups/pa-emergency-access
       /providers/Microsoft.Entra/groups/pa-tier0-admins
-      /providers/Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests/0b4ec69a-3700-50ea-9456-72938dfd3188
-      /providers/Microsoft.Entra/roleEligibilityScheduleRequests/31cedf60-65e0-5948-be13-eba65fea691d
-      /providers/Microsoft.Entra/roleEligibilityScheduleRequests/d7f5ffc7-eab7-58c4-a8c2-5a459f2e5dd0
-      /providers/Microsoft.Entra/roleEligibilityScheduleRequests/e5a04472-a61c-5120-906b-e643941cc7f4
-      /providers/Microsoft.Entra/roleEligibilityScheduleRequests/f800e7c9-0273-5513-a47f-10a6d2fba273
-      /providers/Microsoft.Entra/roleManagementPolicies/275566d1-3b4c-5c2a-a532-70e004d7a8eb
-      /providers/Microsoft.Entra/roleManagementPolicies/a3e443e3-709d-5f1b-b6b0-f92a59010097
-      /providers/Microsoft.Entra/roleManagementPolicies/c1e639d4-e6d4-5a6c-9631-ec4c422ee18b
-      /providers/Microsoft.Entra/roleManagementPolicies/efb79212-2551-5cb1-91d1-e4ef132570c7
-      /providers/Microsoft.Entra/roleManagementPolicies/f8d40f1e-2339-5f6f-ac44-6d27ddfe59b9
+      /providers/Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests/3d0dacff-5b4b-5e4f-976d-92145919a68f
+      /providers/Microsoft.Entra/roleEligibilityScheduleRequests/024b7990-f7ba-5107-aeb5-df9df970cad5
+      /providers/Microsoft.Entra/roleEligibilityScheduleRequests/92b3c27e-9848-58f1-9cb1-a83fd8883573
+      /providers/Microsoft.Entra/roleEligibilityScheduleRequests/de12a68e-af1d-509a-85e7-00337f8c0902
+      /providers/Microsoft.Entra/roleEligibilityScheduleRequests/f528a285-55b6-5fdf-acd5-f2d6457efe40
+      /providers/Microsoft.Entra/roleManagementPolicies/0601aadb-64de-5536-9ff5-59b12ae18355
+      /providers/Microsoft.Entra/roleManagementPolicies/136d32da-b043-5a31-9b46-28d85b91aad8
+      /providers/Microsoft.Entra/roleManagementPolicies/5df6bc29-1c94-56dd-a44c-e3159ce1b115
+      /providers/Microsoft.Entra/roleManagementPolicies/ac77651f-734c-50d9-a697-f38d6616030d
+      /providers/Microsoft.Entra/roleManagementPolicies/ecc3a769-7de4-521b-a994-4e7c9d794528
       (edge: directoryRoles; edge: members; provider)
   Group.ReadWrite.All
       /providers/Microsoft.Entra/groups/pa-emergency-access
@@ -53,13 +53,13 @@ Microsoft Graph application permissions
       /providers/Microsoft.Entra/conditionalAccess/policies/CA-PIM-Activation-PhishingResistant
       (provider)
   PrivilegedEligibilitySchedule.ReadWrite.AzureADGroup
-      /providers/Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests/0b4ec69a-3700-50ea-9456-72938dfd3188
+      /providers/Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests/3d0dacff-5b4b-5e4f-976d-92145919a68f
       (provider)
   RoleEligibilitySchedule.ReadWrite.Directory
-      /providers/Microsoft.Entra/roleEligibilityScheduleRequests/31cedf60-65e0-5948-be13-eba65fea691d
-      /providers/Microsoft.Entra/roleEligibilityScheduleRequests/d7f5ffc7-eab7-58c4-a8c2-5a459f2e5dd0
-      /providers/Microsoft.Entra/roleEligibilityScheduleRequests/e5a04472-a61c-5120-906b-e643941cc7f4
-      /providers/Microsoft.Entra/roleEligibilityScheduleRequests/f800e7c9-0273-5513-a47f-10a6d2fba273
+      /providers/Microsoft.Entra/roleEligibilityScheduleRequests/024b7990-f7ba-5107-aeb5-df9df970cad5
+      /providers/Microsoft.Entra/roleEligibilityScheduleRequests/92b3c27e-9848-58f1-9cb1-a83fd8883573
+      /providers/Microsoft.Entra/roleEligibilityScheduleRequests/de12a68e-af1d-509a-85e7-00337f8c0902
+      /providers/Microsoft.Entra/roleEligibilityScheduleRequests/f528a285-55b6-5fdf-acd5-f2d6457efe40
       (provider)
   RoleManagement.ReadWrite.Directory
       /providers/Microsoft.Entra/groups/pa-emergency-access
@@ -67,13 +67,13 @@ Microsoft Graph application permissions
       /providers/Microsoft.Entra/groups/pa-tier1-admins
       (edge: directoryRoles; provider)
   RoleManagementPolicy.ReadWrite.AzureADGroup
-      /providers/Microsoft.Entra/roleManagementPolicies/c1e639d4-e6d4-5a6c-9631-ec4c422ee18b
+      /providers/Microsoft.Entra/roleManagementPolicies/0601aadb-64de-5536-9ff5-59b12ae18355
       (provider)
   RoleManagementPolicy.ReadWrite.Directory
-      /providers/Microsoft.Entra/roleManagementPolicies/275566d1-3b4c-5c2a-a532-70e004d7a8eb
-      /providers/Microsoft.Entra/roleManagementPolicies/a3e443e3-709d-5f1b-b6b0-f92a59010097
-      /providers/Microsoft.Entra/roleManagementPolicies/efb79212-2551-5cb1-91d1-e4ef132570c7
-      /providers/Microsoft.Entra/roleManagementPolicies/f8d40f1e-2339-5f6f-ac44-6d27ddfe59b9
+      /providers/Microsoft.Entra/roleManagementPolicies/136d32da-b043-5a31-9b46-28d85b91aad8
+      /providers/Microsoft.Entra/roleManagementPolicies/5df6bc29-1c94-56dd-a44c-e3159ce1b115
+      /providers/Microsoft.Entra/roleManagementPolicies/ac77651f-734c-50d9-a697-f38d6616030d
+      /providers/Microsoft.Entra/roleManagementPolicies/ecc3a769-7de4-521b-a994-4e7c9d794528
       (provider)
 
 note: Application permissions are Microsoft Graph app roles granted (with admin consent) to the service principal EARM signs in with (AZURE_CLIENT_ID, or the managed identity). Application.ReadWrite.OwnedBy replaces Application.ReadWrite.All for applications the service principal owns.

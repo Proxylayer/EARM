@@ -21,9 +21,9 @@
       "kind": "graphApplication",
       "resources": [
         "(expression lookups)",
-        "/providers/Microsoft.Entra/appRoleAssignments/4969f686-a5b1-5d65-8c0b-9f158025db97",
+        "/providers/Microsoft.Entra/appRoleAssignments/5de41bdb-189d-55a8-94b5-edac77f041a8",
         "/providers/Microsoft.Entra/conditionalAccess/policies/CA-Orders-Admins-MFA",
-        "/providers/Microsoft.Entra/oauth2PermissionGrants/30936788-431e-536d-82b1-38b2a5ed43fb",
+        "/providers/Microsoft.Entra/oauth2PermissionGrants/85f92584-0a42-5177-9594-99fc0b0d300a",
         "/providers/Microsoft.Entra/users/bg-orders@contoso.com",
         "reference(Microsoft.Entra/servicePrincipals, apiVersion)"
       ],
@@ -57,7 +57,7 @@
       "name": "AppRoleAssignment.ReadWrite.All",
       "kind": "graphApplication",
       "resources": [
-        "/providers/Microsoft.Entra/appRoleAssignments/4969f686-a5b1-5d65-8c0b-9f158025db97",
+        "/providers/Microsoft.Entra/appRoleAssignments/5de41bdb-189d-55a8-94b5-edac77f041a8",
         "/providers/Microsoft.Entra/users/bg-orders@contoso.com"
       ],
       "reasons": [
@@ -79,7 +79,7 @@
       "name": "DelegatedPermissionGrant.ReadWrite.All",
       "kind": "graphApplication",
       "resources": [
-        "/providers/Microsoft.Entra/oauth2PermissionGrants/30936788-431e-536d-82b1-38b2a5ed43fb"
+        "/providers/Microsoft.Entra/oauth2PermissionGrants/85f92584-0a42-5177-9594-99fc0b0d300a"
       ],
       "reasons": [
         "provider"
@@ -89,7 +89,7 @@
       "name": "Directory.Read.All",
       "kind": "graphApplication",
       "resources": [
-        "/providers/Microsoft.Entra/appRoleAssignments/4969f686-a5b1-5d65-8c0b-9f158025db97",
+        "/providers/Microsoft.Entra/appRoleAssignments/5de41bdb-189d-55a8-94b5-edac77f041a8",
         "/providers/Microsoft.Entra/applications/contoso-prod-api",
         "/providers/Microsoft.Entra/groups/contoso-prod-orders-admins",
         "/providers/Microsoft.Entra/roleAssignments/guid(ref(/providers/Microsoft.Entra/applications/contoso-prod-api).appId, 'Directory Readers', '/')",

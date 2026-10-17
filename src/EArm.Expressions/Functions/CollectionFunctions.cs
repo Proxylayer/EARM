@@ -21,15 +21,14 @@ internal static class CollectionFunctions
 
     public static void Register(FunctionRegistry registry)
     {
-        registry.Register(new FunctionDescriptor { Name = "array", Group = Group, MinArgs = 1, MaxArgs = 1, HandlesUnknown = true, Implementation = call => new JsonArray(JsonValues.Clone(call.Arg(0))) });
+        registry.Register(new FunctionDescriptor { Name = "array", Group = Group, MinArgs = 1, MaxArgs = 1, HandlesUnknown = true, Implementation = Array });
         registry.Register(new FunctionDescriptor { Name = "createArray", Group = Group, MinArgs = 0, HandlesUnknown = true, Implementation = CreateArray });
         registry.Register(new FunctionDescriptor { Name = "createObject", Group = Group, MinArgs = 0, HandlesUnknown = true, Implementation = CreateObject });
         registry.Register(new FunctionDescriptor { Name = "first", Group = Group, MinArgs = 1, MaxArgs = 1, HandlesUnknown = true, Implementation = call => FirstOrLast(call, first: true) });
         registry.Register(new FunctionDescriptor { Name = "last", Group = Group, MinArgs = 1, MaxArgs = 1, HandlesUnknown = true, Implementation = call => FirstOrLast(call, first: false) });
         registry.Register(new FunctionDescriptor { Name = "take", Group = Group, MinArgs = 2, MaxArgs = 2, HandlesUnknown = true, Implementation = call => TakeOrSkip(call, take: true) });
         registry.Register(new FunctionDescriptor { Name = "skip", Group = Group, MinArgs = 2, MaxArgs = 2, HandlesUnknown = true, Implementation = call => TakeOrSkip(call, take: false) });
-        registry.Register(new FunctionDescriptor { Name = "union", Group = Group, MinArgs = 1, Implementation = Union });
-        registry.Register(new FunctionDescriptor { Name = "intersection", Group = Group, MinArgs = 1, Implementation = Intersection });
+        SetFunctions.Register(registry, Group);
         registry.Register(new FunctionDescriptor { Name = "range", Group = Group, MinArgs = 2, MaxArgs = 2, Implementation = Range });
         registry.Register(new FunctionDescriptor { Name = "items", Group = Group, MinArgs = 1, MaxArgs = 1, HandlesUnknown = true, Implementation = Items });
         registry.Register(new FunctionDescriptor { Name = "json", Group = Group, MinArgs = 1, MaxArgs = 1, Implementation = Json });
@@ -262,114 +261,17 @@ internal static class CollectionFunctions
         return JsonValue.Create(take ? text[..n] : text[n..]);
     }
 
-    private static JsonNode? Union(FunctionCall call)
+    /// <summary>ARM <c>array(value)</c>: an array is returned as it is; any other value (including null) becomes a one-element array.</summary>
+    private static JsonNode? Array(FunctionCall call)
     {
-        if (call.Arg(0) is JsonObject)
+        var value = call.Arg(0);
+        if (UnknownJson.IsUnknown(value))
         {
-            var result = new JsonObject();
-            for (int i = 0; i < call.Count; i++)
-            {
-                MergeInto(call, result, call.Object(i));
-            }
-
-            return result;
+            // An unknown might itself be an array, which array() returns unchanged: the result is not known either.
+            return call.UnknownFromArguments();
         }
 
-        // Linear in the total number of elements: a hash set decides "already seen" (the nested-loop form was quadratic).
-        var merged = new JsonArray();
-        var seen = new HashSet<JsonNode?>(JsonValues.Comparer.Instance);
-        for (int i = 0; i < call.Count; i++)
-        {
-            var array = call.Array(i);
-            call.Context.Budget.Charge(array.Count, call.Offset);
-            foreach (var item in array)
-            {
-                if (!seen.Add(item))
-                {
-                    continue;
-                }
-
-                call.Context.Budget.CheckCollectionCount(merged.Count + 1L, call.Offset);
-                merged.Add(JsonValues.Clone(item));
-            }
-        }
-
-        return merged;
-    }
-
-    /// <summary>
-    /// ARM <c>union()</c> on objects: the properties of <paramref name="source"/> are added to <paramref name="target"/>, a later value replacing an
-    /// earlier one, except that two objects under the same name are merged recursively (arrays are not merged: the later one wins).
-    /// </summary>
-    private static void MergeInto(FunctionCall call, JsonObject target, JsonObject source)
-    {
-        call.Context.Budget.Charge(source.Count, call.Offset);
-        foreach (var property in source)
-        {
-            if (property.Value is JsonObject nested && target[property.Key] is JsonObject existing)
-            {
-                MergeInto(call, existing, nested);
-            }
-            else
-            {
-                target[property.Key] = JsonValues.Clone(property.Value);
-            }
-        }
-
-        call.Context.Budget.CheckCollectionCount(target.Count, call.Offset);
-    }
-
-    private static JsonNode? Intersection(FunctionCall call)
-    {
-        if (call.Arg(0) is JsonObject firstObject)
-        {
-            var result = new JsonObject();
-            call.Context.Budget.Charge((long)firstObject.Count * Math.Max(1, call.Count - 1), call.Offset);
-            foreach (var property in firstObject)
-            {
-                bool common = true;
-                for (int i = 1; i < call.Count && common; i++)
-                {
-                    common = call.Object(i).TryGetPropertyValue(property.Key, out var other) && JsonValues.AreEqual(property.Value, other);
-                }
-
-                if (common)
-                {
-                    result[property.Key] = JsonValues.Clone(property.Value);
-                }
-            }
-
-            return result;
-        }
-
-        // Linear in the total number of elements: one hash set per further array (the nested-loop form was quadratic).
-        var first = call.Array(0);
-        call.Context.Budget.Charge(first.Count, call.Offset);
-        var others = new List<HashSet<JsonNode?>>();
-        for (int i = 1; i < call.Count; i++)
-        {
-            var array = call.Array(i);
-            call.Context.Budget.Charge(array.Count, call.Offset);
-            others.Add(new HashSet<JsonNode?>(array, JsonValues.Comparer.Instance));
-        }
-
-        var intersection = new JsonArray();
-        var added = new HashSet<JsonNode?>(JsonValues.Comparer.Instance);
-        foreach (var item in first)
-        {
-            if (added.Contains(item))
-            {
-                continue;
-            }
-
-            if (others.TrueForAll(set => set.Contains(item)))
-            {
-                added.Add(item);
-                intersection.Add(JsonValues.Clone(item));
-            }
-        }
-
-        return intersection;
+        return value is JsonArray ? JsonValues.Clone(value) : new JsonArray(JsonValues.Clone(value));
     }
 
     private static JsonNode? Range(FunctionCall call)
@@ -381,17 +283,16 @@ internal static class CollectionFunctions
             throw call.Error($"count must be between 0 and {MaxRangeCount}, got {call.Render(1)}.");
         }
 
-        var result = new JsonArray();
-        try
+        // ARM: startIndex is an int, and startIndex + count may not exceed 2,147,483,647.
+        if (start is < int.MinValue or > int.MaxValue || start + count > int.MaxValue)
         {
-            for (long i = 0; i < count; i++)
-            {
-                result.Add(JsonValue.Create(checked(start + i)));
-            }
+            throw call.Error($"startIndex must be a 32-bit integer and startIndex + count may not exceed {int.MaxValue} (ARM limit), got {call.Render(0)} and {call.Render(1)}.");
         }
-        catch (OverflowException ex)
+
+        var result = new JsonArray();
+        for (long i = 0; i < count; i++)
         {
-            throw call.Failure($"the range starting at {call.Render(0)} with {call.Render(1)} element(s) exceeds the 64-bit integer range.", ex);
+            result.Add(JsonValue.Create(start + i));
         }
 
         return result;
@@ -421,7 +322,15 @@ internal static class CollectionFunctions
 
     private static JsonNode? Json(FunctionCall call)
     {
-        string text = call.String(0);
+        return ParseJsonText(call, call.String(0));
+    }
+
+    /// <summary>
+    /// Parses <paramref name="text"/>, the first argument of <paramref name="call"/> or a string decoded from it (<c>json</c>, <c>base64ToJson</c>):
+    /// repeated keys are refused, and the result of a secure argument has masked keys and tainted leaves.
+    /// </summary>
+    internal static JsonNode? ParseJsonText(FunctionCall call, string text)
+    {
         call.Context.Budget.ChargeText(text.Length, call.Offset);
         try
         {

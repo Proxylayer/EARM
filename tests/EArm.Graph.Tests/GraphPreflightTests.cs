@@ -84,7 +84,7 @@ public sealed class GraphPreflightTests
         Assert.Equal(GraphAuthMode.Default, result.AuthMode);
         var request = Assert.Single(handler.Requests);
         Assert.Equal("/v1.0/organization", request.Uri.AbsolutePath);
-        Assert.Equal("id,displayName,verifiedDomains", request.QueryValue("$select"));
+        Assert.Equal("id,displayName,verifiedDomains,countryLetterCode", request.QueryValue("$select"));
     }
 
     [Fact]
