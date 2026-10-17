@@ -112,7 +112,7 @@ public sealed class DeploymentPlanner
         var context = new EvaluationContext
         {
             Parameters = new LazyParameters(document.ParameterValues),
-            Variables = new LazyVariables(document.Variables),
+            Variables = new LazyVariables(document.Variables, document.VariableIterations),
             References = resolver,
             EntraLookup = entraLookup,
             Deployment = deployment,

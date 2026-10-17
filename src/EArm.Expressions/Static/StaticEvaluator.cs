@@ -67,7 +67,7 @@ public sealed class StaticEvaluator
             _owner = owner;
             _document = document;
             _parameters = new LazyParameters(document.ParameterValues);
-            _variables = new LazyVariables(document.Variables);
+            _variables = new LazyVariables(document.Variables, document.VariableIterations);
             _context = new EvaluationContext
             {
                 Parameters = _parameters,

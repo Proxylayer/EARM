@@ -126,7 +126,7 @@ internal sealed partial class SemanticChecker
                 Warning(DiagnosticCodes.SecureParameterHasDefault, $"Parameter '{definition.Name}' is secure but has a default value; secrets should not be stored in the template.", defaultPath);
             }
 
-            if (!TemplateParameterTypes.MatchesTemplateText(definition.DefaultValue, type))
+            if (!(definition.DefaultValue is null && definition.IsNullable) && !TemplateParameterTypes.MatchesTemplateText(definition.DefaultValue, type))
             {
                 Error(DiagnosticCodes.DefaultValueTypeMismatch, $"Parameter '{definition.Name}': the default value does not match the declared type '{definition.Type}'.", defaultPath);
             }
@@ -222,7 +222,7 @@ internal sealed partial class SemanticChecker
             JsonPath? valuePath = bound.Source == ParameterValueSource.File ? JsonPath.Of("parameters", definition.Name, "value") : null;
             string? valueSource = bound.Source == ParameterValueSource.File ? parameterSource : null;
 
-            if (!TemplateParameterTypes.Matches(bound.Value, type))
+            if (!ParameterConstraints.TypeMatches(definition, type, bound.Value))
             {
                 _diagnostics.Add(Diagnostic.Error(DiagnosticCodes.ParameterValueTypeMismatch, $"The value supplied for parameter '{definition.Name}' does not match the declared type '{definition.Type}'.", valuePath, null, valueSource));
             }

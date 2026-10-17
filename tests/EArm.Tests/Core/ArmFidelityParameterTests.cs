@@ -12,8 +12,7 @@ namespace EArm.Tests;
 /// <summary>
 /// ARM fidelity of parameters and variables: a value shaped like <c>[...]</c> is data and never bypasses a type check (only template text is an
 /// expression); an expression <c>defaultValue</c> is checked against the type and the constraints once evaluated; <c>minValue</c>/<c>maxValue</c>/
-/// <c>minLength</c>/<c>maxLength</c> may not be expressions; <c>allowedValues</c> of an array parameter constrains its elements; and a <c>copy</c>
-/// block in <c>variables</c> is refused instead of being read as a variable named <c>copy</c>.
+/// <c>minLength</c>/<c>maxLength</c> may not be expressions; <c>allowedValues</c> of an array parameter constrains its elements; and type names compare case-insensitively.
 /// </summary>
 public sealed class ArmFidelityParameterTests
 {
@@ -213,23 +212,5 @@ public sealed class ArmFidelityParameterTests
         var diagnostics = Review1C.Validate(Template("\"p\": { \"type\": \"strings\" }"));
 
         Assert.Contains(diagnostics, d => d.Code == DiagnosticCodes.InvalidParameterType);
-    }
-
-    // ---- variable copy ----
-
-    [Fact]
-    public void ACopyBlockInVariables_IsRefused_NotReadAsAVariableNamedCopy()
-    {
-        const string variables = "\"variables\": { \"copy\": [ { \"name\": \"items\", \"count\": 2, \"input\": \"[copyIndex('items')]\" } ], \"other\": 1 }, ";
-        string template = Template("\"p\": { \"type\": \"string\", \"defaultValue\": \"x\" }", variables);
-
-        var diagnostics = Review1C.Validate(template);
-
-        var diagnostic = Assert.Single(diagnostics, d => d.Code == DiagnosticCodes.InvalidCopy);
-        Assert.Equal("variables.copy", diagnostic.Path!.ToString());
-        Assert.Contains("not supported", diagnostic.Message, StringComparison.Ordinal);
-        var document = Expr.ParseBody(variables + "\"resources\": []");
-        Assert.False(document.Variables.ContainsKey("copy"));
-        Assert.True(document.Variables.ContainsKey("other"));
     }
 }

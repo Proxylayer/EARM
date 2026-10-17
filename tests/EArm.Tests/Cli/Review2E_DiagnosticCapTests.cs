@@ -33,7 +33,9 @@ public sealed class Review2E_DiagnosticCapTests
         Assert.Equal(2, result.ExitCode);
         var diagnostics = result.Json["diagnostics"]!.AsArray();
         Assert.Equal(50, diagnostics.Count(d => d!["code"]!.GetValue<string>() == "ValueTooDeep"));
-        Assert.Equal("variables.v65", diagnostics[0]!["path"]!.GetValue<string>());
+        // The chain also exceeds the ARM limit of 512 variables: one ArmLimitExceeded warning besides the errors.
+        Assert.Equal("variables.v65", diagnostics.First(d => d!["code"]!.GetValue<string>() == "ValueTooDeep")!["path"]!.GetValue<string>());
+        Assert.Single(diagnostics, d => d!["code"]!.GetValue<string>() == "ArmLimitExceeded");
         Assert.Equal(Errors, result.Json["errorCount"]!.GetValue<int>());
         Assert.Equal(Errors - 50, result.Json["suppressedCount"]!.GetValue<int>());
         var suppressed = Assert.Single(result.Json["suppressed"]!.AsArray());
@@ -56,7 +58,7 @@ public sealed class Review2E_DiagnosticCapTests
         Assert.Equal(50, lines.Count(l => l.StartsWith("error ValueTooDeep", StringComparison.Ordinal)));
         string summary = Assert.Single(lines, l => l.Contains("more", StringComparison.Ordinal) && l.Contains("of the same code ValueTooDeep", StringComparison.Ordinal));
         Assert.Contains($"{Errors - 50} more", summary, StringComparison.Ordinal);
-        Assert.Contains($"Validation failed: {Errors} error(s), 0 warning(s).", result.StandardError, StringComparison.Ordinal);
+        Assert.Contains($"Validation failed: {Errors} error(s), 1 warning(s).", result.StandardError, StringComparison.Ordinal); // the ArmLimitExceeded warning (more than 512 variables)
     }
 
     [Fact]

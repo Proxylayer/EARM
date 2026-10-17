@@ -66,6 +66,10 @@ diagnostic codes, so they have no table row here; see "Graph batch item codes" i
 | `InvalidContentVersion` | Error | `contentVersion` is not a string. Any string is accepted, as in ARM. |
 | `MissingRequiredProperty` | Error | A required key is missing: root `contentVersion`/`resources`, output `type`/`value`, function `namespace`/`members`/`output`, function parameter `name`/`type`. |
 | `ArmLimitExceeded` | Warning | The template exceeds a limit Azure Resource Manager enforces (256 parameters, 512 variables, 64 outputs, 800 resources counting literal copy counts, 4 MB of text). EARM accepts it; its own hard limits are in [format.md](format.md#input-limits). |
+| `InvalidLanguageVersion` | Error / Warning | `languageVersion` is not `"1.0"` or `"2.0"`; `resources` is an object without languageVersion 2.0, or an array with it; or a languageVersion 2.0 keyword (`definitions`, `$ref`, `nullable`, `properties`, `items`, `prefixItems`, `additionalProperties`, `discriminator`, `sealed`) is used without it. An experimental version (`2.1-experimental`) is a warning and is read as 2.0. |
+| `InvalidSymbolicName` | Error | A languageVersion 2.0 symbolic name (a key of `resources`) contains a character other than letters, digits and `_`, or a `dependsOn` / `reference()` / `references()` symbolic name is malformed. |
+| `InvalidExistingResource` | Error | `existing` is not a literal boolean, is used outside a languageVersion 2.0 symbolic declaration, or an existing resource declares `properties` (it is only read). |
+| `InvalidTypeDefinition` | Error | A `definitions` entry or a type node of a parameter, output, function or nested type is malformed: an unresolvable or cyclic `$ref`, a missing or unknown `type`, or an aggregate constraint on a type it does not apply to. |
 | `UnknownTopLevelProperty` | Warning | A top-level key is not part of the format (`$schema`, `contentVersion`, `metadata`, `parameters`, `variables`, `functions`, `resources`, `outputs`) and is ignored. |
 
 ## Resources

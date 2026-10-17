@@ -10,7 +10,8 @@ namespace EArm.Core.Validation;
 /// <summary>
 /// The shape of the two ARM iterations that are not resource loops (<see cref="DiagnosticCodes.InvalidCopy"/>):
 /// <list type="bullet">
-/// <item>property iteration, <c>"copy": [ { "name", "count", "input" } ]</c> in any object of a resource's <c>properties</c>: every entry is an
+/// <item>property iteration, <c>"copy": [ { "name", "count", "input" } ]</c> in any object of a resource's <c>properties</c> or of a variable's
+/// value (and the count of a top-level variable iteration entry): every entry is an
 /// object with a non-empty literal <c>name</c>, a <c>count</c> and an <c>input</c>; no two entries, and no entry and a sibling key, declare the
 /// same property;</item>
 /// <item>output iteration, <c>"copy": { "count", "input" }</c> on an output, which replaces <c>value</c>.</item>
@@ -35,6 +36,19 @@ internal sealed class CopyBlockChecker
         foreach (var resource in _document.Resources)
         {
             CheckProperties(resource.Properties, resource.Path.Append("properties"));
+        }
+
+        foreach (var (name, value) in _document.Variables)
+        {
+            if (_document.VariableIterations.TryGetValue(name, out var iteration))
+            {
+                CheckCount(iteration.Source, iteration.Path, $"Variable iteration '{iteration.Name}'");
+                CheckProperties(iteration.Input, iteration.Path.Append("input"));
+            }
+            else
+            {
+                CheckProperties(value, JsonPath.Of("variables", name));
+            }
         }
 
         foreach (var output in _document.Outputs.Values)

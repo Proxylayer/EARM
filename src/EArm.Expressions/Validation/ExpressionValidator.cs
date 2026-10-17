@@ -342,6 +342,15 @@ public sealed class ExpressionValidator : ITemplateValidator
 
             foreach (var variable in _document.Variables)
             {
+                if (_document.VariableIterations.TryGetValue(variable.Key, out var iteration))
+                {
+                    // Variable iteration: copyIndex('name') is legal in the input of the entry named 'name', as in property iteration.
+                    var frame = Frame.At(iteration.Path, EvaluationScope.Variable, inCopy: false);
+                    WalkTree(iteration.Count, frame with { Path = iteration.Path.Append("count") });
+                    WalkTree(iteration.Input, frame with { Path = iteration.Path.Append("input"), PropertyLoops = frame.PropertyLoops.Add(iteration.Name) });
+                    continue;
+                }
+
                 WalkTree(variable.Value, Frame.At(JsonPath.Of("variables", variable.Key), EvaluationScope.Variable, inCopy: false));
             }
 
@@ -404,7 +413,7 @@ public sealed class ExpressionValidator : ITemplateValidator
                 case JsonObject obj:
                     foreach (var property in obj)
                     {
-                        if (frame.Scope == EvaluationScope.Resource && PropertyCopyBlock.IsBlock(property.Key, property.Value))
+                        if (frame.Scope is EvaluationScope.Resource or EvaluationScope.Variable && PropertyCopyBlock.IsBlock(property.Key, property.Value))
                         {
                             // Property iteration: copyIndex('name') is legal in the input of the entry named 'name'.
                             foreach (var entry in PropertyCopyBlock.Entries(obj))

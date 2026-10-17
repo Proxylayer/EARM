@@ -99,8 +99,8 @@ public sealed class ExpressionEvaluator : IExpressionEvaluator
                 return null;
             case JsonObject obj:
                 {
-                    // Resource properties: a "copy" array is ARM property iteration and becomes the properties it declares.
-                    bool expandCopy = context.Scope == EvaluationScope.Resource && PropertyCopyBlock.HasBlock(obj);
+                    // Resource properties and variable values: a "copy" array is ARM property iteration and becomes the properties it declares.
+                    bool expandCopy = context.Scope is EvaluationScope.Resource or EvaluationScope.Variable && PropertyCopyBlock.HasBlock(obj);
                     var result = new JsonObject();
                     foreach (var property in obj)
                     {

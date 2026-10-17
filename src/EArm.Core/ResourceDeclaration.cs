@@ -16,6 +16,17 @@ public sealed record ResourceDeclaration
     /// <summary>Full resource type (<c>Microsoft.Entra/...</c>), canonical casing when the catalog knows it; <c>null</c> when missing.</summary>
     public string? Type { get; init; }
 
+    /// <summary>
+    /// The languageVersion 2.0 symbolic name: the key of the declaration in the <c>resources</c> object (case-sensitive); <c>null</c> in a
+    /// template whose <c>resources</c> is an array, and for nested children.
+    /// </summary>
+    public string? SymbolicName { get; init; }
+
+    /// <summary>
+    /// True for <c>"existing": true</c> (languageVersion 2.0): the resource is read, never created, updated or deleted; <c>reference()</c> reads it.
+    /// </summary>
+    public bool IsExisting { get; init; }
+
     /// <summary>The <c>type</c> text as authored (the short type for nested children).</summary>
     public string? DeclaredType { get; init; }
 
