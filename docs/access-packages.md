@@ -174,8 +174,12 @@ The caveats:
     The check runs while planning when the package and the catalog resource already exist; otherwise the create reports it.
   The beta `privilegedAccess` register API is not used (it stops returning data on 28 October 2026).
 - The group's PIM policy caps the eligibility (`Expiration_Admin_Eligibility`): if the package's assignment outlives it, PIM removes the eligibility
-  while entitlement management still shows the person as assigned. Keep the policy's `expiration` within the group's eligibility maximum (EARM does
-  not compare the two yet).
+  while entitlement management still shows the person as assigned. Keep the policy's `expiration` within the group's eligibility maximum. When the template declares
+  the group's PIM policy (a `roleManagementPolicies` with `group` / `scopeId` and the same `accessId`) and its `Expiration_Admin_Eligibility` rule
+  requires an expiration, EARM compares the two before planning: a policy whose `expiration.duration` is longer than the rule's `maximumDuration`, or
+  that never expires (`noExpiration`), is the **warning** `AccessPackageExpirationExceedsEligibility` (what-if and create alike). A warning, not an
+  error: the deployment itself succeeds and the loss happens later, to the people assigned. A group policy the template does not declare is not read,
+  an `afterDateTime` end is not compared, and values only known at deployment are skipped.
 
 ### Assignment policies
 

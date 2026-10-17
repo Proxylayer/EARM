@@ -608,7 +608,9 @@ listing (`DeclaredPrincipals` for roles, `DeclaredTargetGroups` for groups) repo
 `active owner:`); permanent ones are reported by `roleAssignments` or belong to the group's lists.
 
 **Template conflicts** (`IDeclarationConflictSource`, `DeclarationConflicts`): the planner asks these providers once the instances are expanded and the
-dependency graph built, before any Graph call, in what-if and deployment alike. An error `PimAssignmentConflict` is raised when
+dependency graph built, before any Graph call, in what-if and deployment alike. A `DeclarationConflict` is an error unless its `Severity` is
+`Warning`: `AssignmentPoliciesProvider` reports `AccessPackageExpirationExceedsEligibility` that way (`AccessPackageExpirationCheck`, which evaluates the
+declarations' own expressions in each instance's context; see [access-packages.md](access-packages.md)). An error `PimAssignmentConflict` is raised when
 
 - a `roleAssignmentScheduleRequests` and a `roleAssignments` resource, or an entry of the principal's `directoryRoles`, name the same principal, role and
   scope: Graph holds one assignment for both, so one type makes it time-bound and the other permanent (and re-creates it when it expires);

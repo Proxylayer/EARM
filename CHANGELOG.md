@@ -15,6 +15,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `RoleManagement.ReadWrite.Directory`.
 - `GovernanceLicenseRequired`: Graph's 400 `NoGovernanceSku` on an eligible access package role (Eligible Member / Eligible Owner) is
   reported with the licence it needs and what to do instead. Apply-time only: the what-if does not read `subscribedSkus`.
+- `AccessPackageExpirationExceedsEligibility` (warning, before planning): an access package assignment policy whose assignments outlive
+  (or never end, `noExpiration`) the `Expiration_Admin_Eligibility` maximum the template's `roleManagementPolicies` requires for a group
+  the package grants as Eligible Member / Eligible Owner. `DeclarationConflict` gains a `Severity` so a conflict source can warn.
 
 **Changed**
 
