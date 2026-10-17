@@ -49,6 +49,24 @@ public sealed class AccessPackageOnboardingTests
         Assert.Equal("Eligible Member", t.Host.Directory.EntitlementManagement.RoleScopes.Single()["role"]!["displayName"]!.GetValue<string>());
     }
 
+    // Needs the correctness branch, which splits a whole-properties expression into literal values per key (AccessPackageApplyOrder matches literals).
+    // Remove the Skip when that branch is merged.
+    [Fact(Skip = "Pending the whole-properties literal split of the engine-correctness branch; enable after merging it.")]
+    public async Task ARoleScopeWhosePropertiesAreOneExpression_IsStillOrderedAfterTheRequestThatOnboardsItsGroup()
+    {
+        var t = NewTenant();
+        string alice = t.Host.Directory.AddUser("alice@contoso.com", "Alice")["id"]!.GetValue<string>();
+        string scope = Templates.Resource(ResourceRoleScopesProvider.ResourceType, Guid(2), "\"[variables('grant')]\"");
+        string grant = "\"grant\": { \"accessPackageId\": \"" + Guid(9) + "\", \"resourceOriginId\": \"" + t.GroupId + "\", \"role\": \"Eligible Member\" }";
+        var document = t.Host.Parse(Templates.Envelope(scope + ", " + Eligibility(t, alice)).Replace("\"resources\":", "\"variables\": { " + grant + " }, \"resources\":", StringComparison.Ordinal));
+
+        var plan = await t.Host.ExpandAsync(document);
+
+        var scopeInstance = plan.Instances.Single(i => i.Type == ResourceRoleScopesProvider.ResourceType);
+        var requestInstance = plan.Instances.Single(i => i.Type == GroupEligibilityScheduleRequestsProvider.ResourceType);
+        Assert.Contains(requestInstance.PlannedId, scopeInstance.Dependencies);
+    }
+
     [Fact]
     public async Task AMemberRoleScope_IsNotOrderedAfterTheRequest()
     {

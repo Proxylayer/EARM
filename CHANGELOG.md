@@ -23,6 +23,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   create-only properties); `objectId` pins the Graph object id the key must lead to (`AdoptedObjectMismatch`), which makes an adoption
   by `displayName` a hard check. `deployment delete` leaves adopt-only objects alone. Malformed declarations are `InvalidAdoptOnly`.
 
+**Fixed**
+
+- `earm permissions`, the run scopes and the offline expansion of nested templates evaluate `deployment().name` as the run's deployment
+  name (`-n`, or the template file stem) instead of `validate`, so resource ids built from it match the deployment's.
+
 **Changed**
 
 - `earm permissions`: a languageVersion 2.0 `"existing": true` resource needs only the read variant of its type's permissions and no

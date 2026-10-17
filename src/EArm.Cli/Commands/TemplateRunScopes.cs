@@ -73,17 +73,17 @@ internal static class TemplateRunScopes
             return new TemplateExpansionResult(null, [ex.ToDiagnostic()], ExitCodes.Failure, parameterFile);
         }
 
-        var expansion = OfflineTemplateExpansion.Run(document, catalog, LinkedTemplateDownloads.Reader);
+        var expansion = OfflineTemplateExpansion.Run(document, catalog, LinkedTemplateDownloads.Reader, DeploymentInvocation.DefaultName(templateFile));
         return expansion.Succeeded
             ? new TemplateExpansionResult(expansion, [], ExitCodes.Ok, parameterFile)
             : new TemplateExpansionResult(null, expansion.Errors, ExitCodes.ValidationFailed, parameterFile);
     }
 
     /// <summary>The scopes of an already loaded template (the online verbs: parameters bound, Key Vault references not resolved yet); null when it does not expand offline.</summary>
-    public static RunScopeSet? Compute(TemplateDocument document, RunVerb verb)
+    public static RunScopeSet? Compute(TemplateDocument document, RunVerb verb, string? deploymentName = null)
     {
         ArgumentNullException.ThrowIfNull(document);
-        var expansion = OfflineTemplateExpansion.Run(document, ResourceTypeCatalog.Default, LinkedTemplateDownloads.Reader);
+        var expansion = OfflineTemplateExpansion.Run(document, ResourceTypeCatalog.Default, LinkedTemplateDownloads.Reader, deploymentName);
         return expansion.Succeeded ? Compute(expansion, verb) : null;
     }
 

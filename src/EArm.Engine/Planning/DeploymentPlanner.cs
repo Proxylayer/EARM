@@ -64,7 +64,7 @@ public sealed class DeploymentPlanner
         // The templates of nested and linked deployments are checked here too (offline expansion), so a broken nested template is reported before any sign-in.
         if (document.Resources.Any(r => Core.Types.DeploymentResourceType.Is(r.Type)))
         {
-            var expansion = Permissions.OfflineTemplateExpansion.Run(document, _options.Catalog, _options.LinkedTemplates);
+            var expansion = Permissions.OfflineTemplateExpansion.Run(document, _options.Catalog, _options.LinkedTemplates, _options.DeploymentName);
             diagnostics.AddRange(expansion.Succeeded ? expansion.Warnings : expansion.Errors);
             ThrowIfErrors(diagnostics);
         }

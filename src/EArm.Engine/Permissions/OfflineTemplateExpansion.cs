@@ -77,15 +77,17 @@ public sealed class OfflineTemplateExpansion
     /// Reads the templates of linked deployments; <c>null</c> reads local files only, and an https link is then a warning
     /// (<see cref="EngineDiagnosticCodes.LinkedTemplateNotFetched"/>): its deployment is not expanded.
     /// </param>
+    /// <param name="deploymentName">What <c>deployment().name</c> returns (the run's <c>-n</c>, or the template file stem); <c>null</c> keeps <see cref="DeploymentInfo.Offline"/>'s <c>validate</c>.</param>
     /// <remarks>A download is bounded by the reader's own timeout; the offline expansion is not cancellable.</remarks>
-    public static OfflineTemplateExpansion Run(TemplateDocument document, ResourceTypeCatalog catalog, LinkedTemplateReader? linkedTemplates = null)
+    public static OfflineTemplateExpansion Run(TemplateDocument document, ResourceTypeCatalog catalog, LinkedTemplateReader? linkedTemplates = null, string? deploymentName = null)
     {
         ArgumentNullException.ThrowIfNull(document);
         ArgumentNullException.ThrowIfNull(catalog);
 
         // Offline validation first: the permissions of a broken template are not meaningful.
         var diagnostics = new List<Diagnostic>(new TemplateValidator(catalog).Validate(document));
-        var analysis = new ExpressionValidator(catalog).Analyze(document);
+        var deployment = string.IsNullOrWhiteSpace(deploymentName) ? null : DeploymentInfo.Offline with { Name = deploymentName };
+        var analysis = new ExpressionValidator(catalog, FunctionRegistry.Default, deployment).Analyze(document);
         diagnostics.AddRange(analysis.Diagnostics);
         if (diagnostics.Any(d => d.IsError))
         {
