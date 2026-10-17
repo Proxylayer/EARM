@@ -551,12 +551,18 @@ passes or fails the same way everywhere); the work limits bound one run of a com
 | `copy.count` of one resource | 800 (the ARM limit) | `ExpansionLimitExceeded` |
 | Resource instances of a template, all `copy` loops together | 5,000 | `ExpansionLimitExceeded` |
 | Steps of a run (function calls plus lambda iterations) | 50,000,000 | `EvaluationBudgetExceeded` |
-| Value nodes produced by a run / characters of text produced by a run | 5,000,000 / 134,217,728 (128 Mi) | `EvaluationBudgetExceeded` |
+| Value nodes produced by a run / characters of text produced by a run | 5,000,000 / 134,217,728 (128 Mi). Counts values that are produced, not values that are read: a variable is evaluated once per evaluation and counted once, and `variables('x')[copyIndex()].name` counts only the element it selects. Passing a whole variable to a function (`length(variables('x'))`) copies it and counts its nodes. | `EvaluationBudgetExceeded` |
 | Memory held by evaluated variables (string characters at 2 bytes each plus a fixed cost per node) | 256 MiB per run | `EvaluationBudgetExceeded` |
 | Variables reading variables (a chain `v1` uses `v0`, `v2` uses `v1`, ...) | 128 levels | `VariableChainTooDeep` |
 | `format()` | The format string is parsed by EARM: a specifier is at most 100 characters; a standard numeric specifier (`D N F X G P E`, either case) has a precision of at most 100; a string argument ignores its specifier (as in .NET). Padded items and arguments are added up against the 1 MiB string limit as they are written. | `InvalidFunctionArguments`, `EvaluationBudgetExceeded` |
 | `indexOf`, `lastIndexOf`, `contains` on strings | Linear time (case-insensitive search of the folded text); the length of the text and the needle is charged to the step budget (1 step per 1,024 characters), as is every other string operation | `EvaluationBudgetExceeded` |
 | Time one evaluation (a variable, the properties of a resource, an output) may take | 60 seconds; `--evaluation-timeout <seconds>` or `EARM_EVALUATION_TIMEOUT`, `0` = no clock. The clock runs from the start of the evaluation, so the time a deployment spends on the network between evaluations never counts; the step and node limits above bound the total work. | `EvaluationBudgetExceeded` |
+
+ARM documents no work budget of this kind (its limits are on the template itself, such as its 4 MB size and 800 instances per copy loop).
+EARM keeps the step and node budgets for the whole run, across every evaluation pass of one command (`what-if` expands, validates and plans the
+template, so it evaluates each variable about four times, once per pass), because they are what stops a template from consuming unbounded time and
+memory when the expression engine runs locally. They are sized far above real templates: a template of about fifty data-heavy variables and
+150 resource instances needs roughly 5% of the node budget for a complete `what-if`.
 
 A per-value limit fails that value (and what depends on it) and the run goes on, so one oversized variable does not hide the other findings.
 A work limit ends the run: it stays tripped, and every later expression fails fast with the same message. `union` and `intersection` are linear

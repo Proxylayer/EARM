@@ -329,6 +329,12 @@ transport to the built-in Microsoft Graph HTTP client.
 
 ### Fixed
 
+- A large template no longer fails `what-if`, `create`, `delete` or `validate --validation-level Provider` with
+  `EvaluationBudgetExceeded` ("more than 5,000,000 value elements in total") while plain `validate` passes. Reading part of
+  a variable (`variables('x')[copyIndex()].name`) copied and counted the whole variable on every read, so copy loops over
+  a large variable used up the run's budget once the online path evaluated the template a few times. Such reads now walk
+  the evaluated variable and copy only what they select, and a variable read by resources planned in parallel is evaluated
+  once instead of once per thread. The budget itself is unchanged.
 - A `copy` block in `variables` is read as ARM variable iteration (see Added) instead of a variable named `copy`;
   `managementGroupResourceId` is rejected with a pointer to `resourceId`.
 - Trusted IP named locations are unmarked before they are deleted (Graph refuses to delete a trusted location); a
