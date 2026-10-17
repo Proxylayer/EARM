@@ -2,14 +2,17 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json.Nodes;
+using System.Threading;
 using EArm.Core;
 using EArm.Core.Diagnostics;
 using EArm.Core.Types;
 using EArm.Core.Validation;
 using EArm.Engine.Planning;
+using EArm.Engine.Planning.Nested;
 using EArm.Engine.Providers;
 using EArm.Expressions;
 using EArm.Expressions.Evaluation;
+using EArm.Expressions.Functions;
 using EArm.Expressions.Validation;
 
 namespace EArm.Engine.Permissions;
@@ -61,8 +64,21 @@ public sealed class OfflineTemplateExpansion
             .Where(b => b.PendingReference is not null)
             .Select(b => (b.Name, b.PendingReference!));
 
+    /// <summary>
+    /// Warnings of the expansion of nested deployments (an https linked template that <see cref="LinkedTemplateReader.LocalOnly"/> does not fetch);
+    /// errors go to <see cref="Errors"/>.
+    /// </summary>
+    public IReadOnlyList<Diagnostic> Warnings { get; private init; } = [];
+
     /// <summary>Validates and expands <paramref name="document"/> offline.</summary>
-    public static OfflineTemplateExpansion Run(TemplateDocument document, ResourceTypeCatalog catalog)
+    /// <param name="document">The template.</param>
+    /// <param name="catalog">The type catalog.</param>
+    /// <param name="linkedTemplates">
+    /// Reads the templates of linked deployments; <c>null</c> reads local files only, and an https link is then a warning
+    /// (<see cref="EngineDiagnosticCodes.LinkedTemplateNotFetched"/>): its deployment is not expanded.
+    /// </param>
+    /// <remarks>A download is bounded by the reader's own timeout; the offline expansion is not cancellable.</remarks>
+    public static OfflineTemplateExpansion Run(TemplateDocument document, ResourceTypeCatalog catalog, LinkedTemplateReader? linkedTemplates = null)
     {
         ArgumentNullException.ThrowIfNull(document);
         ArgumentNullException.ThrowIfNull(catalog);
@@ -81,7 +97,15 @@ public sealed class OfflineTemplateExpansion
         // can see what each instance references (the planner does the same before it asks for permissions).
         var evaluator = ExpressionEvaluator.Default;
         var expansionDiagnostics = new List<Diagnostic>();
-        var instances = new ResourceExpander(evaluator, catalog).Expand(analysis.Static, analysis.Static.Context, expansionDiagnostics);
+        IReadOnlyList<ResourceInstance> instances = new ResourceExpander(evaluator, catalog).Expand(analysis.Static, analysis.Static.Context, expansionDiagnostics);
+        if (!expansionDiagnostics.Any(d => d.IsError))
+        {
+            // Nested and linked deployments: their templates are validated and their resources expanded too (permissions and run scopes include them).
+            var root = TemplateScope.Root(document, analysis.Static, analysis.Static.Context);
+            var reader = linkedTemplates ?? LinkedTemplateReader.LocalOnly;
+            instances = new NestedDeploymentExpander(evaluator, catalog, FunctionRegistry.Default, reader, offline: true, CancellationToken.None).Expand(root, instances, expansionDiagnostics);
+        }
+
         if (!expansionDiagnostics.Any(d => d.IsError))
         {
             DependencyGraph.Build(instances, analysis.Static, evaluator, catalog, expansionDiagnostics);
@@ -93,8 +117,10 @@ public sealed class OfflineTemplateExpansion
             return new OfflineTemplateExpansion(document, expansionDiagnostics, [], 0);
         }
 
-        int ignored = instances.Count(i => i.IsIgnored);
-        var active = instances.Where(i => !i.IsIgnored).ToList();
+        // A nested deployment is not a resource of its own: its template's resources are listed instead.
+        var resources = instances.Where(i => !i.IsDeployment).ToList();
+        int ignored = resources.Count(i => i.IsIgnored);
+        var active = resources.Where(i => !i.IsIgnored).ToList();
         foreach (var instance in active)
         {
             try
@@ -107,7 +133,7 @@ public sealed class OfflineTemplateExpansion
             }
         }
 
-        return new OfflineTemplateExpansion(document, [], active, ignored);
+        return new OfflineTemplateExpansion(document, [], active, ignored) { Warnings = expansionDiagnostics.Where(d => !d.IsError).ToList() };
     }
 
     private static IEnumerable<string> EnumerateExpressionStrings(JsonNode? root)

@@ -63,6 +63,9 @@ public sealed class ResourceIdentifier : IEquatable<ResourceIdentifier>
     /// <summary>Full type, for example <c>Microsoft.Entra/applications/federatedIdentityCredentials</c>.</summary>
     public string Type { get; }
 
+    /// <summary>The provider namespace of <see cref="Type"/>: <c>Microsoft.Entra</c>, or <c>Microsoft.Resources</c> for a nested deployment.</summary>
+    public string Namespace => Type[..Type.IndexOf('/')];
+
     /// <summary>The type segments after the provider namespace.</summary>
     public IReadOnlyList<string> TypeSegments { get; }
 
@@ -91,7 +94,7 @@ public sealed class ResourceIdentifier : IEquatable<ResourceIdentifier>
             }
 
             var parentTypeSegments = TypeSegments.Take(TypeSegments.Count - 1);
-            return new ResourceIdentifier(ProviderNamespace + "/" + string.Join('/', parentTypeSegments), _nameSegments[..^1]);
+            return new ResourceIdentifier(Namespace + "/" + string.Join('/', parentTypeSegments), _nameSegments[..^1]);
         }
     }
 
@@ -159,7 +162,7 @@ public sealed class ResourceIdentifier : IEquatable<ResourceIdentifier>
 
     private string Render()
     {
-        var sb = new StringBuilder(ProvidersPrefix).Append(ProviderNamespace);
+        var sb = new StringBuilder(ProvidersPrefix).Append(Namespace);
         int unpaired = TypeSegments.Count - _nameSegments.Length;
         for (int i = 0; i < TypeSegments.Count; i++)
         {

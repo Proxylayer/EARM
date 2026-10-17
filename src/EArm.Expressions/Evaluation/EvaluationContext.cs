@@ -145,6 +145,10 @@ public sealed record EvaluationContext
         {
             lazy.Bind(evaluator, this);
         }
+        else if (Parameters is NestedParameters nested)
+        {
+            nested.Bind(evaluator, this);
+        }
 
         return this;
     }

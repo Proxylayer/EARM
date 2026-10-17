@@ -22,6 +22,12 @@ public sealed record TemplateDocument
     /// <summary>The template file path, or <c>null</c> when parsed from text.</summary>
     public string? SourcePath { get; init; }
 
+    /// <summary>
+    /// True for the template of a nested or linked deployment (<see cref="Types.DeploymentResourceType"/>): its <c>$schema</c> may also be ARM's
+    /// <c>deploymentTemplate.json</c>, so ARM snippets paste in.
+    /// </summary>
+    public bool IsNested { get; init; }
+
     public string? Schema { get; init; }
 
     public string? ContentVersion { get; init; }

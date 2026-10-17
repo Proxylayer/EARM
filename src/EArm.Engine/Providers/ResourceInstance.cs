@@ -5,6 +5,7 @@ using EArm.Graph;
 using EArm.Core;
 using EArm.Core.Types;
 using EArm.Engine.Planning;
+using EArm.Engine.Planning.Nested;
 using EArm.Expressions.Evaluation;
 using EArm.Expressions.Static;
 using GraphApi = EArm.Graph.GraphApi;
@@ -101,6 +102,21 @@ public sealed class ResourceInstance
 
     /// <summary>The parent's Graph object id once known (applied in this run or read during planning).</summary>
     public string? ParentGraphId { get; internal set; }
+
+    /// <summary>
+    /// The template this instance is declared in: the main template, or the template of a nested or linked deployment. <c>null</c> until the
+    /// planner assigns it (a graph built without scopes treats every instance as part of the main template).
+    /// </summary>
+    public TemplateScope? Scope { get; internal set; }
+
+    /// <summary>True for a nested or linked deployment (<see cref="Core.Types.DeploymentResourceType"/>): expanded, never applied to Graph.</summary>
+    public bool IsDeployment => Definition.IsTemplateLevel;
+
+    /// <summary>For a nested deployment, the scope of its template once expanded; otherwise <c>null</c>.</summary>
+    public TemplateScope? NestedTemplate { get; internal set; }
+
+    /// <summary>The names of the nested deployments that deploy this instance, joined with <c>/</c>; <c>null</c> for the main template.</summary>
+    public string? DeploymentPath => Scope?.DeploymentPathText;
 
     /// <summary>The context to evaluate this instance's expressions in (concrete copy frame pushed).</summary>
     public EvaluationContext Context { get; internal set; }

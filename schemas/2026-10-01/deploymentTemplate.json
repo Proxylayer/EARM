@@ -242,19 +242,55 @@
       "description": "Resources that must be deployed first: a resource id, type/name, a unique bare name, or an expression.",
       "items": { "type": "string" }
     },
+    "deploymentProperties": {
+      "type": "object",
+      "description": "The properties of a nested (inline template) or linked (templateLink) deployment. See docs/format.md, Nested and linked deployments.",
+      "properties": {
+        "mode": {
+          "anyOf": [ { "type": "string", "enum": ["Incremental", "incremental"] }, { "$ref": "#/$defs/expression" } ],
+          "description": "Incremental: the only mode of a nested or linked deployment (ARM rule)."
+        },
+        "template": { "type": "object", "description": "The inline nested template (validated when the deployment is expanded)." },
+        "templateLink": {
+          "type": "object",
+          "description": "A linked template: relativePath (a file next to this template, or relative to its URL) or an https uri.",
+          "properties": {
+            "relativePath": { "type": "string" },
+            "uri": { "type": "string" },
+            "contentVersion": { "type": "string" },
+            "queryString": { "type": "string" },
+            "id": { "type": "string", "description": "A template spec: not supported." }
+          }
+        },
+        "parameters": {
+          "type": "object",
+          "description": "Values for the parameters of an inner-scope or linked template: { \"name\": { \"value\": ... } }.",
+          "additionalProperties": { "type": "object" }
+        },
+        "parametersLink": {
+          "type": "object",
+          "properties": { "uri": { "type": "string" }, "contentVersion": { "type": "string" } }
+        },
+        "expressionEvaluationOptions": {
+          "type": "object",
+          "properties": { "scope": { "type": "string", "enum": ["inner", "outer", "Inner", "Outer", "NotSpecified"] } }
+        },
+        "debugSetting": { "type": "object", "description": "Accepted and ignored." }
+      }
+    },
     "resource": {
       "type": "object",
       "required": ["type", "apiVersion", "name"],
       "properties": {
         "type": {
           "type": "string",
-          "pattern": "^Microsoft\\.Entra/[A-Za-z][A-Za-z0-9]*(/[A-Za-z][A-Za-z0-9]*)*$",
-          "description": "Full resource type, for example Microsoft.Entra/applications."
+          "pattern": "^(Microsoft\\.Entra/[A-Za-z][A-Za-z0-9]*(/[A-Za-z][A-Za-z0-9]*)*|[Mm][Ii][Cc][Rr][Oo][Ss][Oo][Ff][Tt]\\.[Rr][Ee][Ss][Oo][Uu][Rr][Cc][Ee][Ss]/[Dd][Ee][Pp][Ll][Oo][Yy][Mm][Ee][Nn][Tt][Ss])$",
+          "description": "Full resource type, for example Microsoft.Entra/applications; or Microsoft.Resources/deployments for a nested or linked deployment."
         },
         "apiVersion": {
           "type": "string",
-          "enum": ["2026-10-01-preview", "2026-10-01-preview.beta"],
-          "description": "2026-10-01-preview (Graph v1.0) or 2026-10-01-preview.beta (Graph beta, passthrough with no normalisation guarantees). The plain 2026-10-01 label was renamed 2026-10-01-preview."
+          "enum": ["2026-10-01-preview", "2026-10-01-preview.beta", "2015-01-01", "2015-11-01", "2016-02-01", "2016-07-01", "2016-09-01", "2017-05-10", "2018-02-01", "2018-05-01", "2019-03-01", "2019-05-01", "2019-05-10", "2019-07-01", "2019-08-01", "2019-10-01", "2020-06-01", "2020-08-01", "2020-10-01", "2021-01-01", "2021-04-01", "2022-09-01", "2023-07-01", "2024-03-01", "2024-07-01", "2024-11-01", "2025-03-01", "2025-04-01", "2026-06-01"],
+          "description": "2026-10-01-preview (Graph v1.0) or 2026-10-01-preview.beta (Graph beta, passthrough with no normalisation guarantees). The plain 2026-10-01 label was renamed 2026-10-01-preview. A Microsoft.Resources/deployments resource takes one of ARM's apiVersions (any of them; the value changes nothing)."
         },
         "name": {
           "type": "string",
@@ -276,6 +312,8 @@
       },
       "additionalProperties": false,
       "allOf": [
+        { "if": { "properties": { "type": { "type": "string", "pattern": "^[Mm][Ii][Cc][Rr][Oo][Ss][Oo][Ff][Tt]\\.[Rr][Ee][Ss][Oo][Uu][Rr][Cc][Ee][Ss]/[Dd][Ee][Pp][Ll][Oo][Yy][Mm][Ee][Nn][Tt][Ss]$" } }, "required": ["type"] },
+          "then": { "required": ["properties"], "properties": { "properties": { "anyOf": [ { "$ref": "#/$defs/deploymentProperties" }, { "$ref": "#/$defs/expression" } ] } } } },
         { "if": { "properties": { "type": { "const": "Microsoft.Entra/applications" } }, "required": ["type"] },
           "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/applications.json" }, { "$ref": "#/$defs/expression" } ] } } } },
         { "if": { "properties": { "type": { "const": "Microsoft.Entra/applications/federatedIdentityCredentials" } }, "required": ["type"] },

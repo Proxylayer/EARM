@@ -111,4 +111,9 @@ public static class DiagnosticCodes
     public const string ConditionNotBoolean = "ConditionNotBoolean";
     public const string SecureValueInResourceKey = "SecureValueInResourceKey";
     public const string SecureValueInPlainOutput = "SecureValueInPlainOutput";
+
+    // ---- Nested and linked deployments (Microsoft.Resources/deployments) ----
+    public const string InvalidNestedDeployment = "InvalidNestedDeployment";
+    public const string NestedDeploymentFeatureNotSupported = "NestedDeploymentFeatureNotSupported";
+    public const string NestedDeploymentPropertyIgnored = "NestedDeploymentPropertyIgnored";
 }

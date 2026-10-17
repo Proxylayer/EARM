@@ -195,6 +195,20 @@ internal static class DeploymentFunctions
     internal static bool TryParseTypeAndName(ResourceTypeCatalog catalog, string text, out ResourceIdentifier identifier)
     {
         identifier = null!;
+        string deploymentPrefix = DeploymentResourceType.Type + "/";
+        if (text.StartsWith(deploymentPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            // A nested deployment: Microsoft.Resources/deployments/<name>.
+            string name = text[deploymentPrefix.Length..];
+            if (name.Length == 0 || name.Contains('/'))
+            {
+                return false;
+            }
+
+            identifier = new ResourceIdentifier(DeploymentResourceType.Type, [name]);
+            return true;
+        }
+
         if (!text.StartsWith(ResourceIdentifier.ProviderNamespace + "/", StringComparison.OrdinalIgnoreCase))
         {
             return false;

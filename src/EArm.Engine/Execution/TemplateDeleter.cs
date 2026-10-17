@@ -113,7 +113,8 @@ public sealed class TemplateDeleter
             foreach (var instance in batch.Instances.OrderBy(i => ApplyPhases.DeleteOrderOf(i.Type)).ThenBy(i => i.Id.Id, StringComparer.Ordinal))
             {
                 // An "existing": true resource is only read by the template, never owned by it: deleting the template leaves it alone.
-                if (instance.IsSymbolic || instance.IsIgnored || instance.Declaration.IsExisting)
+                // A nested deployment owns nothing itself: the resources of its template are in the plan and are deleted as declared objects.
+                if (instance.IsSymbolic || instance.IsIgnored || instance.Declaration.IsExisting || instance.IsDeployment)
                 {
                     continue;
                 }

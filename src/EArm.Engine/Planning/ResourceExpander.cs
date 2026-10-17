@@ -34,6 +34,12 @@ public sealed class ResourceExpander
         _catalog = catalog;
     }
 
+    /// <summary>
+    /// Added to the declaration index of every instance (<see cref="ResourceInstance.DeclarationIndex"/>): the template of a nested deployment is
+    /// numbered after the templates expanded before it, so the order inside a batch stays the document order of the whole expansion.
+    /// </summary>
+    public int DeclarationOffset { get; init; }
+
     /// <summary>Expands the template; problems are appended to <paramref name="diagnostics"/>.</summary>
     public IReadOnlyList<ResourceInstance> Expand(StaticContext staticContext, EvaluationContext deployContext, List<Diagnostic> diagnostics)
     {
@@ -290,7 +296,7 @@ public sealed class ResourceExpander
             nameValue = evaluation.Value;
         }
 
-        var instance = new ResourceInstance(declaration, resolved, definition, index, id, symbolic, nameValue, context, copy);
+        var instance = new ResourceInstance(declaration, resolved, definition, DeclarationOffset + index, id, symbolic, nameValue, context, copy);
 
         if (declaration.Condition is null)
         {

@@ -69,6 +69,12 @@ public sealed record PlannerOptions
     /// </summary>
     public string? SignedInPrincipalId { get; init; }
 
+    /// <summary>
+    /// Reads the templates and parameter files of linked deployments (<c>templateLink</c>, <c>parametersLink</c>); <c>null</c> reads local files
+    /// only (an https link is then an error). The CLI passes one that downloads https links with the rules of its https parameter files.
+    /// </summary>
+    public Nested.LinkedTemplateReader? LinkedTemplates { get; init; }
+
     /// <summary>True when the token is an application (app-only) token (no <c>scp</c> claim; preflight reports principal type <c>application</c>): <c>ownerOf</c> on a user is then reported as <c>EdgeUnsupportedInAppMode</c> instead of read.</summary>
     public bool AppOnlyToken { get; init; }
 }

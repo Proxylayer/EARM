@@ -78,6 +78,38 @@ public sealed class SourceMap
         return new SourceMap(offsets, ComputeLineStarts(bytes), bytes);
     }
 
+    /// <summary>
+    /// The map of the subtree at <paramref name="prefix"/>, with paths relative to it and the positions of this file: an inline nested template
+    /// (<c>resources[0].properties.template</c>) is loaded as its own document, and its findings still point at lines of the file it sits in.
+    /// </summary>
+    public SourceMap Rebase(JsonPath prefix)
+    {
+        ArgumentNullException.ThrowIfNull(prefix);
+        if (prefix.IsRoot)
+        {
+            return this;
+        }
+
+        var offsets = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var (key, offset) in _offsets)
+        {
+            if (!JsonPath.TryParse(key, out var path) || !path.StartsWith(prefix))
+            {
+                continue;
+            }
+
+            var relative = JsonPath.Root;
+            for (int i = prefix.Depth; i < path.Depth; i++)
+            {
+                relative = relative.Append(path.Segments[i]);
+            }
+
+            offsets[relative.ToString()] = offset;
+        }
+
+        return new SourceMap(offsets, _lineStarts, _utf8);
+    }
+
     /// <summary>The location of exactly this path, or <c>null</c> when unknown.</summary>
     public SourceLocation? Find(JsonPath path)
     {

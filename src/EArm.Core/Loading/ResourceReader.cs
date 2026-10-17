@@ -157,7 +157,7 @@ internal sealed partial class ResourceReader
             SymbolicName = symbolicName,
             IsExisting = ReadExisting(resource, path, symbolicName),
             StaticId = ComputeStaticId(fullType, name),
-            Properties = resource["properties"],
+            Properties = DeploymentResourceType.Is(fullType) ? DeploymentProperties(resource["properties"]) : resource["properties"],
             DependsOn = dependsOn,
             InferredDependsOn = inferred,
             Condition = resource["condition"],
@@ -179,6 +179,15 @@ internal sealed partial class ResourceReader
         }
 
         var childrenPath = path.Append("resources");
+        if (DeploymentResourceType.Is(fullType))
+        {
+            _context.Error(
+                DiagnosticCodes.InvalidNestedDeployment,
+                $"A nested deployment ({DeploymentResourceType.Type}) cannot have child 'resources'; declare the resources inside its 'template'.",
+                childrenPath);
+            return;
+        }
+
         if (depth >= MaxNestingDepth)
         {
             _context.Error(
@@ -233,6 +242,30 @@ internal sealed partial class ResourceReader
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// The <c>properties</c> of a nested deployment as the parent template sees them: everything but the inline <c>template</c>, whose expressions
+    /// belong to the nested template (its own scope, or the parent's in outer scope) and are evaluated when the engine expands the deployment.
+    /// Paths stay those of the file (the copy sits at <c>properties</c>).
+    /// </summary>
+    private static JsonNode? DeploymentProperties(JsonNode? properties)
+    {
+        if (properties is not JsonObject source || !source.ContainsKey("template"))
+        {
+            return properties;
+        }
+
+        var copy = new JsonObject();
+        foreach (var (key, value) in source)
+        {
+            if (!string.Equals(key, "template", StringComparison.Ordinal))
+            {
+                copy[key] = value?.DeepClone();
+            }
+        }
+
+        return copy;
     }
 
     private ResourceIdentifier? ComputeStaticId(string? type, string? name)

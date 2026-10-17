@@ -11,6 +11,7 @@ using EArm.Core.Json;
 using EArm.Core.Validation;
 using EArm.Engine.Edges;
 using EArm.Engine.Execution;
+using EArm.Engine.Planning.Nested;
 using EArm.Engine.Providers;
 using EArm.Expressions;
 using EArm.Expressions.Evaluation;
@@ -141,8 +142,14 @@ public sealed class DeploymentPlanner
             }
         }
 
-        // 4. Every type needs a provider (an unregistered type fails here).
-        _registry.RequireAll(instances.Select(i => i.Type));
+        // 3c. Nested and linked deployments: their templates' resources join the instances (same graph, same batches).
+        var rootScope = TemplateScope.Root(document, analysis.Static, context);
+        var reader = _options.LinkedTemplates ?? LinkedTemplateReader.LocalOnly;
+        instances = new NestedDeploymentExpander(evaluator, catalog, _options.Functions, reader, offline: false, cancellationToken).Expand(rootScope, instances, diagnostics);
+        ThrowIfErrors(diagnostics);
+
+        // 4. Every type needs a provider (an unregistered type fails here); a nested deployment has none (nothing is written for it).
+        _registry.RequireAll(instances.Where(i => !i.IsDeployment).Select(i => i.Type));
 
         // 5. Graph and batches.
         var graph = DependencyGraph.Build(instances, analysis.Static, evaluator, catalog, diagnostics, ApplyOrder);
@@ -158,7 +165,7 @@ public sealed class DeploymentPlanner
         }
 
         var permissions = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var instance in instances)
+        foreach (var instance in instances.Where(i => !i.IsDeployment))
         {
             foreach (var permission in _registry.Get(instance.Type).RequiredPermissions(instance))
             {
@@ -242,7 +249,7 @@ public sealed class DeploymentPlanner
     /// <summary>The instances the provider of <paramref name="instance"/> applies after it (<see cref="IApplyOrderSource"/>); none for most types.</summary>
     private IEnumerable<ResourceInstance> ApplyOrder(ResourceInstance instance, IReadOnlyList<ResourceInstance> declared)
     {
-        return _registry.Get(instance.Type) is IApplyOrderSource source ? source.AppliesBefore(instance, declared) : [];
+        return !instance.IsDeployment && _registry.Get(instance.Type) is IApplyOrderSource source ? source.AppliesBefore(instance, declared) : [];
     }
 
     /// <summary>The conflicts the providers that implement <see cref="IDeclarationConflictSource"/> find among the expanded instances, as errors.</summary>
@@ -250,14 +257,17 @@ public sealed class DeploymentPlanner
     {
         foreach (var instance in instances)
         {
-            if (instance.IsIgnored || _registry.Get(instance.Type) is not IDeclarationConflictSource source)
+            if (instance.IsIgnored || instance.IsDeployment || _registry.Get(instance.Type) is not IDeclarationConflictSource source)
             {
                 continue;
             }
 
             foreach (var conflict in source.DescribeConflicts(instance, instances))
             {
-                diagnostics.Add(Diagnostic.Error(conflict.Code, conflict.Message, conflict.Path, document.LocationOf(conflict.Path), document.SourcePath));
+                // A conflict found in a nested template points into that template (its file, or its place in the parent's file).
+                diagnostics.Add(instance.Scope is { IsRoot: false } scope
+                    ? scope.Error(conflict.Code, conflict.Message, conflict.Path)
+                    : Diagnostic.Error(conflict.Code, conflict.Message, conflict.Path, document.LocationOf(conflict.Path), document.SourcePath));
             }
         }
     }
@@ -308,6 +318,12 @@ public sealed class DeploymentPlanner
 
     private async Task PlanInstanceAsync(DeploymentPlan plan, ResourceInstance instance, ReadContext reads, KeyAbsenceTally absences, CancellationToken cancellationToken)
     {
+        if (instance.IsDeployment)
+        {
+            PlanDeployment(plan, instance, reads);
+            return;
+        }
+
         ResourceChange change;
         try
         {
@@ -334,6 +350,27 @@ public sealed class DeploymentPlanner
 
         EngineLog.Planned(_logger, change.Id.Id, change.Type.ToString(), change.Mode.ToString(), change.Deltas.Count);
         plan.RecordChange(instance, change);
+    }
+
+    /// <summary>
+    /// A nested deployment is not a what-if row (ARM's what-if lists the resources of nested templates, not the deployments): its resources were
+    /// planned in earlier batches, so its outputs are evaluated now and published for the <c>reference('&lt;deployment&gt;')</c> calls of later
+    /// batches. An output that depends on a resource still to be created is a deploy-time placeholder.
+    /// </summary>
+    private static void PlanDeployment(DeploymentPlan plan, ResourceInstance deployment, ReadContext reads)
+    {
+        if (deployment.IsIgnored)
+        {
+            plan.Resolver.MarkConditionFalse(deployment.Id);
+            return;
+        }
+
+        var result = NestedDeploymentOutputs.Evaluate(deployment, plan.Evaluator);
+        NestedDeploymentOutputs.Publish(plan.Resolver, deployment, result);
+        if (result.Problems.Count > 0)
+        {
+            reads.Diagnostics[deployment] = [Diagnostic.Warning(EngineDiagnosticCodes.OutputEvaluationFailed, NestedDeploymentOutputs.Describe(deployment, result))];
+        }
     }
 
     private async Task<ResourceChange> PlanInstanceCoreAsync(DeploymentPlan plan, ResourceInstance instance, ReadContext reads, KeyAbsenceTally absences, CancellationToken cancellationToken)
@@ -501,7 +538,7 @@ public sealed class DeploymentPlanner
         {
             // Resources whose row is an error (or that are otherwise not planned) are unknown declarers: the target-side sets they could belong to are not pruned in the what-if either.
             var candidateSet = new HashSet<ResourceInstance>(candidates);
-            var unreliable = plan.Instances.Where(i => !i.IsSymbolic && !i.IsIgnored && !candidateSet.Contains(i)).ToList();
+            var unreliable = plan.Instances.Where(i => !i.IsSymbolic && !i.IsIgnored && !i.IsDeployment && !candidateSet.Contains(i)).ToList();
             edgePlan = await new EdgePlanner(plan, context, PlanMode.WhatIf, null, unreliable).PlanAsync(candidates, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is GraphException or GraphTransportException or ProviderException or ExpressionException)

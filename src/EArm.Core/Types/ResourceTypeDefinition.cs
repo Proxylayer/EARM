@@ -85,6 +85,12 @@ public sealed record ResourceTypeDefinition
 
     public bool IsChildType => ParentType is not null;
 
+    /// <summary>
+    /// True for a template-level type that is not a Graph object (<see cref="DeploymentResourceType"/>): the engine expands it, no provider applies it,
+    /// and the catalog resolves it without listing it in <see cref="ResourceTypeCatalog.Types"/>.
+    /// </summary>
+    public bool IsTemplateLevel { get; init; }
+
     /// <summary>True when a relationship property of this name exists.</summary>
     public bool IsRelationshipProperty(string property)
     {

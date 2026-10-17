@@ -15,6 +15,7 @@ using EArm.Core.Json;
 using EArm.Core.Secrets;
 using EArm.Engine.Edges;
 using EArm.Engine.Planning;
+using EArm.Engine.Planning.Nested;
 using EArm.Engine.Providers;
 using EArm.Expressions;
 using EArm.Expressions.Evaluation;
@@ -356,7 +357,7 @@ public sealed class DeploymentExecutor
             // Resources that were declared but did not apply (failed, or skipped because of a failure under --continue-on-error): their principal-side
             // declarations (memberOf, ownerOf...) are unknown to this pass, so a target-side set they could belong to must not be pruned (review round 2, S2-05).
             var candidateSet = new HashSet<ResourceInstance>(candidates);
-            var unreliable = _plan.Instances.Where(i => !i.IsSymbolic && !i.IsIgnored && !candidateSet.Contains(i)
+            var unreliable = _plan.Instances.Where(i => !i.IsSymbolic && !i.IsIgnored && !i.IsDeployment && !candidateSet.Contains(i)
                 && (!_operations.TryGetValue(i, out var other) || other.Status is OperationStatus.Failed or OperationStatus.Skipped)).ToList();
 
             var createdIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -526,6 +527,26 @@ public sealed class DeploymentExecutor
             _operations[instance] = new ResourceOperation(instance.Id, instance.Type, batchIndex, OperationStatus.Succeeded, ChangeType.NoChange, ChangeMode.None, existing.GraphId, null, null, stopwatch.Elapsed);
         }
 
+        /// <summary>
+        /// A nested deployment writes nothing: every resource of its template was applied in an earlier batch, so its outputs are evaluated and published
+        /// for the <c>reference('&lt;deployment&gt;')</c> calls of later batches. An output that cannot be evaluated fails the deployment (its dependents are skipped).
+        /// </summary>
+        private void ApplyDeployment(ResourceInstance deployment, int batchIndex, Stopwatch stopwatch)
+        {
+            var result = NestedDeploymentOutputs.Evaluate(deployment, _plan.Evaluator);
+            string? failure = result.Problems.Count > 0
+                ? NestedDeploymentOutputs.Describe(deployment, result)
+                : result.HasUnknown ? $"Nested deployment '{deployment.Id.Name}': some outputs depend on values that were not resolved during this run." : null;
+            if (failure is not null)
+            {
+                RecordFailure(deployment, batchIndex, EngineDiagnosticCodes.OutputEvaluationFailed, failure, stopwatch.Elapsed);
+                return;
+            }
+
+            NestedDeploymentOutputs.Publish(_plan.Resolver, deployment, result);
+            _operations[deployment] = new ResourceOperation(deployment.Id, deployment.Type, batchIndex, OperationStatus.Succeeded, ChangeType.NoChange, ChangeMode.None, null, null, null, stopwatch.Elapsed);
+        }
+
         private async Task ApplyCoreAsync(ResourceInstance instance, int batchIndex, Stopwatch stopwatch, CancellationToken cancellationToken)
         {
             if (instance.Condition is null)
@@ -543,6 +564,12 @@ public sealed class DeploymentExecutor
                 _plan.Resolver.MarkConditionFalse(instance.Id);
                 _changes[instance] = ResourceChange.ConditionFalse(instance.Id, instance.Type);
                 _operations[instance] = new ResourceOperation(instance.Id, instance.Type, batchIndex, OperationStatus.Ignored, ChangeType.Ignore, ChangeMode.None, null, null, null, stopwatch.Elapsed);
+                return;
+            }
+
+            if (instance.IsDeployment)
+            {
+                ApplyDeployment(instance, batchIndex, stopwatch);
                 return;
             }
 

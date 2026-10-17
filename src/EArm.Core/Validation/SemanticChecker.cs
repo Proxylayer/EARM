@@ -48,11 +48,11 @@ internal sealed partial class SemanticChecker
     {
         var root = _document.Root;
 
-        if (_document.Schema is null)
+        if (_document.Schema is null && !_document.IsNested)
         {
             Error(DiagnosticCodes.UnrecognizedSchema, $"The template is missing '$schema'; expected '{ResourceTypeCatalog.TemplateSchemaUri}#'.", JsonPath.Of("$schema"));
         }
-        else if (!ResourceTypeCatalog.IsTemplateSchemaRecognized(_document.Schema))
+        else if (_document.Schema is not null && !ResourceTypeCatalog.IsTemplateSchemaRecognized(_document.Schema) && !(_document.IsNested && ResourceTypeCatalog.IsArmTemplateSchema(_document.Schema)))
         {
             Error(DiagnosticCodes.UnrecognizedSchema, $"'$schema' value '{_document.Schema}' is not recognised; expected '{ResourceTypeCatalog.TemplateSchemaUri}#'.", JsonPath.Of("$schema"));
         }
@@ -219,7 +219,7 @@ internal sealed partial class SemanticChecker
                 continue;
             }
 
-            if (bound.ConversionFailed)
+            if (bound.ConversionFailed || bound.IsDeployTimeValue)
             {
                 // The loader already reported ParameterValueTypeMismatch for this inline value (with its location).
                 continue;

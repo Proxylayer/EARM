@@ -6,6 +6,7 @@ using EArm.Core;
 using EArm.Core.Diagnostics;
 using EArm.Core.Json;
 using EArm.Core.Types;
+using EArm.Engine.Planning.Nested;
 using EArm.Engine.Providers;
 using EArm.Expressions;
 using EArm.Expressions.Evaluation;
@@ -37,6 +38,12 @@ public enum DependencyKind
 
     /// <summary>A provider-declared apply order (<see cref="IApplyOrderSource"/>: a PIM policy before the schedule requests it governs).</summary>
     Ordering,
+
+    /// <summary>
+    /// A nested deployment (<see cref="DeploymentResourceType"/>) waits for every resource of its template, and those resources wait for what the
+    /// deployment depends on: depending on a deployment means depending on everything inside it.
+    /// </summary>
+    NestedDeployment,
 }
 
 /// <summary><paramref name="Dependent"/> must be applied after <paramref name="Dependency"/>.</summary>
@@ -152,6 +159,9 @@ public sealed class DependencyGraph
         private readonly HashSet<(ResourceInstance, ResourceInstance)> _edgeSet = [];
         private readonly HashSet<(string Code, JsonPath? Path)> _reported;
 
+        /// <summary>The instance whose edges are being added: diagnostics point into its template, and names resolve within it.</summary>
+        private ResourceInstance? _current;
+
         public Builder(IReadOnlyList<ResourceInstance> instances, StaticContext staticContext, ExpressionEvaluator evaluator, ResourceTypeCatalog catalog, List<Diagnostic> diagnostics)
         {
             _instances = instances;
@@ -171,6 +181,7 @@ public sealed class DependencyGraph
         {
             foreach (var instance in _instances)
             {
+                _current = instance;
                 AddDeclaredDependencies(instance);
                 AddParent(instance);
                 AddReferences(instance);
@@ -178,6 +189,14 @@ public sealed class DependencyGraph
                 AddSerialCopy(instance);
             }
 
+            // Nested deployments: a deployment waits for every resource of its template; those wait for what the deployment depends on.
+            foreach (var (dependent, dependency, detail) in NestedDeploymentEdges.Compute(_instances, DependenciesNow))
+            {
+                _current = dependent;
+                AddEdge(dependent, dependency, DependencyKind.NestedDeployment, detail, dependent.Declaration.Path);
+            }
+
+            _current = null;
             if (applyOrder is not null)
             {
                 AddApplyOrder(applyOrder);
@@ -188,6 +207,24 @@ public sealed class DependencyGraph
         }
 
         // ---- edges ----
+
+        /// <summary>The instances <paramref name="instance"/> waits for so far.</summary>
+        private IReadOnlyList<ResourceInstance> DependenciesNow(ResourceInstance instance)
+        {
+            return _edges.Where(e => ReferenceEquals(e.Dependent, instance)).Select(e => e.Dependency).ToList();
+        }
+
+        /// <summary>The static analysis of the template <paramref name="instance"/> belongs to.</summary>
+        private StaticContext StaticOf(ResourceInstance instance)
+        {
+            return instance.Scope?.Static ?? _static;
+        }
+
+        /// <summary>True when <paramref name="instance"/> is declared in the same template as the instance being processed (names resolve within a template).</summary>
+        private bool InCurrentTemplate(ResourceInstance instance)
+        {
+            return _current is null || ReferenceEquals(instance.Scope, _current.Scope);
+        }
 
         private void AddDeclaredDependencies(ResourceInstance instance)
         {
@@ -254,7 +291,7 @@ public sealed class DependencyGraph
             else
             {
                 // Copy iterations: the targets depend on copyIndex(), so scan again with the concrete frame.
-                var scan = ReferenceScanner.Scan(_evaluator, declaration.Properties, _static, instance.Context, declaration.Path.Append("properties"));
+                var scan = ReferenceScanner.Scan(_evaluator, declaration.Properties, StaticOf(instance), instance.Context, declaration.Path.Append("properties"));
                 foreach (var diagnostic in scan.Diagnostics)
                 {
                     Report(diagnostic);
@@ -312,7 +349,7 @@ public sealed class DependencyGraph
             var occurrences = new List<ReferenceOccurrence>();
             var scanDiagnostics = new List<Diagnostic>();
             var path = declaration.Path.Append("name");
-            ReferenceScanner.ScanExpression(_evaluator, declaration.Name, _static, instance.Context, path, occurrences, scanDiagnostics);
+            ReferenceScanner.ScanExpression(_evaluator, declaration.Name, StaticOf(instance), instance.Context, path, occurrences, scanDiagnostics);
             foreach (var diagnostic in scanDiagnostics)
             {
                 Report(diagnostic);
@@ -414,7 +451,7 @@ public sealed class DependencyGraph
 
         private IEnumerable<ResourceInstance> LoopInstances(string copyName)
         {
-            return _instances.Where(i => i.Copy is not null && i.Copy.Name.Equals(copyName, StringComparison.OrdinalIgnoreCase));
+            return _instances.Where(i => i.Copy is not null && i.Copy.Name.Equals(copyName, StringComparison.OrdinalIgnoreCase) && InCurrentTemplate(i));
         }
 
         /// <summary>Resolves a <c>dependsOn</c> entry that depends on <c>copyIndex()</c>, now with the concrete frame.</summary>
@@ -452,14 +489,14 @@ public sealed class DependencyGraph
             if (SymbolicReference.TryParse(target, out var symbolicName, out var copyIndex))
             {
                 var symbolic = _instances
-                    .Where(i => !ReferenceEquals(i, instance) && string.Equals(i.Declaration.SymbolicName, symbolicName, StringComparison.Ordinal) && (copyIndex is null || i.Copy?.Index == copyIndex))
+                    .Where(i => !ReferenceEquals(i, instance) && InCurrentTemplate(i) && string.Equals(i.Declaration.SymbolicName, symbolicName, StringComparison.Ordinal) && (copyIndex is null || i.Copy?.Index == copyIndex))
                     .ToList();
                 if (symbolic.Count > 0)
                 {
                     return symbolic;
                 }
 
-                if (_instances.Any(i => string.Equals(i.Declaration.SymbolicName, symbolicName, StringComparison.Ordinal)))
+                if (_instances.Any(i => InCurrentTemplate(i) && string.Equals(i.Declaration.SymbolicName, symbolicName, StringComparison.Ordinal)))
                 {
                     Error(DiagnosticCodes.DependsOnTargetNotFound, $"dependsOn entry '{target}' names no iteration of '{symbolicName}'.", path);
                     return [];
@@ -477,10 +514,10 @@ public sealed class DependencyGraph
             }
             else if (!TryParseTypeAndName(target, out id))
             {
-                var byName = _instances.Where(i => !i.IsSymbolic && string.Equals(i.Id.Name, target, StringComparison.Ordinal)).ToList();
+                var byName = _instances.Where(i => !i.IsSymbolic && InCurrentTemplate(i) && string.Equals(i.Id.Name, target, StringComparison.Ordinal)).ToList();
                 if (byName.Count == 0)
                 {
-                    byName = _instances.Where(i => !i.IsSymbolic && string.Equals(i.Id.Name, target, StringComparison.OrdinalIgnoreCase)).ToList();
+                    byName = _instances.Where(i => !i.IsSymbolic && InCurrentTemplate(i) && string.Equals(i.Id.Name, target, StringComparison.OrdinalIgnoreCase)).ToList();
                 }
 
                 if (byName.Count == 1)
@@ -516,6 +553,13 @@ public sealed class DependencyGraph
         private bool TryParseTypeAndName(string text, out ResourceIdentifier? identifier)
         {
             identifier = null;
+            string deploymentPrefix = DeploymentResourceType.Type + "/";
+            if (text.StartsWith(deploymentPrefix, StringComparison.OrdinalIgnoreCase) && text.Length > deploymentPrefix.Length && !text[deploymentPrefix.Length..].Contains('/'))
+            {
+                identifier = new ResourceIdentifier(DeploymentResourceType.Type, [text[deploymentPrefix.Length..]]);
+                return true;
+            }
+
             if (!text.StartsWith(ResourceIdentifier.ProviderNamespace + "/", StringComparison.OrdinalIgnoreCase))
             {
                 return false;
@@ -547,6 +591,7 @@ public sealed class DependencyGraph
             if (FindCycle() is { } cycle)
             {
                 string rendered = string.Join(" -> ", cycle.Select(i => i.Id.Id));
+                _current = cycle[0];
                 Error(EngineDiagnosticCodes.DependencyCycle, $"The resources depend on each other in a cycle: {rendered}. Break the cycle by removing a dependsOn entry or moving a reference() into a relationship property, which is applied after all objects exist.", cycle[0].Declaration.Path);
                 return [];
             }
@@ -651,7 +696,11 @@ public sealed class DependencyGraph
 
         private void Error(string code, string message, JsonPath path)
         {
-            Report(Diagnostic.Error(code, message, path, _document.LocationOf(path), _document.SourcePath));
+            // A path of a nested template is reported within the file it sits in (TemplateScope.PathPrefix: the inline template's place in its file).
+            var scope = _current?.Scope;
+            var document = scope?.Document ?? _document;
+            var reported = scope is null ? path : scope.PathPrefix.Append(path);
+            Report(Diagnostic.Error(code, message, reported, document.LocationOf(path), document.SourcePath));
         }
 
         private void Report(Diagnostic diagnostic)

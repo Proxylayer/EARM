@@ -103,6 +103,30 @@ public sealed class TemplateLoader : ITemplateLoader
                 sourcePath));
         }
 
+        return Build(root, element, context, utf8.Length, parameters);
+    }
+
+    /// <summary>
+    /// Loads the inline <c>template</c> object of a nested deployment as a document of its own (<see cref="TemplateDocument.IsNested"/>). Its paths are
+    /// relative to the object; <paramref name="sourceMap"/> (the file's map rebased on the object, <see cref="SourceMap.Rebase"/>) keeps the
+    /// locations those of <paramref name="sourcePath"/>. The node tree is shared with the parent template and must not be mutated.
+    /// </summary>
+    public TemplateDocument LoadNested(JsonObject root, string? sourcePath, SourceMap sourceMap, ParameterSet parameters)
+    {
+        ArgumentNullException.ThrowIfNull(root);
+        ArgumentNullException.ThrowIfNull(sourceMap);
+        ArgumentNullException.ThrowIfNull(parameters);
+
+        string text = root.ToJsonString();
+        using var parsed = JsonDocument.Parse(text);
+        var element = parsed.RootElement.Clone();
+        long length = Encoding.UTF8.GetByteCount(text);
+        return Build(root, element, new LoadContext(sourcePath, sourceMap), length, parameters) with { IsNested = true };
+    }
+
+    private TemplateDocument Build(JsonObject root, JsonElement element, LoadContext context, long byteLength, ParameterSet parameters)
+    {
+        string? sourcePath = context.SourcePath;
         bool symbolic = LanguageVersions.IsVersion2(root, context);
         var definitions = ReadDefinitions(root);
         var parameterDefinitions = ReadParameters(root, definitions, context);
@@ -123,7 +147,7 @@ public sealed class TemplateLoader : ITemplateLoader
             Root = root,
             RootElement = element,
             SourcePath = sourcePath,
-            SourceByteLength = utf8.Length,
+            SourceByteLength = byteLength,
             Schema = TemplateJson.AsString(root["$schema"]),
             ContentVersion = TemplateJson.AsString(root["contentVersion"]),
             Metadata = root["metadata"] as JsonObject,

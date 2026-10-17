@@ -37,7 +37,8 @@ internal static class SymbolicNames
                 instance.Id = id;
                 instance.IsSymbolic = false;
                 instance.NameValue = evaluation.Value;
-                plan.Index.Add(new TemplateResourceIndex.Entry(id, false, instance.Declaration, TemplateJson.LiteralString(instance.Declaration.Copy?.Name), instance.Copy?.Index));
+                // The index of the template the instance is declared in (the main template's is plan.Index; a nested template has its own).
+                instance.Context.Resources.Add(new TemplateResourceIndex.Entry(id, false, instance.Declaration, TemplateJson.LiteralString(instance.Declaration.Copy?.Name), instance.Copy?.Index));
                 plan.RegisterResolvedId(instance);
                 LinkParent(plan, instance);
                 EngineLog.SymbolicNameResolved(logger, instance.PlannedId.Id, id.Id);

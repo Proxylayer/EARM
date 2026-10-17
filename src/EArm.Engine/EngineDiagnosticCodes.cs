@@ -287,4 +287,22 @@ public static class EngineDiagnosticCodes
 
     /// <summary>Reading <c>/users/{id}/manager</c> was refused (403); the manager relationship is skipped instead of failing.</summary>
     public const string ManagerReadForbidden = "ManagerReadForbidden";
+
+    /// <summary>A linked template or parameter file (<c>templateLink</c>, <c>parametersLink</c>) could not be located, read or downloaded.</summary>
+    public const string LinkedTemplateUnavailable = "LinkedTemplateUnavailable";
+
+    /// <summary>A linked template links (directly or through others) to itself.</summary>
+    public const string LinkedTemplateCycle = "LinkedTemplateCycle";
+
+    /// <summary>The <c>contentVersion</c> of a <c>templateLink</c> / <c>parametersLink</c> does not match the linked file.</summary>
+    public const string LinkedTemplateContentVersionMismatch = "LinkedTemplateContentVersionMismatch";
+
+    /// <summary>Nested deployments go deeper than the depth limit, or more of them are expanded than the run allows.</summary>
+    public const string NestedDeploymentLimitExceeded = "NestedDeploymentLimitExceeded";
+
+    /// <summary>A value that decides how a nested deployment expands (its condition, name, template location, mode) is only known at deployment.</summary>
+    public const string NestedDeploymentNotStatic = "NestedDeploymentNotStatic";
+
+    /// <summary>A linked https template is not fetched by offline validation; its resources are checked by what-if and create.</summary>
+    public const string LinkedTemplateNotFetched = "LinkedTemplateNotFetched";
 }

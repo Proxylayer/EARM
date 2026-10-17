@@ -185,6 +185,25 @@ Every function result is checked against the limits of [format.md](format.md#eva
 | `DuplicateResourceId` | Error | (Also here) Two declarations produce the same id after evaluating expression names (literal pairs are reported by the core validator). |
 | `InvalidCopy` | Error | (Also here) `copy.count` evaluates to a negative or non-integer value, or depends on `copyIndex()`. |
 
+## Nested and linked deployments
+
+Raised for `Microsoft.Resources/deployments` resources (see [format.md](format.md#nested-and-linked-deployments)). The first three come from the
+offline checks of the declaration; the others from the expansion of the nested templates, which `validate`, `what-if`, `create`, `delete` and
+`permissions` run. A finding inside a nested template uses the ordinary codes above; its path is the place in the file that holds it (the inline
+template's path in the parent, or the linked file).
+
+| Code | Severity | Meaning |
+|---|---|---|
+| `InvalidNestedDeployment` | Error | The deployment's shape is wrong: no `properties`, `mode` missing or not `Incremental` (ARM allows only Incremental for nested and linked deployments; deploy the parent with `--mode Complete` instead), both or neither of `template` and `templateLink`, `templateLink` without exactly one of `relativePath` / `uri`, both `parameters` and `parametersLink`, a `parameters` entry without `value`, a `scope` that is not the literal `inner` / `outer`, `outer` in a languageVersion 2.0 template (ARM blocks it), `parameters` passed to an outer-scope template, a `copy` loop inside an outer-scope template (ARM rule), or child `resources` on the deployment. |
+| `NestedDeploymentFeatureNotSupported` | Error | A deployment feature EARM does not have: `templateLink.id` (template specs are Azure resources), `subscriptionId` / `resourceGroup` / `scope` (another Azure scope), a `template` given as a JSON string or an expression, a Key Vault `reference` in `parameters` (pass the secret from a secure parameter of the parent instead) or in a linked parameter file, a parameter `expression`. |
+| `NestedDeploymentPropertyIgnored` | Warning | A property is accepted and ignored: `location`, `tags`, `identity`, `properties` keys EARM does not read (`onErrorDeployment`, `validationLevel`, `extensionConfigs`...), `scope: outer` on a linked template (always inner), or `parameters` / `variables` / `functions` declared by a template evaluated in the outer scope (the parent's are used). |
+| `LinkedTemplateUnavailable` | Error | A linked template or parameter file could not be located (an absolute `relativePath`, a `uri` that is not https or carries a user name or password, a `relativePath` in a template that was not read from a file or URL), read or downloaded (a redirect, an error status, no answer within 120 s; the URL is shown without its query string). |
+| `LinkedTemplateCycle` | Error | A linked template is deployed again by a template it encloses (directly or through other links). |
+| `LinkedTemplateContentVersionMismatch` | Error | `templateLink.contentVersion` / `parametersLink.contentVersion` differs from the `contentVersion` of the linked file (ARM rule). |
+| `NestedDeploymentLimitExceeded` | Error | Nested deployments go deeper than 10 levels, or more than 500 are expanded in one run (ARM's what-if limit of nested templates). |
+| `NestedDeploymentNotStatic` | Error / Warning | A value that decides what a nested deployment expands (its `condition`, `name`, `mode`, template location or parameter file) depends on a value only known at deployment. Offline (`validate`, `permissions`) it is a warning: the value may only lack a parameter, and the deployment is not expanded. |
+| `LinkedTemplateNotFetched` | Warning | `validate` does not download https linked templates (or parameter files); the deployment is not expanded offline. `what-if`, `create` and `delete` download and check it. |
+
 ## Still not checked offline
 
 Duplicate ids between `copy` iterations need copy expansion; `memberOf` targeting a dynamic group,

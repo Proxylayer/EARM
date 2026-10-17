@@ -54,6 +54,7 @@ public sealed class TemplateValidator : ITemplateValidator
         var diagnostics = new List<Diagnostic>(document.LoadDiagnostics);
         new SemanticChecker(_catalog, document, diagnostics).Run();
         new CopyBlockChecker(document, diagnostics).Run();
+        new NestedDeploymentChecker(document, diagnostics).Run();
         new ArmLimitChecker(document, diagnostics).Run();
         new TypeDefinitionChecker(document, diagnostics).Run();
         new FederatedCredentialChecker(document, diagnostics).Run();

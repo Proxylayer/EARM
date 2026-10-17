@@ -78,10 +78,43 @@ public sealed class ResourceTypeCatalog
         return schema is not null && KnownTemplateSchemas.Any(s => s.Equals(schema.Trim(), StringComparison.OrdinalIgnoreCase));
     }
 
+    /// <summary>
+    /// True for ARM's own template schema (<c>https://schema.management.azure.com/schemas/&lt;date&gt;/deploymentTemplate.json#</c>), which the template of a
+    /// nested or linked deployment may declare (ARM snippets paste in); the top-level template must declare EARM's.
+    /// </summary>
+    public static bool IsArmTemplateSchema(string? schema)
+    {
+        if (schema is null)
+        {
+            return false;
+        }
+
+        string text = schema.Trim().TrimEnd('#');
+        return text.StartsWith("https://schema.management.azure.com/schemas/", StringComparison.OrdinalIgnoreCase)
+            && text.EndsWith("/deploymentTemplate.json", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>The definition of <paramref name="type"/>; template-level types (<see cref="DeploymentResourceType"/>) resolve too.</summary>
     public bool TryGet(string? type, out ResourceTypeDefinition definition)
     {
         definition = null!;
-        return type is not null && _byType.TryGetValue(ResourceIdentifier.NormalizeType(type), out definition!);
+        if (type is null)
+        {
+            return false;
+        }
+
+        if (_byType.TryGetValue(ResourceIdentifier.NormalizeType(type), out definition!))
+        {
+            return true;
+        }
+
+        if (DeploymentResourceType.Is(type))
+        {
+            definition = DeploymentResourceType.Definition;
+            return true;
+        }
+
+        return false;
     }
 
     public ResourceTypeDefinition? Find(string? type)
@@ -137,6 +170,20 @@ public sealed class ResourceTypeCatalog
         if (!text.StartsWith(ResourceIdentifier.ProvidersPrefix, StringComparison.OrdinalIgnoreCase))
         {
             return false;
+        }
+
+        // A nested deployment: /providers/Microsoft.Resources/deployments/<name>.
+        string deploymentPrefix = ResourceIdentifier.ProvidersPrefix + DeploymentResourceType.Type + "/";
+        if (text.StartsWith(deploymentPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            string deploymentName = text[deploymentPrefix.Length..];
+            if (deploymentName.Length == 0 || deploymentName.Contains('/'))
+            {
+                return false;
+            }
+
+            identifier = new ResourceIdentifier(DeploymentResourceType.Type, [deploymentName]);
+            return true;
         }
 
         var segments = text[ResourceIdentifier.ProvidersPrefix.Length..].Split('/', StringSplitOptions.RemoveEmptyEntries);

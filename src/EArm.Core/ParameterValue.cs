@@ -62,4 +62,10 @@ public sealed record BoundParameter
     /// holds the raw text; later type checks skip the value instead of reporting it again.
     /// </summary>
     public bool ConversionFailed { get; init; }
+
+    /// <summary>
+    /// True when the value was passed by a parent template to a nested deployment and depends on something only known at deployment (a resource the
+    /// parent deploys): <see cref="Value"/> holds deploy-time placeholders, so its type and constraints are checked once it is known, not offline.
+    /// </summary>
+    public bool IsDeployTimeValue { get; init; }
 }
