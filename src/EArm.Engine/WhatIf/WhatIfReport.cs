@@ -57,6 +57,12 @@ public sealed class WhatIfRow
 
     public string ResourceId => Change.Id.Id;
 
+    /// <summary>
+    /// The nested deployments that deploy the resource, from the main template down (<c>network/subnets</c>), or <c>null</c> for a resource of the
+    /// main template. ARM's what-if lists the resources of nested templates as ordinary rows; EARM names the deployment they come from.
+    /// </summary>
+    public string? DeploymentPath => Instance?.DeploymentPath;
+
     public string ResourceType => Change.ResourceType;
 
     public ChangeType Type => Change.Type;

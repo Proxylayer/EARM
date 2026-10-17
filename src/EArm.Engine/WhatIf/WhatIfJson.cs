@@ -149,6 +149,12 @@ public static class WhatIfJson
             ["changeType"] = row.DisplayType(format).ToString(),
         };
 
+        if (row.DeploymentPath is { } deployment)
+        {
+            // EARM: the nested deployments that deploy the resource (ARM lists such resources as ordinary changes).
+            json["deployment"] = deployment;
+        }
+
         if (format == ResultFormat.FullResourcePayloads)
         {
             // ARM: Create carries after, Delete carries before, Modify and NoChange carry both; only Modify has a delta.

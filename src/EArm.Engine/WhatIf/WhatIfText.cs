@@ -118,7 +118,7 @@ public static class WhatIfText
             writer.WriteLine("Skipped (condition false; not part of the deployment, nothing is read or written):");
             foreach (var row in report.Skipped)
             {
-                writer.WriteLine($"{RowIndent}{row.ResourceId} [{row.ResourceType}]");
+                writer.WriteLine($"{RowIndent}{row.ResourceId} [{row.ResourceType}]{DeploymentNote(row)}");
             }
 
             writer.WriteLine();
@@ -167,6 +167,12 @@ public static class WhatIfText
         }
     }
 
+    /// <summary>The note after a row of a resource deployed by a nested deployment: <c> (nested deployment: outer/inner)</c>; empty for the main template.</summary>
+    private static string DeploymentNote(WhatIfRow row)
+    {
+        return row.DeploymentPath is { } path ? $" (nested deployment: {path})" : string.Empty;
+    }
+
     private static void RenderRow(WhatIfRow row, TextWriter writer, WhatIfTextOptions options)
     {
         // The colour key of the row: a Deploy row (ResourceIdOnly) is blue, not the bold red of a change that cannot be applied.
@@ -177,7 +183,7 @@ public static class WhatIfText
             OrphanReason.Undeclared => " (orphan: undeclared)",
             _ => string.Empty,
         };
-        writer.WriteLine(Colour(options, symbol, $"{RowIndent}{row.MarkerFor(options.Format)} {row.ResourceId} [{row.ResourceType}]{orphan}"));
+        writer.WriteLine(Colour(options, symbol, $"{RowIndent}{row.MarkerFor(options.Format)} {row.ResourceId} [{row.ResourceType}]{orphan}{DeploymentNote(row)}"));
 
         bool full = options.Format == ResultFormat.FullResourcePayloads;
         switch (row.Type)
