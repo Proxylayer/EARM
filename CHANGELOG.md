@@ -10,6 +10,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - docs/engine.md no longer says a resource whose condition is false is kept as an `Ignore` row: it is left out of the
   deployment and the what-if lists it only as skipped (`skipped[]`).
+- `union()` and `intersection()` with a single argument are rejected (`InvalidFunctionArguments`), as ARM requires at
+  least two.
 
 ## [0.2.0] - 2026-10-17
 

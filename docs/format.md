@@ -389,7 +389,7 @@ ARM comparison rules apply: `contains()` on a string is case-sensitive (on an ob
 `startsWith`, `endsWith`, `indexOf` and `lastIndexOf` on strings ignore case. `less`, `lessOrEquals`, `greater` and `greaterOrEquals` order
 strings as ARM does, by culture-aware comparison rather than character code: a lowercase letter sorts before the same uppercase letter, so
 `greater('A', 'a')` is true. `like(text, pattern)` ignores case and knows one wildcard, `*` (any run of characters, possibly empty); every
-other character, `?` included, matches only itself. `and` and `or` take at least two arguments. `union()` of objects merges nested objects
+other character, `?` included, matches only itself. `and`, `or`, `union` and `intersection` take at least two arguments. `union()` of objects merges nested objects
 recursively (arrays are replaced, the last one wins) and, like `intersection()`, matches property names case-insensitively (the first
 spelling is kept); `shallowMerge()` replaces nested objects whole. `array()` returns an array argument unchanged and wraps anything else.
 `range(start, count)` needs `count` between 0 and 10,000 and `start + count` at most 2,147,483,647, as in ARM. `guid()` and
