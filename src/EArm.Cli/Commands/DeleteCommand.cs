@@ -86,7 +86,7 @@ internal static class DeleteCommand
 
         if (!invocation.Yes && !Confirm(invocation, targets, preflight.TenantId, stdout, stderr, readLine))
         {
-            return VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.Failure, "NotConfirmed", "Nothing deleted.");
+            return VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.Failure, CliDiagnosticCodes.NotConfirmed, "Nothing deleted.");
         }
 
         var result = await deleter.DeleteAsync(plan, targets, invocation.ContinueOnError, cancellationToken).ConfigureAwait(false);

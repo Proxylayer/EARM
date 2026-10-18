@@ -342,7 +342,7 @@ internal static class AuthCommand
     }
 
     /// <summary>Diagnostic code of a sign-in that could not be read (CLI-level, like <see cref="ValidateCommand.InvalidArgumentCode"/>).</summary>
-    public const string AuthenticationFailedCode = "AuthenticationFailed";
+    public const string AuthenticationFailedCode = CliDiagnosticCodes.AuthenticationFailed;
 
     /// <summary>
     /// Reports a failed <c>auth status</c>: the message on standard error as ever, and with <c>-o json</c> also a JSON document on standard

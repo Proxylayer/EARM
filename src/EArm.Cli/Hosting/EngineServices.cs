@@ -106,7 +106,7 @@ internal sealed class EngineServices : IDisposable
         }
         catch (InvalidOperationException ex)
         {
-            exitCode = VerbOutput.Fail(output, stdout, stderr, ExitCodes.AuthOrPreflight, "PreflightFailed", "Preflight failed: " + ex.Message);
+            exitCode = VerbOutput.Fail(output, stdout, stderr, ExitCodes.AuthOrPreflight, CliDiagnosticCodes.PreflightFailed, "Preflight failed: " + ex.Message);
             return false;
         }
     }

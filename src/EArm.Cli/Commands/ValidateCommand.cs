@@ -41,7 +41,7 @@ internal enum ValidationLevel
 internal static class ValidateCommand
 {
     /// <summary>Diagnostic code for malformed command-line arguments (CLI-level, not a template finding).</summary>
-    public const string InvalidArgumentCode = "InvalidArgument";
+    public const string InvalidArgumentCode = CliDiagnosticCodes.InvalidArgument;
 
     public static Command Build()
     {

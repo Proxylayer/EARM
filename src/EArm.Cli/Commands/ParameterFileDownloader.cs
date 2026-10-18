@@ -21,7 +21,7 @@ namespace EArm.Cli.Commands;
 internal sealed class ParameterFileDownloader
 {
     /// <summary>The diagnostic code of a parameter file that could not be downloaded (CLI only).</summary>
-    public const string DownloadFailedCode = "ParameterDownloadFailed";
+    public const string DownloadFailedCode = CliDiagnosticCodes.ParameterDownloadFailed;
 
     /// <summary>The time one download may take (connection, headers and body), as the per-call timeout of the Graph and Key Vault requests.</summary>
     public static readonly TimeSpan Timeout = TimeSpan.FromSeconds(120);

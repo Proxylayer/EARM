@@ -182,7 +182,7 @@ internal sealed class PlannedDeployment : IDisposable
         catch (Exception ex) when (ex is GraphTransportException or GraphException)
         {
             // A missing delegated consent (non-interactive run, declined prompt, scp check) has its own code; nothing has been written.
-            string code = ConsentRequiredException.FindIn(ex) is null ? "PreflightFailed" : "ConsentRequired";
+            string code = ConsentRequiredException.FindIn(ex) is null ? CliDiagnosticCodes.PreflightFailed : CliDiagnosticCodes.ConsentRequired;
             return (VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.AuthOrPreflight, code, "Preflight failed: " + SecretScrubber.Scrub(ex.Message)), null, null);
         }
 
@@ -231,7 +231,7 @@ internal sealed class PlannedDeployment : IDisposable
         }
         catch (UnknownProviderException ex)
         {
-            return (VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.Failure, "UnknownProvider", ex.Message), null, null);
+            return (VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.Failure, CliDiagnosticCodes.UnknownProvider, ex.Message), null, null);
         }
     }
 
