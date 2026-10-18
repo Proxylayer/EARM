@@ -33,7 +33,6 @@ namespace EArm.Engine.Edges;
 /// </summary>
 public sealed class EdgePlanner
 {
-    private readonly DeploymentPlan _plan;
     private readonly EdgeGraphContext _context;
     private readonly EdgeKindRegistry _kinds;
     private readonly PlanMode _mode;
@@ -54,7 +53,6 @@ public sealed class EdgePlanner
     {
         ArgumentNullException.ThrowIfNull(plan);
         ArgumentNullException.ThrowIfNull(context);
-        _plan = plan;
         _context = context;
         _kinds = plan.EdgeKinds;
         _mode = mode;
