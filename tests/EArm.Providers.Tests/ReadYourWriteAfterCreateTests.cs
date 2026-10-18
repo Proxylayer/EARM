@@ -45,6 +45,7 @@ public sealed class ReadYourWriteAfterCreateTests
 
         Assert.Equal(
             [
+                "Microsoft.Entra/accessReviews/definitions",
                 "Microsoft.Entra/administrativeUnits",
                 "Microsoft.Entra/conditionalAccess/authenticationStrengths",
                 "Microsoft.Entra/conditionalAccess/namedLocations",

@@ -1106,6 +1106,82 @@ $specs['entitlementManagement.accessPackages.assignmentPolicies'] = [ordered]@{
     }
 }
 
+# --- accessReviews/definitions --------------------------------------------------------------------------------------
+$queryScopeTypes = '#microsoft.graph.accessReviewQueryScope', '#microsoft.graph.accessReviewInactiveUsersQueryScope'
+$queryScopeProps = [ordered]@{
+    '@odata.type' = Str 'accessReviewQueryScope (the default), or accessReviewInactiveUsersQueryScope with inactiveDuration.' -Enum $queryScopeTypes
+    query         = Str 'The Microsoft Graph query of the principals or resources, for example /groups/{groupId}/transitiveMembers. Build ids with concat / format and reference(...).id.' -Min 1
+    queryType     = Str 'The query language; MicrosoftGraph.' -Enum 'MicrosoftGraph'
+    queryRoot     = Str 'The resource the relative query (./members) is applied to, for example /v1.0/groups.' -Nullable
+    inactiveDuration = Str 'accessReviewInactiveUsersQueryScope: the inactivity period, an ISO 8601 duration such as P30D.'
+}
+$reviewerScope = Obj '' -Required 'query' -Props (Props ([ordered]@{
+    query     = Str 'Who reviews: /users/{userId}, /groups/{groupId}/transitiveMembers, ./owners (the reviewed group''s owners) or ./manager (with queryRoot decisions).' -Min 1
+    queryType = Str 'The query language; MicrosoftGraph.' -Enum 'MicrosoftGraph'
+    queryRoot = Str 'decisions for ./manager (each reviewed principal''s manager); otherwise omitted.' -Nullable
+}))
+$weekDays = 'sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'
+
+$specs['accessReviews.definitions'] = [ordered]@{
+    NamePattern = $uniqueNamePattern
+    Description = 'An access review series (accessReviewScheduleDefinition). The resource name is the displayName; it is looked up by displayName on every run (more than one match is an error). Updates replace the whole definition (PUT) with the undeclared settings kept from the live object, and apply to future instances only; scope and instanceEnumerationScope cannot change after creation, reviewers only while they are individual users (/users/{id}).'
+    Props       = [ordered]@{
+        displayName             = Str 'Set from the resource name; declaring it is only allowed when it equals the name.'
+        descriptionForAdmins    = Str 'Required: the context of the review shown to administrators.'
+        descriptionForReviewers = Str 'Required: the context shown to reviewers (in the notification emails, up to 256 characters).' -Max 256
+        scope                   = Obj -d 'Required, immutable: whose access is reviewed. An accessReviewQueryScope (query, queryType, queryRoot), for example /groups/{groupId}/transitiveMembers or /identityGovernance/entitlementManagement/accessPackageAssignments?$filter=(accessPackageId eq ''{packageId}''); or a principalResourceMembershipsScope (principalScopes, resourceScopes).' -Props (Props ([ordered]@{
+            '@odata.type'   = Str 'The scope type; #microsoft.graph.accessReviewQueryScope when omitted.' -Enum ($queryScopeTypes + '#microsoft.graph.principalResourceMembershipsScope')
+            query           = $queryScopeProps.query
+            queryType       = $queryScopeProps.queryType
+            queryRoot       = $queryScopeProps.queryRoot
+            inactiveDuration = $queryScopeProps.inactiveDuration
+            principalScopes = Arr -d 'principalResourceMembershipsScope: the principals whose access is reviewed.' -Items (Obj '' -Required 'query' -Props (Props $queryScopeProps))
+            resourceScopes  = Arr -d 'principalResourceMembershipsScope: the resources the principals'' access to is reviewed.' -Items (Obj '' -Required 'query' -Props (Props $queryScopeProps))
+        }))
+        instanceEnumerationScope = Obj -d 'Immutable: which resources each instance covers when the scope is relative (all Microsoft 365 groups with guests), for example { "query": "/groups?$filter=(groupTypes/any(c:c eq ''Unified''))", "queryType": "MicrosoftGraph" }.' -Props (Props ([ordered]@{
+            '@odata.type' = $queryScopeProps.'@odata.type'
+            query         = $queryScopeProps.query
+            queryType     = $queryScopeProps.queryType
+            queryRoot     = $queryScopeProps.queryRoot
+        }))
+        reviewers               = Arr -d 'Who reviews (accessReviewReviewerScope); none is a self-review. Graph updates them only while they are individual users (/users/{id}). Compared as a set.' -Items $reviewerScope
+        fallbackReviewers       = Arr -d 'Who reviews when the reviewers resolve to nobody (a group without owners, a user without a manager). Compared as a set.' -Items $reviewerScope
+        backupReviewers         = Arr -d 'Deprecated alias of fallbackReviewers (Graph copies one into the other); declare fallbackReviewers instead.' -Items $reviewerScope
+        settings                = Obj -d 'accessReviewScheduleSettings. Only declared members are compared; an update keeps the undeclared ones.' -Props (Props ([ordered]@{
+            mailNotificationsEnabled             = Bool 'Whether reviewers get emails. Graph default false.'
+            reminderNotificationsEnabled         = Bool 'Whether reviewers get reminders. Graph default false.'
+            justificationRequiredOnApproval      = Bool 'Whether a reviewer must justify an approval. Graph default false.'
+            defaultDecisionEnabled               = Bool 'Whether defaultDecision applies when reviewers do not respond. Graph default false.'
+            defaultDecision                      = Str 'The decision taken when reviewers do not respond (with defaultDecisionEnabled): Approve, Deny or Recommendation (Graph returns None when disabled).' -Enum 'Approve', 'Deny', 'Recommendation', 'None'
+            instanceDurationInDays               = Int 'How many days each instance stays open.' -Min 0
+            autoApplyDecisionsEnabled            = Bool 'Whether decisions are applied automatically when an instance ends. With defaultDecisionEnabled, unreviewed access may be removed. Graph default false.'
+            recommendationsEnabled               = Bool 'Whether reviewers see decision recommendations.'
+            decisionHistoriesForReviewersEnabled = Bool 'Multi-stage reviews: whether reviewers see the decisions of earlier stages. Graph default false.'
+            recurrence                           = Obj -d 'patternedRecurrence: how often the review recurs; range.startDate is the day the first instance starts.' -Props (Props ([ordered]@{
+                pattern = Obj -d 'recurrencePattern. Graph honours only type (weekly or absoluteMonthly), interval and dayOfMonth; for example { "type": "absoluteMonthly", "interval": 3 } for quarterly.' -Props (Props ([ordered]@{
+                    type           = Str 'weekly or absoluteMonthly.' -Enum 'weekly', 'absoluteMonthly'
+                    interval       = Int 'The number of weeks or months between instances; at least 1.' -Min 1
+                    dayOfMonth     = Int 'absoluteMonthly: the day of the month (1-31); Graph returns 0 otherwise.' -Min 0 -Max 31
+                    month          = Int 'Ignored by access reviews; Graph returns 0.' -Min 0 -Max 12
+                    daysOfWeek     = Arr -d 'Ignored by access reviews.' -Items (Str '' -Enum $weekDays) -Nullable
+                    firstDayOfWeek = Str 'Ignored by access reviews.' -Enum $weekDays -Nullable
+                    index          = Str 'Ignored by access reviews.' -Enum 'first', 'second', 'third', 'fourth', 'last' -Nullable
+                }))
+                range   = Obj -d 'recurrenceRange: noEnd, endDate (with endDate) or numbered (with numberOfOccurrences).' -Props (Props ([ordered]@{
+                    type                = Str 'noEnd, endDate or numbered.' -Enum 'noEnd', 'endDate', 'numbered'
+                    startDate           = Str 'The day the first instance starts (yyyy-MM-dd).' -Nullable
+                    endDate             = Str 'endDate: the last date (yyyy-MM-dd).' -Nullable
+                    numberOfOccurrences = Int 'numbered: how many instances; Graph returns 0 otherwise.' -Min 0
+                    recurrenceTimeZone  = Str 'The time zone of the dates.' -Nullable
+                }))
+            }))
+            applyActions = Arr -d 'accessReviewApplyAction array: removeAccessApplyAction (the default) or disableAndDeleteUserApplyAction.' -Items (FreeObj '')
+        }))
+        stageSettings = Arr -d 'accessReviewStageSettings array (multi-stage reviews, up to three stages): overrides reviewers, fallbackReviewers and the matching settings. Passed through; Graph updates only the stages'' reviewers and fallbackReviewers after creation.' -Items (FreeObj '')
+        additionalNotificationRecipients = Arr -d 'accessReviewNotificationRecipientItem array: other people notified of the review''s progress. Passed through.' -Items (FreeObj '')
+    }
+}
+
 # ---------------------------------------------------------------------------------------------------------------
 # Rewrite the files
 # ---------------------------------------------------------------------------------------------------------------

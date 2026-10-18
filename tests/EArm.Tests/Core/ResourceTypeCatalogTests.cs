@@ -14,6 +14,7 @@ public sealed class ResourceTypeCatalogTests
     /// <summary>The fifteen v1 types, in catalog (case-insensitive ordinal) order.</summary>
     private static readonly string[] ExpectedTypes =
     [
+        "Microsoft.Entra/accessReviews/definitions",
         "Microsoft.Entra/administrativeUnits",
         "Microsoft.Entra/applications",
         "Microsoft.Entra/applications/extensionProperties",
@@ -71,7 +72,7 @@ public sealed class ResourceTypeCatalogTests
     public void Default_ContainsExactlyTheExpectedTypes()
     {
         Assert.Equal(ExpectedTypes, Catalog.Types.Select(t => t.Type).ToList());
-        Assert.Equal(35, EmbeddedSchemas.NamesUnder(EmbeddedSchemas.TypeSchemaPrefix).Count);
+        Assert.Equal(36, EmbeddedSchemas.NamesUnder(EmbeddedSchemas.TypeSchemaPrefix).Count);
         Assert.Same(Catalog, ResourceTypeCatalog.Default);
     }
 
@@ -195,7 +196,7 @@ public sealed class ResourceTypeCatalogTests
             Assert.Contains("{parentId}", child.GraphPath);
         });
 
-        Assert.Equal(30, Catalog.Types.Count(t => !t.IsChildType));
+        Assert.Equal(31, Catalog.Types.Count(t => !t.IsChildType));
         Assert.All(Catalog.Types.Where(t => !t.IsChildType), t => Assert.Equal(1, t.Depth));
         Assert.Empty(Catalog.ChildrenOf("Microsoft.Entra/groups"));
     }
@@ -305,7 +306,7 @@ public sealed class ResourceTypeCatalogTests
         Assert.Equal("https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentParameters.json", ResourceTypeCatalog.ParametersSchemaUri);
         Assert.Contains(EmbeddedSchemas.TemplateSchemaResource, EmbeddedSchemas.Names);
         Assert.Contains(EmbeddedSchemas.ParametersSchemaResource, EmbeddedSchemas.Names);
-        Assert.Equal(37, EmbeddedSchemas.Names.Count);
+        Assert.Equal(38, EmbeddedSchemas.Names.Count);
         Assert.Contains("\"$id\": \"https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json\"", EmbeddedSchemas.ReadText(EmbeddedSchemas.TemplateSchemaResource));
         Assert.NotEmpty(EmbeddedSchemas.ReadBytes(EmbeddedSchemas.ParametersSchemaResource));
     }

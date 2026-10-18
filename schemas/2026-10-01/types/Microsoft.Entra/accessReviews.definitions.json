@@ -1,0 +1,477 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/accessReviews.definitions.json",
+  "title": "Microsoft.Entra/accessReviews/definitions",
+  "description": "An access review series (accessReviewScheduleDefinition). The resource name is the displayName; it is looked up by displayName on every run (more than one match is an error). Updates replace the whole definition (PUT) with the undeclared settings kept from the live object, and apply to future instances only; scope and instanceEnumerationScope cannot change after creation, reviewers only while they are individual users (/users/{id}).",
+  "type": "object",
+  "properties": {
+    "displayName": {
+      "description": "Set from the resource name; declaring it is only allowed when it equals the name.",
+      "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+    },
+    "descriptionForAdmins": {
+      "description": "Required: the context of the review shown to administrators.",
+      "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+    },
+    "descriptionForReviewers": {
+      "description": "Required: the context shown to reviewers (in the notification emails, up to 256 characters).",
+      "anyOf": [ { "type": "string", "maxLength": 256 }, { "$ref": "#/$defs/expression" } ]
+    },
+    "scope": {
+      "description": "Required, immutable: whose access is reviewed. An accessReviewQueryScope (query, queryType, queryRoot), for example /groups/{groupId}/transitiveMembers or /identityGovernance/entitlementManagement/accessPackageAssignments?$filter=(accessPackageId eq '{packageId}'); or a principalResourceMembershipsScope (principalScopes, resourceScopes).",
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "@odata.type": {
+              "description": "The scope type; #microsoft.graph.accessReviewQueryScope when omitted.",
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "#microsoft.graph.accessReviewQueryScope",
+                    "#microsoft.graph.accessReviewInactiveUsersQueryScope",
+                    "#microsoft.graph.principalResourceMembershipsScope"
+                  ]
+                },
+                { "$ref": "#/$defs/expression" }
+              ]
+            },
+            "query": {
+              "description": "The Microsoft Graph query of the principals or resources, for example /groups/{groupId}/transitiveMembers. Build ids with concat / format and reference(...).id.",
+              "anyOf": [ { "type": "string", "minLength": 1 }, { "$ref": "#/$defs/expression" } ]
+            },
+            "queryType": {
+              "description": "The query language; MicrosoftGraph.",
+              "anyOf": [ { "type": "string", "enum": [ "MicrosoftGraph" ] }, { "$ref": "#/$defs/expression" } ]
+            },
+            "queryRoot": {
+              "description": "The resource the relative query (./members) is applied to, for example /v1.0/groups.",
+              "anyOf": [ { "type": [ "string", "null" ] }, { "$ref": "#/$defs/expression" } ]
+            },
+            "inactiveDuration": {
+              "description": "accessReviewInactiveUsersQueryScope: the inactivity period, an ISO 8601 duration such as P30D.",
+              "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+            },
+            "principalScopes": {
+              "description": "principalResourceMembershipsScope: the principals whose access is reviewed.",
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "@odata.type": {
+                            "description": "accessReviewQueryScope (the default), or accessReviewInactiveUsersQueryScope with inactiveDuration.",
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [ "#microsoft.graph.accessReviewQueryScope", "#microsoft.graph.accessReviewInactiveUsersQueryScope" ]
+                              },
+                              { "$ref": "#/$defs/expression" }
+                            ]
+                          },
+                          "query": {
+                            "description": "The Microsoft Graph query of the principals or resources, for example /groups/{groupId}/transitiveMembers. Build ids with concat / format and reference(...).id.",
+                            "anyOf": [ { "type": "string", "minLength": 1 }, { "$ref": "#/$defs/expression" } ]
+                          },
+                          "queryType": {
+                            "description": "The query language; MicrosoftGraph.",
+                            "anyOf": [ { "type": "string", "enum": [ "MicrosoftGraph" ] }, { "$ref": "#/$defs/expression" } ]
+                          },
+                          "queryRoot": {
+                            "description": "The resource the relative query (./members) is applied to, for example /v1.0/groups.",
+                            "anyOf": [ { "type": [ "string", "null" ] }, { "$ref": "#/$defs/expression" } ]
+                          },
+                          "inactiveDuration": {
+                            "description": "accessReviewInactiveUsersQueryScope: the inactivity period, an ISO 8601 duration such as P30D.",
+                            "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                          }
+                        },
+                        "required": [ "query" ]
+                      },
+                      { "$ref": "#/$defs/expression" }
+                    ]
+                  }
+                },
+                { "$ref": "#/$defs/expression" }
+              ]
+            },
+            "resourceScopes": {
+              "description": "principalResourceMembershipsScope: the resources the principals' access to is reviewed.",
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "@odata.type": {
+                            "description": "accessReviewQueryScope (the default), or accessReviewInactiveUsersQueryScope with inactiveDuration.",
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [ "#microsoft.graph.accessReviewQueryScope", "#microsoft.graph.accessReviewInactiveUsersQueryScope" ]
+                              },
+                              { "$ref": "#/$defs/expression" }
+                            ]
+                          },
+                          "query": {
+                            "description": "The Microsoft Graph query of the principals or resources, for example /groups/{groupId}/transitiveMembers. Build ids with concat / format and reference(...).id.",
+                            "anyOf": [ { "type": "string", "minLength": 1 }, { "$ref": "#/$defs/expression" } ]
+                          },
+                          "queryType": {
+                            "description": "The query language; MicrosoftGraph.",
+                            "anyOf": [ { "type": "string", "enum": [ "MicrosoftGraph" ] }, { "$ref": "#/$defs/expression" } ]
+                          },
+                          "queryRoot": {
+                            "description": "The resource the relative query (./members) is applied to, for example /v1.0/groups.",
+                            "anyOf": [ { "type": [ "string", "null" ] }, { "$ref": "#/$defs/expression" } ]
+                          },
+                          "inactiveDuration": {
+                            "description": "accessReviewInactiveUsersQueryScope: the inactivity period, an ISO 8601 duration such as P30D.",
+                            "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                          }
+                        },
+                        "required": [ "query" ]
+                      },
+                      { "$ref": "#/$defs/expression" }
+                    ]
+                  }
+                },
+                { "$ref": "#/$defs/expression" }
+              ]
+            }
+          }
+        },
+        { "$ref": "#/$defs/expression" }
+      ]
+    },
+    "instanceEnumerationScope": {
+      "description": "Immutable: which resources each instance covers when the scope is relative (all Microsoft 365 groups with guests), for example { \"query\": \"/groups?$filter=(groupTypes/any(c:c eq 'Unified'))\", \"queryType\": \"MicrosoftGraph\" }.",
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "@odata.type": {
+              "description": "accessReviewQueryScope (the default), or accessReviewInactiveUsersQueryScope with inactiveDuration.",
+              "anyOf": [
+                { "type": "string", "enum": [ "#microsoft.graph.accessReviewQueryScope", "#microsoft.graph.accessReviewInactiveUsersQueryScope" ] },
+                { "$ref": "#/$defs/expression" }
+              ]
+            },
+            "query": {
+              "description": "The Microsoft Graph query of the principals or resources, for example /groups/{groupId}/transitiveMembers. Build ids with concat / format and reference(...).id.",
+              "anyOf": [ { "type": "string", "minLength": 1 }, { "$ref": "#/$defs/expression" } ]
+            },
+            "queryType": {
+              "description": "The query language; MicrosoftGraph.",
+              "anyOf": [ { "type": "string", "enum": [ "MicrosoftGraph" ] }, { "$ref": "#/$defs/expression" } ]
+            },
+            "queryRoot": {
+              "description": "The resource the relative query (./members) is applied to, for example /v1.0/groups.",
+              "anyOf": [ { "type": [ "string", "null" ] }, { "$ref": "#/$defs/expression" } ]
+            }
+          }
+        },
+        { "$ref": "#/$defs/expression" }
+      ]
+    },
+    "reviewers": {
+      "description": "Who reviews (accessReviewReviewerScope); none is a self-review. Graph updates them only while they are individual users (/users/{id}). Compared as a set.",
+      "anyOf": [
+        {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "query": {
+                    "description": "Who reviews: /users/{userId}, /groups/{groupId}/transitiveMembers, ./owners (the reviewed group's owners) or ./manager (with queryRoot decisions).",
+                    "anyOf": [ { "type": "string", "minLength": 1 }, { "$ref": "#/$defs/expression" } ]
+                  },
+                  "queryType": {
+                    "description": "The query language; MicrosoftGraph.",
+                    "anyOf": [ { "type": "string", "enum": [ "MicrosoftGraph" ] }, { "$ref": "#/$defs/expression" } ]
+                  },
+                  "queryRoot": {
+                    "description": "decisions for ./manager (each reviewed principal's manager); otherwise omitted.",
+                    "anyOf": [ { "type": [ "string", "null" ] }, { "$ref": "#/$defs/expression" } ]
+                  }
+                },
+                "required": [ "query" ]
+              },
+              { "$ref": "#/$defs/expression" }
+            ]
+          }
+        },
+        { "$ref": "#/$defs/expression" }
+      ]
+    },
+    "fallbackReviewers": {
+      "description": "Who reviews when the reviewers resolve to nobody (a group without owners, a user without a manager). Compared as a set.",
+      "anyOf": [
+        {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "query": {
+                    "description": "Who reviews: /users/{userId}, /groups/{groupId}/transitiveMembers, ./owners (the reviewed group's owners) or ./manager (with queryRoot decisions).",
+                    "anyOf": [ { "type": "string", "minLength": 1 }, { "$ref": "#/$defs/expression" } ]
+                  },
+                  "queryType": {
+                    "description": "The query language; MicrosoftGraph.",
+                    "anyOf": [ { "type": "string", "enum": [ "MicrosoftGraph" ] }, { "$ref": "#/$defs/expression" } ]
+                  },
+                  "queryRoot": {
+                    "description": "decisions for ./manager (each reviewed principal's manager); otherwise omitted.",
+                    "anyOf": [ { "type": [ "string", "null" ] }, { "$ref": "#/$defs/expression" } ]
+                  }
+                },
+                "required": [ "query" ]
+              },
+              { "$ref": "#/$defs/expression" }
+            ]
+          }
+        },
+        { "$ref": "#/$defs/expression" }
+      ]
+    },
+    "backupReviewers": {
+      "description": "Deprecated alias of fallbackReviewers (Graph copies one into the other); declare fallbackReviewers instead.",
+      "anyOf": [
+        {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "query": {
+                    "description": "Who reviews: /users/{userId}, /groups/{groupId}/transitiveMembers, ./owners (the reviewed group's owners) or ./manager (with queryRoot decisions).",
+                    "anyOf": [ { "type": "string", "minLength": 1 }, { "$ref": "#/$defs/expression" } ]
+                  },
+                  "queryType": {
+                    "description": "The query language; MicrosoftGraph.",
+                    "anyOf": [ { "type": "string", "enum": [ "MicrosoftGraph" ] }, { "$ref": "#/$defs/expression" } ]
+                  },
+                  "queryRoot": {
+                    "description": "decisions for ./manager (each reviewed principal's manager); otherwise omitted.",
+                    "anyOf": [ { "type": [ "string", "null" ] }, { "$ref": "#/$defs/expression" } ]
+                  }
+                },
+                "required": [ "query" ]
+              },
+              { "$ref": "#/$defs/expression" }
+            ]
+          }
+        },
+        { "$ref": "#/$defs/expression" }
+      ]
+    },
+    "settings": {
+      "description": "accessReviewScheduleSettings. Only declared members are compared; an update keeps the undeclared ones.",
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "mailNotificationsEnabled": {
+              "description": "Whether reviewers get emails. Graph default false.",
+              "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/expression" } ]
+            },
+            "reminderNotificationsEnabled": {
+              "description": "Whether reviewers get reminders. Graph default false.",
+              "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/expression" } ]
+            },
+            "justificationRequiredOnApproval": {
+              "description": "Whether a reviewer must justify an approval. Graph default false.",
+              "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/expression" } ]
+            },
+            "defaultDecisionEnabled": {
+              "description": "Whether defaultDecision applies when reviewers do not respond. Graph default false.",
+              "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/expression" } ]
+            },
+            "defaultDecision": {
+              "description": "The decision taken when reviewers do not respond (with defaultDecisionEnabled): Approve, Deny or Recommendation (Graph returns None when disabled).",
+              "anyOf": [ { "type": "string", "enum": [ "Approve", "Deny", "Recommendation", "None" ] }, { "$ref": "#/$defs/expression" } ]
+            },
+            "instanceDurationInDays": {
+              "description": "How many days each instance stays open.",
+              "anyOf": [ { "type": "integer", "minimum": 0 }, { "$ref": "#/$defs/expression" } ]
+            },
+            "autoApplyDecisionsEnabled": {
+              "description": "Whether decisions are applied automatically when an instance ends. With defaultDecisionEnabled, unreviewed access may be removed. Graph default false.",
+              "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/expression" } ]
+            },
+            "recommendationsEnabled": {
+              "description": "Whether reviewers see decision recommendations.",
+              "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/expression" } ]
+            },
+            "decisionHistoriesForReviewersEnabled": {
+              "description": "Multi-stage reviews: whether reviewers see the decisions of earlier stages. Graph default false.",
+              "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/expression" } ]
+            },
+            "recurrence": {
+              "description": "patternedRecurrence: how often the review recurs; range.startDate is the day the first instance starts.",
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "pattern": {
+                      "description": "recurrencePattern. Graph honours only type (weekly or absoluteMonthly), interval and dayOfMonth; for example { \"type\": \"absoluteMonthly\", \"interval\": 3 } for quarterly.",
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "type": {
+                              "description": "weekly or absoluteMonthly.",
+                              "anyOf": [ { "type": "string", "enum": [ "weekly", "absoluteMonthly" ] }, { "$ref": "#/$defs/expression" } ]
+                            },
+                            "interval": {
+                              "description": "The number of weeks or months between instances; at least 1.",
+                              "anyOf": [ { "type": "integer", "minimum": 1 }, { "$ref": "#/$defs/expression" } ]
+                            },
+                            "dayOfMonth": {
+                              "description": "absoluteMonthly: the day of the month (1-31); Graph returns 0 otherwise.",
+                              "anyOf": [ { "type": "integer", "minimum": 0, "maximum": 31 }, { "$ref": "#/$defs/expression" } ]
+                            },
+                            "month": {
+                              "description": "Ignored by access reviews; Graph returns 0.",
+                              "anyOf": [ { "type": "integer", "minimum": 0, "maximum": 12 }, { "$ref": "#/$defs/expression" } ]
+                            },
+                            "daysOfWeek": {
+                              "description": "Ignored by access reviews.",
+                              "anyOf": [
+                                {
+                                  "type": [ "array", "null" ],
+                                  "items": {
+                                    "anyOf": [
+                                      { "type": "string", "enum": [ "sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday" ] },
+                                      { "$ref": "#/$defs/expression" }
+                                    ]
+                                  }
+                                },
+                                { "$ref": "#/$defs/expression" }
+                              ]
+                            },
+                            "firstDayOfWeek": {
+                              "description": "Ignored by access reviews.",
+                              "anyOf": [
+                                {
+                                  "type": [ "string", "null" ],
+                                  "enum": [ "sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", null ]
+                                },
+                                { "$ref": "#/$defs/expression" }
+                              ]
+                            },
+                            "index": {
+                              "description": "Ignored by access reviews.",
+                              "anyOf": [
+                                { "type": [ "string", "null" ], "enum": [ "first", "second", "third", "fourth", "last", null ] },
+                                { "$ref": "#/$defs/expression" }
+                              ]
+                            }
+                          }
+                        },
+                        { "$ref": "#/$defs/expression" }
+                      ]
+                    },
+                    "range": {
+                      "description": "recurrenceRange: noEnd, endDate (with endDate) or numbered (with numberOfOccurrences).",
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "type": {
+                              "description": "noEnd, endDate or numbered.",
+                              "anyOf": [ { "type": "string", "enum": [ "noEnd", "endDate", "numbered" ] }, { "$ref": "#/$defs/expression" } ]
+                            },
+                            "startDate": {
+                              "description": "The day the first instance starts (yyyy-MM-dd).",
+                              "anyOf": [ { "type": [ "string", "null" ] }, { "$ref": "#/$defs/expression" } ]
+                            },
+                            "endDate": {
+                              "description": "endDate: the last date (yyyy-MM-dd).",
+                              "anyOf": [ { "type": [ "string", "null" ] }, { "$ref": "#/$defs/expression" } ]
+                            },
+                            "numberOfOccurrences": {
+                              "description": "numbered: how many instances; Graph returns 0 otherwise.",
+                              "anyOf": [ { "type": "integer", "minimum": 0 }, { "$ref": "#/$defs/expression" } ]
+                            },
+                            "recurrenceTimeZone": {
+                              "description": "The time zone of the dates.",
+                              "anyOf": [ { "type": [ "string", "null" ] }, { "$ref": "#/$defs/expression" } ]
+                            }
+                          }
+                        },
+                        { "$ref": "#/$defs/expression" }
+                      ]
+                    }
+                  }
+                },
+                { "$ref": "#/$defs/expression" }
+              ]
+            },
+            "applyActions": {
+              "description": "accessReviewApplyAction array: removeAccessApplyAction (the default) or disableAndDeleteUserApplyAction.",
+              "anyOf": [
+                { "type": "array", "items": { "anyOf": [ { "type": "object" }, { "$ref": "#/$defs/expression" } ] } },
+                { "$ref": "#/$defs/expression" }
+              ]
+            }
+          }
+        },
+        { "$ref": "#/$defs/expression" }
+      ]
+    },
+    "stageSettings": {
+      "description": "accessReviewStageSettings array (multi-stage reviews, up to three stages): overrides reviewers, fallbackReviewers and the matching settings. Passed through; Graph updates only the stages' reviewers and fallbackReviewers after creation.",
+      "anyOf": [
+        { "type": "array", "items": { "anyOf": [ { "type": "object" }, { "$ref": "#/$defs/expression" } ] } },
+        { "$ref": "#/$defs/expression" }
+      ]
+    },
+    "additionalNotificationRecipients": {
+      "description": "accessReviewNotificationRecipientItem array: other people notified of the review's progress. Passed through.",
+      "anyOf": [
+        { "type": "array", "items": { "anyOf": [ { "type": "object" }, { "$ref": "#/$defs/expression" } ] } },
+        { "$ref": "#/$defs/expression" }
+      ]
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "expression": { "type": "string", "pattern": "^\\[.*\\]$", "description": "A template expression, for example [parameters('env')]." }
+  },
+  "x-earm": {
+    "type": "Microsoft.Entra/accessReviews/definitions",
+    "parentType": null,
+    "graphPath": "/identityGovernance/accessReviews/definitions",
+    "apiVersions": { "2026-10-01-preview": "v1.0", "2026-10-01-preview.beta": "beta" },
+    "nameMapsTo": "displayName",
+    "nameKind": "displayName",
+    "namePattern": "^\\S(.{0,254}\\S)?$",
+    "keyProperties": ["displayName"],
+    "requiredOnCreate": ["descriptionForAdmins", "descriptionForReviewers", "scope"],
+    "defaults": {},
+    "immutable": ["scope", "instanceEnumerationScope"],
+    "createOnly": [],
+    "secure": [],
+    "relationships": [],
+    "memberKey": {},
+    "stripOnRead": ["id", "createdBy", "createdDateTime", "lastModifiedDateTime", "status", "instances"],
+    "nullable": {},
+    "permissions": {
+      "application": ["AccessReview.ReadWrite.All"],
+      "notes": "Learn (accessreviewset-post-definitions, accessreviewscheduledefinition-update, accessreviewscheduledefinition-delete): AccessReview.ReadWrite.All is the least privileged (and only) write permission, delegated and application; accessreviewset-list-definitions reads with AccessReview.Read.All. Delegated callers also need a role: User Administrator or Identity Governance Administrator to write reviews of groups and applications (access package assignments included), Identity Governance Administrator or Privileged Role Administrator to write reviews of Microsoft Entra roles. Update is a full-replace PUT; scope and instanceEnumerationScope cannot be changed after creation, and reviewers only while they are individual users.",
+      "roles": ["Identity Governance Administrator", "User Administrator"]
+    }
+  }
+}

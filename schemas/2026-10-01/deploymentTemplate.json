@@ -371,6 +371,8 @@
           "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/entitlementManagement.resourceRoleScopes.json" }, { "$ref": "#/$defs/expression" } ] } } } },
         { "if": { "properties": { "type": { "const": "Microsoft.Entra/entitlementManagement/accessPackages/assignmentPolicies" } }, "required": ["type"] },
           "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/entitlementManagement.accessPackages.assignmentPolicies.json" }, { "$ref": "#/$defs/expression" } ] } } } },
+        { "if": { "properties": { "type": { "const": "Microsoft.Entra/accessReviews/definitions" } }, "required": ["type"] },
+          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/accessReviews.definitions.json" }, { "$ref": "#/$defs/expression" } ] } } } },
         { "if": { "properties": { "type": { "const": "Microsoft.Entra/policies/crossTenantAccessPolicy" } }, "required": ["type"] },
           "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/policies.crossTenantAccessPolicy.json" }, { "$ref": "#/$defs/expression" } ] } } } },
         { "if": { "properties": { "type": { "const": "Microsoft.Entra/policies/crossTenantAccessPolicy/partners" } }, "required": ["type"] },

@@ -1,0 +1,95 @@
+{
+  "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "Standalone access reviews (Microsoft.Entra/accessReviews/definitions) of a team: a quarterly review of the team group's members by the group's owners (a named user reviews when the group has no owners), and a quarterly review of the assignments of the team's access package by an access reviewers group. The scope queries are built with format() from reference(...).id of the group and the access package in the same template, so each review is created after its target. Unanswered reviews keep access (defaultDecisionEnabled: false); decisions are applied automatically when an instance ends. scope cannot change after a review is created, and reviewers only while they are individual users: change those by deleting the review and deploying again. Needs Microsoft Entra ID Governance (or P2) and AccessReview.ReadWrite.All with User Administrator or Identity Governance Administrator; see docs/providers.md."
+  },
+  "parameters": {
+    "teamKey": { "type": "string", "defaultValue": "sales-emea", "metadata": { "description": "The team's short key, used in the group's uniqueName (team-<key>) and in the display names." } },
+    "teamName": { "type": "string", "defaultValue": "Sales EMEA", "metadata": { "description": "The team's display name." } },
+    "fallbackReviewerId": { "type": "string", "metadata": { "description": "Object id of the user who reviews the group's members when the group has no owners." } },
+    "reviewStartDate": { "type": "string", "defaultValue": "2026-11-02", "metadata": { "description": "The day the first review instance starts (yyyy-MM-dd)." } },
+    "reviewDurationInDays": { "type": "int", "defaultValue": 14, "minValue": 1, "metadata": { "description": "How many days each review instance stays open." } }
+  },
+  "variables": {
+    "teamGroupName": "[format('team-{0}', parameters('teamKey'))]",
+    "reviewersGroupName": "team-access-reviewers",
+    "catalogName": "Team Access",
+    "packageName": "[format('{0} Team Access', parameters('teamName'))]",
+    "quarterly": {
+      "mailNotificationsEnabled": true,
+      "reminderNotificationsEnabled": true,
+      "justificationRequiredOnApproval": true,
+      "defaultDecisionEnabled": false,
+      "instanceDurationInDays": "[parameters('reviewDurationInDays')]",
+      "autoApplyDecisionsEnabled": true,
+      "recommendationsEnabled": true,
+      "recurrence": {
+        "pattern": { "type": "absoluteMonthly", "interval": 3 },
+        "range": { "type": "noEnd", "startDate": "[parameters('reviewStartDate')]" }
+      }
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01-preview", "name": "[variables('teamGroupName')]",
+      "properties": { "displayName": "[format('Team {0}', parameters('teamName'))]", "mailEnabled": false, "mailNickname": "[variables('teamGroupName')]", "securityEnabled": true }
+    },
+    {
+      "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01-preview", "name": "[variables('reviewersGroupName')]",
+      "properties": { "displayName": "Team Access Reviewers", "mailEnabled": false, "mailNickname": "[variables('reviewersGroupName')]", "securityEnabled": true }
+    },
+    {
+      "type": "Microsoft.Entra/entitlementManagement/catalogs", "apiVersion": "2026-10-01-preview", "name": "[variables('catalogName')]",
+      "properties": { "description": "Access packages of the teams" }
+    },
+    {
+      "type": "Microsoft.Entra/entitlementManagement/accessPackages", "apiVersion": "2026-10-01-preview", "name": "[variables('packageName')]",
+      "properties": {
+        "catalogId": "[reference(resourceId('Microsoft.Entra/entitlementManagement/catalogs', variables('catalogName'))).id]",
+        "description": "[format('Access the {0} team needs', parameters('teamName'))]"
+      }
+    },
+    {
+      "type": "Microsoft.Entra/accessReviews/definitions", "apiVersion": "2026-10-01-preview",
+      "name": "[format('Quarterly review of Team {0} members', parameters('teamName'))]",
+      "properties": {
+        "descriptionForAdmins": "[format('Owners of Team {0} confirm its members every quarter.', parameters('teamName'))]",
+        "descriptionForReviewers": "[format('Confirm who still needs to be a member of Team {0}.', parameters('teamName'))]",
+        "scope": {
+          "@odata.type": "#microsoft.graph.accessReviewQueryScope",
+          "query": "[format('/groups/{0}/transitiveMembers', reference(resourceId('Microsoft.Entra/groups', variables('teamGroupName'))).id)]",
+          "queryType": "MicrosoftGraph"
+        },
+        "reviewers": [
+          { "query": "./owners", "queryType": "MicrosoftGraph" }
+        ],
+        "fallbackReviewers": [
+          { "query": "[concat('/users/', parameters('fallbackReviewerId'))]", "queryType": "MicrosoftGraph" }
+        ],
+        "settings": "[variables('quarterly')]"
+      }
+    },
+    {
+      "type": "Microsoft.Entra/accessReviews/definitions", "apiVersion": "2026-10-01-preview",
+      "name": "[format('Quarterly review of {0} assignments', variables('packageName'))]",
+      "properties": {
+        "descriptionForAdmins": "[format('The access reviewers confirm the assignments of the {0} access package every quarter.', variables('packageName'))]",
+        "descriptionForReviewers": "[format('Confirm who still needs the {0} access package.', variables('packageName'))]",
+        "scope": {
+          "@odata.type": "#microsoft.graph.accessReviewQueryScope",
+          "query": "[format('/identityGovernance/entitlementManagement/accessPackageAssignments?$filter=(accessPackageId eq ''{0}'')', reference(resourceId('Microsoft.Entra/entitlementManagement/accessPackages', variables('packageName'))).id)]",
+          "queryType": "MicrosoftGraph"
+        },
+        "reviewers": [
+          { "query": "[format('/groups/{0}/transitiveMembers', reference(resourceId('Microsoft.Entra/groups', variables('reviewersGroupName'))).id)]", "queryType": "MicrosoftGraph" }
+        ],
+        "settings": "[variables('quarterly')]"
+      }
+    }
+  ],
+  "outputs": {
+    "memberReviewId": { "type": "string", "value": "[reference(resourceId('Microsoft.Entra/accessReviews/definitions', format('Quarterly review of Team {0} members', parameters('teamName')))).id]" },
+    "assignmentReviewId": { "type": "string", "value": "[reference(resourceId('Microsoft.Entra/accessReviews/definitions', format('Quarterly review of {0} assignments', variables('packageName')))).id]" }
+  }
+}

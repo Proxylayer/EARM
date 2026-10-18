@@ -41,6 +41,7 @@ public sealed class DiscoveryTests
     [InlineData("Microsoft.Entra/policies/defaultAppManagementPolicy", typeof(DefaultAppManagementPolicyProvider))]
     [InlineData("Microsoft.Entra/policies/appManagementPolicies", typeof(AppManagementPoliciesProvider))]
     [InlineData("Microsoft.Entra/policies/claimsMappingPolicies", typeof(ClaimsMappingPoliciesProvider))]
+    [InlineData("Microsoft.Entra/accessReviews/definitions", typeof(AccessReviewDefinitionsProvider))]
     [InlineData("Microsoft.Entra/policies/tokenLifetimePolicies", typeof(TokenLifetimePoliciesProvider))]
     [InlineData("Microsoft.Entra/roleEligibilityScheduleRequests", typeof(RoleEligibilityScheduleRequestsProvider))]
     [InlineData("Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests", typeof(GroupEligibilityScheduleRequestsProvider))]

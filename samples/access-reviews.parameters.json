@@ -1,0 +1,11 @@
+{
+  "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "teamKey": { "value": "sales-emea" },
+    "teamName": { "value": "Sales EMEA" },
+    "fallbackReviewerId": { "value": "00000000-0000-0000-0000-000000000000" },
+    "reviewStartDate": { "value": "2026-11-02" },
+    "reviewDurationInDays": { "value": 14 }
+  }
+}

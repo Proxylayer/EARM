@@ -19,6 +19,7 @@ public static class ApplyPhases
     /// privilegedAccess/groupAssignmentScheduleRequests, appRoleAssignments, oauth2PermissionGrants ·
     /// 6: conditionalAccess/policies. Entitlement management: catalogs 4, catalogResources and accessPackages 5, resourceRoleScopes and
     /// accessPackages/assignmentPolicies 6 (role scopes are also ordered after the catalog resources and before the policies they relate to).
+    /// Access reviews (accessReviews/definitions) 6: after the groups and access packages their scope queries name.
     /// </summary>
     public static int Of(string type)
     {
@@ -53,6 +54,7 @@ public static class ApplyPhases
             "entitlementManagement/accessPackages" => 5,
             "entitlementManagement/resourceRoleScopes" => 6,
             "entitlementManagement/accessPackages/assignmentPolicies" => 6,
+            "accessReviews/definitions" => 6,
             "groupLifecyclePolicies" => 1,
             "policies/tokenLifetimePolicies" => 1,
             "policies/claimsMappingPolicies" => 1,
@@ -69,6 +71,7 @@ public static class ApplyPhases
     /// passwordCredentials/federatedIdentityCredentials/keyCredentials/extensionProperties → servicePrincipals → applications → users → roleDefinitions
     /// → authenticationStrengths → authenticationContextClassReferences → namedLocations → authenticationMethodConfigurations (reset, never removed).
     /// Entitlement management: assignment policies and resource role scopes (1) → access packages (2) → catalog resources (3) → catalogs (4).
+    /// Access reviews (1): before the groups and access packages they review.
     /// </summary>
     public static int DeleteOrderOf(string type)
     {
@@ -103,6 +106,7 @@ public static class ApplyPhases
             "entitlementManagement/accessPackages" => 2,
             "entitlementManagement/catalogResources" => 3,
             "entitlementManagement/catalogs" => 4,
+            "accessReviews/definitions" => 1,
             "groupLifecyclePolicies" => 12,
             "policies/tokenLifetimePolicies" => 12,
             "policies/claimsMappingPolicies" => 12,
@@ -161,6 +165,7 @@ public static class ApplyPhases
         "entitlementManagement/accessPackages",
         "entitlementManagement/resourceRoleScopes",
         "entitlementManagement/accessPackages/assignmentPolicies",
+        "accessReviews/definitions",
         "groupLifecyclePolicies",
         "policies/tokenLifetimePolicies",
         "policies/claimsMappingPolicies",
