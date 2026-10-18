@@ -132,6 +132,12 @@ public sealed partial class FakeDirectory
     /// </summary>
     public int AuthenticationMethodStaleReads { get; set; }
 
+    /// <summary>
+    /// The <c>secretText</c> every <c>addPassword</c> answers with; <c>null</c> (default) answers a fresh random one. Leak tests set a
+    /// canary here and assert it never reaches an error, a log line or a diagnostic.
+    /// </summary>
+    public string? SecretText { get; set; }
+
     /// <summary>Entitlement management: catalogs, catalog resources, access packages, resource role scopes and assignment policies.</summary>
     public FakeEntitlementManagement EntitlementManagement { get; } = new();
 

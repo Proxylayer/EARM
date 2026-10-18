@@ -9,7 +9,7 @@ public sealed partial class FakeDirectory
 {
     // ---- actions ----
 
-    private static JsonObject AddPassword(JsonObject entity, JsonNode? body)
+    private JsonObject AddPassword(JsonObject entity, JsonNode? body)
     {
         var request = (body as JsonObject)?["passwordCredential"] as JsonObject ?? new JsonObject();
 
@@ -30,7 +30,7 @@ public sealed partial class FakeDirectory
 
         credentials.Add(credential.DeepClone());
         var response = (JsonObject)credential.DeepClone();
-        response["secretText"] = "fake-secret-" + Guid.NewGuid().ToString("N");
+        response["secretText"] = SecretText ?? "fake-secret-" + Guid.NewGuid().ToString("N");
         return response;
     }
 

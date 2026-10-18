@@ -20,6 +20,9 @@ public sealed class ProviderFailureMatrixTests
 {
     private const string Canary = "Hunter2-Canary-9a7c";
 
+    /// <summary>The canary with its secret half replaced: put in Graph's error message, which is not a secret and is relayed as is.</summary>
+    private const string NearMiss = "x-Canary-9a7c";
+
     public static TheoryData<string> Cases()
     {
         var data = new TheoryData<string>();
@@ -52,17 +55,61 @@ public sealed class ProviderFailureMatrixTests
         };
     }
 
+    /// <summary>
+    /// The shared template of <paramref name="name"/> with the <see cref="Canary"/> declared as a secret where the type
+    /// takes one: the users case declares it as the initial password (the shared <see cref="Templates"/> stay as they are
+    /// for the other contract tests).
+    /// </summary>
     private static string Template(string name)
     {
-        return Templates()[name];
+        string template = Templates()[name];
+        return name == "users"
+            ? template.Replace("\"displayName\": \"U1\"", "\"displayName\": \"U1\", \"passwordProfile\": { \"password\": \"" + Canary + "\" }", StringComparison.Ordinal)
+            : template;
+    }
+
+    /// <summary>A host whose fake answers every <c>addPassword</c> with the <see cref="Canary"/> as its <c>secretText</c>.</summary>
+    private static ProviderHost NewHost()
+    {
+        var host = new ProviderHost();
+        host.Directory.SecretText = Canary;
+        return host;
+    }
+
+    /// <summary>
+    /// Every text a user or a log can see: the plan's and the result's diagnostics, the rows' reasons and errors, the
+    /// failed operations' messages and the rendered what-if (text and JSON).
+    /// </summary>
+    private static string VisibleText(Run run)
+    {
+        var parts = new List<string?>();
+        parts.AddRange(run.Plan.Diagnostics.Select(d => d.Message));
+        parts.AddRange(run.Plan.Changes.SelectMany(c => c.Reasons.Append(c.UnsupportedReason)));
+        if (run.Result is { } result)
+        {
+            parts.AddRange(result.Diagnostics.Select(d => d.Message));
+            parts.AddRange(result.Operations.Select(o => o.Error));
+            parts.AddRange(result.Changes.SelectMany(c => c.Reasons.Append(c.UnsupportedReason)));
+        }
+
+        parts.Add(run.WhatIfTextOutput);
+        parts.Add(run.WhatIfJsonText);
+        return string.Join(" | ", parts.Where(p => p is not null));
+    }
+
+    /// <summary>The <see cref="Canary"/> is in no error text, no diagnostic, no rendered what-if and no log line.</summary>
+    private static void AssertNoLeak(ProviderHost host, Run run)
+    {
+        Assert.DoesNotContain(Canary, VisibleText(run), StringComparison.Ordinal);
+        Assert.DoesNotContain(host.Logs.Lines, l => l.Contains(Canary, StringComparison.Ordinal));
     }
 
     [Theory]
     [MemberData(nameof(Cases))]
     public async Task ForbiddenWrites_FailTheResource_WithAMessage(string name)
     {
-        var host = new ProviderHost();
-        host.Fake.Failures.Add("POST", string.Empty, request => new GraphException(HttpStatusCode.Forbidden, "Authorization_RequestDenied", "Insufficient privileges " + Canary.Replace("Hunter2", "x", StringComparison.Ordinal), request.Hint), times: -1);
+        var host = NewHost();
+        host.Fake.Failures.Add("POST", string.Empty, request => new GraphException(HttpStatusCode.Forbidden, "Authorization_RequestDenied", "Insufficient privileges " + NearMiss, request.Hint), times: -1);
         host.Fake.Failures.Add("PATCH", string.Empty, request => new GraphException(HttpStatusCode.Forbidden, "Authorization_RequestDenied", "Insufficient privileges", request.Hint), times: -1);
         host.Fake.Failures.Add("PUT", string.Empty, request => new GraphException(HttpStatusCode.Forbidden, "Authorization_RequestDenied", "Insufficient privileges", request.Hint), times: -1);
 
@@ -79,13 +126,21 @@ public sealed class ProviderFailureMatrixTests
         Assert.DoesNotContain(failed, o => o.Error!.Contains("Unhandled", StringComparison.OrdinalIgnoreCase));
         Assert.All(failed, o => Assert.Null(o.GraphId));
         Assert.Empty(host.Directory.Objects("/oauth2PermissionGrants"));
+        AssertNoLeak(host, run);
+
+        // Graph's own message is relayed verbatim (it carries only a near-miss of the canary), which proves the leak
+        // check reads the text a user sees.
+        if (host.Fake.Requests.Any(r => r.Method == "POST"))
+        {
+            Assert.Contains(NearMiss, VisibleText(run), StringComparison.Ordinal);
+        }
     }
 
     [Theory]
     [MemberData(nameof(Cases))]
     public async Task PersistentUnavailability_IsRetriedAFixedNumberOfTimes_ThenFailsTheResource(string name)
     {
-        var host = new ProviderHost();
+        var host = NewHost();
         host.Fake.Failures.ServerError(string.Empty, times: -1, method: "POST");
         host.Fake.Failures.ServerError(string.Empty, times: -1, method: "PATCH");
         host.Fake.Failures.ServerError(string.Empty, times: -1, method: "PUT");
@@ -109,13 +164,14 @@ public sealed class ProviderFailureMatrixTests
         }
 
         Assert.True(host.Delays.Count <= 60, "retries are bounded: " + host.Delays.Count);
+        AssertNoLeak(host, run);
     }
 
     [Theory]
     [MemberData(nameof(Cases))]
     public async Task ThrottlingThatClearsAfterAFewAttempts_StillSucceeds_AfterRetrying(string name)
     {
-        var host = new ProviderHost();
+        var host = NewHost();
         host.Fake.Failures.Throttle(string.Empty, times: 2, retryAfter: TimeSpan.FromSeconds(3), method: "POST");
         host.Fake.Failures.Throttle(string.Empty, times: 2, retryAfter: TimeSpan.FromSeconds(3), method: "PATCH");
         host.Fake.Failures.Throttle(string.Empty, times: 2, retryAfter: TimeSpan.FromSeconds(3), method: "PUT");
@@ -124,13 +180,24 @@ public sealed class ProviderFailureMatrixTests
 
         Check.Succeeded(run);
         Assert.True(host.Delays.Count >= 2, "two throttled attempts were retried");
+        AssertNoLeak(host, run);
+
+        // The canary was really in play: sent as the declared password, or handed out by addPassword.
+        if (name == "users")
+        {
+            Assert.Contains(host.Fake.Writes, w => w.Body?.ToJsonString().Contains(Canary, StringComparison.Ordinal) == true);
+        }
+        else if (name == "passwordCredentials")
+        {
+            Assert.Contains(host.Fake.Writes, w => w.Path.EndsWith("/addPassword", StringComparison.Ordinal));
+        }
     }
 
     [Theory]
     [MemberData(nameof(Cases))]
     public async Task ForbiddenReads_AreReportedAsAFailure_NeverAnUnhandledException_AndNothingIsWritten(string name)
     {
-        var host = new ProviderHost();
+        var host = NewHost();
         host.Fake.Failures.Add("GET", string.Empty, request => new GraphException(HttpStatusCode.Forbidden, "Authorization_RequestDenied", "Insufficient privileges", request.Hint), times: -1);
 
         var whatIf = await host.WhatIfAsync(host.Resources(Template(name)));
@@ -139,5 +206,6 @@ public sealed class ProviderFailureMatrixTests
         var unreadable = whatIf.Plan.Changes.Where(c => c.HasError).ToList();
         Assert.NotEmpty(unreadable);
         Assert.All(unreadable, c => Assert.Contains("403", c.UnsupportedReason, StringComparison.Ordinal));
+        AssertNoLeak(host, whatIf);
     }
 }
