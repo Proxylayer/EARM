@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `Microsoft.Entra/entitlementManagement/resourceRoleScopes` declared in different access packages of one catalog that grant the same role
+  of the same group (or app, or site) are no longer reported as `DuplicateGraphObject` by `what-if` and `create`. Graph gives a role scope
+  the composite id `<roleId>_<scopeId>` of the catalog's role and scope, so the same grant has the same id in every package of the catalog;
+  the "two declarations, one object" check now scopes a role scope by its access package. Two declarations of the same grant in one package
+  are still a duplicate. The check also tells resource types apart, so objects of different types never count as one.
+
 ## [0.3.0] - 2026-10-17
 
 ### Added

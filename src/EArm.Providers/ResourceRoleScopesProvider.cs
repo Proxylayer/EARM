@@ -92,6 +92,19 @@ public sealed class ResourceRoleScopesProvider : ProviderBase, IApplyOrderSource
     /// <summary>The package's role scope list can miss a new role scope for a moment.</summary>
     public override bool KeyReadLagsCreate => true;
 
+    /// <summary>
+    /// A role scope's Graph id is the composite <c>{roleId}_{scopeId}</c> of the catalog's role and scope, so it repeats in every package of the catalog
+    /// that grants the same role: the claim is scoped by the access package (<c>{type}/{accessPackageId}/{graphId}</c>).
+    /// </summary>
+    public override string ClaimIdentity(ResourceKey key, string graphId)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        ArgumentNullException.ThrowIfNull(graphId);
+        return key.TryGet(PackageProperty, out var packageId) && packageId.Length > 0
+            ? TypeName + "/" + packageId + "/" + graphId
+            : base.ClaimIdentity(key, graphId);
+    }
+
     /// <summary>The PIM for Groups eligible roles (<c>Eligible Member</c>, <c>Eligible Owner</c>).</summary>
     internal static bool IsEligibleRole(string? role)
     {

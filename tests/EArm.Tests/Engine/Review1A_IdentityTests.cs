@@ -71,6 +71,34 @@ public sealed class Review1A_IdentityTests
         Assert.DoesNotContain(host.Fake.Writes, w => w.Method == "POST");
     }
 
+    [Fact]
+    public async Task TwoDeclaredResources_ThatResolveToOneObject_AreADuplicateInWhatIf()
+    {
+        var host = new EngineHost(graph => new AliasingGraphClient(graph, "/applications(uniqueName='app-b')", "/applications(uniqueName='app-a')"));
+        host.Directory.AddApplication("app-a", "A");
+
+        var plan = await host.WhatIfAsync(Apps("app-a", "app-b"));
+
+        Assert.Single(plan.Diagnostics, d => d.Code == EngineDiagnosticCodes.DuplicateGraphObject);
+        Assert.Single(plan.Changes, c => c.HasError);
+    }
+
+    [Fact]
+    public async Task ResourcesOfDifferentTypes_WithTheSameGraphId_AreNotADuplicate()
+    {
+        // The claim identity carries the type (IResourceProvider.ClaimIdentity): a Graph id seen by two types is never "one object, two declarations".
+        var host = new EngineHost(graph => new AliasingGraphClient(graph, "/groups(uniqueName='team')", "/applications(uniqueName='app-a')"));
+        host.Directory.AddApplication("app-a", "A");
+        var document = Templates.Resources(
+            "{ \"type\": \"Microsoft.Entra/applications\", \"apiVersion\": \"" + ApiVersion + "\", \"name\": \"app-a\", \"properties\": { \"displayName\": \"app-a\" } }, "
+            + "{ \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"" + ApiVersion + "\", \"name\": \"team\", \"properties\": { \"displayName\": \"team\", \"mailEnabled\": false, \"securityEnabled\": true } }");
+
+        var plan = await host.WhatIfAsync(document);
+
+        Assert.DoesNotContain(plan.Diagnostics, d => d.Code == EngineDiagnosticCodes.DuplicateGraphObject);
+        Assert.Equal(host.Directory.Objects("/applications").Single()["id"]!.GetValue<string>(), plan.Changes.Single(c => c.Id.Id == GroupId("team")).GraphId);
+    }
+
     // ---- E-02: adoption ----
 
     [Fact]

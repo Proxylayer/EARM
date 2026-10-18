@@ -19,7 +19,8 @@ namespace EArm.TestSupport;
 /// the new resource is left out of the next <see cref="ResourceListLag"/> resource lists; <see cref="NextRequestState"/> overrides the state) and
 /// <c>adminRemove</c> (400 while a package grants a role of the resource).</item>
 /// <item><c>accessPackages</c>: list (<c>$filter=displayName eq</c>), get (<c>$expand=catalog</c>, <c>resourceRoleScopes($expand=role,scope)</c>), POST (needs
-/// <c>catalog.id</c>), PATCH (<c>catalog</c> refused), DELETE (400 while it has assignments); <c>accessPackages/{id}/resourceRoleScopes</c> POST and DELETE.</item>
+/// <c>catalog.id</c>), PATCH (<c>catalog</c> refused), DELETE (400 while it has assignments); <c>accessPackages/{id}/resourceRoleScopes</c> POST and DELETE
+/// (a role scope's id is Graph's composite <c>{roleId}_{scopeId}</c>, the same in every package of the catalog that grants the role).</item>
 /// <item><c>assignmentPolicies</c>: list (<c>$filter=accessPackage/id eq</c>), get, POST, PUT (a full replace: <c>displayName</c> and <c>accessPackage.id</c>
 /// required, no PATCH), DELETE (400 while it has assignments). Graph fills in every stage field and a subject's read-only <c>description</c>, and so does
 /// this fake.</item>
@@ -318,7 +319,7 @@ public sealed partial class FakeEntitlementManagement
                 throw FakeDirectory.BadRequest("Unknown role " + Str(role, "originId"), hint);
             }
 
-            var stored = new JsonObject { ["id"] = NewId(), ["accessPackageId"] = Str(package, "id"), ["role"] = role.DeepClone(), ["scope"] = request["scope"]?.DeepClone() };
+            var stored = new JsonObject { ["id"] = RoleScopeId(CatalogOf(package)!, role, request["scope"] as JsonObject), ["accessPackageId"] = Str(package, "id"), ["role"] = role.DeepClone(), ["scope"] = request["scope"]?.DeepClone() };
             _roleScopes.Add(stored);
             return (HttpStatusCode.Created, new JsonObject { ["id"] = Str(stored, "id"), ["createdDateTime"] = "2026-10-16T00:00:00Z" });
         }
@@ -524,5 +525,20 @@ public sealed partial class FakeEntitlementManagement
     private static string NewId()
     {
         return Guid.NewGuid().ToString();
+    }
+
+    /// <summary>
+    /// A role scope's id as Graph builds it: <c>{roleId}_{scopeId}</c> of the catalog's role and scope, so the same grant has the same id in every package of
+    /// the catalog (the ids here are derived from the catalog and the origin ids, so they are stable).
+    /// </summary>
+    private static string RoleScopeId(string catalogId, JsonObject role, JsonObject? scope)
+    {
+        return StableId(catalogId + "|role|" + Str(role, "originId")) + "_" + StableId(catalogId + "|scope|" + Str(scope, "originId"));
+    }
+
+    private static string StableId(string seed)
+    {
+        var hash = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(seed.ToUpperInvariant()));
+        return new Guid(hash.AsSpan(0, 16)).ToString();
     }
 }

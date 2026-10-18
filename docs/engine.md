@@ -503,7 +503,9 @@ Consequences, all deliberate:
 - **No tenant assertion.** The tenant is the one the credential signs in to (`earm auth status`, `tenant()`); nothing remembers a previous one.
 - **One object, one resource**: resource ids compare case-insensitively (Graph matches its keys that way; GUID-shaped names are lower-cased), so
   `MyApp` → `myapp` is the same resource; two declarations whose ids differ only by case are a `DuplicateResourceId` error; two declarations that
-  resolve to the same Graph object fail the second at apply time (`DuplicateGraphObject`).
+  resolve to the same Graph object fail the second at apply time (`DuplicateGraphObject`). "The same object" means the same type and Graph id,
+  plus whatever the id is scoped by: a resource role scope's composite id (`<roleId>_<scopeId>`) repeats in every package of a catalog that
+  grants the same role, so role scopes are compared per access package.
 - **Keys are always concrete.** A resource whose name is symbolic (`[reference('app').appId]`) is read under its resolved name once its input exists;
   until then what-if shows it as `(deploy-time)`.
 

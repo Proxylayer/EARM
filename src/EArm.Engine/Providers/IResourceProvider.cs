@@ -75,6 +75,17 @@ public interface IResourceProvider
     /// </summary>
     bool KeyReadLagsCreate => false;
 
+    /// <summary>
+    /// The identity under which an instance claims the live object <paramref name="graphId"/> found or written for <paramref name="key"/>, so that two
+    /// declarations of one run never manage one object (<c>DuplicateGraphObject</c>). The default is <c>{type}/{graphId}</c>: the type keeps objects of
+    /// different types apart. A type whose Graph id is not unique on its own (a resource role scope's composite <c>{roleId}_{scopeId}</c> repeats in every
+    /// package of a catalog that grants the same role) adds what the id is scoped by.
+    /// </summary>
+    string ClaimIdentity(ResourceKey key, string graphId)
+    {
+        return TypeName + "/" + graphId;
+    }
+
     Task<AppliedResource> CreateAsync(ResourceInstance desired, IGraphClient graph, CancellationToken cancellationToken);
 
     Task<AppliedResource> UpdateAsync(ResourceInstance desired, ExistingResource existing, ResourceChange change, IGraphClient graph, CancellationToken cancellationToken);

@@ -70,7 +70,7 @@ internal sealed class WhatIfReadPass
         }
     }
 
-    /// <summary>What the parallel reads of one what-if share: the Graph objects instances have claimed, and the warnings they raised (kept per instance so they can be reported in a stable order).</summary>
+    /// <summary>What the parallel reads of one what-if share: the Graph objects instances have claimed (by <see cref="IResourceProvider.ClaimIdentity"/>), and the warnings they raised (kept per instance so they can be reported in a stable order).</summary>
     private sealed class ReadContext
     {
         public ConcurrentDictionary<string, ResourceInstance> Claims { get; } = new(StringComparer.OrdinalIgnoreCase);
@@ -208,7 +208,7 @@ internal sealed class WhatIfReadPass
         var warnings = new List<Diagnostic>();
         if (existing is not null)
         {
-            var claimant = string.IsNullOrEmpty(existing.GraphId) ? instance : reads.Claims.GetOrAdd(existing.GraphId, instance);
+            var claimant = string.IsNullOrEmpty(existing.GraphId) ? instance : reads.Claims.GetOrAdd(provider.ClaimIdentity(key, existing.GraphId), instance);
             if (!ReferenceEquals(claimant, instance))
             {
                 string message = $"{instance.Describe()} and {claimant.Describe()} resolve to the same Graph object ({existing.GraphId}); two declarations must not manage one object.";

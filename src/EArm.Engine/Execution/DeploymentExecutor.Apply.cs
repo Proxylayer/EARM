@@ -162,7 +162,7 @@ public sealed partial class DeploymentExecutor
             // (NoChange or Modify) instead of being created a second time.
             var existing = await ReadBeforeApplyAsync(provider, instance, key, cancellationToken).ConfigureAwait(false);
 
-            if (existing is not null && !TryClaim(instance, existing.GraphId, out var other))
+            if (existing is not null && !TryClaim(instance, provider, key, existing.GraphId, out var other))
             {
                 EngineLog.DuplicateGraphObject(Logger, instance.Id.Id, other!.Id.Id, existing.GraphId);
                 RecordFailure(instance, batchIndex, EngineDiagnosticCodes.DuplicateGraphObject, $"{instance.Describe()} and {other.Describe()} resolve to the same Graph object ({existing.GraphId}); two declarations must not manage one object. Remove one of them, or give them different keys.", stopwatch.Elapsed);
@@ -258,7 +258,7 @@ public sealed partial class DeploymentExecutor
             }
 
             SecretRegistration.RegisterTainted(applied.Live);
-            if (!TryClaim(instance, applied.GraphId, out var claimedBy))
+            if (!TryClaim(instance, provider, key, applied.GraphId, out var claimedBy))
             {
                 EngineLog.DuplicateGraphObject(Logger, instance.Id.Id, claimedBy!.Id.Id, applied.GraphId);
                 _diagnostics.AddForInstance(instance, Diagnostic.Error(EngineDiagnosticCodes.DuplicateGraphObject, $"{instance.Describe()} and {claimedBy.Describe()} resolve to the same Graph object ({applied.GraphId})."));
@@ -350,8 +350,11 @@ public sealed partial class DeploymentExecutor
             return (existing, change);
         }
 
-        /// <summary>Claims a Graph id for an instance; false (with the claimant) when another instance of this run already manages that object.</summary>
-        private bool TryClaim(ResourceInstance instance, string graphId, out ResourceInstance? other)
+        /// <summary>
+        /// Claims a Graph object for an instance, by the provider's <see cref="IResourceProvider.ClaimIdentity"/>; false (with the claimant) when another
+        /// instance of this run already manages that object.
+        /// </summary>
+        private bool TryClaim(ResourceInstance instance, IResourceProvider provider, ResourceKey key, string graphId, out ResourceInstance? other)
         {
             if (string.IsNullOrEmpty(graphId))
             {
@@ -359,7 +362,7 @@ public sealed partial class DeploymentExecutor
                 return true;
             }
 
-            var claimant = _graphClaims.GetOrAdd(graphId, instance);
+            var claimant = _graphClaims.GetOrAdd(provider.ClaimIdentity(key, graphId), instance);
             other = ReferenceEquals(claimant, instance) ? null : claimant;
             return other is null;
         }

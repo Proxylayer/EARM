@@ -82,6 +82,14 @@ public abstract partial class ProviderBase : IResourceProvider, IExistingResourc
     /// <summary>The <c>displayName</c>-keyed types are found with a <c>$filter</c> list, which can miss a new object for a few seconds after its create.</summary>
     public virtual bool KeyReadLagsCreate => Definition.NameKind is ResourceNameKind.DisplayName;
 
+    /// <summary>See <see cref="IResourceProvider.ClaimIdentity"/>: <c>{type}/{graphId}</c> unless the type's Graph id is only unique within a scope.</summary>
+    public virtual string ClaimIdentity(ResourceKey key, string graphId)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        ArgumentNullException.ThrowIfNull(graphId);
+        return TypeName + "/" + graphId;
+    }
+
     // ---- Graph calls (per provider) ----
 
     /// <summary>See <see cref="IResourceProvider.PrepareAsync"/>: sugar resolution and live-data validation before the key; nothing by default.</summary>
