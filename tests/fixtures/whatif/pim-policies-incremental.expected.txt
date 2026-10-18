@@ -11,16 +11,28 @@ Resource and property changes are indicated with these symbols:
 
 The deployment would make the following changes:
 
-  ~ /providers/Microsoft.Entra/roleManagementPolicies/6d9fb633-9db3-530c-86fc-ef7e782f70a7 [Microsoft.Entra/roleManagementPolicies]
-      ~ properties.rules: [
-          ~ Expiration_Admin_Eligibility:
-              ~ isExpirationRequired: true => false
-          ~ Notification_Admin_EndUser_Assignment:
-              + notificationRecipients: [
-                  0: "security@contoso.com"
-                ]
+  + /providers/Microsoft.Entra/roleManagementPolicies/6d9fb633-9db3-530c-86fc-ef7e782f70a7 [Microsoft.Entra/roleManagementPolicies]
+      name: "6d9fb633-9db3-530c-86fc-ef7e782f70a7"
+      type: "Microsoft.Entra/roleManagementPolicies"
+      apiVersion: "2026-10-01-preview"
+      properties:
+        rules: [
+          0:
+            id: "Expiration_Admin_Eligibility"
+            isExpirationRequired: false
+            ruleType: "RoleManagementPolicyExpirationRule"
+          1:
+            id: "Notification_Admin_EndUser_Assignment"
+            notificationRecipients: [
+              0: "security@contoso.com"
+            ]
+            ruleType: "RoleManagementPolicyNotificationRule"
         ]
-      (each changed rule is updated in place (PATCH of the rule); undeclared rules are left as they are)
+        scopeId: "66666666-0000-0000-0000-000000000100"
+        roleDefinitionId: "member"
+        scopeType: "Group"
+      (group not onboarded: a temporary eligibility for 66666666-0000-0000-0000-000000000300 will onboard it, then be removed)
+      (Graph lists no PIM policy for the member access of group 66666666-0000-0000-0000-000000000100: PIM for Groups has not onboarded the group yet. The deployment requests a PT1H member eligibility for 66666666-0000-0000-0000-000000000300 (justification 'EARM onboarding of 66666666-0000-0000-0000-000000000100 for policy management'), waits for Graph to list the group's policy, removes the eligibility, and then applies the declared rules to that policy; nothing else is created)
 
   = /providers/Microsoft.Entra/roleManagementPolicies/8f9fe0c5-f1ea-5d56-9d16-cda33a729eda [Microsoft.Entra/roleManagementPolicies]
 
@@ -53,6 +65,6 @@ The deployment would make the following changes:
         ]
       (each changed rule is updated in place (PATCH of the rule); undeclared rules are left as they are)
 
-Resource changes: 0 to create, 2 to modify, 0 to delete, 1 unchanged, 0 ignored.
+Resource changes: 1 to create, 1 to modify, 0 to delete, 1 unchanged, 0 ignored.
 Edges: 0 to add, 0 to remove.
-Required permissions: Directory.Read.All, RoleManagementPolicy.ReadWrite.AzureADGroup, RoleManagementPolicy.ReadWrite.Directory.
+Required permissions: Directory.Read.All, PrivilegedEligibilitySchedule.ReadWrite.AzureADGroup, RoleManagementPolicy.ReadWrite.AzureADGroup, RoleManagementPolicy.ReadWrite.Directory.
