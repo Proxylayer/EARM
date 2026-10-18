@@ -277,7 +277,7 @@ can see "not found" and **both create**, leaving two objects with one display na
 Serialise runs of one template in your pipeline (a concurrency group, a single agent).
 
 **Replacements need confirmation.** A `create` that would replace objects (an immutable property changed on a type that is deleted and created again:
-assignments, credentials, named location kinds...) lists them on stderr (resource id, type, Graph id) and asks `Replace them? (y/n):` unless `-y`.
+in practice a named location whose kind changed) lists them on stderr (resource id, type, Graph id) and asks `Replace them? (y/n):` unless `-y`.
 To know them before anything is written, a `create` without `-y` reads every resource first (the same read-only pass as `what-if`; not printed unless
 `-c`, where the what-if rows are the list and its prompt is the confirmation). On a non-interactive standard input without `-y` it stops with exit 1,
 `RecreateNotConfirmed` and "Deployment not started.". A replacement the run only discovers while it runs (its input resolved during the run) and that was not

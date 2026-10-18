@@ -69,8 +69,9 @@ public abstract partial class ProviderBase : IResourceProvider, IExistingResourc
     }
 
     /// <summary>
-    /// Whether a changed immutable property replaces the object (assignments, grants, secrets, FICs: every property
-    /// immutable) or is a hard error (applications, groups, users). Defaults to the overlay's <c>immutable: ["*"]</c>.
+    /// Whether a changed immutable property replaces the object or is a hard error (applications, groups, users). Defaults to the overlay's
+    /// <c>immutable: ["*"]</c>. In practice only a named location's kind (<c>@odata.type</c>) is replaced: the assignments and grants that opt in have no immutable
+    /// property outside their key (a changed key is a new object, created), and password credentials plan their own rotation (a <c>Modify</c> that adds, then removes).
     /// </summary>
     protected virtual bool RecreateOnImmutableChange => Definition.ImmutableAll;
 

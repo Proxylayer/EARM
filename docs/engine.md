@@ -208,8 +208,8 @@ load ──► validate ──► expand ──► graph ──► [per batch: r
 - **Unexpected exceptions.** Anything not handled above (a null reference, a format error, an HTTP timeout that is not the caller's cancellation) fails **that one resource** (`ResourceApplyFailed`, `unexpected error (<type>)`):
   parallel siblings are never cancelled by it, and the end phase (edge pass, outputs, secure outputs file, orphan report) still runs. An exception of the engine itself outside any resource aborts the run the same
   way: the unstarted resources are reported as skipped, the orphan report judges nothing, and the run ends `Failed` with an error diagnostic.
-- **Replacing** an object whose immutable properties changed (`ChangeMode.Recreate`: credentials, named location kinds,
-  every-property-immutable types) deletes the old object, then creates it again. The old object was found by the key, so the replacement has the same key and
+- **Replacing** an object whose immutable properties changed (`ChangeMode.Recreate`: in practice a named location whose kind,
+  `@odata.type`, changed) deletes the old object, then creates it again. The old object was found by the key, so the replacement has the same key and
   identity; there is no create-first variant. (A changed **tuple** of an assignment or grant is not a replacement: the tuple is the identity, so it is a new
   object, created, and the old one is retained and reported, see the orphan report.) A replacement is guarded like every delete (`DeleteGuards`): the signed-in principal
   and a service principal owned by another organization are never replaced (`ProtectedObject`; nothing is deleted or created, the what-if row is an error row). It
@@ -661,7 +661,8 @@ the catalog overlay of the type:
   still compared); unknowns flagged (`IsUnknown`). Only declared top-level properties take part (Graph PATCH is a
   merge). An immutable change (a delta on an `immutable` path; for an `immutable: ["*"]` type —
   `ResourceTypeDefinition.ImmutableAll`: password credentials, app role assignments, role assignments — **every**
-  effective delta) is `Modify`/`Recreate` when `RecreateOnImmutableChange` is true (it defaults to
+  effective delta; for the assignments every allowed property is part of the key, so an object found by its key has none and a changed
+  value is a new tuple, a `Create`) is `Modify`/`Recreate` when `RecreateOnImmutableChange` is true (it defaults to
   `ImmutableAll`; the executor then deletes and creates), otherwise `UnsupportedReason`. `ImmutableProperties`
   stays the explicitly listed paths (empty for `["*"]`). A provider that overrides `Plan` keeps its own decision:
   password credentials rotate as `Modify`/`Patch` so `UpdateAsync` can add the new secret before removing the

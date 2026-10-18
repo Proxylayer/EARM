@@ -20,14 +20,14 @@ namespace EArm.Providers;
 /// display name resolved from <see cref="WellKnownIds.RoleTemplates"/>, a custom role's display name looked up in
 /// the tenant, or a custom role id) → <c>roleDefinitionId</c>, and <c>administrativeUnit</c> (a unit's id or
 /// displayName) → <c>directoryScopeId: /administrativeUnits/{id}</c>; <c>directoryScopeId</c> defaults to <c>/</c>.
-/// Every property is immutable: a changed composite under the same name is <see cref="ChangeMode.Recreate"/>.
+/// Every property is part of the key: a changed composite under the same name is another assignment, created (the old one is retained and reported by the orphan report).
 /// <para>
 /// Requests per operation:
 /// <list type="bullet">
 /// <item><b>Prepare</b> (before the key): <c>[GET /roleManagement/directory/roleDefinitions?$filter=displayName eq '…']</c> for a custom role name, <c>[GET /directory/administrativeUnits?$filter=displayName eq '…']</c> for a unit name, then <c>GET /directoryObjects/{principalId}?$select=id</c> (the principal's kind) and, for a group, <c>GET /groups/{principalId}?$select=id,isAssignableToRole</c>; all under the instance's retry hint. An unknown role or unit name, a missing principal, a group that is not role-assignable or any other kind of object is <see cref="ProviderException"/> (<see cref="InvalidAssignment"/>): an unsupported what-if row, a failed create.</item>
 /// <item><b>Read</b>: <c>GET /roleManagement/directory/roleAssignments?$filter=principalId eq '{principalId}'</c> (every page) matched client-side on <c>roleDefinitionId</c> + <c>directoryScopeId</c>.</item>
 /// <item><b>Create</b>: <c>POST /roleManagement/directory/roleAssignments { "@odata.type": "#microsoft.graph.unifiedRoleAssignment", roleDefinitionId, principalId, directoryScopeId }</c> under the instance's retry hint. A 400 "A conflicting object with one or more of the specified property values is present in the directory" is idempotent success: the assignment is re-read by composite and adopted.</item>
-/// <item><b>Update</b>: never (every property is immutable; the planner asks for a recreate).</item>
+/// <item><b>Update</b>: never (every property is part of the key, so an assignment found by its key has nothing to update).</item>
 /// <item><b>Delete</b>: <c>DELETE /roleManagement/directory/roleAssignments/{id}</c>; a 404 is "already gone".</item>
 /// </list>
 /// <c>roleDefinitionId</c> is always a role template id (or a custom role's definition id), never the object id of an
@@ -61,7 +61,7 @@ public sealed class RoleAssignmentsProvider : ProviderBase, IOrphanCandidateSour
     {
     }
 
-    /// <summary>Every property is immutable: a composite change under the same name replaces the assignment.</summary>
+    /// <summary>Every property is immutable; since every one is also part of the key, an assignment found by its key never differs, so this is a safeguard: a difference would replace it.</summary>
     protected override bool RecreateOnImmutableChange => true;
 
     // ---- prepare (sugar + live validation) ----
@@ -194,8 +194,8 @@ public sealed class RoleAssignmentsProvider : ProviderBase, IOrphanCandidateSour
         var change = base.Plan(desired, existing, options);
         if (change is { Type: ChangeType.Modify, Mode: ChangeMode.Patch, HasError: false })
         {
-            // The overlay marks every property immutable ("*"): the base plan has no per-property list to match, so
-            // any effective difference replaces the assignment.
+            // The overlay marks every property immutable ("*"): the base plan has no per-property list to match, so any effective difference would replace the
+            // assignment. Not reached in practice: every allowed property is part of the key, and a changed key finds no object (a Create).
             change = change with
             {
                 Mode = ChangeMode.Recreate,

@@ -20,7 +20,7 @@ namespace EArm.Providers;
 /// deterministic GUID chosen with <c>guid(...)</c>; the Graph object is found by the composite key (<c>clientId</c>,
 /// <c>resourceId</c>, <c>consentType</c>, <c>principalId</c>) read live on every run. Sugar: <c>scopes</c>
 /// (an array of permission values) becomes the space-separated <c>scope</c> string. Only <c>scope</c> is mutable
-/// (compared as a set of values); a key change under the same name is <see cref="ChangeMode.Recreate"/>.
+/// (compared as a set of values); a key change under the same name is another grant, created (the old one is retained and reported by the orphan report).
 /// <para>
 /// Requests per operation:
 /// <list type="bullet">
@@ -54,7 +54,7 @@ public sealed class OAuth2PermissionGrantsProvider : ProviderBase, IOrphanCandid
     {
     }
 
-    /// <summary>A key change (clientId, resourceId, consentType, principalId) replaces the grant.</summary>
+    /// <summary>The immutable properties are the key, so a grant found by its key never differs in them (a changed key is a new grant); a safeguard.</summary>
     protected override bool RecreateOnImmutableChange => true;
 
     // ---- prepare (sugar + live validation) ----

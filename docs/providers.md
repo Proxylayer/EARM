@@ -203,7 +203,8 @@ same name finds nothing and is a **Create**; the old assignment is not looked at
 it as `orphan: retained`, see [engine.md](engine.md#retained-assignments)). The overlay says `immutable: ["*"]`, which the catalog
 folds into `ImmutableAll` with an empty per-property list; `ProviderBase.Plan` treats every effective difference of an existing
 object of such a type (one found by its full key, so only non-key properties can differ) as an immutable change and, since
-`RecreateOnImmutableChange` defaults to `ImmutableAll`, plans `Recreate` (the executor deletes, then creates, after confirmation).
+`RecreateOnImmutableChange` defaults to `ImmutableAll`, would plan `Recreate`. For the assignments every allowed property is part of the key, so an
+object found by its key has no such difference and `Recreate` is not reached in practice; a grant's only non-key property, `scope`, is updated in place.
 A provider only needs its own `Plan` for type-specific validation or reasons. For the orphan report a GUID-named provider
 implements `IOrphanCandidateSource` with the `DeclaredPrincipals` scope (the assignments of the principals the template declares).
 
@@ -215,7 +216,7 @@ resource application's id) and `appRole` (the role's `value`); `00000000-0000-00
 | Prepare | `GET /servicePrincipals(appId='…')` (sugar) or `GET /servicePrincipals/{resourceId}`, `$select=id,appId,displayName,appRoles,oauth2PermissionScopes`, under the instance hint → `[GET /directoryObjects/{principalId}?$select=id]` when the role restricts `allowedMemberTypes`. Unknown role value or id, disabled role, or a role the principal's kind may not hold (users and groups are `User`, service principals `Application`) ⇒ `ProviderException(AppRoleAssignmentInvalid)` |
 | Read | from the principal side (bounded: the resource side of a principal such as Microsoft Graph's is tenant-sized): `GET /directoryObjects/{principalId}?$select=id` for its collection → `GET /{users\|groups\|servicePrincipals}/{principalId}/appRoleAssignments?$top=999` (every page) matched on `resourceId` + `appRoleId`; a 404 is "does not exist" |
 | Create | `POST /servicePrincipals/{resourceId}/appRoleAssignedTo { principalId, resourceId, appRoleId }` under the instance hint; 400 "Permission being assigned already exists" ⇒ re-read by composite (`ExpectReplicationLag`) and adopt. `AppliedResource.Extra` = the resolved ids |
-| Update | never (`Recreate` instead) |
+| Update | never (every property is part of the key: a change is a new assignment) |
 | Delete | `DELETE /servicePrincipals/{resourceId}/appRoleAssignedTo/{id}` (404 tolerated); the `resourceId` comes from the key, the id from the live object |
 
 `Microsoft.Entra/oauth2PermissionGrants` — key (`clientId`, `resourceId`, `consentType`, `principalId`; the last one

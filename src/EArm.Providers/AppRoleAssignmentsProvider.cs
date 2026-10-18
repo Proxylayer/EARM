@@ -19,16 +19,15 @@ namespace EArm.Providers;
 /// (<c>principalId</c>, <c>resourceId</c>, <c>appRoleId</c>), read live on every run. Sugar accepted in
 /// <c>properties</c>: <c>resourceAppId</c> (the resource application's id, resolved to the service principal object
 /// id) and <c>appRole</c> (the role's <c>value</c>, resolved to <c>appRoleId</c> through the resource principal's
-/// <c>appRoles</c>; <c>00000000-0000-0000-0000-000000000000</c> is default access). Every property is immutable: a
-/// changed composite under the same name is <see cref="ChangeMode.Recreate"/> (delete the old assignment, create the
-/// new one).
+/// <c>appRoles</c>; <c>00000000-0000-0000-0000-000000000000</c> is default access). Every property is part of the key:
+/// a changed composite under the same name is another assignment, created (the old one is retained and reported by the orphan report).
 /// <para>
 /// Requests per operation:
 /// <list type="bullet">
 /// <item><b>Prepare</b> (before the key): <c>GET /servicePrincipals(appId='…')</c> (sugar) or <c>GET /servicePrincipals/{resourceId}</c>, both <c>$select=id,appId,displayName,appRoles,oauth2PermissionScopes</c>, under the instance's retry hint; plus <c>GET /directoryObjects/{principalId}?$select=id</c> when the role restricts <c>allowedMemberTypes</c>. A disabled role, a role the principal's kind may not hold, or an unknown role value is a <see cref="ProviderException"/> (<see cref="InvalidAssignment"/>): an unsupported what-if row, a failed create.</item>
 /// <item><b>Read</b>: from the principal side (bounded; the resource side of a service principal such as Microsoft Graph is tenant-sized): <c>GET /directoryObjects/{principalId}?$select=id</c> for its collection → <c>GET /{users|groups|servicePrincipals}/{principalId}/appRoleAssignments?$top=999</c> (every page) matched on <c>resourceId</c> + <c>appRoleId</c>; a 404 of the principal is "does not exist".</item>
 /// <item><b>Create</b>: <c>POST /servicePrincipals/{resourceId}/appRoleAssignedTo { principalId, resourceId, appRoleId }</c> under the instance's retry hint (<see cref="RetryHint.ExpectReplicationLag"/> when the principal or the resource was created in this run: the Graph transport retries 404 / <c>PrincipalNotFound</c> for up to 90 s). A 400 "Permission being assigned already exists" is idempotent success: the assignment is re-read by composite and adopted.</item>
-/// <item><b>Update</b>: never (every property is immutable; the planner asks for a recreate).</item>
+/// <item><b>Update</b>: never (every property is part of the key, so an assignment found by its key has nothing to update).</item>
 /// <item><b>Delete</b>: <c>DELETE /servicePrincipals/{resourceId}/appRoleAssignedTo/{id}</c>; a 404 is "already gone".</item>
 /// </list>
 /// The principal-side <c>appRoleAssignments</c> property of users, groups and service principals produces the same
@@ -59,7 +58,7 @@ public sealed class AppRoleAssignmentsProvider : ProviderBase, IOrphanCandidateS
     {
     }
 
-    /// <summary>Every property is immutable: a composite change under the same name replaces the assignment.</summary>
+    /// <summary>Every property is immutable; since every one is also part of the key, an assignment found by its key never differs, so this is a safeguard: a difference would replace it.</summary>
     protected override bool RecreateOnImmutableChange => true;
 
     // ---- prepare (sugar + live validation) ----
@@ -199,8 +198,8 @@ public sealed class AppRoleAssignmentsProvider : ProviderBase, IOrphanCandidateS
         var change = base.Plan(desired, existing, options);
         if (change is { Type: ChangeType.Modify, Mode: ChangeMode.Patch, HasError: false })
         {
-            // The overlay marks every property immutable ("*"): the base plan has no per-property list to match, so
-            // any effective difference replaces the assignment.
+            // The overlay marks every property immutable ("*"): the base plan has no per-property list to match, so any effective difference would replace the
+            // assignment. Not reached in practice: every allowed property is part of the key, and a changed key finds no object (a Create).
             return change with
             {
                 Mode = ChangeMode.Recreate,

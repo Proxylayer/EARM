@@ -102,6 +102,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The what-if of a role management policy shows a changed approval stage as the changed properties inside that stage
   (`setting.approvalStages[0].approvalStageTimeOutInDays: 1 => 2`) instead of the whole stage removed and added: stages are matched by
   position (overlay `memberKey` `$index`, new).
+- README.md, docs/cli.md, docs/diagnostics.md, docs/engine.md, docs/format.md and docs/providers.md no longer list assignments and
+  password credentials as replaced (delete, then create) on an immutable change. Every property of a role or app role assignment is part
+  of its key (a changed value is a new assignment, created; the old one is retained), a grant's only non-key property is updated in place,
+  and a password credential rotates (add, then remove). In practice only a named location's kind change replaces an object.
 
 ## [0.2.0] - 2026-10-17
 
