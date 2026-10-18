@@ -144,6 +144,25 @@ public sealed class RoleAssignmentGapTests
         Assert.Contains("is not a property of a directory role assignment", t.Provider.Plan(badProperty, null, PlanOptions.Default).UnsupportedReason, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task Plan_AnAssignmentFoundByItsKey_IsNoChange_AndAnyDifference_IsAReplacementByTheSharedPlan()
+    {
+        var t = NewTenant();
+        string properties = "{ \"roleDefinitionId\": \"" + BuiltInRoles.GlobalReader + "\", \"principalId\": \"" + t.UserId + "\", \"directoryScopeId\": \"/\" }";
+        var live = JsonNode.Parse(properties)!.AsObject();
+        var same = await Instance(t, properties);
+        var other = await Instance(t, properties.Replace("\"/\"", "\"/administrativeUnits/" + t.AuId + "\"", StringComparison.Ordinal));
+
+        var unchanged = t.Provider.Plan(same, new ExistingResource("ra1", live, live), PlanOptions.Default);
+        var replaced = t.Provider.Plan(other, new ExistingResource("ra1", live, live), PlanOptions.Default);
+
+        Assert.Equal(ChangeType.NoChange, unchanged.Type);
+        Assert.Equal(ChangeType.Modify, replaced.Type);
+        Assert.Equal(ChangeMode.Recreate, replaced.Mode);
+        Assert.False(replaced.HasError);
+        Assert.Contains(replaced.Reasons, r => r.Contains("deleted and created again", StringComparison.Ordinal));
+    }
+
     // ---- read ----
 
     [Fact]
