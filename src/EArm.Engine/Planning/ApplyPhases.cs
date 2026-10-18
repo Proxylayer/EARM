@@ -52,6 +52,7 @@ public static class ApplyPhases
             "entitlementManagement/resourceRoleScopes" => 6,
             "entitlementManagement/accessPackages/assignmentPolicies" => 6,
             "groupLifecyclePolicies" => 1,
+            "policies/tokenLifetimePolicies" => 1,
             _ => UnknownTypePhase,
         };
     }
@@ -94,6 +95,7 @@ public static class ApplyPhases
             "entitlementManagement/catalogResources" => 3,
             "entitlementManagement/catalogs" => 4,
             "groupLifecyclePolicies" => 12,
+            "policies/tokenLifetimePolicies" => 12,
             _ => 4,
         };
     }
@@ -144,5 +146,6 @@ public static class ApplyPhases
         "entitlementManagement/resourceRoleScopes",
         "entitlementManagement/accessPackages/assignmentPolicies",
         "groupLifecyclePolicies",
+        "policies/tokenLifetimePolicies",
     ];
 }

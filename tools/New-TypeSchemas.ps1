@@ -272,6 +272,7 @@ $specs['applications'] = [ordered]@{
         isFallbackPublicClient = Bool 'Treat the application as a public client when no redirect URI matches.' -Nullable
         keyCredentials         = Arr -d 'Certificates and keys (passthrough; only diffed when declared).' -Items (FreeObj '')
         owners                 = EdgeIds 'Ownership edge, target side: the full desired set of owner object ids (reference(...).id). Owners not listed are removed.'
+        tokenLifetimePolicies  = EdgeIds 'Token lifetime policy edge, principal side (ensure-only): the object id of the token lifetime policy assigned to the application (Graph allows one).'
     }
 }
 
@@ -332,6 +333,7 @@ $specs['servicePrincipals'] = [ordered]@{
         ownerOf                    = EdgeIds 'Ownership edge, principal side: object ids of applications, service principals or groups this principal must own.'
         appRoleAssignments         = EdgeAppRoleAssignments
         directoryRoles             = EdgeDirectoryRoles ''
+        tokenLifetimePolicies      = EdgeIds 'Token lifetime policy edge, principal side (ensure-only): the object id of the token lifetime policy assigned to the service principal (Graph allows one).'
     }
 }
 
@@ -673,6 +675,17 @@ $specs['groupLifecyclePolicies'] = [ordered]@{
         groupLifetimeInDays         = Int 'Required on create: days until a group expires and must be renewed (Microsoft Entra offers 180, 365 or a custom value of 30 days or more).' -Min 1
         managedGroupTypes           = Str 'Required on create: All (every Microsoft 365 group), Selected (only the groups added to the policy) or None.' -Enum 'All', 'Selected', 'None'
         alternateNotificationEmails = Str 'Addresses notified about groups without owners, separated by semicolons; compared as a case-insensitive set.' -Nullable
+    }
+}
+
+# --- policies/tokenLifetimePolicies ----------------------------------------------------------------------------------
+$specs['policies.tokenLifetimePolicies'] = [ordered]@{
+    NamePattern = $uniqueNamePattern
+    Description = 'An access token lifetime policy (tokenLifetimePolicy). The resource name is the displayName; it is looked up by displayName on every run (more than one match is an error). Assigned to applications and service principals with their tokenLifetimePolicies edge.'
+    Props       = [ordered]@{
+        displayName           = Str 'Set from the resource name; declaring it is only allowed when it equals the name.'
+        definition            = Arr -d 'Required: one policy document, {"TokenLifetimePolicy":{"Version":1,"AccessTokenLifetime":"02:00:00"}}, as a JSON string or (sugar) an object. AccessTokenLifetime is 10 minutes to 1 day; refresh and session token lifetimes are not supported. Compared by JSON content.' -Items ([ordered]@{ anyOf = @([ordered]@{ type = 'string'; minLength = 2 }, [ordered]@{ type = 'object' }, $script:Expression) }) -Min 1
+        isOrganizationDefault = Bool 'Makes the policy the tenant default (only one policy can be). Defaults to false.'
     }
 }
 

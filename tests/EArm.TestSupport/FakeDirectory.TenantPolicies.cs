@@ -18,7 +18,8 @@ public sealed partial class FakeDirectory
     private bool TryHandleTenantPolicies(string method, string path, IReadOnlyDictionary<string, string>? query, JsonNode? body, RetryHint hint, int pageSize, out (HttpStatusCode Status, JsonNode? Body) result)
     {
         string[] segments = PolicySegments(path);
-        return TryHandleGroupLifecyclePolicies(method, segments, query, body, hint, pageSize, out result);
+        return TryHandleGroupLifecyclePolicies(method, segments, query, body, hint, pageSize, out result)
+            || TryHandlePolicyAssignments(method, segments, query, body, hint, pageSize, out result);
     }
 
     /// <summary>The path segments after the API version, without query.</summary>

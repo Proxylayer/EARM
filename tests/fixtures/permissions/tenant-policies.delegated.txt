@@ -1,6 +1,9 @@
-Permissions required by samples/tenant-policies.entra.json (mode: delegated, 2 resource(s))
+Permissions required by samples/tenant-policies.entra.json (mode: delegated, 4 resource(s))
 
 Microsoft Graph delegated permissions
+  Application.ReadWrite.All
+      /providers/Microsoft.Entra/applications/contoso-portal
+      (edge: tokenLifetimePolicies; provider)
   Directory.ReadWrite.All
       /providers/Microsoft.Entra/groupLifecyclePolicies/default
       /providers/Microsoft.Entra/groups/team-sales-emea
@@ -8,8 +11,22 @@ Microsoft Graph delegated permissions
   Group.ReadWrite.All
       /providers/Microsoft.Entra/groups/team-sales-emea
       (provider)
+  Policy.Read.All
+      /providers/Microsoft.Entra/applications/contoso-portal
+      /providers/Microsoft.Entra/policies/tokenLifetimePolicies/Portal access tokens (2h)
+      (edge: tokenLifetimePolicies; provider)
+  Policy.ReadWrite.ApplicationConfiguration
+      /providers/Microsoft.Entra/policies/tokenLifetimePolicies/Portal access tokens (2h)
+      (provider)
 
 Entra roles (the signed-in user needs at least one role of each group)
+  Application Administrator | Application Developer | Cloud Application Administrator
+      /providers/Microsoft.Entra/applications/contoso-portal
+      (provider)
+  Application Administrator | Cloud Application Administrator
+      /providers/Microsoft.Entra/applications/contoso-portal
+      /providers/Microsoft.Entra/policies/tokenLifetimePolicies/Portal access tokens (2h)
+      (edge: tokenLifetimePolicies; provider)
   Groups Administrator
       /providers/Microsoft.Entra/groups/team-sales-emea
       (provider)

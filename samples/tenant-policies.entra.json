@@ -6,7 +6,8 @@
   },
   "parameters": {
     "groupLifetimeInDays": { "type": "int", "defaultValue": 180, "metadata": { "description": "Days until a governed Microsoft 365 group expires unless renewed." } },
-    "expiryNotificationEmails": { "type": "string", "metadata": { "description": "Semicolon-separated addresses notified about groups without owners." } }
+    "expiryNotificationEmails": { "type": "string", "metadata": { "description": "Semicolon-separated addresses notified about groups without owners." } },
+    "accessTokenLifetime": { "type": "string", "defaultValue": "02:00:00", "metadata": { "description": "Access token lifetime of the portal (10 minutes to 1 day, hh:mm:ss)." } }
   },
   "resources": [
     {
@@ -31,6 +32,24 @@
         "mailNickname": "sales-emea",
         "visibility": "Private",
         "groupLifecyclePolicies": [ "[reference('default').id]" ]
+      }
+    },
+    {
+      "type": "Microsoft.Entra/policies/tokenLifetimePolicies",
+      "apiVersion": "2026-10-01-preview",
+      "name": "Portal access tokens (2h)",
+      "properties": {
+        "definition": [ { "TokenLifetimePolicy": { "Version": 1, "AccessTokenLifetime": "[parameters('accessTokenLifetime')]" } } ]
+      }
+    },
+    {
+      "type": "Microsoft.Entra/applications",
+      "apiVersion": "2026-10-01-preview",
+      "name": "contoso-portal",
+      "properties": {
+        "displayName": "Contoso portal",
+        "signInAudience": "AzureADMyOrg",
+        "tokenLifetimePolicies": [ "[reference('Portal access tokens (2h)').id]" ]
       }
     }
   ]

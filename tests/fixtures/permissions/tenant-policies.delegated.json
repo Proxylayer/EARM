@@ -1,8 +1,19 @@
 {
   "template": "samples/tenant-policies.entra.json",
   "mode": "delegated",
-  "resourceCount": 2,
+  "resourceCount": 4,
   "permissions": [
+    {
+      "name": "Application.ReadWrite.All",
+      "kind": "graphDelegated",
+      "resources": [
+        "/providers/Microsoft.Entra/applications/contoso-portal"
+      ],
+      "reasons": [
+        "edge: tokenLifetimePolicies",
+        "provider"
+      ]
+    },
     {
       "name": "Directory.ReadWrite.All",
       "kind": "graphDelegated",
@@ -24,9 +35,58 @@
       "reasons": [
         "provider"
       ]
+    },
+    {
+      "name": "Policy.Read.All",
+      "kind": "graphDelegated",
+      "resources": [
+        "/providers/Microsoft.Entra/applications/contoso-portal",
+        "/providers/Microsoft.Entra/policies/tokenLifetimePolicies/Portal access tokens (2h)"
+      ],
+      "reasons": [
+        "edge: tokenLifetimePolicies",
+        "provider"
+      ]
+    },
+    {
+      "name": "Policy.ReadWrite.ApplicationConfiguration",
+      "kind": "graphDelegated",
+      "resources": [
+        "/providers/Microsoft.Entra/policies/tokenLifetimePolicies/Portal access tokens (2h)"
+      ],
+      "reasons": [
+        "provider"
+      ]
     }
   ],
   "entraRoles": [
+    {
+      "anyOf": [
+        "Application Administrator",
+        "Application Developer",
+        "Cloud Application Administrator"
+      ],
+      "resources": [
+        "/providers/Microsoft.Entra/applications/contoso-portal"
+      ],
+      "reasons": [
+        "provider"
+      ]
+    },
+    {
+      "anyOf": [
+        "Application Administrator",
+        "Cloud Application Administrator"
+      ],
+      "resources": [
+        "/providers/Microsoft.Entra/applications/contoso-portal",
+        "/providers/Microsoft.Entra/policies/tokenLifetimePolicies/Portal access tokens (2h)"
+      ],
+      "reasons": [
+        "edge: tokenLifetimePolicies",
+        "provider"
+      ]
+    },
     {
       "anyOf": [
         "Groups Administrator"

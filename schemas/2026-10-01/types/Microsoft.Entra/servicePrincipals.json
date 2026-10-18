@@ -173,6 +173,13 @@
         },
         { "$ref": "#/$defs/expression" }
       ]
+    },
+    "tokenLifetimePolicies": {
+      "description": "Token lifetime policy edge, principal side (ensure-only): the object id of the token lifetime policy assigned to the service principal (Graph allows one).",
+      "anyOf": [
+        { "type": "array", "items": { "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] } },
+        { "$ref": "#/$defs/expression" }
+      ]
     }
   },
   "additionalProperties": true,
@@ -198,7 +205,8 @@
       { "property": "memberOf", "kind": "groupMembership", "side": "principal" },
       { "property": "ownerOf", "kind": "ownership", "side": "principal" },
       { "property": "appRoleAssignments", "kind": "appRoleAssignment", "side": "principal" },
-      { "property": "directoryRoles", "kind": "directoryRoleAssignment", "side": "principal" }
+      { "property": "directoryRoles", "kind": "directoryRoleAssignment", "side": "principal" },
+      { "property": "tokenLifetimePolicies", "kind": "tokenLifetimePolicy", "side": "principal" }
     ],
     "memberKey": {},
     "stripOnRead": ["id", "servicePrincipalType", "appOwnerOrganizationId", "appDisplayName", "appDescription", "applicationTemplateId", "appRoles", "oauth2PermissionScopes", "resourceSpecificApplicationPermissions", "signInAudience", "verifiedPublisher", "disabledByMicrosoftStatus", "createdDateTime", "deletedDateTime", "servicePrincipalNames", "passwordCredentials", "keyCredentials"],

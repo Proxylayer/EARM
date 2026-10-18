@@ -34,6 +34,7 @@ public sealed class DiscoveryTests
     [InlineData("Microsoft.Entra/conditionalAccess/authenticationContextClassReferences", typeof(AuthenticationContextClassReferencesProvider))]
     [InlineData("Microsoft.Entra/authenticationMethodConfigurations", typeof(AuthenticationMethodConfigurationsProvider))]
     [InlineData("Microsoft.Entra/groupLifecyclePolicies", typeof(GroupLifecyclePoliciesProvider))]
+    [InlineData("Microsoft.Entra/policies/tokenLifetimePolicies", typeof(TokenLifetimePoliciesProvider))]
     [InlineData("Microsoft.Entra/roleEligibilityScheduleRequests", typeof(RoleEligibilityScheduleRequestsProvider))]
     [InlineData("Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests", typeof(GroupEligibilityScheduleRequestsProvider))]
     [InlineData("Microsoft.Entra/roleAssignmentScheduleRequests", typeof(RoleAssignmentScheduleRequestsProvider))]
@@ -70,14 +71,15 @@ public sealed class DiscoveryTests
         Assert.True(kinds.Contains(EdgeKind.AppRoleAssignment));
         Assert.True(kinds.Contains(EdgeKind.DirectoryRole));
         Assert.True(kinds.Contains(EdgeKind.GroupLifecyclePolicy));
-        Assert.Equal(7, kinds.Handlers.Count);
+        Assert.True(kinds.Contains(EdgeKind.TokenLifetimePolicy));
+        Assert.Equal(8, kinds.Handlers.Count);
         Assert.Equal(4, kinds.OfPhase(EdgePhase.A).Count);
-        Assert.Equal(3, kinds.OfPhase(EdgePhase.B).Count);
+        Assert.Equal(4, kinds.OfPhase(EdgePhase.B).Count);
         Assert.True(kinds.TryGet(EdgeKind.DirectoryRole, out var directoryRoles));
         Assert.IsType<DirectoryRoleEdgeKind>(directoryRoles);
         Assert.Equal(EdgePhase.B, directoryRoles.Phase);
         var bindings = ProviderDiscovery.DiscoverEdgeKinds(typeof(ProviderDiscovery).Assembly);
-        Assert.Equal(3, bindings.Count);
+        Assert.Equal(4, bindings.Count);
         Assert.Contains(bindings, b => b.Kind == EdgeKind.GroupLifecyclePolicy);
         Assert.Contains(bindings, b => b.Kind == EdgeKind.AppRoleAssignment);
         Assert.Contains(bindings, b => b.Kind == EdgeKind.DirectoryRole);

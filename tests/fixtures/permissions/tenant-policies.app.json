@@ -1,8 +1,19 @@
 {
   "template": "samples/tenant-policies.entra.json",
   "mode": "app",
-  "resourceCount": 2,
+  "resourceCount": 4,
   "permissions": [
+    {
+      "name": "Application.ReadWrite.All",
+      "kind": "graphApplication",
+      "resources": [
+        "/providers/Microsoft.Entra/applications/contoso-portal"
+      ],
+      "reasons": [
+        "edge: tokenLifetimePolicies",
+        "provider"
+      ]
+    },
     {
       "name": "Directory.ReadWrite.All",
       "kind": "graphApplication",
@@ -33,6 +44,28 @@
       ],
       "reasons": [
         "preflight: GET /organization"
+      ]
+    },
+    {
+      "name": "Policy.Read.All",
+      "kind": "graphApplication",
+      "resources": [
+        "/providers/Microsoft.Entra/applications/contoso-portal",
+        "/providers/Microsoft.Entra/policies/tokenLifetimePolicies/Portal access tokens (2h)"
+      ],
+      "reasons": [
+        "edge: tokenLifetimePolicies",
+        "provider"
+      ]
+    },
+    {
+      "name": "Policy.ReadWrite.ApplicationConfiguration",
+      "kind": "graphApplication",
+      "resources": [
+        "/providers/Microsoft.Entra/policies/tokenLifetimePolicies/Portal access tokens (2h)"
+      ],
+      "reasons": [
+        "provider"
       ]
     }
   ],

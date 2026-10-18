@@ -339,6 +339,13 @@ public static class PermissionManifest
             return "Application.Read.All";
         }
 
+        if (permission.Equals("Policy.ReadWrite.ApplicationConfiguration", StringComparison.OrdinalIgnoreCase) || permission.Equals("Policy.ReadWrite.CrossTenantAccess", StringComparison.OrdinalIgnoreCase))
+        {
+            // Learn (tokenlifetimepolicy-list, claimsmappingpolicy-list, appmanagementpolicy-list, tenantappmanagementpolicy-get, crosstenantaccesspolicy-get and
+            // the partner and default pages): the least privileged read permission of these policies is Policy.Read.All.
+            return "Policy.Read.All";
+        }
+
         return permission.Replace(".ReadWrite.", ".Read.", StringComparison.Ordinal);
     }
 
