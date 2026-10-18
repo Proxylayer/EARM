@@ -51,6 +51,31 @@
         "signInAudience": "AzureADMyOrg",
         "tokenLifetimePolicies": [ "[reference('Portal access tokens (2h)').id]" ]
       }
+    },
+    {
+      "type": "Microsoft.Entra/policies/claimsMappingPolicies",
+      "apiVersion": "2026-10-01-preview",
+      "name": "Portal employee id claim",
+      "properties": {
+        "definition": [
+          {
+            "ClaimsMappingPolicy": {
+              "Version": 1,
+              "IncludeBasicClaimSet": "true",
+              "ClaimsSchema": [ { "Source": "user", "ID": "employeeid", "SamlClaimType": "http://schemas.contoso.com/identity/claims/employeeid", "JwtClaimType": "employeeid" } ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.Entra/servicePrincipals",
+      "apiVersion": "2026-10-01-preview",
+      "name": "[reference('contoso-portal').appId]",
+      "dependsOn": [ "[resourceId('Microsoft.Entra/applications', 'contoso-portal')]" ],
+      "properties": {
+        "claimsMappingPolicies": [ "[reference('Portal employee id claim').id]" ]
+      }
     }
   ]
 }

@@ -334,6 +334,7 @@ $specs['servicePrincipals'] = [ordered]@{
         appRoleAssignments         = EdgeAppRoleAssignments
         directoryRoles             = EdgeDirectoryRoles ''
         tokenLifetimePolicies      = EdgeIds 'Token lifetime policy edge, principal side (ensure-only): the object id of the token lifetime policy assigned to the service principal (Graph allows one).'
+        claimsMappingPolicies      = EdgeIds 'Claims mapping policy edge, principal side (ensure-only): object ids of the claims mapping policies assigned to the service principal.'
     }
 }
 
@@ -686,6 +687,17 @@ $specs['policies.tokenLifetimePolicies'] = [ordered]@{
         displayName           = Str 'Set from the resource name; declaring it is only allowed when it equals the name.'
         definition            = Arr -d 'Required: one policy document, {"TokenLifetimePolicy":{"Version":1,"AccessTokenLifetime":"02:00:00"}}, as a JSON string or (sugar) an object. AccessTokenLifetime is 10 minutes to 1 day; refresh and session token lifetimes are not supported. Compared by JSON content.' -Items ([ordered]@{ anyOf = @([ordered]@{ type = 'string'; minLength = 2 }, [ordered]@{ type = 'object' }, $script:Expression) }) -Min 1
         isOrganizationDefault = Bool 'Makes the policy the tenant default (only one policy can be). Defaults to false.'
+    }
+}
+
+# --- policies/claimsMappingPolicies ----------------------------------------------------------------------------------
+$specs['policies.claimsMappingPolicies'] = [ordered]@{
+    NamePattern = $uniqueNamePattern
+    Description = 'A claims mapping policy (claimsMappingPolicy). The resource name is the displayName; it is looked up by displayName on every run (more than one match is an error). Assigned to service principals with their claimsMappingPolicies edge.'
+    Props       = [ordered]@{
+        displayName           = Str 'Set from the resource name; declaring it is only allowed when it equals the name.'
+        definition            = Arr -d 'Required: one policy document, {"ClaimsMappingPolicy":{"Version":1,"IncludeBasicClaimSet":"true","ClaimsSchema":[...]}}, as a JSON string or (sugar) an object. At most 50 ClaimsSchema entries and 50 transformations (Graph ignores the rest). Compared by JSON content.' -Items ([ordered]@{ anyOf = @([ordered]@{ type = 'string'; minLength = 2 }, [ordered]@{ type = 'object' }, $script:Expression) }) -Min 1
+        isOrganizationDefault = Bool 'Must be false (or absent): Graph applies claims mapping to service principals only.'
     }
 }
 

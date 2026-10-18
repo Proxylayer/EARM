@@ -180,6 +180,13 @@
         { "type": "array", "items": { "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] } },
         { "$ref": "#/$defs/expression" }
       ]
+    },
+    "claimsMappingPolicies": {
+      "description": "Claims mapping policy edge, principal side (ensure-only): object ids of the claims mapping policies assigned to the service principal.",
+      "anyOf": [
+        { "type": "array", "items": { "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] } },
+        { "$ref": "#/$defs/expression" }
+      ]
     }
   },
   "additionalProperties": true,
@@ -206,7 +213,8 @@
       { "property": "ownerOf", "kind": "ownership", "side": "principal" },
       { "property": "appRoleAssignments", "kind": "appRoleAssignment", "side": "principal" },
       { "property": "directoryRoles", "kind": "directoryRoleAssignment", "side": "principal" },
-      { "property": "tokenLifetimePolicies", "kind": "tokenLifetimePolicy", "side": "principal" }
+      { "property": "tokenLifetimePolicies", "kind": "tokenLifetimePolicy", "side": "principal" },
+      { "property": "claimsMappingPolicies", "kind": "claimsMappingPolicy", "side": "principal" }
     ],
     "memberKey": {},
     "stripOnRead": ["id", "servicePrincipalType", "appOwnerOrganizationId", "appDisplayName", "appDescription", "applicationTemplateId", "appRoles", "oauth2PermissionScopes", "resourceSpecificApplicationPermissions", "signInAudience", "verifiedPublisher", "disabledByMicrosoftStatus", "createdDateTime", "deletedDateTime", "servicePrincipalNames", "passwordCredentials", "keyCredentials"],

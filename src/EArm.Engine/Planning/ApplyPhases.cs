@@ -53,6 +53,7 @@ public static class ApplyPhases
             "entitlementManagement/accessPackages/assignmentPolicies" => 6,
             "groupLifecyclePolicies" => 1,
             "policies/tokenLifetimePolicies" => 1,
+            "policies/claimsMappingPolicies" => 1,
             _ => UnknownTypePhase,
         };
     }
@@ -96,6 +97,7 @@ public static class ApplyPhases
             "entitlementManagement/catalogs" => 4,
             "groupLifecyclePolicies" => 12,
             "policies/tokenLifetimePolicies" => 12,
+            "policies/claimsMappingPolicies" => 12,
             _ => 4,
         };
     }
@@ -147,5 +149,6 @@ public static class ApplyPhases
         "entitlementManagement/accessPackages/assignmentPolicies",
         "groupLifecyclePolicies",
         "policies/tokenLifetimePolicies",
+        "policies/claimsMappingPolicies",
     ];
 }

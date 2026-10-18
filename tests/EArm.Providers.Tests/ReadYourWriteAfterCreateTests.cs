@@ -55,6 +55,7 @@ public sealed class ReadYourWriteAfterCreateTests
                 "Microsoft.Entra/entitlementManagement/catalogs",
                 "Microsoft.Entra/entitlementManagement/resourceRoleScopes",
                 "Microsoft.Entra/groupLifecyclePolicies",
+                "Microsoft.Entra/policies/claimsMappingPolicies",
                 "Microsoft.Entra/policies/tokenLifetimePolicies",
                 "Microsoft.Entra/privilegedAccess/groupAssignmentScheduleRequests",
                 "Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests",

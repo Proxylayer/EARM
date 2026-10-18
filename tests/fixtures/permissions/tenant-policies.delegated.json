@@ -1,15 +1,17 @@
 {
   "template": "samples/tenant-policies.entra.json",
   "mode": "delegated",
-  "resourceCount": 4,
+  "resourceCount": 6,
   "permissions": [
     {
       "name": "Application.ReadWrite.All",
       "kind": "graphDelegated",
       "resources": [
-        "/providers/Microsoft.Entra/applications/contoso-portal"
+        "/providers/Microsoft.Entra/applications/contoso-portal",
+        "/providers/Microsoft.Entra/servicePrincipals/ref(/providers/Microsoft.Entra/applications/contoso-portal).appId"
       ],
       "reasons": [
+        "edge: claimsMappingPolicies",
         "edge: tokenLifetimePolicies",
         "provider"
       ]
@@ -41,9 +43,12 @@
       "kind": "graphDelegated",
       "resources": [
         "/providers/Microsoft.Entra/applications/contoso-portal",
-        "/providers/Microsoft.Entra/policies/tokenLifetimePolicies/Portal access tokens (2h)"
+        "/providers/Microsoft.Entra/policies/claimsMappingPolicies/Portal employee id claim",
+        "/providers/Microsoft.Entra/policies/tokenLifetimePolicies/Portal access tokens (2h)",
+        "/providers/Microsoft.Entra/servicePrincipals/ref(/providers/Microsoft.Entra/applications/contoso-portal).appId"
       ],
       "reasons": [
+        "edge: claimsMappingPolicies",
         "edge: tokenLifetimePolicies",
         "provider"
       ]
@@ -52,6 +57,7 @@
       "name": "Policy.ReadWrite.ApplicationConfiguration",
       "kind": "graphDelegated",
       "resources": [
+        "/providers/Microsoft.Entra/policies/claimsMappingPolicies/Portal employee id claim",
         "/providers/Microsoft.Entra/policies/tokenLifetimePolicies/Portal access tokens (2h)"
       ],
       "reasons": [
@@ -80,9 +86,12 @@
       ],
       "resources": [
         "/providers/Microsoft.Entra/applications/contoso-portal",
-        "/providers/Microsoft.Entra/policies/tokenLifetimePolicies/Portal access tokens (2h)"
+        "/providers/Microsoft.Entra/policies/claimsMappingPolicies/Portal employee id claim",
+        "/providers/Microsoft.Entra/policies/tokenLifetimePolicies/Portal access tokens (2h)",
+        "/providers/Microsoft.Entra/servicePrincipals/ref(/providers/Microsoft.Entra/applications/contoso-portal).appId"
       ],
       "reasons": [
+        "edge: claimsMappingPolicies",
         "edge: tokenLifetimePolicies",
         "provider"
       ]
@@ -115,6 +124,7 @@
   ],
   "notes": [
     "Delegated scopes must be present on the token that earm auth login obtains (the app registration of --client-id needs them as delegated permissions); the signed-in user must additionally hold at least one role of every 'Entra roles' group (the roles are alternatives).",
+    "1 resource(s) have a name that depends on another resource (for example a service principal named after reference(...).appId); their permissions are computed from the declaration and the references it contains.",
     "Edge permissions are listed for every relationship property the template declares (including an empty array, which removes edges). Key Vault access is an Azure RBAC / access-policy requirement of the signed-in identity, not a Graph permission."
   ]
 }

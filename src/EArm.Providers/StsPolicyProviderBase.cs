@@ -10,7 +10,7 @@ using EArm.Graph;
 namespace EArm.Providers;
 
 /// <summary>
-/// The display-name-keyed STS policies (<see cref="TokenLifetimePoliciesProvider"/>, <c>ClaimsMappingPoliciesProvider</c>). The resource name
+/// The display-name-keyed STS policies (<see cref="TokenLifetimePoliciesProvider"/>, <see cref="ClaimsMappingPoliciesProvider"/>). The resource name
 /// is the <c>displayName</c>; the policy is found by it, live, on every run.
 /// <para>
 /// Requests per operation:

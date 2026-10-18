@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/policies.claimsMappingPolicies.json",
+  "title": "Microsoft.Entra/policies/claimsMappingPolicies",
+  "description": "A claims mapping policy (claimsMappingPolicy). The resource name is the displayName; it is looked up by displayName on every run (more than one match is an error). Assigned to service principals with their claimsMappingPolicies edge.",
+  "type": "object",
+  "properties": {
+    "displayName": {
+      "description": "Set from the resource name; declaring it is only allowed when it equals the name.",
+      "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+    },
+    "definition": {
+      "description": "Required: one policy document, {\"ClaimsMappingPolicy\":{\"Version\":1,\"IncludeBasicClaimSet\":\"true\",\"ClaimsSchema\":[...]}}, as a JSON string or (sugar) an object. At most 50 ClaimsSchema entries and 50 transformations (Graph ignores the rest). Compared by JSON content.",
+      "anyOf": [
+        {
+          "type": "array",
+          "items": { "anyOf": [ { "type": "string", "minLength": 2 }, { "type": "object" }, { "$ref": "#/$defs/expression" } ] },
+          "minItems": 1
+        },
+        { "$ref": "#/$defs/expression" }
+      ]
+    },
+    "isOrganizationDefault": {
+      "description": "Must be false (or absent): Graph applies claims mapping to service principals only.",
+      "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/expression" } ]
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "expression": { "type": "string", "pattern": "^\\[.*\\]$", "description": "A template expression, for example [parameters('env')]." }
+  },
+  "x-earm": {
+    "type": "Microsoft.Entra/policies/claimsMappingPolicies",
+    "parentType": null,
+    "graphPath": "/policies/claimsMappingPolicies",
+    "apiVersions": { "2026-10-01-preview": "v1.0", "2026-10-01-preview.beta": "beta" },
+    "nameMapsTo": "displayName",
+    "nameKind": "displayName",
+    "namePattern": "^\\S(.{0,254}\\S)?$",
+    "keyProperties": ["displayName"],
+    "requiredOnCreate": ["definition"],
+    "defaults": {},
+    "immutable": [],
+    "createOnly": [],
+    "secure": [],
+    "relationships": [],
+    "memberKey": {},
+    "stripOnRead": ["id", "deletedDateTime"],
+    "nullable": {},
+    "permissions": {
+      "application": ["Policy.ReadWrite.ApplicationConfiguration", "Policy.Read.All"],
+      "notes": "Learn (claimsmappingpolicy-post-claimsmappingpolicies, -update, -delete): Policy.ReadWrite.ApplicationConfiguration is the least privileged write permission (delegated and application); claimsmappingpolicy-list reads with Policy.Read.All (a known issue may require consenting to both). Learn names no role on the API pages; the claims customization how-to uses Application Administrator. Assigning the policy (the claimsMappingPolicies edge) needs Application.ReadWrite.All (Application.ReadWrite.OwnedBy for owned objects) and Policy.Read.All instead.",
+      "roles": ["Cloud Application Administrator", "Application Administrator"]
+    }
+  }
+}
