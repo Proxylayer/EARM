@@ -215,6 +215,7 @@ public sealed partial class FakeDirectory
             entity["appId"] ??= Guid.NewGuid().ToString("D");
             entity["createdDateTime"] ??= DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture);
             entity["publisherDomain"] ??= "contoso.com";
+            entity["signInAudience"] ??= "AzureADMyOrg"; // Learn: the default value of signInAudience
             RejectDuplicate(collectionPath, entity, "uniqueName", hint);
             RejectDuplicate(collectionPath, entity, "appId", hint);
             RejectDeletedDuplicate(collectionPath, entity, "uniqueName", hint);

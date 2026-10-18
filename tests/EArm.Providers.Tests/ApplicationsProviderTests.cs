@@ -90,9 +90,10 @@ public sealed class ApplicationsProviderTests
         Assert.False(body.ContainsKey("owners"), "edge properties are not in the body");
         Assert.False(body.ContainsKey("appId"));
         Assert.False(body.ContainsKey("uniqueName"), "uniqueName is the URL key of the upsert; Graph documents it as read-only, so it is not in the body (Review 1D / G-07)");
-        Assert.Equal("AzureADMyOrg", body["signInAudience"]!.GetValue<string>());
+        Assert.False(body.ContainsKey("signInAudience"), "the overlay default never rides on the upsert, which would merge it into an application that already exists");
 
         var app = host.Directory.Find("/applications", "uniqueName", Name)!;
+        Assert.Equal("AzureADMyOrg", app["signInAudience"]!.GetValue<string>());
         string appId = app["appId"]!.GetValue<string>();
         var second = writes[1];
         Assert.Equal("PATCH", second.Method);
