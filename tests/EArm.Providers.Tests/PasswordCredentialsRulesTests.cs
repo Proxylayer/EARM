@@ -187,6 +187,56 @@ public sealed class PasswordCredentialsRulesTests
         Assert.Equal(ProviderWarnings.RotationTagNotStamped, warning.Code);
         Assert.Contains("'ci-secret#2026Q4'", warning.Message, StringComparison.Ordinal);
         Assert.Contains("NOT rotated", warning.Message, StringComparison.Ordinal);
+        Assert.Contains("stampRotationTag", warning.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AssessRotation_StampRotationTag_RotatesALegacyUntaggedCredential_WithoutAWarning()
+    {
+        var live = Credential("k", Now.AddDays(100), "ci-secret");
+
+        var assessment = PasswordCredentialsRules.AssessRotation(new DesiredPasswordCredential(null, null, "2026Q4", 30, StampRotationTag: true), live, Now);
+
+        var trigger = Assert.Single(assessment.Triggers);
+        Assert.Equal("rotationTag", trigger.Property);
+        Assert.Null(trigger.Before);
+        Assert.Equal("2026Q4", trigger.After!.GetValue<string>());
+        Assert.Contains("'ci-secret#2026Q4'", trigger.Reason, StringComparison.Ordinal);
+        Assert.Empty(assessment.Warnings);
+    }
+
+    [Fact]
+    public void AssessRotation_StampRotationTag_HasNoEffect_OnceTheTagIsStamped()
+    {
+        var live = Credential("k", Now.AddDays(100), "ci-secret#2026Q4");
+
+        var assessment = PasswordCredentialsRules.AssessRotation(new DesiredPasswordCredential(null, null, "2026Q4", 30, StampRotationTag: true), live, Now);
+
+        Assert.Empty(assessment.Triggers);
+        Assert.Empty(assessment.Warnings);
+    }
+
+    [Theory]
+    [InlineData("{ \"rotationTag\": \"q1\", \"stampRotationTag\": true }", null, true)]
+    [InlineData("{ \"rotationTag\": \"q1\", \"stampRotationTag\": false }", null, false)]
+    [InlineData("{ \"rotationTag\": \"q1\" }", null, false)]
+    [InlineData("{ \"stampRotationTag\": true }", "no properties.rotationTag is declared", false)]
+    [InlineData("{ \"rotationTag\": \"\", \"stampRotationTag\": true }", "no properties.rotationTag is declared", false)]
+    [InlineData("{ \"rotationTag\": \"q1\", \"stampRotationTag\": \"yes\" }", "must be true or false", false)]
+    public void DescribeDesired_StampRotationTag_IsABooleanThatNeedsATag(string properties, string? problem, bool stamp)
+    {
+        string? actual = PasswordCredentialsRules.DescribeDesired((JsonObject)JsonNode.Parse(properties)!, out var desired);
+
+        if (problem is null)
+        {
+            Assert.Null(actual);
+            Assert.Equal(stamp, desired!.StampRotationTag);
+        }
+        else
+        {
+            Assert.Contains(problem, actual, StringComparison.Ordinal);
+            Assert.Null(desired);
+        }
     }
 
     [Fact]

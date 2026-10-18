@@ -35,7 +35,7 @@ namespace EArm.Providers;
 /// below applies; otherwise <c>Modify</c> (mode <see cref="ChangeMode.Patch"/>, applied by <see cref="UpdateAsync"/>
 /// as add-then-remove rather than the executor's delete-then-create <see cref="ChangeMode.Recreate"/>) when the
 /// <c>rotationTag</c> differs from the tag in the live <c>displayName</c> (a live credential without a tag, created by an
-/// older EARM, matches any declared tag and is reported with <see cref="ProviderWarnings.RotationTagNotStamped"/>), a
+/// older EARM, matches any declared tag and is reported with <see cref="ProviderWarnings.RotationTagNotStamped"/>, unless the opt-in <c>stampRotationTag: true</c> rotates it once to stamp the tag), a
 /// declared <c>endDateTime</c> / <c>startDateTime</c> differs from the live value, the credential expired, or it
 /// expires within <c>rotateBeforeDays</c> (default 30). A credential created without <c>endDateTime</c> gets
 /// "now + 180 days" once; reruns compare against the live expiry, never against a fresh default. The secret is

@@ -301,6 +301,7 @@ $specs['applications.passwordCredentials'] = [ordered]@{
         endDateTime      = Str 'Expiry (ISO 8601, UTC); defaults to 180 days after creation, evaluated once at create.'
         rotationTag      = Str 'EARM-only: changing this value rotates the secret (the new one is added before the old one is removed). Stored in the credential''s displayName as ''<name>#<rotationTag>'' (no local state); must not contain ''#'', and the whole displayName is capped at 256 characters. An existing credential named without a tag is treated as matching (warning RotationTagNotStamped) until its next rotation.'
         rotateBeforeDays = Int 'EARM-only: rotate when fewer than this many days remain (default 30). Never sent to Graph.' -Min 0
+        stampRotationTag = Bool 'EARM-only, opt-in (default false): when true and the live credential''s displayName carries no rotationTag (it was created before EARM kept the tag there), the secret is rotated once so the declared rotationTag is stamped into the new credential''s name; without it such a credential is kept (warning RotationTagNotStamped). Needs rotationTag; no effect once the tag is stamped. Never sent to Graph.'
     }
 }
 

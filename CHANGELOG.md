@@ -22,6 +22,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   manages an object that must already exist and never creates it (`AdoptOnlyNotFound` instead of a create; a user needs none of the
   create-only properties); `objectId` pins the Graph object id the key must lead to (`AdoptedObjectMismatch`), which makes an adoption
   by `displayName` a hard check. `deployment delete` leaves adopt-only objects alone. Malformed declarations are `InvalidAdoptOnly`.
+- applications/passwordCredentials: `stampRotationTag` (EARM-only boolean, default `false`). When `true` and the live credential's
+  `displayName` carries no `rotationTag` (created before EARM kept the tag there), the secret is rotated once so the declared tag is
+  stamped into the new credential's name, instead of keeping it with the `RotationTagNotStamped` warning. It needs a `rotationTag` and
+  has no effect once the tag is stamped, so it can stay declared.
 
 ### Changed
 
