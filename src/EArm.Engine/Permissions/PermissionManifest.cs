@@ -51,6 +51,14 @@ public static class PermissionManifest
             RelationshipKind.AppRoleAssignment => ["AppRoleAssignment.ReadWrite.All", "Application.Read.All", "Directory.Read.All"],
             RelationshipKind.DirectoryRoleAssignment => ["RoleManagement.ReadWrite.Directory", "Directory.Read.All"],
             RelationshipKind.License => ["LicenseAssignment.ReadWrite.All", "LicenseAssignment.Read.All"],
+            // Learn grouplifecyclepolicy-addgroup / group-list-grouplifecyclepolicies: Directory.ReadWrite.All is the only (and least privileged) write permission.
+            RelationshipKind.GroupLifecyclePolicy => ["Directory.ReadWrite.All"],
+            // Learn application-post-tokenlifetimepolicies, serviceprincipal-post-claimsmappingpolicies (and the list / delete pages): Application.ReadWrite.All
+            // (Application.ReadWrite.OwnedBy for owned objects, app-only) AND Policy.Read.All; Policy.ReadWrite.ApplicationConfiguration is not needed.
+            RelationshipKind.TokenLifetimePolicy => ["Application.ReadWrite.All", "Policy.Read.All"],
+            RelationshipKind.ClaimsMappingPolicy => ["Application.ReadWrite.All", "Policy.Read.All"],
+            // Learn appmanagementpolicy-post-appliesto / -delete-appliesto: Policy.ReadWrite.ApplicationConfiguration AND Application.Read.All.
+            RelationshipKind.AppManagementPolicy => ["Policy.ReadWrite.ApplicationConfiguration", "Application.Read.All"],
             _ => [],
         };
     }
@@ -66,6 +74,13 @@ public static class PermissionManifest
             RelationshipKind.AppRoleAssignment => ["Cloud Application Administrator", "Application Administrator"],
             RelationshipKind.DirectoryRoleAssignment => ["Privileged Role Administrator"],
             RelationshipKind.License => ["License Administrator"],
+            // Learn (entra groups-lifecycle): Groups Administrator or User Administrator manage the expiration policy.
+            RelationshipKind.GroupLifecyclePolicy => ["Groups Administrator", "User Administrator"],
+            // Learn is silent on the roles of the token lifetime / claims mapping assignment pages; the application roles that own app configuration.
+            RelationshipKind.TokenLifetimePolicy => ["Cloud Application Administrator", "Application Administrator"],
+            RelationshipKind.ClaimsMappingPolicy => ["Cloud Application Administrator", "Application Administrator"],
+            // Learn appmanagementpolicy-post-appliesto: Cloud Application Administrator or Application Administrator.
+            RelationshipKind.AppManagementPolicy => ["Cloud Application Administrator", "Application Administrator"],
             _ => [],
         };
     }

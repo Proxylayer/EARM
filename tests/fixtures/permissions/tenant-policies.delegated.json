@@ -1,0 +1,60 @@
+{
+  "template": "samples/tenant-policies.entra.json",
+  "mode": "delegated",
+  "resourceCount": 2,
+  "permissions": [
+    {
+      "name": "Directory.ReadWrite.All",
+      "kind": "graphDelegated",
+      "resources": [
+        "/providers/Microsoft.Entra/groupLifecyclePolicies/default",
+        "/providers/Microsoft.Entra/groups/team-sales-emea"
+      ],
+      "reasons": [
+        "edge: groupLifecyclePolicies",
+        "provider"
+      ]
+    },
+    {
+      "name": "Group.ReadWrite.All",
+      "kind": "graphDelegated",
+      "resources": [
+        "/providers/Microsoft.Entra/groups/team-sales-emea"
+      ],
+      "reasons": [
+        "provider"
+      ]
+    }
+  ],
+  "entraRoles": [
+    {
+      "anyOf": [
+        "Groups Administrator"
+      ],
+      "resources": [
+        "/providers/Microsoft.Entra/groups/team-sales-emea"
+      ],
+      "reasons": [
+        "provider"
+      ]
+    },
+    {
+      "anyOf": [
+        "Groups Administrator",
+        "User Administrator"
+      ],
+      "resources": [
+        "/providers/Microsoft.Entra/groupLifecyclePolicies/default",
+        "/providers/Microsoft.Entra/groups/team-sales-emea"
+      ],
+      "reasons": [
+        "edge: groupLifecyclePolicies",
+        "provider"
+      ]
+    }
+  ],
+  "notes": [
+    "Delegated scopes must be present on the token that earm auth login obtains (the app registration of --client-id needs them as delegated permissions); the signed-in user must additionally hold at least one role of every 'Entra roles' group (the roles are alternatives).",
+    "Edge permissions are listed for every relationship property the template declares (including an empty array, which removes edges). Key Vault access is an Azure RBAC / access-policy requirement of the signed-in identity, not a Graph permission."
+  ]
+}

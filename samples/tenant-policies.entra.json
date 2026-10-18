@@ -1,0 +1,37 @@
+{
+  "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "Tenant policies: a Microsoft 365 group expiration policy limited to the groups that opt in (managedGroupTypes Selected) with one team joining it through its groupLifecyclePolicies edge. Every policy here is tenant-wide; read docs/providers.md before deploying it to a tenant people use."
+  },
+  "parameters": {
+    "groupLifetimeInDays": { "type": "int", "defaultValue": 180, "metadata": { "description": "Days until a governed Microsoft 365 group expires unless renewed." } },
+    "expiryNotificationEmails": { "type": "string", "metadata": { "description": "Semicolon-separated addresses notified about groups without owners." } }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Entra/groupLifecyclePolicies",
+      "apiVersion": "2026-10-01-preview",
+      "name": "default",
+      "properties": {
+        "groupLifetimeInDays": "[parameters('groupLifetimeInDays')]",
+        "managedGroupTypes": "Selected",
+        "alternateNotificationEmails": "[parameters('expiryNotificationEmails')]"
+      }
+    },
+    {
+      "type": "Microsoft.Entra/groups",
+      "apiVersion": "2026-10-01-preview",
+      "name": "team-sales-emea",
+      "properties": {
+        "displayName": "Sales EMEA",
+        "groupTypes": [ "Unified" ],
+        "mailEnabled": true,
+        "securityEnabled": false,
+        "mailNickname": "sales-emea",
+        "visibility": "Private",
+        "groupLifecyclePolicies": [ "[reference('default').id]" ]
+      }
+    }
+  ]
+}

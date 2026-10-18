@@ -22,6 +22,18 @@ public enum EdgeKind
 
     /// <summary><c>directoryRoles</c> on principals and the standalone <c>Microsoft.Entra/roleAssignments</c> type.</summary>
     DirectoryRole,
+
+    /// <summary><c>groupLifecyclePolicies</c> on groups: <c>POST /groupLifecyclePolicies/{id}/addGroup</c> (ensure-only).</summary>
+    GroupLifecyclePolicy,
+
+    /// <summary><c>tokenLifetimePolicies</c> on applications and service principals (ensure-only).</summary>
+    TokenLifetimePolicy,
+
+    /// <summary><c>claimsMappingPolicies</c> on service principals (ensure-only).</summary>
+    ClaimsMappingPolicy,
+
+    /// <summary><c>appManagementPolicies</c> on applications and service principals (ensure-only).</summary>
+    AppManagementPolicy,
 }
 
 /// <summary>
@@ -65,6 +77,18 @@ public static class EdgeKinds
                 return true;
             case RelationshipKind.DirectoryRoleAssignment:
                 edgeKind = EdgeKind.DirectoryRole;
+                return true;
+            case RelationshipKind.GroupLifecyclePolicy:
+                edgeKind = EdgeKind.GroupLifecyclePolicy;
+                return true;
+            case RelationshipKind.TokenLifetimePolicy:
+                edgeKind = EdgeKind.TokenLifetimePolicy;
+                return true;
+            case RelationshipKind.ClaimsMappingPolicy:
+                edgeKind = EdgeKind.ClaimsMappingPolicy;
+                return true;
+            case RelationshipKind.AppManagementPolicy:
+                edgeKind = EdgeKind.AppManagementPolicy;
                 return true;
             default:
                 edgeKind = default;

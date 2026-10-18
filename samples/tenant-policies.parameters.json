@@ -1,0 +1,7 @@
+{
+  "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "expiryNotificationEmails": { "value": "groups-admin@contoso.com;helpdesk@contoso.com" }
+  }
+}

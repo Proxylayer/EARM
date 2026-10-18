@@ -51,6 +51,7 @@ public static class ApplyPhases
             "entitlementManagement/accessPackages" => 5,
             "entitlementManagement/resourceRoleScopes" => 6,
             "entitlementManagement/accessPackages/assignmentPolicies" => 6,
+            "groupLifecyclePolicies" => 1,
             _ => UnknownTypePhase,
         };
     }
@@ -92,6 +93,7 @@ public static class ApplyPhases
             "entitlementManagement/accessPackages" => 2,
             "entitlementManagement/catalogResources" => 3,
             "entitlementManagement/catalogs" => 4,
+            "groupLifecyclePolicies" => 12,
             _ => 4,
         };
     }
@@ -141,5 +143,6 @@ public static class ApplyPhases
         "entitlementManagement/accessPackages",
         "entitlementManagement/resourceRoleScopes",
         "entitlementManagement/accessPackages/assignmentPolicies",
+        "groupLifecyclePolicies",
     ];
 }

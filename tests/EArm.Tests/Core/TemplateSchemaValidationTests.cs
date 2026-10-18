@@ -29,6 +29,7 @@ public sealed class TemplateSchemaValidationTests
     private const string PimActive = "pim-active";
     private const string PimPolicies = "pim-policies";
     private const string AccessPackages = "access-packages";
+    private const string TenantPolicies = "tenant-policies";
     private const string SchemaUri = "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#";
 
     private static readonly TemplateLoader Loader = new();
@@ -133,6 +134,10 @@ public sealed class TemplateSchemaValidationTests
         I(AccessPackages, "entitlementManagement/accessPackages", 0, ["isHidden"], "\"no\"", "type"),
         I(AccessPackages, "entitlementManagement/resourceRoleScopes", 0, ["role"], "\"Contributor\"", "enum"),
         I(AccessPackages, "entitlementManagement/accessPackages/assignmentPolicies", 0, ["expiration", "type"], "\"afterAWhile\"", "enum"),
+
+        // tenant policies
+        I(TenantPolicies, "groupLifecyclePolicies", 0, ["managedGroupTypes"], "\"Some\"", "enum"),
+        I(TenantPolicies, "groups", 0, ["groupLifecyclePolicies"], "\"x\"", "type"),
     ];
 
     public static TheoryData<int> InjectionIndexes()
@@ -247,7 +252,7 @@ public sealed class TemplateSchemaValidationTests
             Assert.Contains(definition.Type, covered);
         }
 
-        Assert.Equal(26, ResourceTypeCatalog.Default.Types.Count);
+        Assert.Equal(27, ResourceTypeCatalog.Default.Types.Count);
         foreach (string keyword in new[] { "enum", "pattern", "type", "required", "additionalProperties" })
         {
             Assert.Contains(Injections, i => i.Keyword == keyword);

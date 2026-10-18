@@ -355,6 +355,7 @@ $specs['groups'] = [ordered]@{
         owners                        = EdgeIds 'Ownership edge, target side: the full desired set of owner object ids.'
         memberOf                      = EdgeIds 'Nested group membership edge, principal side: group object ids this group must be a member of.'
         administrativeUnits           = EdgeIds 'Administrative unit membership edge, principal side: administrative unit object ids.'
+        groupLifecyclePolicies        = EdgeIds 'Group lifecycle (expiration) policy edge, principal side (ensure-only): the object id of the tenant''s group lifecycle policy, whose managedGroupTypes must be Selected. Microsoft 365 groups only.'
         appRoleAssignments            = EdgeAppRoleAssignments
         directoryRoles                = EdgeDirectoryRoles ' (role-assignable groups only)'
         assignedLicenses              = EdgeLicenses ' for group-based licensing'
@@ -661,6 +662,17 @@ $specs['authenticationMethodConfigurations'] = [ordered]@{
         isSoftwareOathEnabled      = Bool 'microsoftAuthenticator: allow OTP codes from the Authenticator app.'
         isOfficePhoneAllowed       = Bool 'voice: allow office phone numbers.'
         allowExternalIdToUseEmailOtp = Str 'email: default, enabled or disabled.' -Enum 'default', 'enabled', 'disabled'
+    }
+}
+
+# --- groupLifecyclePolicies (tenant singleton) ---------------------------------------------------------------------
+$specs['groupLifecyclePolicies'] = [ordered]@{
+    NamePattern = '^(?i:default)$'
+    Description = 'The tenant''s Microsoft 365 group expiration policy (groupLifecyclePolicy). Graph allows one per tenant, so the resource name is always default; the policy is found by listing the collection. With managedGroupTypes Selected, groups join it through their groupLifecyclePolicies edge. Delete switches group expiration off. Needs Microsoft Entra ID P1 or P2 licences for the members of the governed groups.'
+    Props       = [ordered]@{
+        groupLifetimeInDays         = Int 'Required on create: days until a group expires and must be renewed (Microsoft Entra offers 180, 365 or a custom value of 30 days or more).' -Min 1
+        managedGroupTypes           = Str 'Required on create: All (every Microsoft 365 group), Selected (only the groups added to the policy) or None.' -Enum 'All', 'Selected', 'None'
+        alternateNotificationEmails = Str 'Addresses notified about groups without owners, separated by semicolons; compared as a case-insensitive set.' -Nullable
     }
 }
 
