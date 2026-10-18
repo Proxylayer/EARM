@@ -336,7 +336,7 @@
     "createOnly": [],
     "secure": [],
     "relationships": [],
-    "memberKey": { "rules": "id" },
+    "memberKey": { "rules": "id", "rules.setting.approvalStages": "$index" },
     "stripOnRead": [],
     "nullable": {},
     "permissions": {

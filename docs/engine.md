@@ -650,7 +650,8 @@ the catalog overlay of the type:
   `id`), `ParentKey` for `parent/child` names, composite keys from `keyProperties` for GUID-named types;
   `ReadExistingAsync` for `reference(id, apiVersion)`.
 - `Plan`: the shared `JsonDiff`: scalars replace; scalar arrays are order-insensitive sets;
-  object arrays by `memberKey` (else canonical JSON, order-insensitive); nested objects compared whole with an
+  object arrays by `memberKey` (the key `$index` matches elements by position, for arrays whose order is their identity such as
+  approval stages: a changed property of a stage is shown inside it; else canonical JSON, order-insensitive); nested objects compared whole with an
   explicit `null` (`Delete`; written as `[]` when the live value is a collection) for every live-only sub-property unless `nullable: false` (`NoEffect`); GUIDs
   case-insensitive; `null` / `[]` ≡ absent; `createOnly` paths skipped on update; secure values (`IsSecret`): a secure scalar whose live
   counterpart Graph returns, at a path the type does not declare `secure` (`JsonDiffOptions.Secure`), is compared like any scalar and is a masked

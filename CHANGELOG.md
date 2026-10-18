@@ -99,6 +99,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   time-bound one is declared, `PimAssignmentConflict`) is no longer adopted with only an `ImmutablePropertyChanged` warning when the
   object shows up late: the resource fails with the provider's code, reason and the object's Graph id. When the provider itself finds
   and refuses the object, its refusal is reported as is, instead of "the object was created but the create did not complete".
+- The what-if of a role management policy shows a changed approval stage as the changed properties inside that stage
+  (`setting.approvalStages[0].approvalStageTimeOutInDays: 1 => 2`) instead of the whole stage removed and added: stages are matched by
+  position (overlay `memberKey` `$index`, new).
 
 ## [0.2.0] - 2026-10-17
 

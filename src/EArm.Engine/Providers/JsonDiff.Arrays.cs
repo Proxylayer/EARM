@@ -19,7 +19,9 @@ public static partial class JsonDiff
         List<PropertyDelta> children;
         if (options.MemberKey.TryGetValue(dotted, out var memberKey) && AllObjects(desired) && AllObjects(live))
         {
-            children = DiffKeyedArray(desired, live, memberKey, relative, dotted, options);
+            children = memberKey == JsonDiffOptions.PositionalMemberKey
+                ? DiffPositionalArray(desired, live, relative, dotted, options)
+                : DiffKeyedArray(desired, live, memberKey, relative, dotted, options);
         }
         else
         {
@@ -131,6 +133,40 @@ public static partial class JsonDiff
 
             string key = liveByKey[j].Key.Length > 0 ? liveByKey[j].Key : j.ToString(System.Globalization.CultureInfo.InvariantCulture);
             children.Add(new PropertyDelta(options.BasePath.Append(relative.Append(key)), PropertyChangeType.Delete, Render(liveByKey[j].Member), null));
+        }
+
+        return children;
+    }
+
+    /// <summary>
+    /// An array of objects whose position is their identity (<see cref="JsonDiffOptions.PositionalMemberKey"/>: the stages of an approval, which have no
+    /// key of their own): the elements at the same index are diffed member by member, so a changed property of a stage is shown inside that stage
+    /// instead of the whole stage removed and added. Extra elements on either side are a <see cref="PropertyChangeType.Create"/> or a <see cref="PropertyChangeType.Delete"/>.
+    /// </summary>
+    private static List<PropertyDelta> DiffPositionalArray(JsonArray desired, JsonArray live, JsonPath relative, string dotted, JsonDiffOptions options)
+    {
+        var children = new List<PropertyDelta>();
+        for (int i = 0; i < Math.Max(desired.Count, live.Count); i++)
+        {
+            var memberPath = options.BasePath.Append(relative.Append(i));
+            if (i >= live.Count)
+            {
+                children.Add(new PropertyDelta(memberPath, PropertyChangeType.Create, null, Render(desired[i])));
+                continue;
+            }
+
+            if (i >= desired.Count)
+            {
+                children.Add(new PropertyDelta(memberPath, PropertyChangeType.Delete, Render(live[i]), null));
+                continue;
+            }
+
+            var memberChildren = new List<PropertyDelta>();
+            DiffMembers((JsonObject)desired[i]!, (JsonObject)live[i]!, relative.Append(i), dotted, nested: true, options, memberChildren);
+            if (memberChildren.Count > 0)
+            {
+                children.Add(new PropertyDelta(memberPath, PropertyChangeType.Modify, Render(live[i]), Render(desired[i]), Children: memberChildren));
+            }
         }
 
         return children;

@@ -10,7 +10,16 @@ public sealed record JsonDiffOptions
 {
     public static JsonDiffOptions Default { get; } = new();
 
-    /// <summary>Stable member key per array-of-objects property (dotted path relative to <c>properties</c> → key property).</summary>
+    /// <summary>
+    /// The member key of an array of objects whose position is their identity (the stages of an approval): its elements are matched by index and diffed
+    /// member by member.
+    /// </summary>
+    public const string PositionalMemberKey = "$index";
+
+    /// <summary>
+    /// Stable member key per array-of-objects property (dotted path relative to <c>properties</c> → key property, or <see cref="PositionalMemberKey"/>
+    /// to match the elements by position).
+    /// </summary>
     public IReadOnlyDictionary<string, string> MemberKey { get; init; } = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Sub-property paths Graph refuses to set to <c>null</c> (<c>false</c>): live-only values there are reported as <see cref="PropertyChangeType.NoEffect"/>.</summary>
