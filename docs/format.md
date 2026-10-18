@@ -133,7 +133,7 @@ deterministic, and what the what-if output and the deployment result print. `res
 | `reference()` is not allowed in `variables` | **Intentional superset**: the existing-object form `reference(resourceId(...), apiVersion)` is allowed in a variable (a fixed lookup, evaluated once). A reference to a template resource (by name, id or symbolic name) and `references()` are refused in variables, as ARM refuses them. |
 | `reference()` accepts a resource name only without symbolic names | With languageVersion 2.0, EARM still accepts a bare resource name or an id besides the symbolic name (a superset). |
 | Relationships live in separate resources | Arrays inside `properties`, declarable from either side; see [edges.md](edges.md). |
-| Nested and linked deployments (`Microsoft.Resources/deployments`, `templateLink`) are tracked deployments in the deployment history | **Template composition**: the nested and linked templates are expanded into the parent's plan (one graph, one what-if, one apply); no deployment record exists ([Nested and linked deployments](#nested-and-linked-deployments)). Incremental mode only (ARM's rule too). Not supported: template specs (`templateLink.id`), other Azure scopes (`subscriptionId`, `resourceGroup`, `scope`), a template given as a JSON string, `onErrorDeployment`. A `relativePath` may name a local file; `parametersLink.uri` may be a relative path (EARM extensions). `copyIndex()` of the deployment's loop is not visible inside an outer-scope template (pass it to an inner-scope one). What-if names the deployment of each nested row and shows no row for the deployment itself. |
+| Nested and linked deployments (`Microsoft.Resources/deployments`, `templateLink`) are tracked deployments in the deployment history | **Template composition**: the nested and linked templates are expanded into the parent's plan (one graph, one what-if, one apply); no deployment record exists ([Nested and linked deployments](#nested-and-linked-deployments)). Incremental mode only (ARM's rule too). Not supported: template specs (`templateLink.id`), other Azure scopes (`subscriptionId`, `resourceGroup`, `scope`), a template given as a JSON string, `onErrorDeployment`. A `relativePath` may name a local file; `parametersLink.uri` may be a relative path (EARM extensions). What-if names the deployment of each nested row and shows no row for the deployment itself. |
 | Property iteration only in top-level resources | Also accepted in nested child resources (the loader flattens them to top-level declarations). |
 | `reference(resourceIdOrName, apiVersion, 'Full')` returns the full resource object (`location`, `sku`, `subscriptionId`, ...) | Returns `{ apiVersion, properties, resourceId, isTemplateResource[, symbolicName] }`: the keys that apply to an Entra object, `resourceId` being the EARM id. |
 | Multi-line strings are refused by the REST API, the portal and pipelines, and accepted by Azure CLI and PowerShell | Accepted (EARM is a command-line tool like them). |
@@ -279,11 +279,17 @@ The type name and ARM's apiVersions (`2015-01-01` to `2026-06-01`; the value cha
 `parameters`, `variables` and `functions` are ignored (a warning), `parameters` / `parametersLink` on the deployment are refused, and a `copy` loop
 inside the template is an error (ARM rule: put the copy on the deployment, or use the inner scope). In the **inner** scope the template is
 isolated: it sees only the parameters passed in, and its own variables and functions. `deployment()` is the nested deployment in the inner
-scope (its `name`) and the parent's in the outer scope. In both scopes `copyIndex()` refers to the template's own loops: the deployment's
-iteration is passed as a parameter (`"index": { "value": "[copyIndex()]" }`).
+scope (its `name`) and the parent's in the outer scope. An outer-scope template is evaluated in the parent's context, as in ARM
+([expression evaluation scope](https://learn.microsoft.com/azure/azure-resource-manager/templates/linked-templates#expression-evaluation-scope-in-nested-templates)):
+when the deployment has a `copy` loop, `copyIndex()` (or `copyIndex('<deployment loop>')`, with an optional offset) in the template's resources and
+outputs is the deployment's iteration, the loop ARM's [nested copy](https://learn.microsoft.com/azure/azure-resource-manager/templates/linked-templates#use-copy)
+puts on the deployment (`copyIndex('<property>')` still names a property iteration inside it); without one it is `CopyIndexOutsideCopy`. In the
+inner scope `copyIndex()` refers to the template's own loops only: pass the deployment's iteration as a parameter (`"index": { "value": "[copyIndex()]" }`).
 
 **Names and dependencies.** Resource names, symbolic names, copy-loop names and `dependsOn` resolve within the template that declares them, as in
-ARM: `reference('name')` names a resource of the same template. A deployment is a resource of its parent: `dependsOn` on it (its name, its
+ARM: `reference('name')` names a resource of the same template. In an outer-scope template `reference('name')` also finds the resources of the
+parent template by name (after the template's own; a name both declare for different types is `AmbiguousReference`), copy iterations included, with
+the same implicit dependency: the nested resource waits for the parent's. A deployment is a resource of its parent: `dependsOn` on it (its name, its
 symbolic name, `type/name` or `resourceId('Microsoft.Resources/deployments', 'name')`) waits for **every** resource of its template, nested
 deployments included, and every resource of the template waits for what the deployment depends on (its `dependsOn`, and the resources its
 `parameters` reference).
@@ -292,8 +298,10 @@ deployments included, and every resource of the template waits for what the depl
 returns the template's outputs once its resources are planned (what-if) or applied (create), with an implicit dependency on the deployment.
 In what-if an output that depends on a resource still to be created is a deploy-time value. A `secureString` / `secureObject` output stays
 secure: usable in the parent, masked wherever it is shown. An output that cannot be evaluated fails the deployment resource in a deployment
-(its dependents are skipped) and is a warning in what-if. Unlike ARM, `reference()` of the template's own resources is also evaluated in the
-outputs of an outer-scope template.
+(its dependents are skipped) and is a warning in what-if. The outputs of an outer-scope template cannot use `reference()` or `references()`
+(`ReferenceNotAllowedHere`; ARM requires the inner scope, or a linked template, for `reference()` in the outputs of a nested template,
+[reference()](https://learn.microsoft.com/azure/azure-resource-manager/templates/template-functions-resource#reference)):
+use the inner scope, or read the value in the parent template.
 
 **Identity across templates.** Ids must be unique across the main template and every nested template: two templates that declare the same
 object are a `DuplicateResourceId` error naming both deployments, as two declarations of one template are. Two nested deployments with the

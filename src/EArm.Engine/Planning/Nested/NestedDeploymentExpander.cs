@@ -229,7 +229,10 @@ internal sealed class NestedDeploymentExpander
                 Parameters = DeploymentInfo.SuppliedParameters(analyzed.ParameterValues),
             }
             : null;
-        var analysis = new ExpressionValidator(_catalog, _functions, info ?? parent.Context.Deployment).Analyze(analyzed);
+        // An outer-scope template is evaluated in the parent's context: copyIndex() is the deployment's iteration and reference('name') also finds the
+        // parent's resources (OuterTemplateScope).
+        var outer = kind == NestedTemplateScope.Outer ? new OuterTemplateScope(deployment.Context.CopyStack, parent.Context.Resources) : null;
+        var analysis = new ExpressionValidator(_catalog, _functions, info ?? parent.Context.Deployment).Analyze(analyzed, outer);
         found.AddRange(kind == NestedTemplateScope.Inner ? analysis.Diagnostics : analysis.Diagnostics.Where(d => IsUnder(d, "resources") || IsUnder(d, "outputs")));
 
         var scope = parent.Nest(analyzed, analysis.Static, CreateContext(deployment, parent, analyzed, analysis.Static, info, passed, rootContext), location, deployment, kind, prefix);
@@ -375,7 +378,8 @@ internal sealed class NestedDeploymentExpander
     /// <summary>The base context of the template's resources: its own (inner scope, <paramref name="info"/> set) or the parent's stores (outer scope).</summary>
     private EvaluationContext CreateContext(ResourceInstance deployment, TemplateScope parent, TemplateDocument document, Expressions.Static.StaticContext staticContext, DeploymentInfo? info, Dictionary<string, JsonNode?> passed, EvaluationContext rootContext)
     {
-        // Names and symbolic names resolve within the template (ARM: reference('name') and dependsOn name resources of the same template).
+        // Names and symbolic names resolve within the template (ARM: reference('name') and dependsOn name resources of the same template); the static
+        // index of an outer-scope template also holds the parent's resources, after its own.
         var index = new TemplateResourceIndex();
         foreach (var entry in staticContext.Index.Entries)
         {
@@ -389,8 +393,9 @@ internal sealed class NestedDeploymentExpander
 
         if (info is null)
         {
-            // Outer scope: the parent's parameters, variables, functions and deployment(); its stores are already bound to its context.
-            return parent.Context with { Resources = index, CopyStack = [], Scope = EvaluationScope.Resource };
+            // Outer scope: the parent's parameters, variables, functions and deployment(), and the deployment's copy iteration (copyIndex()); the
+            // parent's stores are already bound to its context.
+            return parent.Context with { Resources = index, CopyStack = deployment.Context.CopyStack, Scope = EvaluationScope.Resource };
         }
 
         return new EvaluationContext

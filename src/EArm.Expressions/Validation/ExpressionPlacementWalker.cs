@@ -18,13 +18,24 @@ internal sealed class ExpressionPlacementWalker
     private readonly FunctionRegistry _functions;
     private readonly TemplateDocument _document;
     private readonly List<Diagnostic> _diagnostics;
+    private readonly OuterTemplateScope? _outer;
 
-    public ExpressionPlacementWalker(FunctionRegistry functions, TemplateDocument document, List<Diagnostic> diagnostics)
+    /// <param name="functions">The function registry.</param>
+    /// <param name="document">The template.</param>
+    /// <param name="diagnostics">Receives the findings.</param>
+    /// <param name="outer">
+    /// Set for the template of an outer-scope nested deployment: the deployment's copy loop encloses its resources and outputs (<c>copyIndex()</c>),
+    /// and its outputs may not use <c>reference()</c> / <c>references()</c> (ARM rule).
+    /// </param>
+    public ExpressionPlacementWalker(FunctionRegistry functions, TemplateDocument document, List<Diagnostic> diagnostics, OuterTemplateScope? outer = null)
     {
         _functions = functions;
         _document = document;
         _diagnostics = diagnostics;
+        _outer = outer;
     }
+
+    private bool EnclosingCopy => _outer is { InCopy: true };
 
     /// <summary>Where an expression sits: its path and scope, whether a copy loop encloses it, the lambda parameters in scope and the user-defined function whose body it is.</summary>
     /// <remarks><see cref="InCopy"/>: a resource or output loop encloses it (<c>copyIndex()</c> without a name is legal); <see cref="PropertyLoops"/>: the enclosing property iterations, addressed only by name.</remarks>
@@ -77,7 +88,7 @@ internal sealed class ExpressionPlacementWalker
 
         foreach (var resource in _document.Resources)
         {
-            bool inCopy = resource.Copy is not null;
+            bool inCopy = resource.Copy is not null || EnclosingCopy;
             if (resource.Name is not null)
             {
                 WalkString(resource.Name, Frame.At(resource.Path.Append("name"), EvaluationScope.Resource, inCopy));
@@ -106,15 +117,15 @@ internal sealed class ExpressionPlacementWalker
 
         foreach (var output in _document.Outputs.Values)
         {
-            WalkTree(output.Condition, Frame.At(output.Path.Append("condition"), EvaluationScope.Output, inCopy: false));
+            WalkTree(output.Condition, Frame.At(output.Path.Append("condition"), EvaluationScope.Output, inCopy: EnclosingCopy));
             if (output.Copy is { } copy)
             {
-                WalkTree(copy.Count, Frame.At(copy.Path.Append("count"), EvaluationScope.Output, inCopy: false));
+                WalkTree(copy.Count, Frame.At(copy.Path.Append("count"), EvaluationScope.Output, inCopy: EnclosingCopy));
                 WalkTree(copy.Input, Frame.At(copy.Path.Append("input"), EvaluationScope.Output, inCopy: true));
             }
             else
             {
-                WalkTree(output.Value, Frame.At(output.Path.Append("value"), EvaluationScope.Output, inCopy: false));
+                WalkTree(output.Value, Frame.At(output.Path.Append("value"), EvaluationScope.Output, inCopy: EnclosingCopy));
             }
         }
     }
@@ -360,6 +371,11 @@ internal sealed class ExpressionPlacementWalker
         string function = call.Is("references") ? "references()" : "reference()";
         switch (scope)
         {
+            case EvaluationScope.Output when _outer is not null:
+                // ARM requires the inner scope (or a linked template) for reference() in the outputs of a nested template
+                // (https://learn.microsoft.com/azure/azure-resource-manager/templates/template-functions-resource#reference).
+                Error(DiagnosticCodes.ReferenceNotAllowedHere, $"{function} cannot be used in the outputs of a nested template evaluated in the outer scope (ARM rule). Set \"expressionEvaluationOptions\": {{ \"scope\": \"inner\" }} on the deployment, or read the value in the parent template. (at offset {call.Offset})", path);
+                break;
             case EvaluationScope.ParameterDefault:
                 Error(DiagnosticCodes.ReferenceNotAllowedHere, $"{function} cannot be used in a parameter default value. (at offset {call.Offset})", path);
                 break;

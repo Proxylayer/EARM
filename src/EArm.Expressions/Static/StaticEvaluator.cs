@@ -47,8 +47,14 @@ public sealed class StaticEvaluator
 
     public StaticContext Evaluate(TemplateDocument document)
     {
+        return Evaluate(document, null);
+    }
+
+    /// <summary>Evaluates <paramref name="document"/>; <paramref name="outer"/> is set for the template of an outer-scope nested deployment.</summary>
+    public StaticContext Evaluate(TemplateDocument document, OuterTemplateScope? outer)
+    {
         ArgumentNullException.ThrowIfNull(document);
-        var run = new Run(this, document);
+        var run = new Run(this, document, outer);
         return run.Execute();
     }
 
@@ -60,12 +66,14 @@ public sealed class StaticEvaluator
         private readonly LazyParameters _parameters;
         private readonly LazyVariables _variables;
         private readonly ResourceKeyEvaluator _keys;
+        private readonly OuterTemplateScope? _outer;
         private EvaluationContext _context;
 
-        public Run(StaticEvaluator owner, TemplateDocument document)
+        public Run(StaticEvaluator owner, TemplateDocument document, OuterTemplateScope? outer)
         {
             _owner = owner;
             _document = document;
+            _outer = outer;
             _parameters = new LazyParameters(document.ParameterValues);
             _variables = new LazyVariables(document.Variables, document.VariableIterations);
             _keys = new ResourceKeyEvaluator(owner._evaluator, document, _diagnostics);
@@ -78,8 +86,11 @@ public sealed class StaticEvaluator
                 Functions = owner._functions,
                 Catalog = owner._catalog,
                 UserFunctions = document.Functions,
-                Resources = BuildInitialIndex(document),
+                Resources = BuildInitialIndex(document, outer),
                 Scope = EvaluationScope.Resource,
+
+                // An outer-scope template sees the deployment's copy iteration (copyIndex()); parameters and variables are evaluated without it (Base).
+                CopyStack = outer?.CopyStack ?? [],
             }.Bind(owner._evaluator);
         }
 
@@ -153,7 +164,7 @@ public sealed class StaticEvaluator
 
         // ---- resource names ----
 
-        private static TemplateResourceIndex BuildInitialIndex(TemplateDocument document)
+        private static TemplateResourceIndex BuildInitialIndex(TemplateDocument document, OuterTemplateScope? outer)
         {
             var index = new TemplateResourceIndex();
             foreach (var declaration in document.Resources)
@@ -165,6 +176,7 @@ public sealed class StaticEvaluator
                 }
             }
 
+            outer?.AddParentResources(index);
             return index;
         }
 
@@ -190,6 +202,7 @@ public sealed class StaticEvaluator
                     }
                 }
 
+                _outer?.AddParentResources(next);
                 bool stable = next.Ids.SetEquals(index.Ids);
                 index = next;
                 _context = _context with { Resources = index };

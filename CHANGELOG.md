@@ -16,6 +16,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `parametersLink`. `what-if` and `create` resolve them after the preflight with the signed-in identity (secure, checked against the
   parameter's constraints, `EARM_KEYVAULT_ALLOWED` applies; a failure is `KeyVaultReferenceUnresolved`, exit 3); offline they stay
   unknown, and `earm permissions` and the run's Key Vault token take them into account. They were `NestedDeploymentFeatureNotSupported`.
+- Outer-scope nested templates are evaluated in the parent's context, as in ARM: `copyIndex()` in their resources and outputs is the iteration
+  of the deployment's own copy loop, and `reference('name')` also finds the parent template's resources by name (with the implicit
+  dependency).
 
 - `earm permissions` expresses Entra roles needed together: a `together: A + (B | C)` line in the table, an entry with an empty
   `anyOf` and an `allOf` array of parts in the JSON (the overlay key `rolesAllOf`). A catalog resource now needs Identity Governance
@@ -41,6 +44,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- `reference()` / `references()` in the outputs of a nested template evaluated in the outer scope is now `ReferenceNotAllowedHere` (ARM
+  requires the inner scope there); EARM used to evaluate it. Set `"expressionEvaluationOptions": { "scope": "inner" }` on the deployment.
 - A group PIM policy (`roleManagementPolicies`) deferred because a schedule request of the same run onboards its group is now applied at
   the end of that run, once Graph lists the onboarded group's policy, instead of by the next run: such a template converges in one run.
   `create` reports `PimPolicyNotAvailable` only when Graph still lists no policy at the end of the retry; the what-if still shows the
