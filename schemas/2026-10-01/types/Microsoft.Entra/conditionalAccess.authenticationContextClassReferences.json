@@ -37,7 +37,7 @@
     "nullable": {},
     "permissions": {
       "application": ["AuthenticationContext.ReadWrite.All"],
-      "notes": "Learn (authenticationcontextclassreference-update/-delete): AuthenticationContext.ReadWrite.All is the least privileged application permission; Policy.ReadWrite.ConditionalAccess is the higher privileged alternative. The pages mention a known permissions issue that may require consent to both.",
+      "notes": "Learn (authenticationcontextclassreference-update/-delete): AuthenticationContext.ReadWrite.All is the least privileged application permission; Policy.ReadWrite.ConditionalAccess is the higher privileged alternative. The pages mention a known permissions issue that may require consent to both. Ids: c1 to c99, as the Conditional Access documentation (concept-conditional-access-cloud-apps: up to 99 definitions) allows; the Graph v1.0 resource page still says c1 to c25. Graph answers 400 for an id the tenant does not allow.",
       "roles": ["Conditional Access Administrator"]
     }
   }
