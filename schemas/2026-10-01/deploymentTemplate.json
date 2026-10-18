@@ -321,6 +321,10 @@
           "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/applications.federatedIdentityCredentials.json" }, { "$ref": "#/$defs/expression" } ] } } } },
         { "if": { "properties": { "type": { "const": "Microsoft.Entra/applications/passwordCredentials" } }, "required": ["type"] },
           "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/applications.passwordCredentials.json" }, { "$ref": "#/$defs/expression" } ] } } } },
+        { "if": { "properties": { "type": { "const": "Microsoft.Entra/applications/keyCredentials" } }, "required": ["type"] },
+          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/applications.keyCredentials.json" }, { "$ref": "#/$defs/expression" } ] } } } },
+        { "if": { "properties": { "type": { "const": "Microsoft.Entra/applications/extensionProperties" } }, "required": ["type"] },
+          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/applications.extensionProperties.json" }, { "$ref": "#/$defs/expression" } ] } } } },
         { "if": { "properties": { "type": { "const": "Microsoft.Entra/servicePrincipals" } }, "required": ["type"] },
           "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/servicePrincipals.json" }, { "$ref": "#/$defs/expression" } ] } } } },
         { "if": { "properties": { "type": { "const": "Microsoft.Entra/groups" } }, "required": ["type"] },
@@ -416,6 +420,10 @@
           "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/applications.federatedIdentityCredentials.json" }, { "$ref": "#/$defs/expression" } ] } } } },
         { "if": { "properties": { "type": { "enum": ["passwordCredentials", "Microsoft.Entra/applications/passwordCredentials"] } }, "required": ["type"] },
           "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/applications.passwordCredentials.json" }, { "$ref": "#/$defs/expression" } ] } } } },
+        { "if": { "properties": { "type": { "enum": ["keyCredentials", "Microsoft.Entra/applications/keyCredentials"] } }, "required": ["type"] },
+          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/applications.keyCredentials.json" }, { "$ref": "#/$defs/expression" } ] } } } },
+        { "if": { "properties": { "type": { "enum": ["extensionProperties", "Microsoft.Entra/applications/extensionProperties"] } }, "required": ["type"] },
+          "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/applications.extensionProperties.json" }, { "$ref": "#/$defs/expression" } ] } } } },
         { "if": { "properties": { "type": { "enum": ["assignmentPolicies", "Microsoft.Entra/entitlementManagement/accessPackages/assignmentPolicies"] } }, "required": ["type"] },
           "then": { "properties": { "properties": { "anyOf": [ { "$ref": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/entitlementManagement.accessPackages.assignmentPolicies.json" }, { "$ref": "#/$defs/expression" } ] } } } }
       ]

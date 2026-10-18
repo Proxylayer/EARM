@@ -19,6 +19,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Outer-scope nested templates are evaluated in the parent's context, as in ARM: `copyIndex()` in their resources and outputs is the iteration
   of the deployment's own copy loop, and `reference('name')` also finds the parent template's resources by name (with the implicit
   dependency).
+- `Microsoft.Entra/applications/keyCredentials`: certificate credentials of an application. The key is the credential's `displayName`; the
+  public certificate (`key`, base64 DER or PEM, also from a `securestring` parameter) is compared by thumbprint. Graph has no
+  single-certificate add without proof of possession, so EARM PATCHes the whole `keyCredentials` collection and sends every credential it
+  does not manage back unchanged (ensure-only); a replacement swaps the entry in one PATCH. Private keys and PFX files are refused, as are
+  `usage: Sign`, two live credentials with the same name (`AmbiguousMatch`) and an application that also declares `keyCredentials`.
+- `Microsoft.Entra/applications/extensionProperties`: directory extension definitions (`dataType`, `targetObjects`, `isMultiValued`). The
+  name is the short name; Graph's `extension_<appId>_<name>` is what `reference(...).name` returns. Every property is immutable, so a change
+  is a confirmed recreate; every delete warns that the stored values are lost (`DestructiveDelete`), and an extension synced from
+  on-premises is kept by `deployment delete`.
+- Sample `app-certificates-extensions` with both types.
 
 - `earm permissions` expresses Entra roles needed together: a `together: A + (B | C)` line in the table, an entry with an empty
   `anyOf` and an `allOf` array of parts in the JSON (the overlay key `rolesAllOf`). A catalog resource now needs Identity Governance

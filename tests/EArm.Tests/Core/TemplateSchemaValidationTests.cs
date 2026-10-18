@@ -24,6 +24,7 @@ public sealed class TemplateSchemaValidationTests
     private const string Orders = "orders-api";
     private const string Tenant = "tenant-security";
     private const string App = "app-with-sp-and-secret";
+    private const string AppCertificates = "app-certificates-extensions";
     private const string Methods = "authentication-methods";
     private const string Pim = "pim-eligibility";
     private const string PimActive = "pim-active";
@@ -62,6 +63,8 @@ public sealed class TemplateSchemaValidationTests
         // applications/federatedIdentityCredentials, applications/passwordCredentials (nested children)
         I(Orders, "applications/federatedIdentityCredentials", 0, ["audiences"], "\"api://x\"", "type"),
         I(Orders, "applications/passwordCredentials", 0, ["rotateBeforeDays"], "\"soon\"", "type"),
+        I(AppCertificates, "applications/keyCredentials", 0, ["usage"], "\"Encrypt\"", "enum"),
+        I(AppCertificates, "applications/extensionProperties", 0, ["targetObjects", 0], "\"user\"", "enum"),
 
         // servicePrincipals
         I(Orders, "servicePrincipals", 0, ["preferredSingleSignOnMode"], "\"kerberos\"", "enum"),
@@ -247,7 +250,7 @@ public sealed class TemplateSchemaValidationTests
             Assert.Contains(definition.Type, covered);
         }
 
-        Assert.Equal(26, ResourceTypeCatalog.Default.Types.Count);
+        Assert.Equal(28, ResourceTypeCatalog.Default.Types.Count);
         foreach (string keyword in new[] { "enum", "pattern", "type", "required", "additionalProperties" })
         {
             Assert.Contains(Injections, i => i.Keyword == keyword);
@@ -437,6 +440,7 @@ public sealed class TemplateSchemaValidationTests
     [InlineData("orders-api.entra.json", "orders-api.parameters.json")]
     [InlineData("orders-api.flat.entra.json", "orders-api.parameters.json")]
     [InlineData("app-with-sp-and-secret.entra.json", "app-with-sp-and-secret.parameters.json")]
+    [InlineData("app-certificates-extensions.entra.json", "app-certificates-extensions.parameters.json")]
     [InlineData("tenant-security.entra.json", "tenant-security.parameters.json")]
     public async Task EverySample_WithItsParameterFile_ValidatesWithZeroDiagnostics(string template, string parameters)
     {

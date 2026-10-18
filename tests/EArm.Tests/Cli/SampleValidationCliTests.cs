@@ -11,6 +11,7 @@ public sealed class SampleValidationCliTests
     [InlineData("orders-api.entra.json", "orders-api.parameters.json")]
     [InlineData("orders-api.flat.entra.json", "orders-api.parameters.json")]
     [InlineData("app-with-sp-and-secret.entra.json", "app-with-sp-and-secret.parameters.json")]
+    [InlineData("app-certificates-extensions.entra.json", "app-certificates-extensions.parameters.json")]
     [InlineData("tenant-security.entra.json", "tenant-security.parameters.json")]
     [InlineData("authentication-methods.entra.json", "authentication-methods.parameters.json")]
     [InlineData("pim-eligibility.entra.json", "pim-eligibility.parameters.json")]

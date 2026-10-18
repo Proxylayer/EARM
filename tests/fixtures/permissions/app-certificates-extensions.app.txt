@@ -1,0 +1,15 @@
+Permissions required by samples/app-certificates-extensions.entra.json (mode: app, 4 resource(s))
+
+Microsoft Graph application permissions
+  Application.ReadWrite.All
+      /providers/Microsoft.Entra/applications/contoso-dev-hr-sync
+      /providers/Microsoft.Entra/applications/contoso-dev-hr-sync/extensionProperties/badgeNumbers
+      /providers/Microsoft.Entra/applications/contoso-dev-hr-sync/extensionProperties/costCenter
+      /providers/Microsoft.Entra/applications/contoso-dev-hr-sync/keyCredentials/ci-signing
+      (Application.ReadWrite.OwnedBy would suffice for the applications this principal owns (3 resource(s)); provider)
+  Organization.Read.All
+      (every deployment)
+      (preflight: GET /organization)
+
+note: Application permissions are Microsoft Graph app roles granted (with admin consent) to the service principal EARM signs in with (AZURE_CLIENT_ID, or the managed identity). Application.ReadWrite.OwnedBy replaces Application.ReadWrite.All for applications the service principal owns.
+note: Edge permissions are listed for every relationship property the template declares (including an empty array, which removes edges). Key Vault access is an Azure RBAC / access-policy requirement of the signed-in identity, not a Graph permission.

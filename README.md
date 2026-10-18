@@ -36,7 +36,8 @@ needed in Azure operated by 21Vianet or in tenants that block the Microsoft app)
 
 Implemented (a working pre-release, see [Limitations](#limitations-v1) for what is deferred):
 
-- **26 resource types**: `applications`, `applications/federatedIdentityCredentials`, `applications/passwordCredentials`, `servicePrincipals`,
+- **28 resource types**: `applications`, `applications/federatedIdentityCredentials`, `applications/passwordCredentials`,
+  `applications/keyCredentials` (certificates), `applications/extensionProperties` (directory extensions), `servicePrincipals`,
   `groups`, `users`, `appRoleAssignments`, `oauth2PermissionGrants`, `roleAssignments`, `roleDefinitions`, `administrativeUnits`,
   `conditionalAccess/policies`, `conditionalAccess/namedLocations`, `conditionalAccess/authenticationStrengths`,
   `conditionalAccess/authenticationContextClassReferences`, `authenticationMethodConfigurations` (the authentication methods policy's tenant
@@ -195,6 +196,8 @@ declared resource **in the live tenant by a key derived from its type and `name`
 | `servicePrincipals` | the `appId` of its application = the `name` |
 | `applications/federatedIdentityCredentials` | its `name` under the parent application |
 | `applications/passwordCredentials` | `displayName` `<name>#<rotationTag>` under the parent application (matched by `<name>`) |
+| `applications/keyCredentials` | its exact `displayName` under the parent application (the certificate thumbprint decides whether it changed) |
+| `applications/extensionProperties` | Graph name `extension_<appId without dashes>_<name>` under the parent application |
 | `conditionalAccess/authenticationContextClassReferences` | its id (`c1`..`c99`) = the `name` |
 | `authenticationMethodConfigurations` | the method id (`fido2`, `temporaryAccessPass`, `sms`...) = the `name`; a tenant singleton that always exists (never created; delete resets or keeps it) |
 | `roleAssignments`, `roleEligibilityScheduleRequests`, `roleAssignmentScheduleRequests`, `privilegedAccess/groupEligibilityScheduleRequests`, `privilegedAccess/groupAssignmentScheduleRequests`, `appRoleAssignments`, `oauth2PermissionGrants` | their tuple (principal, role or resource or group, scope / access / consent type); the `guid(...)` `name` is only a label |

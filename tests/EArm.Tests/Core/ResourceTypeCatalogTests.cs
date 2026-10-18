@@ -16,7 +16,9 @@ public sealed class ResourceTypeCatalogTests
     [
         "Microsoft.Entra/administrativeUnits",
         "Microsoft.Entra/applications",
+        "Microsoft.Entra/applications/extensionProperties",
         "Microsoft.Entra/applications/federatedIdentityCredentials",
+        "Microsoft.Entra/applications/keyCredentials",
         "Microsoft.Entra/applications/passwordCredentials",
         "Microsoft.Entra/appRoleAssignments",
         "Microsoft.Entra/authenticationMethodConfigurations",
@@ -62,7 +64,7 @@ public sealed class ResourceTypeCatalogTests
     public void Default_ContainsExactlyTheTwentySixTypes()
     {
         Assert.Equal(ExpectedTypes, Catalog.Types.Select(t => t.Type).ToList());
-        Assert.Equal(26, EmbeddedSchemas.NamesUnder(EmbeddedSchemas.TypeSchemaPrefix).Count);
+        Assert.Equal(28, EmbeddedSchemas.NamesUnder(EmbeddedSchemas.TypeSchemaPrefix).Count);
         Assert.Same(Catalog, ResourceTypeCatalog.Default);
     }
 
@@ -175,7 +177,7 @@ public sealed class ResourceTypeCatalogTests
         var children = Catalog.ChildrenOf("microsoft.entra/APPLICATIONS");
 
         Assert.Equal(
-            ["Microsoft.Entra/applications/federatedIdentityCredentials", "Microsoft.Entra/applications/passwordCredentials"],
+            ["Microsoft.Entra/applications/extensionProperties", "Microsoft.Entra/applications/federatedIdentityCredentials", "Microsoft.Entra/applications/keyCredentials", "Microsoft.Entra/applications/passwordCredentials"],
             children.Select(c => c.Type).ToList());
         Assert.All(children, child =>
         {
@@ -296,7 +298,7 @@ public sealed class ResourceTypeCatalogTests
         Assert.Equal("https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentParameters.json", ResourceTypeCatalog.ParametersSchemaUri);
         Assert.Contains(EmbeddedSchemas.TemplateSchemaResource, EmbeddedSchemas.Names);
         Assert.Contains(EmbeddedSchemas.ParametersSchemaResource, EmbeddedSchemas.Names);
-        Assert.Equal(28, EmbeddedSchemas.Names.Count);
+        Assert.Equal(30, EmbeddedSchemas.Names.Count);
         Assert.Contains("\"$id\": \"https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json\"", EmbeddedSchemas.ReadText(EmbeddedSchemas.TemplateSchemaResource));
         Assert.NotEmpty(EmbeddedSchemas.ReadBytes(EmbeddedSchemas.ParametersSchemaResource));
     }

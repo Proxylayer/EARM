@@ -14,7 +14,7 @@ public static class ApplyPhases
 
     /// <summary>
     /// 1: namedLocations, authenticationContextClassReferences, authenticationStrengths, authenticationMethodConfigurations, roleDefinitions, users,
-    /// applications · 2: servicePrincipals, federatedIdentityCredentials, passwordCredentials · 3: groups ·
+    /// applications · 2: servicePrincipals, federatedIdentityCredentials, passwordCredentials, keyCredentials, extensionProperties · 3: groups ·
     /// 4: administrativeUnits, roleManagementPolicies (also ordered before the PIM schedule requests they govern) · 5: roleAssignments, roleEligibilityScheduleRequests, roleAssignmentScheduleRequests, privilegedAccess/groupEligibilityScheduleRequests,
     /// privilegedAccess/groupAssignmentScheduleRequests, appRoleAssignments, oauth2PermissionGrants ·
     /// 6: conditionalAccess/policies. Entitlement management: catalogs 4, catalogResources and accessPackages 5, resourceRoleScopes and
@@ -35,6 +35,8 @@ public static class ApplyPhases
             "servicePrincipals" => 2,
             "applications/federatedIdentityCredentials" => 2,
             "applications/passwordCredentials" => 2,
+            "applications/keyCredentials" => 2,
+            "applications/extensionProperties" => 2,
             "groups" => 3,
             "administrativeUnits" => 4,
             "roleManagementPolicies" => 4,
@@ -57,7 +59,7 @@ public static class ApplyPhases
 
     /// <summary>
     /// Complete-mode delete order: CA policies → assignments/eligibilities/PIM active assignments/grants/PIM policies (kept, never deleted) → administrativeUnits → groups →
-    /// passwordCredentials/federatedIdentityCredentials → servicePrincipals → applications → users → roleDefinitions
+    /// passwordCredentials/federatedIdentityCredentials/keyCredentials/extensionProperties → servicePrincipals → applications → users → roleDefinitions
     /// → authenticationStrengths → authenticationContextClassReferences → namedLocations → authenticationMethodConfigurations (reset, never removed).
     /// Entitlement management: assignment policies and resource role scopes (1) → access packages (2) → catalog resources (3) → catalogs (4).
     /// </summary>
@@ -79,6 +81,8 @@ public static class ApplyPhases
             "groups" => 4,
             "applications/passwordCredentials" => 5,
             "applications/federatedIdentityCredentials" => 5,
+            "applications/keyCredentials" => 5,
+            "applications/extensionProperties" => 5,
             "servicePrincipals" => 6,
             "applications" => 7,
             "users" => 8,
@@ -125,6 +129,8 @@ public static class ApplyPhases
         "servicePrincipals",
         "applications/federatedIdentityCredentials",
         "applications/passwordCredentials",
+        "applications/keyCredentials",
+        "applications/extensionProperties",
         "groups",
         "administrativeUnits",
         "roleManagementPolicies",

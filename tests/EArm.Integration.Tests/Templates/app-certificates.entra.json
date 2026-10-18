@@ -1,0 +1,51 @@
+{
+  "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "Application + certificate credential + two directory extensions. Every name starts with the run prefix."
+  },
+  "parameters": {
+    "prefix":        { "type": "string" },
+    "certificate":   { "type": "string" },
+    "extensionType": { "type": "string", "defaultValue": "String" }
+  },
+  "variables": {
+    "appName": "[format('{0}-certapp', parameters('prefix'))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Entra/applications",
+      "apiVersion": "2026-10-01-preview",
+      "name": "[variables('appName')]",
+      "properties": {
+        "displayName": "[variables('appName')]",
+        "signInAudience": "AzureADMyOrg",
+        "tags": ["earm-it"]
+      },
+      "resources": [
+        {
+          "type": "keyCredentials",
+          "apiVersion": "2026-10-01-preview",
+          "name": "it-signing",
+          "properties": { "key": "[parameters('certificate')]" }
+        },
+        {
+          "type": "extensionProperties",
+          "apiVersion": "2026-10-01-preview",
+          "name": "itCostCenter",
+          "properties": { "dataType": "[parameters('extensionType')]", "targetObjects": ["User"] }
+        },
+        {
+          "type": "extensionProperties",
+          "apiVersion": "2026-10-01-preview",
+          "name": "itBadges",
+          "properties": { "dataType": "String", "targetObjects": ["User", "Group"], "isMultiValued": true }
+        }
+      ]
+    }
+  ],
+  "outputs": {
+    "thumbprint": { "type": "string", "value": "[reference(resourceId('Microsoft.Entra/applications/keyCredentials', variables('appName'), 'it-signing')).thumbprint]" },
+    "costCenter": { "type": "string", "value": "[reference(resourceId('Microsoft.Entra/applications/extensionProperties', variables('appName'), 'itCostCenter')).name]" }
+  }
+}

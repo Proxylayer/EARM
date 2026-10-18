@@ -70,7 +70,7 @@ public sealed partial class FakeDirectory
             return method switch
             {
                 "GET" => (HttpStatusCode.OK, Page(Project(Filter(Collection(navPath), query, hint), FakeDirectorySchema.ForCollection(navPath), query, hint), route.Root + "/" + entityId + "/" + nav, query, pageSize)),
-                "POST" => (HttpStatusCode.Created, Create(navPath, body, hint)),
+                "POST" => (HttpStatusCode.Created, Create(navPath, PrepareChildCreate(entity, nav, navPath, body, hint), hint)),
                 _ => throw MethodNotAllowed($"{method} is not supported on '{route.Path}'.", hint),
             };
         }
