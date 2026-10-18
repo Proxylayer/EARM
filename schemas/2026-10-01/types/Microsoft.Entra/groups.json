@@ -63,9 +63,9 @@
       ]
     },
     "owners": {
-      "description": "Ownership edge, target side: the full desired set of owner object ids.",
+      "description": "Ownership edge, target side: the full desired set of owner object ids (users, service principals). Authoritative: missing owners are added, live owners not listed are removed; absent leaves the owners untouched. An empty array is refused (Graph does not remove the last user owner of a group).",
       "anyOf": [
-        { "type": "array", "items": { "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] } },
+        { "type": "array", "items": { "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] }, "minItems": 1 },
         { "$ref": "#/$defs/expression" }
       ]
     },

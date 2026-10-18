@@ -278,7 +278,7 @@ public sealed class GroupAssignmentScheduleRequestsProviderTests
         var (host, _, alice) = Setup();
         string owner = Active("{ \"groupId\": \"[reference('pim-ops').id]\", \"principalId\": \"" + alice + "\", \"accessId\": \"owner\"" + Until2030 + " }");
 
-        var conflict = await Conflict(host, DirectoryTemplates.Join(OpsGroup("\"owners\": []"), owner));
+        var conflict = await Conflict(host, DirectoryTemplates.Join(OpsGroup("\"owners\": [\"33333333-0000-0000-0000-000000000001\"]"), owner));
         var fine = await host.WhatIfAsync(host.Resources(DirectoryTemplates.Join(OpsGroup("\"members\": []"), owner)));
 
         Assert.Contains("authoritative owners list", conflict.Message, StringComparison.Ordinal);
@@ -290,7 +290,7 @@ public sealed class GroupAssignmentScheduleRequestsProviderTests
     {
         var (host, _, alice) = Setup();
 
-        var conflict = await Conflict(host, DirectoryTemplates.Join(OpsGroup("\"owners\": []"), Active("{ \"groupId\": \"[reference('pim-ops').id]\", \"principalId\": \"" + alice + "\", \"accessId\": \"[toLower('MEMBER')]\"" + Until2030 + " }")));
+        var conflict = await Conflict(host, DirectoryTemplates.Join(OpsGroup("\"owners\": [\"33333333-0000-0000-0000-000000000001\"]"), Active("{ \"groupId\": \"[reference('pim-ops').id]\", \"principalId\": \"" + alice + "\", \"accessId\": \"[toLower('MEMBER')]\"" + Until2030 + " }")));
 
         Assert.Contains("owners", conflict.Message, StringComparison.Ordinal);
     }

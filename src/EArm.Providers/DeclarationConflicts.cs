@@ -300,7 +300,7 @@ internal static class DeclarationConflicts
 
     // ---- JSON ----
 
-    /// <summary>True for a declared value, an empty array included (an empty members / owners list is authoritative too: it removes everything).</summary>
+    /// <summary>True for a declared value, an empty array included (an empty members list is authoritative too: it removes everything; an empty owners list on a group is refused by the groups provider).</summary>
     private static bool IsDeclared(JsonNode? node)
     {
         return node is not null && !(node is JsonValue value && value.GetValueKind() == System.Text.Json.JsonValueKind.Null);

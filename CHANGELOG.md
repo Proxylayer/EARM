@@ -15,6 +15,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   reviewers are not all individual users, as Graph refuses it. Needs `AccessReview.ReadWrite.All` (`AccessReview.Read.All` for `what-if`).
   New sample `samples/access-reviews.entra.json`; see docs/providers.md.
 
+### Changed
+
+- **Breaking:** `owners: []` on a `Microsoft.Entra/groups` resource is refused: the row is unsupported in `what-if` and `create` before anything
+  is written, and the schema requires at least one entry. The declared `owners` list is authoritative (missing owners are added, live owners not
+  listed are removed), so an empty one asked for every owner to be removed, which Graph refuses for the last user owner of a group
+  (group-delete-owners) and which therefore failed half-way. Leave `owners` out to keep the live owners untouched. Applications and service
+  principals still accept an empty list.
+- An authoritative `members` or `owners` list is no longer pruned from a partial desired set. While an entry is still a deploy-time value,
+  `what-if` shows each live entry it does not otherwise list as a removal flagged `?` ("removed at deployment unless a deploy-time entry
+  resolves to it"), counted as an edge removal, instead of a certain one; `create` decides once every entry has resolved. At deployment time
+  a placeholder still unresolved in a principal-side `memberOf` / `ownerOf` / `administrativeUnits` of the same kind (its referenced resource did
+  not deploy) now also leaves the set unpruned, with an `EdgePassSkipped` warning, where the set used to remove the live entries that
+  declaration might have named. See docs/edges.md#authoritative-owners.
+
 ### Fixed
 
 - `Microsoft.Entra/entitlementManagement/resourceRoleScopes` declared in different access packages of one catalog that grant the same role

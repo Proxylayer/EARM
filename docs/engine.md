@@ -392,6 +392,14 @@ mutual declarations (`user.memberOf` ↔ `group.members`) are never cycles.
    was skipped under `--continue-on-error`, or has an error row in the what-if) and its declaration names a principal-side property of the set's kind (`memberOf`, `ownerOf`, `administrativeUnits`):
    that resource's declarations are unknown, so removing "everything not declared" would remove its live memberships and ownerships. The adds still happen; a warning (`EdgePassSkipped`,
    "was not pruned") names the resource; the next run, with the resource applied, prunes.
+   **A set is never pruned from a partial desired set either**: while an entry of the set's own array is a deploy-time
+   placeholder, no removal operation is planned. The what-if renders each live entry outside the known part of the set as a
+   `-` child flagged unknown with the note "removed at deployment unless a deploy-time entry resolves to it" (so it counts as a
+   change and is never silent); the deployment's edge pass re-evaluates with real ids and decides then. At deployment time a
+   placeholder left in the set's array, or in any principal-side declaration of the set's kind (it may name this target), leaves
+   the set unpruned with an `EdgePassSkipped` warning ("was not pruned … is not resolved"); the placeholder is also an error of
+   its own row. A group's `owners: []` never reaches this step: the groups provider refuses it at plan time (Graph does not
+   remove the last user owner of a group; [edges.md](edges.md#authoritative-owners)).
 3. **Principal side, not governed** (`memberOf`, `ownerOf`, `administrativeUnits` naming a target the template
    does not declare authoritatively, for example a pre-existing group via `reference(resourceId(...), apiVersion)`):
    existence is read from the principal (`GET /{users|servicePrincipals|groups}/{p}/memberOf`, filtered by

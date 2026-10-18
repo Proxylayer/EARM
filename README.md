@@ -252,7 +252,8 @@ are never deleted or replaced (`ProtectedObject`). Details: [docs/cli.md](docs/c
 > every what-if and result as `orphan: retained` (warning `AssignmentRetained`), in both modes, and **never removed** by EARM. Review those rows whenever
 > you change an assignment, and remove the old access yourself. Details: [docs/engine.md](docs/engine.md#retained-assignments).
 
-**Relationships**: target-side lists (`members`, `owners`) are authoritative and remove what they do not list; principal-side lists (`memberOf`,
+**Relationships**: target-side lists (`members`, `owners`) are authoritative and remove what they do not list (never while an entry is still a
+deploy-time value; a group's `owners` cannot be an empty list, since Graph keeps its last user owner); principal-side lists (`memberOf`,
 `appRoleAssignments`, `directoryRoles`, `ownerOf`, `administrativeUnits`) are **ensure-only**: they add, and never remove an entry you drop
 ([docs/edges.md](docs/edges.md)).
 

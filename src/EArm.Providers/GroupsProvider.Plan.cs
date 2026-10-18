@@ -71,6 +71,11 @@ public sealed partial class GroupsProvider
             }
         }
 
+        if (!change.HasError && DeclaresEmptyOwners(desired))
+        {
+            change = Unsupported(change, $"{desired.Describe()}: properties.owners is an empty array. The list is authoritative, so an empty one would remove every owner, and Microsoft Graph refuses to remove the last user owner of a group (group-delete-owners). List at least one owner, or leave owners out to keep the live owners untouched.");
+        }
+
         if (adopting && !change.HasError)
         {
             change = WithAdoption(change, desired, existing!);
@@ -130,6 +135,16 @@ public sealed partial class GroupsProvider
             Deltas = [.. change.Deltas, adoption],
             Reasons = [.. change.Reasons, reason],
         };
+    }
+
+    /// <summary>
+    /// True when <c>owners</c> evaluates to an empty array (a literal <c>[]</c>, or an expression such as a parameter that defaults to <c>[]</c>). The
+    /// target-side list is authoritative, so an empty one asks the edge pass to remove every owner; Learn (group-delete-owners): "Once owners are assigned
+    /// to a group, the last owner (a user object) of the group cannot be removed". Refused before anything is written rather than failing half-way.
+    /// </summary>
+    private static bool DeclaresEmptyOwners(ResourceInstance desired)
+    {
+        return JsonObjects.TryGetIgnoreCase(desired.EdgeProperties, "owners", out var owners) && owners is JsonArray { Count: 0 };
     }
 
     private static ResourceChange Unsupported(ResourceChange change, string message)

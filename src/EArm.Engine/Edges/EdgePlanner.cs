@@ -22,7 +22,7 @@ namespace EArm.Engine.Edges;
 /// adds and removes:
 /// <list type="bullet">
 /// <item>a target-side property (<c>members</c>, <c>owners</c>) is the authoritative set for that target: live
-/// edges not declared (on either side) are removed;</item>
+/// edges not declared (on either side) are removed, but never while an entry of the set is still a deploy-time placeholder;</item>
 /// <item>a principal-side property (<c>memberOf</c>, <c>ownerOf</c>, <c>administrativeUnits</c>) is ensure-only: it adds
 /// the declared edges that are missing and never removes anything (undeclaring an edge leaves it in place; a target-side
 /// declaration of the same target still prunes it);</item>
@@ -188,6 +188,13 @@ public sealed class EdgePlanner
             _diagnostics.Add(Diagnostic.Warning(EngineDiagnosticCodes.EdgePassSkipped, message, set.Row.Declarer.Declaration.Path.Append("properties").Append(set.Property.Name)));
         }
 
+        string? partial = unsure is null ? UnknownContributor(set) : null;
+        if (partial is not null)
+        {
+            PlanPartialSetRemovals(set, live, partial);
+            return;
+        }
+
         foreach (var (key, extra) in live)
         {
             if (set.Desired.ContainsKey(key) || unsure is not null)
@@ -225,6 +232,71 @@ public sealed class EdgePlanner
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// The first entry that may belong to the set but is still a deploy-time placeholder: an entry of the set's own array or, at deployment time, a
+    /// principal-side declaration of the same kind whose target is still not resolved (it may name this target). <c>null</c> when the desired set is
+    /// complete. A what-if leaves the principal-side placeholders out: they normally name objects created in the same run (resolved before the
+    /// deployment's edge pass), and marking every set of the kind as deploy-time-dependent for them would hide the removals the run certainly makes.
+    /// </summary>
+    private string? UnknownContributor(AuthoritativeEdgeSet set)
+    {
+        if (set.Property.Declarations.FirstOrDefault(d => d.IsUnknown) is { } own)
+        {
+            return $"{own.Path} = {own.Symbol}";
+        }
+
+        if (_mode != PlanMode.Create)
+        {
+            return null;
+        }
+
+        foreach (var row in _rows.Values)
+        {
+            foreach (var property in row.Properties.Values)
+            {
+                if (property.Spec.Side != RelationshipSide.Principal || property.Handler.Kind != set.Handler.Kind || property.Handler.IsSingleValued)
+                {
+                    continue;
+                }
+
+                if (property.Declarations.FirstOrDefault(d => d.IsUnknown) is { } other)
+                {
+                    return $"{other.Path} = {other.Symbol}";
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// The desired set is partial (an entry is a deploy-time placeholder), so which live entries are absent from it cannot be decided: no removal is
+    /// planned. In a what-if each live entry not otherwise declared is still shown as a deploy-time-dependent removal (<c>-</c>, flagged unknown, with a
+    /// note), so nothing is removed silently; the deployment decides once every entry has resolved. At deployment time an entry that is still a
+    /// placeholder is an error of its row (<see cref="FinishRow"/>), and the set is left unpruned with a warning.
+    /// </summary>
+    private void PlanPartialSetRemovals(AuthoritativeEdgeSet set, IReadOnlyDictionary<string, JsonObject?> live, string placeholder)
+    {
+        var candidates = live.Keys.Where(k => !set.Desired.ContainsKey(k)).ToList();
+        if (candidates.Count == 0)
+        {
+            return;
+        }
+
+        if (_mode == PlanMode.Create)
+        {
+            string message = $"{set.Row.Declarer.Describe()}: properties.{set.Property.Name} was not pruned: {placeholder} is not resolved, so the full desired set is not known and no live entry was removed.";
+            set.Row.Warnings.Add(message);
+            _diagnostics.Add(Diagnostic.Warning(EngineDiagnosticCodes.EdgePassSkipped, message, set.Row.Declarer.Declaration.Path.Append("properties").Append(set.Property.Name)));
+            return;
+        }
+
+        foreach (var key in candidates)
+        {
+            set.Property.Children.Add(EdgeRow.DeleteChild(key) with { IsUnknown = true, Note = "removed at deployment unless a deploy-time entry resolves to it" });
+        }
     }
 
     private EdgeRow RowOf(EdgeDeclaration declaration)

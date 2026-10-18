@@ -10,7 +10,7 @@ catalog and the rules an author needs. The permissions each kind needs are in [p
 
 | Side | Properties | Semantics |
 |---|---|---|
-| **Target** (the object that has the members) | `members` on groups and administrative units, `owners` on applications, service principals and groups | The declared array is the **full desired set** for that target (ARM desired state): missing edges are added, **live edges that are not listed are removed**. An empty array removes everything. Absent = untouched. |
+| **Target** (the object that has the members) | `members` on groups and administrative units, `owners` on applications, service principals and groups | The declared array is the **full desired set** for that target (ARM desired state): missing edges are added, **live edges that are not listed are removed**. An empty array removes everything, except `owners: []` on a group, which is refused ([below](#authoritative-owners)). Absent = untouched. Nothing is removed while an entry of the set is still a deploy-time placeholder. |
 | **Principal** (the object that is a member or holds the assignment) | `memberOf`, `ownerOf`, `administrativeUnits`, `manager`, `appRoleAssignments`, `directoryRoles` | **Ensure-only**: each declared edge is added when it is missing; **nothing is ever removed** from the principal's side. An edge that is no longer declared stays (unless a target-side set prunes it, below). The one explicit removal is `manager: null`. Absent = untouched. |
 
 Both sides may be mixed freely: the edge pass computes *desired = target-side sets ∪ principal-side declarations ∪ standalone
@@ -20,6 +20,30 @@ from it (and `manager: null`). EARM keeps no record of the edges it added, so no
 principal: to take a membership or assignment away, declare the target's full set, delete it yourself, or remove the standalone resource's object
 with `deployment delete`. A retained app role or directory role assignment of a declared principal is listed by the what-if as `orphan: retained`
 ([whatif.md](whatif.md#orphan-report)).
+
+### Authoritative owners
+
+`owners` on a group, an application or a service principal is one of these authoritative sets: when it is declared, the listed object ids (users
+or service principals, compared by object id) are the full set of owners. Missing owners are added (`POST …/owners/$ref`) before live owners that
+are not listed are removed (`DELETE …/owners/{id}/$ref`), so replacing one owner with another never leaves the object without an owner in
+between. Leaving `owners` out keeps the live owners untouched; the principal-side `ownerOf` only ever adds.
+
+- **Group: an empty list is refused.** `owners: []` on a group (a literal, or an expression such as a parameter that defaults to `[]`) makes its
+  row unsupported in `what-if` and `create`, before anything is written, and the schema says `minItems: 1`. Learn
+  ([group-delete-owners](https://learn.microsoft.com/en-us/graph/api/group-delete-owners?view=graph-rest-1.0)): once owners are assigned to a
+  group, Graph does not remove the last user owner, so an empty list could only fail half-way. Leave `owners` out to keep the live owners.
+  Applications and service principals carry no such note, so an empty `owners` there still removes every owner.
+- **Deploy-time owners.** While an entry of the list is a placeholder (`(deploy-time)`, for example the id of a user created in the same run),
+  the full set is not known, so no removal is decided from it. The `what-if` lists every live owner that is not otherwise declared as a
+  removal flagged `?` with the note "removed at deployment unless a deploy-time entry resolves to it"; the deployment's edge pass decides once
+  every entry has resolved. If one is still a placeholder there (the resource it refers to did not deploy), its row is an error, the set is
+  not pruned and an `EdgePassSkipped` warning says so.
+- **Signed-in principal.** EARM does not protect the deploying identity: removing it from the owners is planned like any other removal, and
+  both `what-if` and `create` warn with `SignedInPrincipalRemoved`.
+- **Failures.** A removal that Graph refuses (for example the last user owner of a group, or a delegated caller whose role may only change
+  user owners) fails as `EdgeApplyFailed` with Graph's message; the other edges of the pass are still applied.
+- **Permissions.** Adding and removing group owners need the same `Group.ReadWrite.All` (application or delegated), which the groups type
+  already requires; nothing changes in `deployment permissions`.
 
 `reference()` calls inside edge arrays are evaluated in the edge pass and **do not** add object-pass dependencies, so mutual
 declarations (`user.memberOf` naming a group whose `members` names the user) are never cycles.

@@ -169,6 +169,9 @@ Rules:
   delta that carries a provider note, which is always shown with the note in parentheses, also under a `NoChange` row: a
   Conditional Access policy's declared `state: enabled` held back without `--allow-ca-enforce` prints
   `= properties.state: "disabled" => "enabled" (declared enabled, live value kept; pass --allow-ca-enforce to enforce)`.
+- **Removals that depend on deploy-time values**: when an authoritative list (`members`, `owners`) still holds a placeholder, the live
+  entries it does not otherwise list are shown as `- [n]: "<objectId>" (removed at deployment unless a deploy-time entry resolves to it)` and
+  the row is marked `?`; they count as edge removals. See [edges.md](edges.md#authoritative-owners).
 - **Edge deltas** appear under the declaring resource as `properties.<property>` array deltas with
   `+ [n]: "<objectId>"` / `- [n]: "<objectId>"` children (`manager` is a scalar delta). A `NoChange` object with edge
   deltas is a `Modify` row.
