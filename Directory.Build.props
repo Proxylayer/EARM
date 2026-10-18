@@ -12,6 +12,15 @@
          TreatWarningsAsErrors. AnalysisMode stays Default: Recommended adds ~2,600 CA warnings (mostly CA1707 on xunit test names, then CA1859/CA1861 perf hints). -->
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
     <AnalysisMode>Default</AnalysisMode>
+    <!-- The compiler only reports IDE0005 (unnecessary usings) on build when it parses doc comments, which needs GenerateDocumentationFile.
+         Docs are written where they help, not everywhere: CS1591 (public member without an XML doc comment) and CS1573 (a <param> tag
+         for some parameters but not all: a comment documents only the parameters that need explaining) are off. The other doc-comment
+         checks stay on, so a broken or ambiguous cref fails the build. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591;CS1573</NoWarn>
+    <!-- The doc XML is only there for the analyzers: keep it out of publish output and so out of the packed earm tool. -->
+    <PublishDocumentationFile>false</PublishDocumentationFile>
+    <PublishReferencesDocumentationFiles>false</PublishReferencesDocumentationFiles>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
     <RootNamespace>$(MSBuildProjectName)</RootNamespace>
     <AssemblyName>$(MSBuildProjectName)</AssemblyName>
