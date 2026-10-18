@@ -39,7 +39,7 @@ internal sealed class ResourceCreator
 
     /// <summary>
     /// Creates the object. "Already exists" is an idempotent success (the object is re-read by key and adopted); so is an ambiguous
-    /// failure (timeout, transport error, 5xx) after which the object turns out to exist (E-05): the create is not repeated, and not by the outer retry
+    /// failure (timeout, transport error, 5xx, a cancellation that is not the caller's) after which the object turns out to exist (E-05): the create is not repeated, and not by the outer retry
     /// either unless the create is an upsert (<see cref="IResourceProvider.CreateIsRepeatable"/>; review round 2 S2-07). A failure AFTER the object was written (a license, an owner, a restore step of the provider) is
     /// found again: the provider hands the partial result over (<see cref="ProviderException.Partial"/>), or the object is looked up by key; either way
     /// it is published and the resource is reported failed; a rerun finds it again by key and converges.
@@ -66,16 +66,17 @@ internal sealed class ResourceCreator
 
             return new CreateOutcome(new AppliedResource(instance.Id, existing.GraphId, existing.Raw, key), null, existing);
         }
-        catch (Exception ex) when (ProviderReads.IsAmbiguousWriteFailure(ex))
+        catch (Exception ex) when (ProviderReads.IsAmbiguousWriteFailure(ex) || (ex is OperationCanceledException && !cancellationToken.IsCancellationRequested))
         {
             // The write may have been committed although no answer came back: look for the object (waiting out replication) instead of failing or repeating the POST.
+            // A cancellation the caller did not ask for (a raw HTTP timeout of a client or decorator that does not map it to GraphTransportException) is the same case.
             var found = await TryReadAfterCreateAsync(provider, key, cancellationToken).ConfigureAwait(false);
             if (found is null)
             {
                 throw;
             }
 
-            string error = SecretRegistration.Scrub(ex.Message);
+            string error = ex is OperationCanceledException canceled ? NonCallerCancellation.Describe(canceled) : SecretRegistration.Scrub(ex.Message);
             EngineLog.CreateOutcomeUncertain(_logger, instance.Id.Id, error, found.GraphId);
             _diagnostics.AddForInstance(instance, Diagnostic.Warning(EngineDiagnosticCodes.CreateOutcomeUncertain, $"'{instance.Id.Id}': the create ended with an unknown outcome ({error}); the object exists (Graph id {found.GraphId}), so the create is counted as done. Values only returned at creation (a secret) are not available for it."));
             return new CreateOutcome(new AppliedResource(instance.Id, found.GraphId, found.Raw, key), null, null);

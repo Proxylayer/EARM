@@ -83,6 +83,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   the known, non-secure values of the expression are declared as literals, so the apply order that matches declared values
   (a group PIM policy before the eligibility and assignment requests of its group, access package resource ordering) sees
   them. Secure values and values known only at deployment stay expressions, as in an object literal.
+- A create whose request ends with a cancellation that is not Ctrl+C (a raw HTTP timeout that a client does not report as a transport
+  timeout) is treated like a timed-out create: the key is read again and an object that exists is counted as created
+  (`CreateOutcomeUncertain`) instead of failing the resource and leaving the object unrecorded.
 
 ## [0.2.0] - 2026-10-17
 
