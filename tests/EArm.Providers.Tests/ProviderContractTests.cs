@@ -5,7 +5,6 @@ using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using EArm.Core.Types;
-using EArm.Engine.Execution;
 using EArm.Engine.Providers;
 using EArm.Providers.Tests.Infrastructure;
 using EArm.TestSupport;

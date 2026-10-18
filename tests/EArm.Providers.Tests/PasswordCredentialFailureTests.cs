@@ -9,8 +9,6 @@ using EArm.Graph;
 using EArm.Core;
 using EArm.Core.Secrets;
 using EArm.Engine;
-using EArm.Engine.Execution;
-using EArm.Engine.Planning;
 using EArm.Engine.Providers;
 using EArm.Providers.Tests.Infrastructure;
 using EArm.TestSupport;

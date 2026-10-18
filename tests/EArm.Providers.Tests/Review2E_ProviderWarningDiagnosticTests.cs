@@ -3,7 +3,6 @@ using System.Threading.Tasks;
 using EArm.Core.Diagnostics;
 using EArm.Engine;
 using EArm.Providers.Tests.Infrastructure;
-using EArm.TestSupport;
 using Xunit;
 
 namespace EArm.Providers.Tests;

@@ -3,10 +3,8 @@ using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using EArm.Engine;
-using EArm.Engine.Execution;
 using EArm.Engine.Planning;
 using EArm.Engine.Providers;
-using EArm.Engine.WhatIf;
 using EArm.Providers.Tests.Infrastructure;
 using Xunit;
 

@@ -1,5 +1,4 @@
 using System;
-using System.Linq;
 using System.Text.Json.Nodes;
 using Xunit;
 using GraphApi = EArm.Graph.GraphApi;

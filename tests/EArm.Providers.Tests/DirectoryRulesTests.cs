@@ -1,7 +1,5 @@
 using System;
-using System.Linq;
 using System.Text.Json.Nodes;
-using EArm.Core.Secrets;
 using EArm.Providers.Tests.Infrastructure;
 using Xunit;
 

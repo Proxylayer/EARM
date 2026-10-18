@@ -9,7 +9,6 @@ using EArm.Graph;
 using EArm.Core;
 using EArm.Core.Diagnostics;
 using EArm.Engine;
-using EArm.Engine.Execution;
 using EArm.Engine.Providers;
 using EArm.Providers.Tests.Infrastructure;
 using Xunit;

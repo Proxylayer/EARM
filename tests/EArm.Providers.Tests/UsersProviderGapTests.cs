@@ -1,12 +1,10 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Net;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using EArm.Graph;
 using EArm.Core;
-using EArm.Core.Secrets;
 using EArm.Engine;
 using EArm.Engine.Providers;
 using EArm.Expressions.Values;

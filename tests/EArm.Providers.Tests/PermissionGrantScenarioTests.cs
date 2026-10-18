@@ -7,7 +7,6 @@ using System.Threading.Tasks;
 using EArm.Graph;
 using EArm.Core;
 using EArm.Engine;
-using EArm.Engine.Execution;
 using EArm.Engine.Providers;
 using EArm.Expressions.Values;
 using EArm.Providers.Tests.Infrastructure;
