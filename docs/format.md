@@ -324,7 +324,7 @@ whole (a Conditional Access policy's `conditions.clientAppTypes` and `grantContr
 
 | Type | `name` is | Graph path | Immutable (error, or recreate for a named location kind) | Edge properties | Required on create |
 |---|---|---|---|---|---|
-| `applications` | `uniqueName` | `/applications` | `uniqueName`, `appId`, `id`, `publisherDomain` | `owners` | `displayName` (`signInAudience` defaults to `AzureADMyOrg`) |
+| `applications` | `uniqueName` | `/applications` | `uniqueName`, `appId`, `id`, `publisherDomain` | `owners` | `displayName` (`signInAudience` defaults to `AzureADMyOrg`: the default describes the application EARM creates and is never sent in the upsert, which would merge it into an application that already exists; a created application that lacks it gets it by a follow-up PATCH) |
 | `applications/federatedIdentityCredentials` | credential `name` (parent: application) | `/applications/{id}/federatedIdentityCredentials` | `name` | none | `issuer`, `subject` (`audiences` defaults to `["api://AzureADTokenExchange"]`); at most 20 per application, and `issuer` + `subject` must be unique within the application |
 | `applications/passwordCredentials` | credential `displayName` (parent: application) | `addPassword` / `removePassword` | everything (never edited: a rotation adds the new secret, then removes the old one) | none | nothing (`endDateTime` defaults to +180 days) |
 | `servicePrincipals` | `appId` | `/servicePrincipals` | `appId`, `servicePrincipalType` | `owners`, `memberOf`, `ownerOf`, `appRoleAssignments`, `directoryRoles` | nothing (on create, `accountEnabled` defaults to true and `appRoleAssignmentRequired` to false) |
@@ -376,7 +376,7 @@ enumerations. In short:
   and written whole. An omitted app role or scope `id` is derived deterministically (UUIDv5 of `uniqueName` and `value`), so every run computes the same id.
 - **Passthrough**: every object keeps `additionalProperties: true`. A property the schema does not list is still sent to
   Graph unchanged; it is simply not validated or documented.
-- **EARM-only properties** (never sent to Graph): `rotationTag` and `rotateBeforeDays` on `passwordCredentials` (see below),
+- **EARM-only properties** (never sent to Graph): `rotationTag`, `rotateBeforeDays` and `stampRotationTag` on `passwordCredentials` (see below),
   and the sugar properties that are rewritten before the key is computed: `scopes` on `oauth2PermissionGrants` (→ `scope`),
   `resourceAppId` / `appRole` on `appRoleAssignments` and in `appRoleAssignments` edge entries (→ `resourceId` / `appRoleId`),
   `role` / `administrativeUnit` on `roleAssignments` and in `directoryRoles` edge entries (→ `roleDefinitionId` / `directoryScopeId`), and
@@ -399,7 +399,9 @@ Graph never edits a client secret, and returns its text once. `applications/pass
   Change `rotationTag` to rotate and obtain a new secret.
 - treats a credential created by an older EARM (named `<name>`, no tag) as matching a declared tag, with the `RotationTagNotStamped`
   warning, so upgrading never rotates by surprise; its next rotation writes the tag into the name. Until then a changed `rotationTag`
-  is not detected: declare a different `endDateTime` to rotate it.
+  is not detected: declare a different `endDateTime` to rotate it, or set `stampRotationTag: true` (default `false`), which rotates such an
+  untagged credential once so the declared tag is stamped into the new name. It needs a `rotationTag` and does nothing once the live name
+  carries a tag, so it can stay declared.
 
 ## Expressions
 

@@ -123,12 +123,18 @@ Requests per operation (every read selects `ApplicationsProvider.ManagedProperti
 | Operation | Requests |
 |---|---|
 | Read | `GET /applications(uniqueName='…')` (a 400 — Learn documents `uniqueName` as an alternate key of the upsert only — falls back to `GET /applications?$filter=uniqueName eq '…'&$count=true` with `ConsistencyLevel: eventual`) → `GET /applications(appId='…')` (only when the template declares `appId`, to adopt a brownfield app whose `uniqueName` is still unset). The `$select` is `ManagedProperties` plus the declared top-level properties |
-| Create | `GET /directory/deletedItems/microsoft.graph.application?$filter=uniqueName eq '…'&$count=true` (`ConsistencyLevel: eventual`; falls back to listing the deleted applications if Graph rejects the filter; a 403 skips the probe with the `SoftDeleteProbeSkipped` warning) → `[POST /directory/deletedItems/{id}/restore]` → `PATCH /applications(uniqueName='…')` + `Prefer: create-if-missing` (**the body does not carry `uniqueName`**: it is the URL key and Learn documents it as read-only; 201: created; 204: existed → `GET /applications(uniqueName='…')` and adopt) → `[PATCH /applications/{id} { identifierUris }]` when any URI carries `{appId}` |
+| Create | `GET /directory/deletedItems/microsoft.graph.application?$filter=uniqueName eq '…'&$count=true` (`ConsistencyLevel: eventual`; falls back to listing the deleted applications if Graph rejects the filter; a 403 skips the probe with the `SoftDeleteProbeSkipped` warning) → `[POST /directory/deletedItems/{id}/restore]` → `PATCH /applications(uniqueName='…')` + `Prefer: create-if-missing` (**the body does not carry `uniqueName`**: it is the URL key and Learn documents it as read-only; **nor the overlay defaults**: only the declared properties, see below; 201: created; 204: existed → `GET /applications(uniqueName='…')` and adopt) → `[PATCH /applications/{id} { identifierUris, <missing defaults> }]` when any URI carries `{appId}` or the created object lacks an overlay default |
 | Update | `[PATCH /applications/{id}` disabling removed/changed roles and scopes `]` → `PATCH /applications/{id}` (merge body) → `GET /applications/{id}` |
 | Delete | `DELETE /applications/{id}` (soft delete; a 404 is tolerated) |
 
 Type-specific rules (all in `ApplicationsRules`, pure):
 
+- **Upsert defaults**: the create upsert (`Prefer: create-if-missing`) merges its body into an application that already exists (one that appeared
+  after the plan's read, or a restored one), so the body carries only the declared properties; an overlay default (`signInAudience: AzureADMyOrg`)
+  never reaches an application EARM did not create. After a real create (201), a default the created object does not carry with the default value
+  (Learn documents the same defaults, so normally none) is written by one follow-up `PATCH /applications/{id}`, together with deferred `{appId}`
+  identifier URIs; a failure there fails the resource with the created application's id (a partial write). A 204 (the application existed) writes no
+  default: the declared properties were merged, and the plan of the next run shows anything else.
 - `appRoles` and `api.oauth2PermissionScopes` are matched by `id`. A member declared without `id` gets
   `v5(v5(ApplicationsRules.DerivedIdNamespace, uniqueName), value)` — stable across runs, so every run derives the same
   ids and nothing needs to be stored (the create result carries them as `AppliedResource.Extra.derivedIds`). `isEnabled` defaults to `true`.
@@ -177,7 +183,10 @@ Type-specific rules (all in `PasswordCredentialsRules`, pure):
   tag in a local state file) carries no tag. When the template declares one, it is treated as **matching** (an upgrade
   never rotates a secret by surprise) and the row carries the `RotationTagNotStamped` warning; the next rotation (expiry,
   a changed `endDateTime` / `startDateTime`) names the replacement `<name>#<tag>`. Until then a changed `rotationTag` is
-  not detected; declare a different `endDateTime` to force the rotation. A template that drops its `rotationTag` while
+  not detected; declare a different `endDateTime` to force the rotation, or set `stampRotationTag: true` (EARM-only, default `false`): the
+  untagged credential is then rotated once, so the declared tag is stamped into the new credential's name, and the row carries the rotation reason
+  instead of the warning. It needs a `rotationTag` (rejected otherwise) and has no effect once the live name carries a tag, so it can stay
+  declared. A template that drops its `rotationTag` while
   the live name carries one rotates to the plain name.
 - `endDateTime` defaults to "now + 180 days" **once**, at create; reruns compare against the live expiry, never against
   a fresh default.
@@ -776,6 +785,10 @@ What the engine's edge pass expects from a part B handler (worked example: `Edge
   `visibility: Private`; a dynamic group, `securityEnabled: false` or another visibility is an unsupported row. (The page also says such a group "cannot have an owner",
   yet its own example creates one with `owners@odata.bind`; EARM does not forbid owners.)
 - **Owners at create**: declared `owners` (object ids, at most 20) are bound in the group upsert body as `owners@odata.bind`; the edge pass remains authoritative.
+- **Group owners are read twice**: the ownership edge kind reads `GET /groups/{id}/owners` **and** `GET /groups/{id}/owners/microsoft.graph.servicePrincipal`
+  and merges them, because v1.0 `/owners` of a group does not list service principal owners (Learn: group-list-owners). Without the type cast a declared
+  service principal owner was planned as an add on every run and an undeclared one was never pruned. Application and service principal owners need no
+  second read; group members get the same treatment ([edges.md](edges.md)), while device and organizational contact members are listed by v1.0 `/members`.
 - **Password credentials**: the secret is rotated when `liveEnd < now + rotateBeforeDays` **and** a replacement would live longer than the live credential (the
   declared `endDateTime`, else now + 180 days); otherwise the what-if row is `NoChange` with a `SecretExpiresSoon` reason naming the date. An `addPassword` whose
   answer is lost (timeout, dropped connection, 5xx on the write) is never repeated: the provider lists the application's credentials and the failure message names

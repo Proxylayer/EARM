@@ -146,7 +146,7 @@ public static class EngineDiagnosticCodes
     /// <summary>A FIDO2 authentication method configuration declares <c>isAttestationEnforced</c> or <c>keyRestrictions</c>, which Microsoft deprecated (removed October 2027) in favour of <c>passkeyProfiles</c>.</summary>
     public const string DeprecatedAuthenticationMethodProperty = "DeprecatedAuthenticationMethodProperty";
 
-    /// <summary>A failed <c>addPassword</c> left a credential of the same name that EARM did not record; it is reported, never removed.</summary>
+    /// <summary>A failed <c>addPassword</c> left a credential of the same name that was not there when the run read the application; it is reported, never removed.</summary>
     public const string PasswordCredentialOrphaned = "PasswordCredentialOrphaned";
 
     /// <summary>Graph refused to set the <c>uniqueName</c> of an existing application or group being adopted (the property is immutable).</summary>

@@ -40,6 +40,9 @@ Live group members are read with `GET /groups/{g}/members?$select=id` **and** `G
 v1.0 `/members` leaves service principal members out (observed on a real tenant; beta, the type cast and `$expand=members` list them), so without
 the second read a service principal member would be planned as an add on every run and never pruned. Probe h
 (`tests/EArm.Integration.Tests/GroupMembershipProbes.cs`) records whether this still holds.
+Live group owners are read the same way, with `GET /groups/{g}/owners` **and** `GET /groups/{g}/owners/microsoft.graph.servicePrincipal`: Learn
+(group-list-owners) says v1.0 `/owners` of a group does not list service principal owners. Application and service principal owners are read with one
+`GET …/owners`. Device and organizational contact members of a group need no extra read: v1.0 `/members` lists them.
 
 ### Entry shapes
 
