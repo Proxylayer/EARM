@@ -74,6 +74,7 @@ public sealed partial class DeploymentExecutor
         private readonly GraphCallRetry _retry;
         private readonly ResourceCreator _creator;
         private readonly ResourceReplacer _replacer;
+        private readonly ResourceUpdater _updater;
         private readonly SecureOutputsRecorder _secureOutputs;
         private IReadOnlyList<ResourceChange> _orphans = [];
         private KeyAbsencePrefetch? _absencePrefetch;
@@ -89,6 +90,7 @@ public sealed partial class DeploymentExecutor
             _creator = new ResourceCreator(owner._graph, owner._replicationWait, _retry, _diagnostics, _planOptions, owner._logger);
             var laggingDeletes = new LaggingDeleteRetry(owner._replicationWait, owner._logger);
             _replacer = new ResourceReplacer(plan, options, owner._graph, _creator, laggingDeletes, _retry, _diagnostics, owner._logger);
+            _updater = new ResourceUpdater(owner._graph, _retry, _planOptions);
             _secureOutputs = new SecureOutputsRecorder(options.SecureOutputsFile, _diagnostics, owner._logger);
         }
 

@@ -89,6 +89,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `HttpGraphClient.BatchAsync` cancelled by the caller after its first 20-request chunk no longer throws away the per-item results of the
   chunks already sent: they are returned, and the items of the chunks not sent carry the new item code `BatchCancelled` (status 499, never
   ambiguous). A failed item whose individual re-send was cancelled keeps its original failure.
+- An update of an existing object cut short by Ctrl+C (between two requests of the provider) or by a raw HTTP timeout is no longer reported
+  as skipped or as an unexpected error: the object is read back by key and planned again, and the resource is reported applied when the
+  object now matches the template, or failed with its Graph id ("the update may have been applied in part or not at all") when it does not.
 
 ## [0.2.0] - 2026-10-17
 

@@ -227,18 +227,13 @@ public sealed partial class DeploymentExecutor
                 }
 
                 case ChangeType.Modify:
-                    try
-                    {
-                        applied = await _retry.WithRetryAsync(ct => provider.UpdateAsync(instance, existing!, change, _owner._graph, ct), instance.RetryHint, cancellationToken).ConfigureAwait(false);
-                    }
-                    catch (ProviderException ex) when (ex.Partial is { } partial)
-                    {
-                        // The primary write happened and a later step failed: what exists is recorded, the resource is reported failed.
-                        applied = partial;
-                        afterApplyFailure = ResourceCreator.PartialFailure(instance, partial, ex, "updated");
-                    }
-
+                {
+                    // A partial update, or one cut short by a cancellation after a write may have committed, is recorded as it is (ResourceUpdater).
+                    var updated = await _updater.UpdateAsync(provider, instance, key, existing!, change, cancellationToken).ConfigureAwait(false);
+                    applied = updated.Applied;
+                    afterApplyFailure = updated.Failure;
                     break;
+                }
 
                 default:
                     throw new InvalidOperationException($"{instance.Describe()}: the provider planned an unexpected change type {change.Type}.");

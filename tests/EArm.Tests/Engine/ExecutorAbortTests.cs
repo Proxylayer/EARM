@@ -1,12 +1,10 @@
 using System;
-using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Threading.Tasks;
 using EArm.Engine.Execution;
 using EArm.Engine.Planning;
 using EArm.Graph;
-using Microsoft.Extensions.Logging;
 using Xunit;
 using static EArm.Tests.Engine.Review1A;
 
@@ -32,7 +30,7 @@ public sealed class ExecutorAbortTests
     {
         var host = new EngineHost();
         host.Fake.Failures.Add("PATCH", "/groups", request => new GraphException(HttpStatusCode.BadRequest, "Request_BadRequest", "Invalid value.", request.Hint), times: 1);
-        var logger = new ThrowingLogger(StoppingAfterBatch);
+        var logger = new RecordingLogger<DeploymentExecutor>(StoppingAfterBatch);
         var executor = new DeploymentExecutor(host.Registry, host.Graph, logger, new ReplicationWait { Delay = host.ReplicationDelays }, new KeyAbsenceCheck { Delay = host.AbsenceDelays });
         var plan = await host.ExpandAsync(Templates.Resources(Group("g1") + ", " + Group("g2", GroupId("g1"))));
 
@@ -46,48 +44,7 @@ public sealed class ExecutorAbortTests
         var skipped = result.Operations.Single(o => o.Id.Id == GroupId("g2"));
         Assert.Equal(OperationStatus.Skipped, skipped.Status);
         Assert.Equal("the run was aborted by an unexpected error", skipped.Error);
-        Assert.Contains("Completed", logger.EventNames);
+        Assert.Contains(logger.Events, e => e.Name == "Completed");
         Assert.Equal(0, host.Directory.Count("/groups"));
-    }
-
-    /// <summary>Throws from one log event (an engine-level step outside any per-resource catch) and records the names of the events logged.</summary>
-    private sealed class ThrowingLogger : ILogger<DeploymentExecutor>
-    {
-        private readonly string _throwOn;
-        private readonly List<string> _events = [];
-
-        public ThrowingLogger(string throwOn)
-        {
-            _throwOn = throwOn;
-        }
-
-        public IReadOnlyList<string> EventNames
-        {
-            get
-            {
-                lock (_events)
-                {
-                    return [.. _events];
-                }
-            }
-        }
-
-        public IDisposable? BeginScope<TState>(TState state)
-            where TState : notnull => null;
-
-        public bool IsEnabled(LogLevel logLevel) => true;
-
-        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
-        {
-            lock (_events)
-            {
-                _events.Add(eventId.Name ?? string.Empty);
-            }
-
-            if (eventId.Name == _throwOn)
-            {
-                throw new InvalidOperationException("a logging sink failed");
-            }
-        }
     }
 }

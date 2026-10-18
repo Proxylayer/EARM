@@ -521,6 +521,9 @@ logs**. Ctrl+C stops new work between resources, batches and edge operations; it
 - When the cancellation reaches a provider **between** two of its requests (after its first write committed), the executor looks the object up by
   key once more, uncancellably, and reports it (the resource is failed: "cancelled while the object was being created"); when nothing is found the
   create never happened and the resource is skipped.
+- An in-place update (`PATCH`) cut short by a cancellation (Ctrl+C between two requests of the provider, or a raw HTTP timeout) is read back
+  once by key, uncancellably, and planned again: it is reported applied when the object now matches the template, and failed with its Graph id
+  ("cancelled while the object was being updated", or "unknown outcome" for a timeout) when it does not. It is no longer reported as skipped.
 - The end phase (edge pass, outputs, secure outputs file, orphan report) runs with `CancellationToken.None` for what only reports, and checks the
   caller's token between edge operations: the one in flight finishes and is reported, the unstarted ones are reported failed "cancelled", and the
   run ends `Cancelled` (unstarted resources reported as skipped) and throws `OperationCanceledException`.
