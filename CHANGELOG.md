@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Access packages over applications and SharePoint Online sites: `entitlementManagement/catalogResources` accepts `originSystem`
+  `AadApplication` (`originId` = the service principal's object id) and `SharePointOnline` (`originId` = the site URL, matched
+  case-insensitively and without a trailing slash), and `entitlementManagement/resourceRoleScopes` grants an app role (by display name or
+  app role id) or a site group (by full display name or its number in the site); `role` is no longer limited to the four group roles,
+  and a role scope's `originSystem` defaults to the catalog resource's. A template service principal is created before its catalog
+  resource. Permissions follow the kind: `Application.ReadWrite.All` or `Sites.FullControl.All` in place of `Group.ReadWrite.All`, and
+  the overlay key `rolesAllOfByValue` gives the Entra roles (Identity Governance Administrator for an app; with SharePoint
+  Administrator for a site). New sample `samples/access-packages-apps-sites.entra.json`. Graph lists sites in a catalog only to
+  delegated callers, so sites are deployed signed in.
 - `earm permissions` expresses Entra roles needed together: a `together: A + (B | C)` line in the table, an entry with an empty
   `anyOf` and an `allOf` array of parts in the JSON (the overlay key `rolesAllOf`). A catalog resource now needs Identity Governance
   Administrator together with Privileged Role Administrator (role-assignable template group) or with Groups Administrator, Intune

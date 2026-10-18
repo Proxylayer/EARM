@@ -107,6 +107,8 @@ internal static class IntegrationScopes
         new("pim-policy-group-onboarding.entra.json", Needs.Domain | Needs.Pim | Needs.PimPolicies, With(("domain", "example.onmicrosoft.com"))),
         new("access-packages.entra.json", Needs.AccessPackages, Empty()),
         new("access-packages-eligible.entra.json", Needs.Domain | Needs.Pim | Needs.AccessPackages, With(("domain", "example.onmicrosoft.com"))),
+        new("access-packages-app.entra.json", Needs.AccessPackages, Empty()),
+        new("access-packages-site.entra.json", Needs.AccessPackages | Needs.SharePointSite, With(("siteUrl", "https://contoso.sharepoint.com/sites/example"), ("siteRole", "Example Members"))),
     ];
 
     private const string PlaceholderGuid1 = "00000000-0000-0000-0000-0000000000a1";

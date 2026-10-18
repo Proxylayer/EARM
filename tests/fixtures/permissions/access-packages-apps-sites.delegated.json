@@ -1,0 +1,112 @@
+{
+  "template": "samples/access-packages-apps-sites.entra.json",
+  "mode": "delegated",
+  "resourceCount": 9,
+  "permissions": [
+    {
+      "name": "Application.ReadWrite.All",
+      "kind": "graphDelegated",
+      "resources": [
+        "/providers/Microsoft.Entra/applications/orders-portal",
+        "/providers/Microsoft.Entra/entitlementManagement/catalogResources/9b670d0c-344e-5bd5-bfd1-671af6c67fb5",
+        "/providers/Microsoft.Entra/servicePrincipals/ref(/providers/Microsoft.Entra/applications/orders-portal).appId"
+      ],
+      "reasons": [
+        "provider"
+      ]
+    },
+    {
+      "name": "EntitlementManagement.ReadWrite.All",
+      "kind": "graphDelegated",
+      "resources": [
+        "/providers/Microsoft.Entra/entitlementManagement/accessPackages/Orders Approvers",
+        "/providers/Microsoft.Entra/entitlementManagement/accessPackages/Orders Approvers/assignmentPolicies/Requested by member users",
+        "/providers/Microsoft.Entra/entitlementManagement/catalogResources/9b670d0c-344e-5bd5-bfd1-671af6c67fb5",
+        "/providers/Microsoft.Entra/entitlementManagement/catalogResources/a38d9404-750b-5e43-9d6b-7df630a44b5f",
+        "/providers/Microsoft.Entra/entitlementManagement/catalogs/Orders Collaboration",
+        "/providers/Microsoft.Entra/entitlementManagement/resourceRoleScopes/07fc9f8c-db94-557b-8a3d-5172288686e5",
+        "/providers/Microsoft.Entra/entitlementManagement/resourceRoleScopes/179b7bfc-6e91-5494-85bc-f96687564f13"
+      ],
+      "reasons": [
+        "provider"
+      ]
+    },
+    {
+      "name": "Sites.FullControl.All",
+      "kind": "graphDelegated",
+      "resources": [
+        "/providers/Microsoft.Entra/entitlementManagement/catalogResources/a38d9404-750b-5e43-9d6b-7df630a44b5f"
+      ],
+      "reasons": [
+        "provider"
+      ]
+    }
+  ],
+  "entraRoles": [
+    {
+      "anyOf": [
+        "Application Administrator",
+        "Application Developer",
+        "Cloud Application Administrator"
+      ],
+      "resources": [
+        "/providers/Microsoft.Entra/applications/orders-portal"
+      ],
+      "reasons": [
+        "provider"
+      ]
+    },
+    {
+      "anyOf": [
+        "Application Administrator",
+        "Cloud Application Administrator"
+      ],
+      "resources": [
+        "/providers/Microsoft.Entra/servicePrincipals/ref(/providers/Microsoft.Entra/applications/orders-portal).appId"
+      ],
+      "reasons": [
+        "provider"
+      ]
+    },
+    {
+      "anyOf": [
+        "Identity Governance Administrator"
+      ],
+      "resources": [
+        "/providers/Microsoft.Entra/entitlementManagement/accessPackages/Orders Approvers",
+        "/providers/Microsoft.Entra/entitlementManagement/accessPackages/Orders Approvers/assignmentPolicies/Requested by member users",
+        "/providers/Microsoft.Entra/entitlementManagement/catalogResources/9b670d0c-344e-5bd5-bfd1-671af6c67fb5",
+        "/providers/Microsoft.Entra/entitlementManagement/catalogs/Orders Collaboration",
+        "/providers/Microsoft.Entra/entitlementManagement/resourceRoleScopes/07fc9f8c-db94-557b-8a3d-5172288686e5",
+        "/providers/Microsoft.Entra/entitlementManagement/resourceRoleScopes/179b7bfc-6e91-5494-85bc-f96687564f13"
+      ],
+      "reasons": [
+        "provider",
+        "provider: originSystem AadApplication"
+      ]
+    },
+    {
+      "anyOf": [],
+      "allOf": [
+        [
+          "Identity Governance Administrator"
+        ],
+        [
+          "SharePoint Administrator"
+        ]
+      ],
+      "resources": [
+        "/providers/Microsoft.Entra/entitlementManagement/catalogResources/a38d9404-750b-5e43-9d6b-7df630a44b5f"
+      ],
+      "reasons": [
+        "provider: originSystem SharePointOnline"
+      ]
+    }
+  ],
+  "notes": [
+    "Delegated scopes must be present on the token that earm auth login obtains (the app registration of --client-id needs them as delegated permissions); the signed-in user must additionally hold at least one role of every 'Entra roles' group (the roles are alternatives).",
+    "1 resource(s) have a name that depends on another resource (for example a service principal named after reference(...).appId); their permissions are computed from the declaration and the references it contains.",
+    "An Entra roles group marked 'together' needs one role of each of its parts at the same time (for example a catalog owner role AND a role that may change the group); a part in parentheses lists alternatives.",
+    "Edge permissions are listed for every relationship property the template declares (including an empty array, which removes edges). Key Vault access is an Azure RBAC / access-policy requirement of the signed-in identity, not a Graph permission."
+  ]
+}

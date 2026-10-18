@@ -17,13 +17,16 @@ using GraphApi = EArm.Graph.GraphApi;
 namespace EArm.Providers;
 
 /// <summary>
-/// <c>Microsoft.Entra/entitlementManagement/resourceRoleScopes</c>: a group role (Member, Owner, Eligible Member, Eligible Owner) an access package
-/// grants. Found by the tuple (<c>accessPackageId</c>, <c>resourceOriginId</c>, <c>role</c>); the GUID name is a label; nothing is updated in place
-/// (Learn: resources/accesspackageresourcerolescope offers list, create and delete only).
+/// <c>Microsoft.Entra/entitlementManagement/resourceRoleScopes</c>: a role an access package grants of a catalog resource
+/// (<see cref="AccessPackageResourceOrigin"/>): a group role (Member, Owner, Eligible Member, Eligible Owner), an app role of an application, or a site group
+/// of a SharePoint Online site. Found by the tuple (<c>accessPackageId</c>, <c>resourceOriginId</c>, <c>role</c>); the GUID name is a label; nothing is
+/// updated in place (Learn: resources/accesspackageresourcerolescope offers list, create and delete only).
 /// <list type="bullet">
-/// <item><b>Read</b>: <c>GET …/accessPackages/{id}?$expand=resourceRoleScopes($expand=role,scope)</c>, matched on <c>scope.originId</c> and <c>role.displayName</c>.</item>
-/// <item><b>Create</b>: the package's catalog (<c>$expand=catalog</c>) → the group's catalog resource → the catalog's roles of that resource, picked by
-/// display name (the eligible roles' <c>originId</c> format is undocumented, so it is never built) → <c>POST …/accessPackages/{id}/resourceRoleScopes</c>.</item>
+/// <item><b>Read</b>: <c>GET …/accessPackages/{id}?$expand=resourceRoleScopes($expand=role,scope)</c>, matched on <c>scope.originId</c> and the role's
+/// display name or <c>originId</c>.</item>
+/// <item><b>Create</b>: the package's catalog (<c>$expand=catalog</c>) → the resource's catalog resource → the catalog's roles of that resource, picked by
+/// display name or, failing that, by the role's <c>originId</c> (an app role id, a site group number; the eligible group roles' <c>originId</c> format is
+/// undocumented, so it is never built) → <c>POST …/accessPackages/{id}/resourceRoleScopes</c> (Learn: accesspackage-post-resourcerolescopes).</item>
 /// <item><b>Delete</b>: <c>DELETE …/accessPackages/{id}/resourceRoleScopes/{id}</c> (Graph does not refuse it while the package has assignments).</item>
 /// </list>
 /// An eligible role of a group PIM for Groups has not onboarded is <see cref="NotOnboarded"/>: deferred to the next run when a schedule request of the
@@ -119,6 +122,7 @@ public sealed class ResourceRoleScopesProvider : ProviderBase, IApplyOrderSource
         ArgumentNullException.ThrowIfNull(graph);
         _notOnboarded.Remove(desired);
         if (desired.Properties is not { } properties || !IsEligibleRole(JsonObjects.GetString(properties, RoleProperty))
+            || !AccessPackageResourceOrigin.IsGroup(OriginSystem(properties))
             || JsonObjects.GetString(properties, PackageProperty) is not { Length: > 0 } packageId
             || JsonObjects.GetString(properties, OriginIdProperty) is not { Length: > 0 } groupId)
         {
@@ -132,13 +136,13 @@ public sealed class ResourceRoleScopesProvider : ProviderBase, IApplyOrderSource
         }
 
         var resource = await EntitlementManagementGraph.FindCatalogResourceAsync(graph, catalogId, groupId, desired.Api, desired.RetryHint, cancellationToken).ConfigureAwait(false);
-        if (resource is null || JsonObjects.GetId(resource) is not { } resourceId)
+        if (resource is null || JsonObjects.GetId(resource) is not { } resourceId || !AccessPackageResourceOrigin.IsGroup(OriginSystem(properties, resource)))
         {
-            return; // The group joins the catalog in this run (or not at all): CreateAsync reports it.
+            return; // The group joins the catalog in this run (or not at all): CreateAsync reports it. An app or site has no eligible roles.
         }
 
         string role = JsonObjects.GetString(properties, RoleProperty)!.Trim();
-        var roles = await EntitlementManagementGraph.ListResourceRolesAsync(graph, catalogId, resourceId, OriginSystem(properties), desired.Api, desired.RetryHint, cancellationToken).ConfigureAwait(false);
+        var roles = await EntitlementManagementGraph.ListResourceRolesAsync(graph, catalogId, resourceId, AccessPackageResourceOrigin.Group, desired.Api, desired.RetryHint, cancellationToken).ConfigureAwait(false);
         if (FindRole(roles, role) is not null)
         {
             return;
@@ -147,7 +151,7 @@ public sealed class ResourceRoleScopesProvider : ProviderBase, IApplyOrderSource
         // Applying, after the same-run request that onboards the group (the role scope is ordered after it, and a dependency created in this run is what
         // gives it the replication hint; a what-if never has one): the catalog offers the role once PIM has processed the request.
         if (_onboardedThisRun.TryGetValue(desired, out _) && desired.RetryHint == RetryHint.ExpectReplicationLag
-            && await WaitForRoleAsync(graph, catalogId, resourceId, role, OriginSystem(properties), desired.Api, cancellationToken).ConfigureAwait(false) is not null)
+            && await WaitForRoleAsync(graph, catalogId, resourceId, role, AccessPackageResourceOrigin.Group, desired.Api, cancellationToken).ConfigureAwait(false) is not null)
         {
             return;
         }
@@ -175,7 +179,7 @@ public sealed class ResourceRoleScopesProvider : ProviderBase, IApplyOrderSource
 
     private static JsonObject? FindRole(IReadOnlyList<JsonObject> roles, string role)
     {
-        return roles.FirstOrDefault(r => string.Equals(JsonObjects.GetString(r, "displayName")?.Trim(), role.Trim(), StringComparison.OrdinalIgnoreCase));
+        return AccessPackageResourceOrigin.FindRole(roles, role);
     }
 
     // ---- plan ----
@@ -251,7 +255,11 @@ public sealed class ResourceRoleScopesProvider : ProviderBase, IApplyOrderSource
         {
             if (item is JsonObject roleScope && Matches(roleScope, groupId, role))
             {
-                var view = View(roleScope, packageId, groupId, JsonObjects.GetString((JsonObject)roleScope["role"]!, "displayName") ?? role);
+                // A role named by its originId (an app role id, a site group number) keeps the declared spelling, and so does a site URL: no drift.
+                string? liveName = JsonObjects.GetString((JsonObject)roleScope["role"]!, "displayName");
+                bool byName = string.Equals(liveName?.Trim(), role.Trim(), StringComparison.OrdinalIgnoreCase);
+                var view = View(roleScope, packageId, groupId, byName ? liveName! : role);
+                view[OriginIdProperty] = groupId;
                 view[PackageNameProperty] = JsonObjects.GetString(package, "displayName");
                 return KeyView(view);
             }
@@ -260,11 +268,11 @@ public sealed class ResourceRoleScopesProvider : ProviderBase, IApplyOrderSource
         return null;
     }
 
-    private static bool Matches(JsonObject roleScope, string groupId, string role)
+    private static bool Matches(JsonObject roleScope, string originId, string role)
     {
         return roleScope["role"] is JsonObject liveRole && roleScope["scope"] is JsonObject scope
-            && EntitlementManagementGraph.SameId(JsonObjects.GetString(scope, "originId"), groupId)
-            && string.Equals(JsonObjects.GetString(liveRole, "displayName")?.Trim(), role.Trim(), StringComparison.OrdinalIgnoreCase);
+            && AccessPackageResourceOrigin.SameId(JsonObjects.GetString(scope, "originId"), originId)
+            && AccessPackageResourceOrigin.IsRole(liveRole, role);
     }
 
     // ---- create ----
@@ -278,7 +286,6 @@ public sealed class ResourceRoleScopesProvider : ProviderBase, IApplyOrderSource
         string packageId = Required(desired, properties, PackageProperty);
         string groupId = Required(desired, properties, OriginIdProperty);
         string role = Required(desired, properties, RoleProperty).Trim();
-        string originSystem = OriginSystem(properties);
 
         var package = await EntitlementManagementGraph.GetPackageAsync(graph, packageId, desired.Api, desired.RetryHint, "catalog", cancellationToken).ConfigureAwait(false)
             ?? throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{desired.Describe()}: access package {packageId} does not exist.", desired.Id);
@@ -287,12 +294,20 @@ public sealed class ResourceRoleScopesProvider : ProviderBase, IApplyOrderSource
         var resource = await EntitlementManagementGraph.FindCatalogResourceAsync(graph, catalogId, groupId, desired.Api, desired.RetryHint, cancellationToken).ConfigureAwait(false);
         if (resource is null || JsonObjects.GetId(resource) is not { } resourceId)
         {
-            throw new ProviderException(RoleNotAvailable, $"{desired.Describe()}: group {groupId} is not a resource of catalog {catalogId}, the catalog of access package {packageId}; declare a Microsoft.Entra/entitlementManagement/catalogResources for it (or add it in the portal).", desired.Id);
+            string missing = AccessPackageResourceOrigin.Noun(OriginSystem(properties));
+            throw new ProviderException(RoleNotAvailable, $"{desired.Describe()}: {missing} {groupId} is not a resource of catalog {catalogId}, the catalog of access package {packageId}; declare a Microsoft.Entra/entitlementManagement/catalogResources for it (or add it in the portal).", desired.Id);
         }
+
+        string originSystem = OriginSystem(properties, resource);
+        string noun = AccessPackageResourceOrigin.Noun(originSystem);
+
+        // Graph keeps the origin id as it was added (a site URL's spelling): the request names it that way.
+        string liveOriginId = JsonObjects.GetString(resource, "originId") ?? groupId;
 
         var roles = await EntitlementManagementGraph.ListResourceRolesAsync(graph, catalogId, resourceId, originSystem, desired.Api, desired.RetryHint, cancellationToken).ConfigureAwait(false);
         var match = FindRole(roles, role);
-        if (match is null && IsEligibleRole(role) && _onboardedThisRun.TryGetValue(desired, out _))
+        bool eligible = IsEligibleRole(role) && AccessPackageResourceOrigin.IsGroup(originSystem);
+        if (match is null && eligible && _onboardedThisRun.TryGetValue(desired, out _))
         {
             match = await WaitForRoleAsync(graph, catalogId, resourceId, role, originSystem, desired.Api, cancellationToken).ConfigureAwait(false);
         }
@@ -300,7 +315,7 @@ public sealed class ResourceRoleScopesProvider : ProviderBase, IApplyOrderSource
         if (match is null)
         {
             string offered = string.Join(", ", roles.Select(r => JsonObjects.GetString(r, "displayName") ?? "?"));
-            if (IsEligibleRole(role))
+            if (eligible)
             {
                 string when = _onboardedThisRun.TryGetValue(desired, out _)
                     ? $"A schedule request of this deployment onboards the group, but the role was still not offered {Settle.Window.TotalSeconds:0} s later; deploy again."
@@ -308,7 +323,7 @@ public sealed class ResourceRoleScopesProvider : ProviderBase, IApplyOrderSource
                 throw new ProviderException(NotOnboarded, $"{desired.Describe()}: catalog {catalogId} offers no '{role}' role for group {groupId} (offered: {offered}): PIM for Groups has not onboarded the group. {when}", desired.Id);
             }
 
-            throw new ProviderException(RoleNotAvailable, $"{desired.Describe()}: catalog {catalogId} offers no '{role}' role for group {groupId} (offered: {offered}).", desired.Id);
+            throw new ProviderException(RoleNotAvailable, $"{desired.Describe()}: catalog {catalogId} offers no '{role}' role for {noun} {groupId} (offered: {offered}){RoleHint(originSystem)}.", desired.Id);
         }
 
         var body = new JsonObject
@@ -318,10 +333,16 @@ public sealed class ResourceRoleScopesProvider : ProviderBase, IApplyOrderSource
                 ["displayName"] = JsonObjects.GetString(match, "displayName"),
                 ["originId"] = JsonObjects.GetString(match, "originId"),
                 ["originSystem"] = JsonObjects.GetString(match, "originSystem") ?? originSystem,
-                ["resource"] = new JsonObject { ["id"] = resourceId, ["originId"] = groupId, ["originSystem"] = originSystem },
+                ["resource"] = new JsonObject { ["id"] = resourceId, ["originId"] = liveOriginId, ["originSystem"] = originSystem },
             },
-            ["scope"] = new JsonObject { ["originId"] = groupId, ["originSystem"] = originSystem, ["isRootScope"] = true },
+            ["scope"] = new JsonObject { ["originId"] = liveOriginId, ["originSystem"] = originSystem, ["isRootScope"] = true },
         };
+
+        // Learn's application example names the catalog role by id; a group role's id may be the zero GUID, which Graph wants left out.
+        if (!AccessPackageResourceOrigin.IsGroup(originSystem) && JsonObjects.GetId(match) is { } roleId && Guid.TryParse(roleId, out var parsed) && parsed != Guid.Empty)
+        {
+            ((JsonObject)body["role"]!)["id"] = roleId;
+        }
 
         GraphResponse response;
         try
@@ -343,7 +364,10 @@ public sealed class ResourceRoleScopesProvider : ProviderBase, IApplyOrderSource
             ?? throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{desired.Describe()}: Graph returned a resource role scope without 'id'.", desired.Id);
         live["role"] ??= body["role"]!.DeepClone();
         live["scope"] ??= body["scope"]!.DeepClone();
-        return new AppliedResource(desired.Id, id, View(live, packageId, groupId, JsonObjects.GetString(match, "displayName") ?? role), ResolveKey(desired));
+        string matchedName = JsonObjects.GetString(match, "displayName") ?? role;
+        var view = View(live, packageId, groupId, string.Equals(matchedName.Trim(), role, StringComparison.OrdinalIgnoreCase) ? matchedName : role);
+        view[OriginIdProperty] = groupId;
+        return new AppliedResource(desired.Id, id, view, ResolveKey(desired));
     }
 
     /// <summary>Nothing is mutable (every property is part of the key).</summary>
@@ -386,7 +410,8 @@ public sealed class ResourceRoleScopesProvider : ProviderBase, IApplyOrderSource
         string package = JsonObjects.GetString(live.Raw, PackageNameProperty) is { Length: > 0 } name
             ? $"access package '{name}' ({JsonObjects.GetString(live.Raw, PackageProperty)})"
             : $"access package {JsonObjects.GetString(live.Raw, PackageProperty)}";
-        string grant = $"the '{JsonObjects.GetString(live.Raw, RoleProperty)}' role of group {JsonObjects.GetString(live.Raw, OriginIdProperty)}";
+        string noun = AccessPackageResourceOrigin.Noun(JsonObjects.GetString(live.Raw, OriginSystemProperty) ?? EntitlementManagementGraph.GroupOrigin);
+        string grant = $"the '{JsonObjects.GetString(live.Raw, RoleProperty)}' role of {noun} {JsonObjects.GetString(live.Raw, OriginIdProperty)}";
         if (delivered is not { } count)
         {
             return $"The active assignments of {package} {unknown}: everyone assigned the package loses {grant} when this role scope is deleted (Graph does not refuse it).";
@@ -422,6 +447,17 @@ public sealed class ResourceRoleScopesProvider : ProviderBase, IApplyOrderSource
             || (ex.Status == System.Net.HttpStatusCode.BadRequest && ex.GraphMessage.Contains(NoGovernanceSku, StringComparison.OrdinalIgnoreCase));
     }
 
+    /// <summary>Which name to use for the kind of resource, after the roles the catalog offers (docs/access-packages.md, "Roles").</summary>
+    private static string RoleHint(string originSystem)
+    {
+        return originSystem switch
+        {
+            AccessPackageResourceOrigin.Application => "; name an app role by its display name or its id",
+            AccessPackageResourceOrigin.SharePointOnline => "; name a site group by its full display name (for example 'Contoso Members') or its number in the site",
+            _ => string.Empty,
+        };
+    }
+
     private static string ScopesPath(string packageId)
     {
         return EntitlementManagementGraph.AccessPackagesPath + "/" + GraphPath.Segment(packageId) + "/resourceRoleScopes";
@@ -454,7 +490,15 @@ public sealed class ResourceRoleScopesProvider : ProviderBase, IApplyOrderSource
 
     private static string OriginSystem(JsonObject properties)
     {
-        return JsonObjects.GetString(properties, OriginSystemProperty) ?? EntitlementManagementGraph.GroupOrigin;
+        return AccessPackageResourceOrigin.Of(properties, OriginSystemProperty);
+    }
+
+    /// <summary>The declared <c>originSystem</c>, else the catalog resource's own (so a role scope of an app or site may leave it out).</summary>
+    private static string OriginSystem(JsonObject properties, JsonObject catalogResource)
+    {
+        return JsonObjects.GetString(properties, OriginSystemProperty) is { Length: > 0 }
+            ? OriginSystem(properties)
+            : AccessPackageResourceOrigin.Of(catalogResource, "originSystem");
     }
 
     private static string Required(ResourceInstance desired, JsonObject properties, string name)

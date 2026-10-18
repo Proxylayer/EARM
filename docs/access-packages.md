@@ -7,15 +7,16 @@ an assignment is a person's request (or an administrator's direct assignment), n
 | Type (`Microsoft.Entra/...`) | What it declares | Graph object |
 |---|---|---|
 | `entitlementManagement/catalogs` | A catalog: the container of the resources and access packages one team manages | [`accessPackageCatalog`](https://learn.microsoft.com/en-us/graph/api/resources/accesspackagecatalog?view=graph-rest-1.0) |
-| `entitlementManagement/catalogResources` | A group added to a catalog (so packages of the catalog may grant its roles) | [`accessPackageResource`](https://learn.microsoft.com/en-us/graph/api/accesspackagecatalog-list-resources?view=graph-rest-1.0), written through [`accessPackageResourceRequest`](https://learn.microsoft.com/en-us/graph/api/resources/accesspackageresourcerequest?view=graph-rest-1.0) |
+| `entitlementManagement/catalogResources` | A group, an application or a SharePoint Online site added to a catalog (so packages of the catalog may grant its roles) | [`accessPackageResource`](https://learn.microsoft.com/en-us/graph/api/accesspackagecatalog-list-resources?view=graph-rest-1.0), written through [`accessPackageResourceRequest`](https://learn.microsoft.com/en-us/graph/api/resources/accesspackageresourcerequest?view=graph-rest-1.0) |
 | `entitlementManagement/accessPackages` | An access package in a catalog | [`accessPackage`](https://learn.microsoft.com/en-us/graph/api/resources/accesspackage?view=graph-rest-1.0) |
-| `entitlementManagement/resourceRoleScopes` | A group role (Member, Owner, Eligible Member, Eligible Owner) that a package grants | [`accessPackageResourceRoleScope`](https://learn.microsoft.com/en-us/graph/api/resources/accesspackageresourcerolescope?view=graph-rest-1.0) |
+| `entitlementManagement/resourceRoleScopes` | A role that a package grants: a group role (Member, Owner, Eligible Member, Eligible Owner), an app role, or a site group | [`accessPackageResourceRoleScope`](https://learn.microsoft.com/en-us/graph/api/resources/accesspackageresourcerolescope?view=graph-rest-1.0) |
 | `entitlementManagement/accessPackages/assignmentPolicies` | A policy of a package: who may request, approval stages, expiration, requestor settings, optional access reviews | [`accessPackageAssignmentPolicy`](https://learn.microsoft.com/en-us/graph/api/resources/accesspackageassignmentpolicy?view=graph-rest-1.0) |
 
 Every type uses the apiVersions of the other types: `2026-10-01-preview` (Graph v1.0, under `/identityGovernance/entitlementManagement`) and
 `2026-10-01-preview.beta` (Graph beta, passthrough). Property-level detail is in [format.md](format.md#resource-type-catalog) and the provider view
 in [providers.md](providers.md#worked-example-access-packages). The sample [`samples/access-packages.entra.json`](../samples/access-packages.entra.json)
-implements the scenario below.
+implements the scenario below; [`samples/access-packages-apps-sites.entra.json`](../samples/access-packages-apps-sites.entra.json) grants an app role
+and a SharePoint Online site group ([Resource kinds](#resource-kinds)).
 
 ## The scenario
 
@@ -43,8 +44,8 @@ Like every EARM type (stateless identity: an object is found on every run from i
 | `catalogs` | `displayName` (the resource name) | `GET /identityGovernance/entitlementManagement/catalogs?$filter=displayName eq '…'`, matched case-insensitively; more than one hit is `AmbiguousMatch` |
 | `accessPackages` | `displayName` (the resource name) | `GET …/accessPackages?$filter=displayName eq '…'&$expand=catalog`; more than one hit (in any catalog) is `AmbiguousMatch`. EARM keeps package names unique in the tenant, which Graph does not |
 | `accessPackages/assignmentPolicies` | the package (parent) + `displayName` (the child name) | `GET …/assignmentPolicies?$filter=accessPackage/id eq '…'`, matched on displayName client-side; two policies of the package with the name are `AmbiguousMatch` |
-| `catalogResources` | the tuple (`catalogId`, `originId`); the GUID `name` is a label | `GET …/catalogs/{catalogId}/resources?$filter=originId eq '…'` |
-| `resourceRoleScopes` | the tuple (`accessPackageId`, `resourceOriginId`, `role`); the GUID `name` is a label | `GET …/accessPackages/{id}?$expand=resourceRoleScopes($expand=role,scope)`, matched on `scope.originId` and `role.displayName` |
+| `catalogResources` | the tuple (`catalogId`, `originId`); the GUID `name` is a label; a site URL is compared case-insensitively and without its trailing slash | `GET …/catalogs/{catalogId}/resources?$filter=originId eq '…'` (a site URL without its trailing slash; when that finds nothing, the catalog's whole list, matched client-side) |
+| `resourceRoleScopes` | the tuple (`accessPackageId`, `resourceOriginId`, `role`); the GUID `name` is a label | `GET …/accessPackages/{id}?$expand=resourceRoleScopes($expand=role,scope)`, matched on `scope.originId` (a site URL as above) and `role.displayName` or `role.originId` |
 
 `$filter` on `displayName` is documented for catalogs ([list catalogs](https://learn.microsoft.com/en-us/graph/api/entitlementmanagement-list-catalogs?view=graph-rest-1.0))
 and access packages ([list access packages](https://learn.microsoft.com/en-us/graph/api/entitlementmanagement-list-accesspackages?view=graph-rest-1.0)),
@@ -75,8 +76,8 @@ property. `catalogType` is service-controlled and not compared.
   "properties": { "catalogId": "[reference('catalog').id]", "originId": "[reference('devPrivileged').id]" } }
 ```
 
-`originSystem` defaults to `AadGroup`, the only origin EARM manages (applications and SharePoint sites are not supported yet). Every property is part
-of the key: nothing is updated in place.
+`originSystem` defaults to `AadGroup`; `AadApplication` adds an application and `SharePointOnline` a site ([Resource kinds](#resource-kinds)). Every
+property is part of the key: nothing is updated in place.
 
 - **Add**: `POST /identityGovernance/entitlementManagement/resourceRequests` with `requestType: adminAdd`, `resource { originId, originSystem }` and
   `catalog { id }` ([create resource request](https://learn.microsoft.com/en-us/graph/api/entitlementmanagement-post-resourcerequests?view=graph-rest-1.0)).
@@ -95,6 +96,32 @@ of the key: nothing is updated in place.
   Identity Governance Administrator and User Administrator are not enough
   ([role-assignable groups](https://learn.microsoft.com/en-us/entra/identity/role-based-access-control/groups-concept)). Graph answers 403; EARM
   reports `CatalogResourceAccessDenied` and says which roles are needed.
+
+#### Resource kinds
+
+The resource request has the same shape for every kind; only `originSystem` and the meaning of `originId` change
+([create resource request](https://learn.microsoft.com/en-us/graph/api/entitlementmanagement-post-resourcerequests?view=graph-rest-1.0), examples 1 to 3):
+
+| `originSystem` | `originId` | Roles a package can grant (`resourceRoleScopes.role`) | Who may add it |
+|---|---|---|---|
+| `AadGroup` (default) | the group's object id | `Member`, `Owner`; `Eligible Member`, `Eligible Owner` for a group PIM for Groups manages | catalog owner or Identity Governance Administrator **and** group owner or a role that changes its members (above) |
+| `AadApplication` | the **service principal's** object id (the enterprise application), for example `[reference(resourceId('Microsoft.Entra/servicePrincipals', reference('app').appId)).id]` | the app roles, by display name or app role id; `Default Access` for an app without app roles | Identity Governance Administrator, or a catalog owner who owns the application or is an Application Administrator / Cloud Application Administrator (the action checked is `microsoft.directory/servicePrincipals/appRoleAssignedTo/update`) |
+| `SharePointOnline` | the site URL, for example `https://contoso.sharepoint.com/sites/Orders` (casing and a trailing slash do not matter) | the site's groups, by full display name (`Orders Owners`, `Orders Members`, `Orders Visitors`) or by number in the site (`3`, `4`, `5` for the default groups) | catalog owner or Identity Governance Administrator **and** SharePoint Administrator or an administrator of the site |
+
+```json
+{ "type": "Microsoft.Entra/entitlementManagement/catalogResources", "apiVersion": "2026-10-01-preview",
+  "name": "[guid('orders-catalog', 'orders-site')]",
+  "properties": { "catalogId": "[reference('catalog').id]", "originId": "https://contoso.sharepoint.com/sites/Orders", "originSystem": "SharePointOnline" } }
+```
+
+- **Order**: a service principal declared in the template is referenced by `originId`, so it is created first (and the catalog resource after it, then
+  the role scopes). A site is not an EARM resource: it must exist, and nothing orders it.
+- **Sites need a delegated caller**: Graph lists SharePoint Online resources of a catalog only to delegated callers, not to applications
+  ([list resources](https://learn.microsoft.com/en-us/graph/api/accesspackagecatalog-list-resources?view=graph-rest-1.0)). An app-only deployment can
+  request the site but never reads it back, so the create ends in `CatalogResourceRequestFailed` and every later run plans a create; deploy a site as a
+  signed-in user.
+- **Permissions**: an application caller needs `Application.ReadWrite.All` for an application and `Sites.FullControl.All` for a site, in place of the
+  group's `Group.ReadWrite.All` (same Learn page). `earm permissions` asks for the one of the declared `originSystem`, all three when it is computed.
 
 ### Access packages
 
@@ -118,7 +145,7 @@ stays. Remove the assignments first (they are people's access, so EARM never doe
                   "resourceOriginId": "[reference('devPrivileged').id]", "role": "Eligible Member" } }
 ```
 
-`role` is the group role's display name: `Member`, `Owner`, `Eligible Member` or `Eligible Owner`. The role is not built from a pattern: EARM reads
+For a group, `role` is the group role's display name: `Member`, `Owner`, `Eligible Member` or `Eligible Owner`. The role is not built from a pattern: EARM reads
 the catalog's roles of the group (`GET …/catalogs/{catalogId}/resourceRoles?$filter=(originSystem eq 'AadGroup' and resource/id eq '…')`,
 [list resource roles](https://learn.microsoft.com/en-us/graph/api/accesspackagecatalog-list-resourceroles?view=graph-rest-1.0)) and posts the one with
 that display name, with its `originId` (`Member_<groupId>`, `Owner_<groupId>` for the active roles, as documented in
@@ -127,6 +154,21 @@ that display name, with its `originId` (`Member_<groupId>`, `Owner_<groupId>` fo
 ([create](https://learn.microsoft.com/en-us/graph/api/accesspackage-post-resourcerolescopes?view=graph-rest-1.0)). A group that is not a resource of
 the package's catalog, or an active role the catalog does not offer, is `AccessPackageRoleNotAvailable`; an eligible role of a group PIM for Groups has
 not onboarded is `PimGroupNotOnboarded` (below).
+
+**Roles of an application or a site.** Set `resourceOriginId` to the catalog resource's `originId`; `originSystem` may be declared on the role scope
+too (`AadApplication` or `SharePointOnline`) and is otherwise taken from the catalog resource. EARM lists the catalog's roles of the resource the same way and picks the one
+whose **display name** is `role`, else the one whose role **`originId`** is `role`:
+
+- an application: the app role's display name (`Approver`), or its id (the catalog role's `originId` is the app role id; Learn:
+  [create role scope](https://learn.microsoft.com/en-us/graph/api/accesspackage-post-resourcerolescopes?view=graph-rest-1.0), example 2). The app role's
+  `value` (`Orders.Approve`) is not matched: the catalog does not list it. An app without app roles offers `Default Access`;
+- a site: the site group's full display name (`Orders Members`), or its number in the site (`4`; the catalog role's `originId` is "the sequence number of
+  the role in the site", same page, example 1, and [list resource roles](https://learn.microsoft.com/en-us/graph/api/accesspackagecatalog-list-resourceroles?view=graph-rest-1.0),
+  example 2). A short name (`Members`) is not matched: the group names start with the site title.
+
+A role named by its id or number keeps that spelling in the diff, so a rerun is NoChange. A role the catalog does not offer is
+`AccessPackageRoleNotAvailable`, listing the roles it offers. The eligible-role handling below applies to groups only: an app role whose name starts with
+`Eligible` is an ordinary role.
 
 Role scopes have no update ([resource role scope](https://learn.microsoft.com/en-us/graph/api/resources/accesspackageresourcerolescope?view=graph-rest-1.0)):
 every property is part of the key, and `deployment delete` uses `DELETE …/accessPackages/{id}/resourceRoleScopes/{id}`
@@ -225,8 +267,9 @@ The template's references give most of the order (a package references its catal
 package). Three dependencies are not visible in the references, and the providers declare them through `IApplyOrderSource`
 ([engine.md](engine.md#pipeline)), as the PIM policies do:
 
-- a **catalog resource** applies before every role scope that grants a role of the same group (`resourceRoleScopes.resourceOriginId` and
-  `catalogResources.originId` reference the same declared group, or are the same literal id): the group must be in the catalog first;
+- a **catalog resource** applies before every role scope that grants a role of the same resource (`resourceRoleScopes.resourceOriginId` and
+  `catalogResources.originId` reference the same declared group or service principal, or are the same literal id or site URL, regardless of case and
+  trailing slash): the resource must be in the catalog first;
 - a **role scope** applies before every policy of the same package: the first assignment a policy allows then already grants the role;
 - a **PIM for Groups schedule request** applies before every role scope that grants an eligible role (`Eligible Member`, `Eligible Owner`, or a
   computed role) of the group it names: the request onboards the group, and only then does the catalog offer the eligible roles (see above).
@@ -239,7 +282,9 @@ assignments (5); role scopes and policies with the Conditional Access policies (
 | Type | Delegated scope | Application permission | Entra roles |
 |---|---|---|---|
 | all five | `EntitlementManagement.ReadWrite.All` (what-if: `EntitlementManagement.Read.All`) | `EntitlementManagement.ReadWrite.All` | Identity Governance Administrator, or the catalog roles (catalog creator for a new catalog, catalog owner, access package manager) |
-| `catalogResources` | also `Group.Read.All` | also `Group.ReadWrite.All` (and `RoleManagement.ReadWrite.Directory` for a role-assignable group) | also an owner of the group or a role that changes its members; **Global Administrator or Privileged Role Administrator for a role-assignable group** |
+| `catalogResources` (group) | also `Group.Read.All` | also `Group.ReadWrite.All` (and `RoleManagement.ReadWrite.Directory` for a role-assignable group) | also an owner of the group or a role that changes its members; **Global Administrator or Privileged Role Administrator for a role-assignable group** |
+| `catalogResources` (`AadApplication`) | | also `Application.ReadWrite.All` | Identity Governance Administrator alone suffices; a catalog owner must also own the application or be an Application Administrator / Cloud Application Administrator |
+| `catalogResources` (`SharePointOnline`) | | also `Sites.FullControl.All` (but Graph lists sites only to delegated callers: deploy sites signed in) | also **SharePoint Administrator** or an administrator of the site |
 
 Learn: every entitlement management API page lists `EntitlementManagement.ReadWrite.All` as the least privileged permission for writes and
 `EntitlementManagement.Read.All` for reads; the role matrix is in [delegate](https://learn.microsoft.com/en-us/entra/id-governance/entitlement-management-delegate).
@@ -249,5 +294,6 @@ ID Governance; eligible group roles need ID Governance.
 
 ## Not covered
 
-Assignments and assignment requests, connected organizations, custom extensions, catalog role assignments (catalog owners and readers), applications
-and SharePoint sites as catalog resources, and an offline check that a policy's expiration stays within the granted group's eligibility maximum.
+Assignments and assignment requests, connected organizations, custom extensions, catalog role assignments (catalog owners and readers), Microsoft
+Entra roles and Azure resources as catalog resources, resource attributes (`adminUpdate` requests), site scopes other than the root, and an offline
+check that a policy's expiration stays within the granted group's eligibility maximum.

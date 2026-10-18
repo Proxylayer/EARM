@@ -47,7 +47,7 @@ Implemented (a working pre-release, see [Limitations](#limitations-v1) for what 
   membership or ownership of a group through PIM for Groups) and `roleManagementPolicies` (the PIM policy rules of a directory role or a group:
   approval, MFA, justification, maximum durations, notifications; shaped like ARM's `Microsoft.Authorization/roleManagementPolicies`, only the
   declared rules managed, never created or deleted), and entitlement management (access packages, [docs/access-packages.md](docs/access-packages.md)):
-  `entitlementManagement/catalogs`, `entitlementManagement/catalogResources` (a group added to a catalog), `entitlementManagement/accessPackages`,
+  `entitlementManagement/catalogs`, `entitlementManagement/catalogResources` (a group, application or SharePoint Online site added to a catalog), `entitlementManagement/accessPackages`,
   `entitlementManagement/resourceRoleScopes` (the group role a package grants: Member, Owner, Eligible Member or Eligible Owner) and
   `entitlementManagement/accessPackages/assignmentPolicies` (who may request, approval stages, expiration) (all under `Microsoft.Entra/`).
 - The verbs `deployment validate | what-if | create | delete`, `permissions`, `schema print | install` and `auth login | logout | status`.
@@ -201,7 +201,7 @@ declared resource **in the live tenant by a key derived from its type and `name`
 | `roleManagementPolicies` | the policy assignment of (`scopeType`, `scopeId`, `roleDefinitionId`): a directory role, or a group's member / owner access; the `guid(...)` `name` is only a label; never created (a missing policy is `PimPolicyNotAvailable`) |
 | `conditionalAccess/policies`, `conditionalAccess/namedLocations`, `administrativeUnits`, custom `roleDefinitions`, custom `conditionalAccess/authenticationStrengths`, `entitlementManagement/catalogs`, `entitlementManagement/accessPackages` | `displayName` = the `name` |
 | `entitlementManagement/accessPackages/assignmentPolicies` | its `displayName` under the parent access package |
-| `entitlementManagement/catalogResources`, `entitlementManagement/resourceRoleScopes` | their tuple (catalog + group; package + group + role); the `guid(...)` `name` is only a label |
+| `entitlementManagement/catalogResources`, `entitlementManagement/resourceRoleScopes` | their tuple (catalog + group, service principal or site URL; package + resource + role); the `guid(...)` `name` is only a label |
 
 What follows from it:
 

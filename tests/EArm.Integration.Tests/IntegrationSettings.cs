@@ -41,6 +41,13 @@ internal enum Needs
     /// scopes and assignment policies (the tenant needs Microsoft Entra ID P2 or ID Governance; the signed-in identity needs Identity Governance Administrator).
     /// </summary>
     AccessPackages = 64,
+
+    /// <summary>
+    /// An existing SharePoint Online site the signed-in user administers (<c>EARM_IT_SP_SITE_URL</c>, with <c>EARM_IT_SP_SITE_ROLE</c> naming one of its
+    /// groups, for example <c>Team Members</c>): the site is added to a prefixed catalog and removed again, never created or changed. Graph lists sites in
+    /// a catalog only to delegated callers, so the run must be a user sign-in (SharePoint Administrator or site administrator).
+    /// </summary>
+    SharePointSite = 128,
 }
 
 /// <summary>
@@ -58,6 +65,8 @@ internal sealed record IntegrationSettings
     public const string AllowAuthMethodsVariable = "EARM_IT_ALLOW_AUTH_METHODS";
     public const string AllowPimPoliciesVariable = "EARM_IT_ALLOW_PIM_POLICIES";
     public const string AllowAccessPackagesVariable = "EARM_IT_ALLOW_ACCESS_PACKAGES";
+    public const string SharePointSiteUrlVariable = "EARM_IT_SP_SITE_URL";
+    public const string SharePointSiteRoleVariable = "EARM_IT_SP_SITE_ROLE";
     public const string SweepVariable = "EARM_IT_SWEEP";
     public const string InteractiveVariable = "EARM_IT_INTERACTIVE";
 
@@ -97,6 +106,12 @@ internal sealed record IntegrationSettings
     /// <summary><c>EARM_IT_ALLOW_ACCESS_PACKAGES=1</c>: writes of prefixed entitlement management objects (catalogs, packages, policies).</summary>
     public bool AllowAccessPackages { get; init; }
 
+    /// <summary><c>EARM_IT_SP_SITE_URL</c>: an existing SharePoint Online site the access package tests may add to a prefixed catalog, or null.</summary>
+    public string? SharePointSiteUrl { get; init; }
+
+    /// <summary><c>EARM_IT_SP_SITE_ROLE</c>: the display name of one of that site's groups (for example <c>Team Members</c>), or null.</summary>
+    public string? SharePointSiteRole { get; init; }
+
     /// <summary><c>EARM_IT_SWEEP=1</c>: the manual cleanup test may run.</summary>
     public bool SweepRequested { get; init; }
 
@@ -118,7 +133,8 @@ internal sealed record IntegrationSettings
             && (!needs.HasFlag(Needs.Pim) || AllowPim)
             && (!needs.HasFlag(Needs.AuthMethods) || AllowAuthMethods)
             && (!needs.HasFlag(Needs.PimPolicies) || AllowPimPolicies)
-            && (!needs.HasFlag(Needs.AccessPackages) || AllowAccessPackages);
+            && (!needs.HasFlag(Needs.AccessPackages) || AllowAccessPackages)
+            && (!needs.HasFlag(Needs.SharePointSite) || (SharePointSiteUrl is not null && SharePointSiteRole is not null));
     }
 
     public static IntegrationSettings FromEnvironment()
@@ -149,6 +165,8 @@ internal sealed record IntegrationSettings
             AllowAuthMethods = IsOn(AllowAuthMethodsVariable),
             AllowPimPolicies = IsOn(AllowPimPoliciesVariable),
             AllowAccessPackages = IsOn(AllowAccessPackagesVariable),
+            SharePointSiteUrl = Read(SharePointSiteUrlVariable),
+            SharePointSiteRole = Read(SharePointSiteRoleVariable),
             SweepRequested = IsOn(SweepVariable),
             InteractiveConsent = IsOn(InteractiveVariable),
         };

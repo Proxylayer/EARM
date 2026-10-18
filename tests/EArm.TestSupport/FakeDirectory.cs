@@ -335,7 +335,8 @@ public sealed partial class FakeDirectory
                     body,
                     hint,
                     groupId => Collection("/groups").FirstOrDefault(g => ValueEquals(GetString(g, "id"), groupId)),
-                    groupId => GroupEligibility.OnboardedGroups.Contains(groupId, StringComparer.OrdinalIgnoreCase) || GroupAssignmentSchedules.OnboardedGroups.Contains(groupId, StringComparer.OrdinalIgnoreCase));
+                    groupId => GroupEligibility.OnboardedGroups.Contains(groupId, StringComparer.OrdinalIgnoreCase) || GroupAssignmentSchedules.OnboardedGroups.Contains(groupId, StringComparer.OrdinalIgnoreCase),
+                    principalId => Collection("/servicePrincipals").FirstOrDefault(p => ValueEquals(GetString(p, "id"), principalId)));
             }
 
             var route = Route.Parse(path, KnownRoots);

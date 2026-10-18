@@ -735,6 +735,8 @@ Conventions of the per-type schemas:
   children) are not drift and are not nulled in a PATCH.
   `permissions` holds `application` (there is no `delegated` list: the delegated manifest uses the providers' rules, or these names for a type without a provider), `roles` (Entra roles that are alternatives), `rolesAllOf` (Entra roles needed together: an array of
   parts, each an array of alternatives, for example a catalog resource's `[["Identity Governance Administrator"], ["Groups Administrator", …]]`),
+  `rolesAllOfByValue` (`{ property: { value: parts } }`: replaces `rolesAllOf` when the instance declares that value, for example a catalog resource's
+  `originSystem` `AadApplication` or `SharePointOnline`),
   `conditional` (per declared property) and `notes`; [permissions.md](permissions.md) describes how `earm permissions` reads them.
   The property schemas are generated from one table by `tools/New-TypeSchemas.ps1`, which keeps the overlay text untouched.
 

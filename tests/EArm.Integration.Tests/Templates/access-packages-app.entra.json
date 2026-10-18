@@ -1,0 +1,77 @@
+{
+  "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "An access package over an application: a prefixed app registration with two app roles and its service principal, a catalog holding the service principal (originSystem AadApplication), and an access package granting one app role (by display name, or by id through appRole) with a policy that lets member users request it."
+  },
+  "parameters": {
+    "prefix": { "type": "string" },
+    "appRole": { "type": "string", "defaultValue": "Approver" }
+  },
+  "variables": {
+    "app": "[format('{0}-apapp', parameters('prefix'))]",
+    "catalog": "[format('{0}-catalog-app', parameters('prefix'))]",
+    "package": "[format('{0}-package-app', parameters('prefix'))]",
+    "approverRoleId": "[guid(parameters('prefix'), 'approver')]",
+    "readerRoleId": "[guid(parameters('prefix'), 'reader')]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Entra/applications", "apiVersion": "2026-10-01-preview", "name": "[variables('app')]",
+      "properties": {
+        "displayName": "[variables('app')]",
+        "signInAudience": "AzureADMyOrg",
+        "appRoles": [
+          { "id": "[variables('approverRoleId')]", "value": "It.Approve", "displayName": "Approver", "description": "Approve", "isEnabled": true, "allowedMemberTypes": ["User"] },
+          { "id": "[variables('readerRoleId')]", "value": "It.Read", "displayName": "Reader", "description": "Read", "isEnabled": true, "allowedMemberTypes": ["User"] }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.Entra/servicePrincipals", "apiVersion": "2026-10-01-preview", "name": "[reference(variables('app')).appId]",
+      "properties": { }
+    },
+    {
+      "type": "Microsoft.Entra/entitlementManagement/catalogs", "apiVersion": "2026-10-01-preview", "name": "[variables('catalog')]",
+      "properties": { "description": "EARM integration test catalog (application)" }
+    },
+    {
+      "type": "Microsoft.Entra/entitlementManagement/catalogResources", "apiVersion": "2026-10-01-preview",
+      "name": "[guid(parameters('prefix'), 'catalog-app')]",
+      "properties": {
+        "catalogId": "[reference(variables('catalog')).id]",
+        "originId": "[reference(resourceId('Microsoft.Entra/servicePrincipals', reference(variables('app')).appId)).id]",
+        "originSystem": "AadApplication"
+      }
+    },
+    {
+      "type": "Microsoft.Entra/entitlementManagement/accessPackages", "apiVersion": "2026-10-01-preview", "name": "[variables('package')]",
+      "properties": { "catalogId": "[reference(variables('catalog')).id]", "description": "EARM integration test package (application)" }
+    },
+    {
+      "type": "Microsoft.Entra/entitlementManagement/resourceRoleScopes", "apiVersion": "2026-10-01-preview",
+      "name": "[guid(parameters('prefix'), 'package-app-role')]",
+      "properties": {
+        "accessPackageId": "[reference(variables('package')).id]",
+        "resourceOriginId": "[reference(resourceId('Microsoft.Entra/servicePrincipals', reference(variables('app')).appId)).id]",
+        "originSystem": "AadApplication",
+        "role": "[parameters('appRole')]"
+      }
+    },
+    {
+      "type": "Microsoft.Entra/entitlementManagement/accessPackages/assignmentPolicies", "apiVersion": "2026-10-01-preview",
+      "name": "[format('{0}/Self service', variables('package'))]",
+      "properties": {
+        "description": "Member users request it without approval",
+        "allowedTargetScope": "allMemberUsers",
+        "expiration": { "type": "afterDuration", "duration": "P30D" },
+        "requestorSettings": { "enableTargetsToSelfAddAccess": true, "enableTargetsToSelfRemoveAccess": true },
+        "requestApprovalSettings": { "isApprovalRequiredForAdd": false, "isRequestorJustificationRequired": false, "stages": [] }
+      }
+    }
+  ],
+  "outputs": {
+    "packageId": { "type": "string", "value": "[reference(variables('package')).id]" },
+    "readerRoleId": { "type": "string", "value": "[variables('readerRoleId')]" }
+  }
+}

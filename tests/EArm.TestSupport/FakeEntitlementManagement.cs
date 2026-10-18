@@ -14,7 +14,8 @@ namespace EArm.TestSupport;
 /// <item><c>catalogs</c>: list (<c>$filter=displayName eq</c>), get, POST, PATCH, DELETE (400 while the catalog holds packages);
 /// <c>catalogs/{id}/resources</c> (<c>$filter=originId eq</c>, 404 for an unknown catalog) and <c>catalogs/{id}/resourceRoles</c> (Member and Owner for every
 /// group resource, plus Eligible Member and Eligible Owner for a group PIM for Groups onboarded).</item>
-/// <item><c>resourceRequests</c>: POST <c>adminAdd</c> (the group must exist; a role-assignable group is a 403 unless <see cref="CallerMayAddRoleAssignableGroups"/>;
+/// <item><c>resourceRequests</c>: POST <c>adminAdd</c> of a group, an application or a site (FakeEntitlementManagement.Origins.cs; the group must exist; a
+/// role-assignable group is a 403 unless <see cref="CallerMayAddRoleAssignableGroups"/>;
 /// the new resource is left out of the next <see cref="ResourceListLag"/> resource lists; <see cref="NextRequestState"/> overrides the state) and
 /// <c>adminRemove</c> (400 while a package grants a role of the resource).</item>
 /// <item><c>accessPackages</c>: list (<c>$filter=displayName eq</c>), get (<c>$expand=catalog</c>, <c>resourceRoleScopes($expand=role,scope)</c>), POST (needs
@@ -25,7 +26,7 @@ namespace EArm.TestSupport;
 /// </list>
 /// Assignments are seeded with <see cref="AddAssignment"/>.
 /// </summary>
-public sealed class FakeEntitlementManagement
+public sealed partial class FakeEntitlementManagement
 {
     public const string Root = "/identityGovernance/entitlementManagement";
 
@@ -39,6 +40,7 @@ public sealed class FakeEntitlementManagement
     private readonly List<(string PackageId, string? PolicyId)> _assignments = [];
     private readonly Dictionary<string, int> _hiddenResources = new(StringComparer.OrdinalIgnoreCase);
     private Func<string, bool> _onboardedElsewhere = _ => false;
+    private Func<string, JsonObject?> _findServicePrincipal = _ => null;
 
     /// <summary>Whether the caller holds Global Administrator / Privileged Role Administrator (adding a role-assignable group needs it).</summary>
     public bool CallerMayAddRoleAssignableGroups { get; set; } = true;
@@ -92,9 +94,11 @@ public sealed class FakeEntitlementManagement
 
     /// <param name="findGroup">The group with the id, or null.</param>
     /// <param name="onboardedElsewhere">True when PIM for Groups onboarded the group through a schedule request.</param>
-    internal (HttpStatusCode, JsonNode?) Handle(string method, string path, IReadOnlyDictionary<string, string>? query, JsonNode? body, RetryHint hint, Func<string, JsonObject?> findGroup, Func<string, bool> onboardedElsewhere)
+    /// <param name="findServicePrincipal">The service principal with the id, or null.</param>
+    internal (HttpStatusCode, JsonNode?) Handle(string method, string path, IReadOnlyDictionary<string, string>? query, JsonNode? body, RetryHint hint, Func<string, JsonObject?> findGroup, Func<string, bool> onboardedElsewhere, Func<string, JsonObject?> findServicePrincipal)
     {
         _onboardedElsewhere = onboardedElsewhere;
+        _findServicePrincipal = findServicePrincipal;
         var s = ("/" + path.Trim('/'))[Root.Length..].Trim('/').Split('/').Select(Uri.UnescapeDataString).ToArray();
         var filter = Filter(query);
         string expand = query is not null && query.TryGetValue("$expand", out var e) ? e : string.Empty;
@@ -221,11 +225,8 @@ public sealed class FakeEntitlementManagement
         if (type == "adminAdd")
         {
             string originId = Str(resource, "originId") ?? throw FakeDirectory.BadRequest("resource.originId is required", hint);
-            var group = findGroup(originId) ?? throw FakeDirectory.NotFound("group " + originId, hint);
-            if (group["isAssignableToRole"] is JsonValue flag && flag.GetValue<bool>() && !CallerMayAddRoleAssignableGroups)
-            {
-                throw new GraphException(HttpStatusCode.Forbidden, "Forbidden", "The caller is not allowed to add a role-assignable group.", hint);
-            }
+            string originSystem = Str(resource, "originSystem") ?? "AadGroup";
+            var origin = ResolveOrigin(originSystem, originId, findGroup, hint);
 
             if (_resources.Any(r => Same(Str(r, "catalogId"), catalogId) && Same(Str(r, "originId"), originId)))
             {
@@ -236,8 +237,8 @@ public sealed class FakeEntitlementManagement
             {
                 var added = new JsonObject
                 {
-                    ["id"] = NewId(), ["catalogId"] = catalogId, ["originId"] = originId, ["originSystem"] = Str(resource, "originSystem") ?? "AadGroup",
-                    ["displayName"] = Str(group, "displayName"), ["description"] = Str(group, "description"),
+                    ["id"] = NewId(), ["catalogId"] = catalogId, ["originId"] = originId, ["originSystem"] = originSystem,
+                    ["displayName"] = Str(origin, "displayName"), ["description"] = Str(origin, "description"),
                 };
                 _resources.Add(added);
                 if (ResourceListLag > 0)
@@ -267,6 +268,11 @@ public sealed class FakeEntitlementManagement
 
     private IEnumerable<JsonObject> RolesOf(JsonObject resource, Func<string, bool> onboardedElsewhere)
     {
+        if (!string.Equals(Str(resource, "originSystem") ?? "AadGroup", "AadGroup", StringComparison.OrdinalIgnoreCase))
+        {
+            return OriginRolesOf(resource);
+        }
+
         string groupId = Str(resource, "originId")!;
         var roles = new List<(string Name, string Prefix)> { ("Member", "Member_"), ("Owner", "Owner_") };
         if (OnboardedGroups.Contains(groupId) || onboardedElsewhere(groupId))

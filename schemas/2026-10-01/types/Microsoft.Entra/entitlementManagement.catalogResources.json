@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/entitlementManagement.catalogResources.json",
   "title": "Microsoft.Entra/entitlementManagement/catalogResources",
-  "description": "A group added to an entitlement management catalog (accessPackageResource, written through accessPackageResourceRequest adminAdd / adminRemove). Found by the tuple (catalogId, originId); the GUID name is a label.",
+  "description": "A group, an application (service principal) or a SharePoint Online site added to an entitlement management catalog (accessPackageResource, written through accessPackageResourceRequest adminAdd / adminRemove). Found by the tuple (catalogId, originId), a site URL compared case-insensitively and without its trailing slash; the GUID name is a label.",
   "type": "object",
   "properties": {
     "catalogId": {
@@ -10,12 +10,12 @@
       "anyOf": [ { "type": "string", "minLength": 1 }, { "$ref": "#/$defs/expression" } ]
     },
     "originId": {
-      "description": "Required: the group's object id, for example [reference('group').id].",
+      "description": "Required: the group's object id ([reference('group').id]); for AadApplication the service principal's object id ([reference('sp').id]); for SharePointOnline the site URL (https://contoso.sharepoint.com/sites/Example).",
       "anyOf": [ { "type": "string", "minLength": 1 }, { "$ref": "#/$defs/expression" } ]
     },
     "originSystem": {
-      "description": "AadGroup (the default, and the only origin EARM manages).",
-      "anyOf": [ { "type": "string", "enum": [ "AadGroup" ] }, { "$ref": "#/$defs/expression" } ]
+      "description": "AadGroup (the default), AadApplication (an enterprise application: originId is its service principal) or SharePointOnline (a site: originId is its URL).",
+      "anyOf": [ { "type": "string", "enum": [ "AadGroup", "AadApplication", "SharePointOnline" ] }, { "$ref": "#/$defs/expression" } ]
     }
   },
   "additionalProperties": true,
@@ -44,7 +44,13 @@
       "application": ["EntitlementManagement.ReadWrite.All", "Group.ReadWrite.All"],
       "roles": [],
       "rolesAllOf": [["Identity Governance Administrator"], ["Groups Administrator", "Intune Administrator", "User Administrator", "Privileged Role Administrator"]],
-      "notes": "Learn (entitlementmanagement-post-resourcerequests, entitlement-management-delegate, groups-concept): EntitlementManagement.ReadWrite.All is the least privileged permission (application callers also need Group.ReadWrite.All). The caller must be a catalog owner or Identity Governance Administrator AND an owner of the group or hold a role that changes its members. A role-assignable group can only be added by a Global Administrator or Privileged Role Administrator (or an owner of the group); an application then needs RoleManagement.ReadWrite.Directory instead of Group.ReadWrite.All. Without them Graph answers 403 (CatalogResourceAccessDenied). rolesAllOf: the roles are needed together (a catalog owner role AND a role that changes the group); the permission manifest narrows the second part to Privileged Role Administrator for a role-assignable template group and drops it for any other template group."
+      "rolesAllOfByValue": {
+        "originSystem": {
+          "AadApplication": [["Identity Governance Administrator"]],
+          "SharePointOnline": [["Identity Governance Administrator"], ["SharePoint Administrator"]]
+        }
+      },
+      "notes": "Learn (entitlementmanagement-post-resourcerequests, entitlement-management-delegate, groups-concept): EntitlementManagement.ReadWrite.All is the least privileged permission, plus a permission on the resource for an application caller: Group.ReadWrite.All for a group, Application.ReadWrite.All for an application (AadApplication), Sites.FullControl.All for a site (SharePointOnline); the provider asks for the one of the declared originSystem, all three when it is computed. A group: the caller must be a catalog owner or Identity Governance Administrator AND an owner of the group or hold a role that changes its members; a role-assignable group can only be added by a Global Administrator or Privileged Role Administrator (or an owner of the group), and an application then needs RoleManagement.ReadWrite.Directory too. An application: Identity Governance Administrator alone may add it, or a catalog owner who owns the application or is an Application Administrator / Cloud Application Administrator. A site: a catalog owner or Identity Governance Administrator who is also a SharePoint Administrator or an administrator of the site; Graph lists sites in a catalog only to delegated callers. Without them Graph answers 403 (CatalogResourceAccessDenied). rolesAllOf: the roles are needed together (a catalog owner role AND a role that changes the group); the permission manifest narrows the second part to Privileged Role Administrator for a role-assignable template group and drops it for any other template group. rolesAllOfByValue replaces rolesAllOf for a literal originSystem of an application or a site."
     }
   }
 }
