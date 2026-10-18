@@ -205,31 +205,9 @@ public sealed class Review2F_DocsCliParityTests
                     }
                 }
             }
-
-            if (heading.StartsWith("deployment show", StringComparison.Ordinal) && path is ["deployment", ..])
-            {
-                AddVerbRows(documented, rows, path[1..]);
-            }
-
-            if (heading.Equals("state", StringComparison.Ordinal) && path is ["state", ..])
-            {
-                AddVerbRows(documented, rows, path[1..]);
-            }
         }
 
         return documented;
-    }
-
-    private static void AddVerbRows(HashSet<string> documented, List<string[]> rows, string[] verbPath)
-    {
-        foreach (var row in rows)
-        {
-            string[] words = row[0].Replace("`", string.Empty, StringComparison.Ordinal).Split(' ', StringSplitOptions.RemoveEmptyEntries);
-            if (words.SequenceEqual(verbPath) && row.Length > 1)
-            {
-                documented.UnionWith(FlagsInCodeSpans(row[1]));
-            }
-        }
     }
 
     // ---- tests ----

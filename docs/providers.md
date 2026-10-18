@@ -137,7 +137,7 @@ Type-specific rules (all in `ApplicationsRules`, pure):
   default: the declared properties were merged, and the plan of the next run shows anything else.
 - `appRoles` and `api.oauth2PermissionScopes` are matched by `id`. A member declared without `id` gets
   `v5(v5(ApplicationsRules.DerivedIdNamespace, uniqueName), value)` — stable across runs, so every run derives the same
-  ids and nothing needs to be stored (the create result carries them as `AppliedResource.Extra.derivedIds`). `isEnabled` defaults to `true`.
+  ids and nothing needs to be stored. `isEnabled` defaults to `true`.
 - Removing a member, or changing its `value` / `allowedMemberTypes` (roles) / `type` (scopes), takes two PATCHes:
   the live array with those members `isEnabled: false`, then the final array.
 - `value` must be unique across roles and scopes (a plan error otherwise).
