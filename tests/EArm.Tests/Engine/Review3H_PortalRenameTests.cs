@@ -16,11 +16,6 @@ public sealed class Review3H_PortalRenameTests
 {
     private const string UserType = "Microsoft.Entra/users";
 
-    private static string UserId(string upn)
-    {
-        return "/providers/Microsoft.Entra/users/" + upn;
-    }
-
     // ---- a rename outside the template: identity is the live key (ARM rule), so the declared name is a new object ----
 
     [Fact]

@@ -33,7 +33,6 @@ public sealed class TemplateSchemaValidationTests
 
     private static readonly TemplateLoader Loader = new();
     private static readonly TemplateValidator Validator = new();
-    private static readonly UTF8Encoding Utf8NoBom = new(encoderShouldEmitUTF8Identifier: false);
 
     /// <summary>One injected defect: where it goes (the nth resource of a type in a sample), what replaces the value and what the validator must say.</summary>
     public sealed record Injection(string Sample, string Type, int Ordinal, object[] Segments, string BadJson, string Keyword, string ExpectedSuffix = "")

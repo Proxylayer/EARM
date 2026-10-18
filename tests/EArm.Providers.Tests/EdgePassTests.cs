@@ -19,8 +19,6 @@ namespace EArm.Providers.Tests;
 /// <summary>The edge pass driven through the real providers: the T1–T9 lifecycle, batching, tolerated Graph answers, skipped / unsupported kinds and type discovery.</summary>
 public sealed class EdgePassTests
 {
-    private const string AliceId = "/providers/Microsoft.Entra/users/alice@contoso.com";
-
     private const string App = """
         { "type": "Microsoft.Entra/applications", "apiVersion": "2026-10-01-preview", "name": "test-app",
           "properties": { "displayName": "Test App", "owners": ["[reference('alice@contoso.com').id]"] } }

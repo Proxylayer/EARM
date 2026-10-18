@@ -57,17 +57,6 @@ public sealed class ProviderFailureMatrixTests
         return Templates()[name];
     }
 
-    private static string ErrorText(Run run)
-    {
-        return string.Join(" | ", run.Executed.Operations.Select(o => o.Error).Where(e => e is not null)) + " | " + string.Join(" | ", run.Executed.Diagnostics.Select(d => d.Message));
-    }
-
-    private static void AssertNoLeak(ProviderHost host, Run run)
-    {
-        Assert.DoesNotContain(Canary, ErrorText(run), StringComparison.Ordinal);
-        Assert.DoesNotContain(host.Logs.Lines, l => l.Contains(Canary, StringComparison.Ordinal));
-    }
-
     [Theory]
     [MemberData(nameof(Cases))]
     public async Task ForbiddenWrites_FailTheResource_WithAMessage(string name)

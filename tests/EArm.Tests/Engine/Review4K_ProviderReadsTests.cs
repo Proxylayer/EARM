@@ -27,12 +27,6 @@ public sealed class ProviderReadsTests
         return new ResourceKey { Type = "Microsoft.Entra/groups", Values = dictionary };
     }
 
-    private static ExistingResource Live(string id, JsonObject raw)
-    {
-        raw["id"] = id;
-        return new ExistingResource(id, raw, raw);
-    }
-
     private static JsonObject Obj(string json)
     {
         return (JsonObject)JsonNode.Parse(json)!;

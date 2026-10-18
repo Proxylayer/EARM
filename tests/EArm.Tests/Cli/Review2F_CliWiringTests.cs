@@ -23,8 +23,6 @@ namespace EArm.Tests.Cli;
 /// </summary>
 public sealed class Review2F_CliWiringTests
 {
-    private static CancellationToken Ct => TestContext.Current.CancellationToken;
-
     private static string Group(string name, string? after = null, string? properties = null)
     {
         return "{ \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"" + name + "\", " +

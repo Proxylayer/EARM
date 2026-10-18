@@ -32,11 +32,6 @@ public sealed class ReplicationWaitAfterCreateTests
         return Templates.Resources(string.Join(", ", names.Select(n => "{ \"type\": \"Microsoft.Entra/administrativeUnits\", \"apiVersion\": \"" + ApiVersion + "\", \"name\": \"" + n + "\", \"properties\": { \"displayName\": \"" + n + "\" } }")));
     }
 
-    private static string UnitId(string name)
-    {
-        return "/providers/Microsoft.Entra/administrativeUnits/" + name;
-    }
-
     /// <summary>The planner options the CLI uses: no outer retry policy (HttpGraphClient retries each call itself).</summary>
     private static EArm.Engine.Planning.PlannerOptions WithoutRetryPolicy(EngineHost host)
     {

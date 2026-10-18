@@ -18,12 +18,10 @@ namespace EArm.Providers.Tests;
 /// <summary>The password credentials provider end to end: one-time secrets, rotation, expiry, deletes, external parents, hygiene.</summary>
 public sealed partial class PasswordCredentialsProviderTests
 {
-    private const string AppType = ApplicationsProvider.ResourceType;
     private const string SecretType = PasswordCredentialsProvider.ResourceType;
     private const string AppName = "test-api";
     private const string SecretName = "ci-secret";
     private const string SecretId = "/providers/Microsoft.Entra/applications/test-api/passwordCredentials/ci-secret";
-    private const string AppId = "/providers/Microsoft.Entra/applications/test-api";
 
     private const string Outputs = """
         "ciSecret": { "type": "securestring", "value": "[reference(resourceId('Microsoft.Entra/applications/passwordCredentials', 'test-api', 'ci-secret')).secretText]" },

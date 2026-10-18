@@ -2,7 +2,6 @@ using System;
 using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using System.Threading;
 using System.Threading.Tasks;
 using EArm.TestSupport;
 using Xunit;
@@ -16,8 +15,6 @@ public sealed class Review3H_CliTests
 {
     private const string Api = "2026-10-01-preview";
 
-    private static CancellationToken Ct => TestContext.Current.CancellationToken;
-
     private static (CliSandbox Sandbox, FakeDirectory Directory) Setup(string test)
     {
         var sandbox = new CliSandbox(test);
@@ -30,11 +27,6 @@ public sealed class Review3H_CliTests
     private static string DeclaredGroupTemplate(CliSandbox sandbox)
     {
         return sandbox.WriteTemplate("t.entra.json", "\"resources\": [ { \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"" + Api + "\", \"name\": \"declared\", \"properties\": { \"displayName\": \"Declared\", \"mailEnabled\": false, \"securityEnabled\": true } } ]");
-    }
-
-    private static int Count(CliSandbox sandbox, string prefix)
-    {
-        return sandbox.RecordedCommands().Count(c => c.StartsWith(prefix, StringComparison.Ordinal));
     }
 
     private static JsonObject OneDocument(CliResult result)

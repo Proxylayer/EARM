@@ -20,7 +20,6 @@ public sealed class UsersProviderTests
 {
     private const string Type = UsersProvider.ResourceType;
     private const string Sku = "6fd2c87f-b296-42f0-b197-1e91e994b900";
-    private static readonly DateTimeOffset Now = new(2026, 10, 14, 12, 0, 0, TimeSpan.Zero);
 
     private static string User(string upn, string properties)
     {

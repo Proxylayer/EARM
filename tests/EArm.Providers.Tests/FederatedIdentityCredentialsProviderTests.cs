@@ -19,7 +19,6 @@ namespace EArm.Providers.Tests;
 /// <summary>The federated identity credentials provider end to end.</summary>
 public sealed class FederatedIdentityCredentialsProviderTests
 {
-    private const string AppType = ApplicationsProvider.ResourceType;
     private const string FicType = FederatedIdentityCredentialsProvider.ResourceType;
     private const string AppName = "test-api";
     private const string Issuer = "https://token.actions.githubusercontent.com";

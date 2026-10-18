@@ -19,13 +19,6 @@ namespace EArm.Tests.Cli;
 /// </summary>
 public sealed class OutputWriterTests
 {
-    private static string Render(Action<StringWriter> write)
-    {
-        using var writer = new StringWriter();
-        write(writer);
-        return writer.ToString().Replace("\r\n", "\n", StringComparison.Ordinal);
-    }
-
     // ---- DeploymentResultWriter ----
 
     private static ResourceOperation Op(string name, OperationStatus status, ChangeType? change = null, string? error = null)

@@ -51,11 +51,6 @@ public sealed partial class Review4K_ExecutorTests
         return "/servicePrincipals/" + resourceId + "/appRoleAssignedTo";
     }
 
-    private static string AssignmentResourceId(string name)
-    {
-        return "/providers/" + AssignmentType + "/" + name;
-    }
-
     // ---- DE18 / DE20 / DE21: identity is the live tuple; a changed tuple is a new object and the old one is retained ----
 
     [Fact]

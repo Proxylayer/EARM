@@ -18,7 +18,6 @@ public sealed class SecretLeakSweepTests
     private const string Secret = "S3cr3t-Sweep-Value-9f2a";
     private const string SecretParameter = "sweepSecret";
     private const string Reference = "[parameters('sweepSecret')]";
-    private const string GroupId = "aaaaaaaa-1111-2222-3333-444444444444";
 
     private static TemplateDocumentFactory Factory(ProviderHost host)
     {

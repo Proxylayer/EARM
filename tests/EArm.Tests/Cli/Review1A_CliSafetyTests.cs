@@ -28,16 +28,6 @@ public sealed class Review1A_CliSafetyTests
         return "{ \"match\": { \"method\": \"GET\", \"urlContains\": \"" + collection + "(uniqueName='" + uniqueName + "')\" }, \"status\": 200, \"body\": { \"id\": \"" + id + "\", \"uniqueName\": \"" + uniqueName + "\", \"displayName\": \"Live " + uniqueName + "\", \"mailEnabled\": false, \"securityEnabled\": true } }";
     }
 
-    private static string Delete(string collection, string id)
-    {
-        return "{ \"match\": { \"method\": \"DELETE\", \"urlContains\": \"" + collection + "/" + id + "\" }, \"status\": 204 }";
-    }
-
-    private static string KeepTemplate(CliSandbox sandbox)
-    {
-        return sandbox.WriteTemplate("keep.entra.json", "\"resources\": [ { \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"keep\", \"condition\": false, \"properties\": { \"displayName\": \"Keep\", \"mailEnabled\": false, \"securityEnabled\": true } } ]");
-    }
-
     private static int Deletes(CliSandbox sandbox)
     {
         return sandbox.RecordedCommands().Count(c => c.StartsWith("DELETE ", StringComparison.Ordinal));
