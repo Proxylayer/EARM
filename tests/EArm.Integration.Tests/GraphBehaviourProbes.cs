@@ -13,7 +13,7 @@ namespace EArm.Integration.Tests;
 
 /// <summary>
 /// Verification probes: each test exercises one real Graph
-/// behaviour the code assumes, records what it observed (<see cref="TestContext.SendDiagnosticMessage"/>) and asserts the
+/// behaviour the code assumes, records what it observed (<see cref="TestContext.SendDiagnosticMessage(string)"/>) and asserts the
 /// assumption. A red test names the file to change in its message; a green test means the assumption is confirmed and the
 /// matching TODO can be closed. The letters group the probes: (a) launcher and paging, (b) alternate keys, filters, scope
 /// ids and restore permission, (c) Conditional Access nulls, (d) password credentials, (e) contexts and strengths, (f)

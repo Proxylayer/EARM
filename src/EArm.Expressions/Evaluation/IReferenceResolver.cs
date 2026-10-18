@@ -7,7 +7,7 @@ using EArm.Expressions.Values;
 namespace EArm.Expressions.Evaluation;
 
 /// <summary>
-/// Supplies the object behind <c>reference()</c>. <paramref name="apiVersion"/> is <c>null</c> for a same-template
+/// Supplies the object behind <c>reference()</c>. The <c>apiVersion</c> argument is <c>null</c> for a same-template
 /// resource (implicit dependency; the engine publishes the live object after the resource is applied) and set for
 /// an existing-resource lookup outside the template. Implemented live by the engine;
 /// <see cref="StaticReferenceResolver"/> is the offline implementation.

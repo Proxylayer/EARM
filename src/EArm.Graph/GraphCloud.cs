@@ -67,7 +67,7 @@ public sealed record GraphCloud
     internal int LoopbackPort { get; }
 
     /// <summary>
-    /// TEST ONLY: a cloud whose Graph origin is <c>http://127.0.0.1:{port}</c>, so the production <see cref="HttpClient"/> settings can be
+    /// TEST ONLY: a cloud whose Graph origin is <c>http://127.0.0.1:{port}</c>, so the production <see cref="HttpGraphClient.CreateHttpClient"/> settings can be
     /// exercised against an in-process server. Internal (visible to the test assemblies only) and never part of <see cref="All"/> or <see cref="Parse"/>.
     /// </summary>
     internal static GraphCloud LoopbackForTests(int port)

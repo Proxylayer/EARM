@@ -1,13 +1,12 @@
 using System;
 using System.Text.Json.Nodes;
 using EArm.Core.Json;
-using EArm.Engine.Edges;
 using EArm.Engine.Providers;
 using Xunit;
 
 namespace EArm.Providers.Tests;
 
-/// <summary>Pure rules behind the groups provider and the edge pass: <see cref="GroupsShape"/>, <see cref="GroupsLicensing.Diff"/> and <see cref="EdgePlan.RecordingsFor"/>.</summary>
+/// <summary>Pure rules behind the groups provider: <see cref="GroupsShape"/> and <see cref="GroupsLicensing.Diff"/>.</summary>
 public sealed class GroupsRulesTests
 {
     private const string SkuId = "11111111-2222-3333-4444-555555555555";

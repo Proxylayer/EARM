@@ -68,7 +68,7 @@ public static class PimScheduleComparison
     /// A copy of <paramref name="liveView"/> in which every member equivalent to its declared counterpart carries the declared value (see the type summary).
     /// </summary>
     /// <param name="desired">The evaluated, normalised properties.</param>
-    /// <param name="liveView">The live view (<see cref="LiveView"/>).</param>
+    /// <param name="liveView">The live view (<see cref="PimScheduleRequestsProvider{TTuple}.LiveView"/>).</param>
     /// <param name="now">The time a declared start is judged "past" against.</param>
     /// <param name="tolerance">The date-time tolerance.</param>
     /// <param name="isOpaque">True for a value that cannot be judged yet.</param>

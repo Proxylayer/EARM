@@ -17,7 +17,7 @@ public sealed record PlannerOptions
     /// <summary>The tenant from preflight; <c>null</c> offline.</summary>
     public string? TenantId { get; init; }
 
-    /// <summary>What <c>tenant()</c> returns (<see cref="DeploymentEnvironment.ReadTenantAsync"/>); <c>null</c> keeps it a deploy-time unknown.</summary>
+    /// <summary>What <c>tenant()</c> returns (<see cref="DeploymentEnvironment.TenantFromOrganization"/>); <c>null</c> keeps it a deploy-time unknown.</summary>
     public JsonObject? Tenant { get; init; }
 
     /// <summary>What <c>deployer()</c> returns (<see cref="DeploymentEnvironment.Deployer"/>); <c>null</c> keeps it a deploy-time unknown.</summary>
@@ -41,7 +41,7 @@ public sealed record PlannerOptions
     public ExpressionEvaluator Evaluator { get; init; } = ExpressionEvaluator.Default;
 
     /// <summary>
-    /// Outer retry policy around provider calls. Leave <c>null</c> with <see cref="AzGraphClient"/>, which retries every
+    /// Outer retry policy around provider calls. Leave <c>null</c> with <see cref="HttpGraphClient"/>, which retries every
     /// call itself; set one (with a fake delay provider) when driving a fake Graph client in tests.
     /// </summary>
     public RetryPolicy? RetryPolicy { get; init; }

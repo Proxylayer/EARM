@@ -7,7 +7,7 @@ namespace EArm.Graph;
 
 /// <summary>
 /// URL construction and the origin check. Every URL the client sends a bearer token to goes through
-/// <see cref="Validate"/>: scheme <c>https</c>, host exactly the cloud's Graph host, no userinfo, the default port and a
+/// <see cref="EnsureAllowed"/>: scheme <c>https</c>, host exactly the cloud's Graph host, no userinfo, the default port and a
 /// path under <c>/v1.0/</c> or <c>/beta/</c>. This is the guard against token exfiltration through a hostile
 /// <c>@odata.nextLink</c> (or a path value that tries to climb out of the API root).
 /// </summary>

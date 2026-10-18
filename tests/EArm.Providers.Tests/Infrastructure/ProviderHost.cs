@@ -20,7 +20,7 @@ using Xunit;
 namespace EArm.Providers.Tests.Infrastructure;
 
 /// <summary>
-/// One in-memory engine per test, wired to the real providers: <see cref="ProviderDiscovery.CreateRegistry"/> (catalog
+/// One in-memory engine per test, wired to the real providers: <see cref="ProviderDiscovery.CreateRegistry(ResourceTypeCatalog, ReplicationWait)"/> (catalog
 /// types without a provider yet are backfilled with <see cref="EchoProvider"/>; <see cref="Echo"/> replaces one on
 /// purpose), <see cref="FakeGraphClient"/> + <see cref="FakeDirectory"/>, <see cref="PlannerOptions"/> with <c>Parallelism = 1</c> and a
 /// <see cref="RetryPolicy"/> over a no-delay provider, recording loggers, and helpers to load inline templates and run what-if / create / delete.
