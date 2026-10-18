@@ -388,7 +388,9 @@ pwsh -File tools/New-TypeSchemas.ps1         # regenerate schemas/2026-10-01/typ
 The build must stay at zero warnings and `test.ps1` all green. Warnings are errors, unused code included: an unnecessary `using` (IDE0005),
 an unused or never-read private member (IDE0051, IDE0052) and a broken or ambiguous `cref` in a doc comment fail the build (`.editorconfig`,
 `Directory.Build.props`). Per-type schemas are generated: edit `tools/New-TypeSchemas.ps1` (or the `x-earm` overlay at the end
-of a type schema for behaviour) and regenerate; do not hand-edit the property parts.
+of a type schema for behaviour) and regenerate; do not hand-edit the property parts. Package restore is pinned to nuget.org
+by the committed `nuget.config` with package source mapping, so NU1507 (multiple package sources under Central Package Management)
+can't fail the build with warnings as errors.
 
 `EArm.Integration.Tests` writes to a real **dev** tenant and is not part of a plain `test.ps1` run: the script prints `GATED` for it, which is **not** a pass, unless
 `EARM_IT_TENANT` is set (naming it with `test.ps1 -Target EArm.Integration.Tests` runs it, and every test then skips with the reason). It is driven by the environment
