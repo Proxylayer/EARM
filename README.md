@@ -245,8 +245,8 @@ are never deleted or replaced (`ProtectedObject`). Details: [docs/cli.md](docs/c
 `appRoleAssignments`, `directoryRoles`, `ownerOf`, `administrativeUnits`) are **ensure-only**: they add, and never remove an entry you drop
 ([docs/edges.md](docs/edges.md)).
 
-**Replacements ask first.** An immutable change on a cheap type (an assignment, a credential, a named location's kind) is applied as delete,
-then create. `create` lists those objects and asks `Replace them? (y/n)`; `-y` confirms, and without `-y` a non-interactive run fails before anything is
+**Replacements ask first.** A changed named location kind (`@odata.type`) is applied as delete,
+then create (an assignment or grant with a changed key is a new object, and a password credential rotates in place). `create` lists those objects and asks `Replace them? (y/n)`; `-y` confirms, and without `-y` a non-interactive run fails before anything is
 written (`RecreateNotConfirmed`, exit 1). On every other type (applications, service principals, groups, users, custom roles, authentication strengths,
 administrative units...) an immutable change is an error instead (`ImmutablePropertyChanged`).
 

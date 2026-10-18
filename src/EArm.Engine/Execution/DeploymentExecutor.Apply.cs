@@ -171,6 +171,21 @@ public sealed partial class DeploymentExecutor
 
             var change = AdoptOnlyCheck.Apply(_plan.Evaluator, instance, existing, provider.Plan(instance, existing, _planOptions));
             _changes[instance] = change;
+            if (change is { Type: ChangeType.Ignore, RetryAtEndOfRun: true })
+            {
+                if (_endOfRunRetries.TryAdd(instance, batchIndex))
+                {
+                    // Deferred by the provider until the later batches ran: planned again after the last one (RunEndOfRunRetriesAsync), so its reasons
+                    // (which say why it waits) are only reported when that retry still cannot apply it.
+                    _operations[instance] = new ResourceOperation(instance.Id, instance.Type, batchIndex, OperationStatus.Ignored, ChangeType.Ignore, ChangeMode.None, null, null, null, stopwatch.Elapsed);
+                    return;
+                }
+
+                // The retry: what it waited for has run, but its effect may still be replicating.
+                (existing, change) = await WaitForDeferredAsync(provider, instance, key, existing, change, cancellationToken).ConfigureAwait(false);
+                _changes[instance] = change;
+            }
+
             foreach (var reasonWarning in ProviderWarningReasons.DiagnosticsOf(instance, change))
             {
                 _diagnostics.AddForInstance(instance, reasonWarning);
@@ -185,6 +200,7 @@ public sealed partial class DeploymentExecutor
             EngineLog.Applying(Logger, instance.Id.Id, change.Type.ToString(), change.Mode.ToString());
 
             string? afterApplyFailure = null;
+            string? afterApplyFailureCode = null;
             AppliedResource applied;
             switch (change.Type)
             {
@@ -200,14 +216,16 @@ public sealed partial class DeploymentExecutor
                 case ChangeType.Create:
                 {
                     var created = await _creator.CreateAsync(provider, instance, key, cancellationToken).ConfigureAwait(false);
-                    applied = created.Applied;
-                    afterApplyFailure = created.Failure;
-                    if (created.AdoptedExisting is { } found && afterApplyFailure is null)
+                    if (created.AdoptedExisting is { } found && created.Failure is null)
                     {
-                        // "Already exists": the object was adopted; the declared properties are applied now, in this run, instead of at the next one.
-                        applied = await _creator.ApplyPropertiesToAdoptedAsync(provider, instance, found, applied, cancellationToken).ConfigureAwait(false);
+                        // "Already exists": the object was adopted; the declared properties are applied now, in this run, instead of at the next one
+                        // (or the provider refuses the object it found, and the resource fails with its reason).
+                        created = await _creator.ApplyPropertiesToAdoptedAsync(provider, instance, found, created.Applied, cancellationToken).ConfigureAwait(false);
                     }
 
+                    applied = created.Applied;
+                    afterApplyFailure = created.Failure;
+                    afterApplyFailureCode = created.FailureCode;
                     break;
                 }
 
@@ -227,18 +245,13 @@ public sealed partial class DeploymentExecutor
                 }
 
                 case ChangeType.Modify:
-                    try
-                    {
-                        applied = await _retry.WithRetryAsync(ct => provider.UpdateAsync(instance, existing!, change, _owner._graph, ct), instance.RetryHint, cancellationToken).ConfigureAwait(false);
-                    }
-                    catch (ProviderException ex) when (ex.Partial is { } partial)
-                    {
-                        // The primary write happened and a later step failed: what exists is recorded, the resource is reported failed.
-                        applied = partial;
-                        afterApplyFailure = ResourceCreator.PartialFailure(instance, partial, ex, "updated");
-                    }
-
+                {
+                    // A partial update, or one cut short by a cancellation after a write may have committed, is recorded as it is (ResourceUpdater).
+                    var updated = await _updater.UpdateAsync(provider, instance, key, existing!, change, cancellationToken).ConfigureAwait(false);
+                    applied = updated.Applied;
+                    afterApplyFailure = updated.Failure;
                     break;
+                }
 
                 default:
                     throw new InvalidOperationException($"{instance.Describe()}: the provider planned an unexpected change type {change.Type}.");
@@ -269,7 +282,7 @@ public sealed partial class DeploymentExecutor
             stopwatch.Stop();
             if (afterApplyFailure is not null)
             {
-                RecordFailure(instance, batchIndex, EngineDiagnosticCodes.ResourceApplyFailed, afterApplyFailure, stopwatch.Elapsed, applied.GraphId);
+                RecordFailure(instance, batchIndex, afterApplyFailureCode ?? EngineDiagnosticCodes.ResourceApplyFailed, afterApplyFailure, stopwatch.Elapsed, applied.GraphId);
                 return;
             }
 
@@ -308,6 +321,33 @@ public sealed partial class DeploymentExecutor
             }
 
             return await check.ReadAsync(provider, key, Read, Logger, batch: null, cancellationToken).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// The end-of-run retry of a deferred resource that its provider still defers: the work it waited for has run, but Graph may not show its effect yet
+        /// (a group's PIM policy is listed a while after the request that onboarded the group). The key is read and the resource planned again on the adaptive
+        /// replication schedule (<see cref="ReplicationWait.IntervalAfter"/>) until the provider stops deferring it or <see cref="ReplicationWait.Window"/> of waiting was scheduled.
+        /// </summary>
+        private async Task<(ExistingResource? Existing, ResourceChange Change)> WaitForDeferredAsync(IResourceProvider provider, ResourceInstance instance, ResourceKey key, ExistingResource? existing, ResourceChange change, CancellationToken cancellationToken)
+        {
+            var wait = _owner._replicationWait;
+            var waited = TimeSpan.Zero;
+            for (int misses = 1; change is { Type: ChangeType.Ignore, RetryAtEndOfRun: true }; misses++)
+            {
+                var pause = wait.IntervalAfter(misses);
+                if (waited + pause > wait.Window)
+                {
+                    break;
+                }
+
+                await wait.Delay.DelayAsync(pause, cancellationToken).ConfigureAwait(false);
+                waited += pause;
+                EngineLog.WaitingForReplication(Logger, key.Describe(), waited.TotalSeconds, wait.Window.TotalSeconds);
+                existing = await _retry.WithRetryAsync(ct => provider.ReadAsync(key, _owner._graph, ct), RetryHint.Default, cancellationToken).ConfigureAwait(false);
+                change = AdoptOnlyCheck.Apply(_plan.Evaluator, instance, existing, provider.Plan(instance, existing, _planOptions));
+            }
+
+            return (existing, change);
         }
 
         /// <summary>Claims a Graph id for an instance; false (with the claimant) when another instance of this run already manages that object.</summary>

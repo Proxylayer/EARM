@@ -121,4 +121,7 @@ internal static partial class EngineLog
 
     [LoggerMessage(EventId = 2087, Level = LogLevel.Debug, Message = "Confirming the absence of {Count} planned create(s) of later batches in the background (key read lags create)")]
     public static partial void AbsencePrefetchStarted(ILogger logger, int count);
+
+    [LoggerMessage(EventId = 2088, Level = LogLevel.Information, Message = "Planning {Count} deferred resource(s) again after the last batch")]
+    public static partial void RetryingDeferred(ILogger logger, int count);
 }

@@ -109,6 +109,15 @@ public sealed record ResourceChange
     /// </summary>
     public bool IsExistingRead { get; init; }
 
+    /// <summary>
+    /// Set by a provider on an <see cref="ChangeType.Ignore"/> row it defers until later work of the same run has happened (a group PIM policy that
+    /// exists only once a schedule request of the run has onboarded its group). A deployment that did not stop early reads and plans the resource once more
+    /// after its last batch (repeating the read on the replication schedule while the provider still defers it), and applies what that plan says; until then
+    /// the row's reasons are not reported. Resources applied before the retry that
+    /// depend on it are not applied again.
+    /// </summary>
+    public bool RetryAtEndOfRun { get; init; }
+
     /// <summary>Human-readable reasons (why Ignore, why Recreate, what is unknown).</summary>
     public IReadOnlyList<string> Reasons { get; init; } = [];
 

@@ -128,9 +128,14 @@ load ──► validate ──► expand ──► graph ──► [per batch: r
   reason "it depends on *type 'name'*, which failed" at
   the start of its batch, before symbolic names are resolved: it is never attempted, its name is never
   re-evaluated (a symbolic dependent keeps its symbolic id in the result) and it never counts as a failure.
+- **End-of-run retry**: an `Ignore` row a provider marks `ResourceChange.RetryAtEndOfRun` (it waits for later work of the same run, such as a
+  group PIM policy whose group a schedule request of the run onboards) is recorded `Ignored` without its reasons, and read and planned again after
+  the last batch, when the run did not stop early (log event 2088). While the provider still defers it, the read is repeated on the replication
+  schedule (1, 2, 4 s, then every 5 s, up to 90 s); a resource still deferred then stays `Ignored` and its reasons are reported. Resources applied
+  earlier that depend on it are not applied again.
 - A `create` that comes back "already exists" (`GraphException.IsAlreadyExists`) is idempotent success: the
   object is re-read by key and taken over (identity is the key: there is no created / adopted distinction).
-- A `create` that comes back "already exists" also applies the declared properties **in the same run** (one extra PATCH where the provider supports it and the difference can be patched in place; otherwise an `ImmutablePropertyChanged` warning says the object differs and a rerun or the what-if shows how).
+- A `create` that comes back "already exists" also applies the declared properties **in the same run** (one extra PATCH where the provider supports it and the difference can be patched in place; otherwise an `ImmutablePropertyChanged` warning says the object differs and a rerun or the what-if shows how). An existing object the provider refuses to manage (its plan has an error, such as a permanent PIM assignment where a time-bound one is declared) is **not** adopted: the resource fails with the provider's code and reason and the Graph id of the object found. A provider that finds such an object itself and refuses it is reported with its refusal, never as "created but did not complete".
 - A `create` with an **ambiguous outcome** (a timeout, a transport error, any 5xx: the write may have been committed) is not repeated and not
   simply failed: the object is looked up by key, and because Graph replicates a new object with some delay the **executor itself waits out
   replication** (`ReplicationWait`, a constructor argument of `DeploymentExecutor`: the read is repeated on an adaptive schedule, 1, 2 and 4 s and
@@ -203,8 +208,8 @@ load ──► validate ──► expand ──► graph ──► [per batch: r
 - **Unexpected exceptions.** Anything not handled above (a null reference, a format error, an HTTP timeout that is not the caller's cancellation) fails **that one resource** (`ResourceApplyFailed`, `unexpected error (<type>)`):
   parallel siblings are never cancelled by it, and the end phase (edge pass, outputs, secure outputs file, orphan report) still runs. An exception of the engine itself outside any resource aborts the run the same
   way: the unstarted resources are reported as skipped, the orphan report judges nothing, and the run ends `Failed` with an error diagnostic.
-- **Replacing** an object whose immutable properties changed (`ChangeMode.Recreate`: credentials, named location kinds,
-  every-property-immutable types) deletes the old object, then creates it again. The old object was found by the key, so the replacement has the same key and
+- **Replacing** an object whose immutable properties changed (`ChangeMode.Recreate`: in practice a named location whose kind,
+  `@odata.type`, changed) deletes the old object, then creates it again. The old object was found by the key, so the replacement has the same key and
   identity; there is no create-first variant. (A changed **tuple** of an assignment or grant is not a replacement: the tuple is the identity, so it is a new
   object, created, and the old one is retained and reported, see the orphan report.) A replacement is guarded like every delete (`DeleteGuards`): the signed-in principal
   and a service principal owned by another organization are never replaced (`ProtectedObject`; nothing is deleted or created, the what-if row is an error row). It
@@ -269,14 +274,15 @@ load ──► validate ──► expand ──► graph ──► [per batch: r
 ### Graph batch item codes
 
 `HttpGraphClient.BatchAsync` (`$batch`, 20 sub-requests per envelope) returns one `BatchResponse` per sub-request; a failed one carries a `GraphException` in
-`BatchResponse.Error`, whose `Code` is the Graph error code of that sub-request (`Request_ResourceNotFound`, `Request_BadRequest`, ...). Two codes are EARM's own, set
-when an **envelope** of a later chunk fails after the earlier chunks were already reported. They are string literals on the item, not entries of
+`BatchResponse.Error`, whose `Code` is the Graph error code of that sub-request (`Request_ResourceNotFound`, `Request_BadRequest`, ...). Three codes are EARM's own, set
+when an **envelope** of a later chunk fails, or the caller cancels, after the earlier chunks were already reported. They are string literals on the item, not entries of
 `DiagnosticCodes` / `EngineDiagnosticCodes`, so they have no row in [diagnostics.md](diagnostics.md); scripts and CI logs can match on them:
 
 | Code | On which items | Meaning |
 |---|---|---|
 | `BatchEnvelopeFailed` | The items of the envelope that failed at the **transport** level after its retries (a timeout, a dropped connection, a response that was too large or unreadable, no sign-in) | There is no Graph error code to copy, so the item gets this one; its status is mapped from the failure (401, 504, 400 or 502) and the message starts with "The $batch envelope failed". It is **ambiguous** (`IsAmbiguous`) for a write that may have followed a commit; never for a read. When the envelope failed with a Graph error instead (for example a 4xx), the items keep that error's own code. |
 | `BatchNotSent` | The items of the chunks **after** the failed envelope | The chunk was never sent ("nothing was written for this sub-request"). Never ambiguous: safe to run again. |
+| `BatchCancelled` | The items of the chunks not sent because the caller cancelled after the first chunk | Status 499. The chunk was never sent; never ambiguous. A failed item whose individual re-send was cancelled keeps its own failure instead. |
 
 Only a failure of the **first** envelope throws; later failures are reported per item so the earlier results are kept. A sub-request that was re-sent on its own
 after a 429 or a replication-lag answer and failed again reports the code of that failure (empty when it was a transport failure of the single request).
@@ -520,14 +526,17 @@ logs**. Ctrl+C stops new work between resources, batches and edge operations; it
 - When the cancellation reaches a provider **between** two of its requests (after its first write committed), the executor looks the object up by
   key once more, uncancellably, and reports it (the resource is failed: "cancelled while the object was being created"); when nothing is found the
   create never happened and the resource is skipped.
+- An in-place update (`PATCH`) cut short by a cancellation (Ctrl+C between two requests of the provider, or a raw HTTP timeout) is read back
+  once by key, uncancellably, and planned again: it is reported applied when the object now matches the template, and failed with its Graph id
+  ("cancelled while the object was being updated", or "unknown outcome" for a timeout) when it does not. It is no longer reported as skipped.
 - The end phase (edge pass, outputs, secure outputs file, orphan report) runs with `CancellationToken.None` for what only reports, and checks the
   caller's token between edge operations: the one in flight finishes and is reported, the unstarted ones are reported failed "cancelled", and the
   run ends `Cancelled` (unstarted resources reported as skipped) and throws `OperationCanceledException`.
 - The CLI gives this end phase time to finish: `Program.ProcessTerminationTimeout` is 5 minutes instead of System.CommandLine's 2-second default
   (one request timeout for the write, one for the follow-up lookup, with margin).
 - `UsersProvider` treats a cancellation of its `assignLicense` step like any failure after `POST /users`: the user and its generated password go
-  out as `ProviderException.Partial` (password into the secure outputs file). Not covered: a multi-chunk `$batch` that is cancelled between chunks
-  throws away the per-item results of the chunks already sent (the edges are read back on the next run).
+  out as `ProviderException.Partial` (password into the secure outputs file). A multi-chunk `$batch` cancelled between chunks keeps the per-item
+  results of the chunks already sent; the chunks not sent are reported `BatchCancelled`.
 
 A rerun converges: everything the cancelled run wrote is found again by key.
 
@@ -641,7 +650,8 @@ the catalog overlay of the type:
   `id`), `ParentKey` for `parent/child` names, composite keys from `keyProperties` for GUID-named types;
   `ReadExistingAsync` for `reference(id, apiVersion)`.
 - `Plan`: the shared `JsonDiff`: scalars replace; scalar arrays are order-insensitive sets;
-  object arrays by `memberKey` (else canonical JSON, order-insensitive); nested objects compared whole with an
+  object arrays by `memberKey` (the key `$index` matches elements by position, for arrays whose order is their identity such as
+  approval stages: a changed property of a stage is shown inside it; else canonical JSON, order-insensitive); nested objects compared whole with an
   explicit `null` (`Delete`; written as `[]` when the live value is a collection) for every live-only sub-property unless `nullable: false` (`NoEffect`); GUIDs
   case-insensitive; `null` / `[]` ≡ absent; `createOnly` paths skipped on update; secure values (`IsSecret`): a secure scalar whose live
   counterpart Graph returns, at a path the type does not declare `secure` (`JsonDiffOptions.Secure`), is compared like any scalar and is a masked
@@ -651,7 +661,8 @@ the catalog overlay of the type:
   still compared); unknowns flagged (`IsUnknown`). Only declared top-level properties take part (Graph PATCH is a
   merge). An immutable change (a delta on an `immutable` path; for an `immutable: ["*"]` type —
   `ResourceTypeDefinition.ImmutableAll`: password credentials, app role assignments, role assignments — **every**
-  effective delta) is `Modify`/`Recreate` when `RecreateOnImmutableChange` is true (it defaults to
+  effective delta; for the assignments every allowed property is part of the key, so an object found by its key has none and a changed
+  value is a new tuple, a `Create`) is `Modify`/`Recreate` when `RecreateOnImmutableChange` is true (it defaults to
   `ImmutableAll`; the executor then deletes and creates), otherwise `UnsupportedReason`. `ImmutableProperties`
   stays the explicitly listed paths (empty for `["*"]`). A provider that overrides `Plan` keeps its own decision:
   password credentials rotate as `Modify`/`Patch` so `UpdateAsync` can add the new secret before removing the

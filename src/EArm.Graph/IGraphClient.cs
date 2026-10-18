@@ -61,6 +61,10 @@ public interface IGraphClient
     /// follow a commit) and the items of the chunks after it were never sent (<c>BatchNotSent</c>, never ambiguous). A failure of the FIRST chunk still
     /// throws, because nothing has been reported yet.
     /// </para>
+    /// <para>
+    /// The same holds for the caller's cancellation: after the first chunk, it ends the batch with the results already known and the items not sent
+    /// marked <c>BatchCancelled</c> (status 499, never ambiguous); a failed sub-request whose individual re-send was cancelled keeps its original failure.
+    /// </para>
     /// </summary>
     Task<IReadOnlyList<BatchResponse>> BatchAsync(IReadOnlyList<BatchRequest> requests, GraphApi api, RetryHint hint, CancellationToken cancellationToken);
 }

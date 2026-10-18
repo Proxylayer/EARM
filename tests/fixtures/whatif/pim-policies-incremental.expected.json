@@ -808,7 +808,15 @@
                       "children": [
                         {
                           "path": "[0]",
-                          "propertyChangeType": "Create",
+                          "propertyChangeType": "Modify",
+                          "before": {
+                            "approvalStageTimeOutInDays": 1,
+                            "isApproverJustificationRequired": true,
+                            "escalationTimeInMinutes": 0,
+                            "isEscalationEnabled": false,
+                            "primaryApprovers": [],
+                            "escalationApprovers": []
+                          },
                           "after": {
                             "primaryApprovers": [
                               {
@@ -820,19 +828,19 @@
                             "isApproverJustificationRequired": true,
                             "escalationTimeInMinutes": 0,
                             "isEscalationEnabled": false
-                          }
-                        },
-                        {
-                          "path": "[0]",
-                          "propertyChangeType": "Delete",
-                          "before": {
-                            "approvalStageTimeOutInDays": 1,
-                            "isApproverJustificationRequired": true,
-                            "escalationTimeInMinutes": 0,
-                            "isEscalationEnabled": false,
-                            "primaryApprovers": [],
-                            "escalationApprovers": []
-                          }
+                          },
+                          "children": [
+                            {
+                              "path": "primaryApprovers",
+                              "propertyChangeType": "Create",
+                              "after": [
+                                {
+                                  "id": "66666666-0000-0000-0000-000000000200",
+                                  "userType": "Group"
+                                }
+                              ]
+                            }
+                          ]
                         }
                       ]
                     }

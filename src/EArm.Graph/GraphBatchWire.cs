@@ -67,6 +67,19 @@ internal static class GraphBatchWire
         return new BatchResponse(reportedId, request, status, null, item);
     }
 
+    /// <summary>HTTP 499 ("client closed request"): the status of an item whose envelope was not sent because the caller cancelled.</summary>
+    internal const HttpStatusCode ClientCancelled = (HttpStatusCode)499;
+
+    /// <summary>
+    /// The item of a chunk that was not sent because the caller cancelled after an earlier chunk had run (code <c>BatchCancelled</c>). Never ambiguous:
+    /// the transport honours the caller's cancellation only before a request goes on the wire, or in a wait before a retry the policy judged safe.
+    /// </summary>
+    internal static BatchResponse CancelledResponse(BatchRequest request, string wireId, RetryHint hint)
+    {
+        var error = new GraphException(ClientCancelled, "BatchCancelled", "Not sent: the run was cancelled before this $batch envelope was sent; nothing was written for this sub-request.", hint);
+        return new BatchResponse(request.Id ?? wireId, request, ClientCancelled, null, error);
+    }
+
     internal static JsonObject BuildBatchItem(BatchRequest request, string url, string wireId)
     {
         var item = new JsonObject

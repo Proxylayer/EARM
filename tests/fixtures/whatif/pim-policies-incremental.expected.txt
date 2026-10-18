@@ -32,23 +32,12 @@ The deployment would make the following changes:
               ~ setting:
                   ~ isApprovalRequired: false => true
                   ~ approvalStages: [
-                      + [0]:
-                          primaryApprovers: [
-                            0:
-                              id: "66666666-0000-0000-0000-000000000200"
-                              userType: "Group"
-                          ]
-                          approvalStageTimeOutInDays: 1
-                          isApproverJustificationRequired: true
-                          escalationTimeInMinutes: 0
-                          isEscalationEnabled: false
-                      - [0]:
-                          approvalStageTimeOutInDays: 1
-                          isApproverJustificationRequired: true
-                          escalationTimeInMinutes: 0
-                          isEscalationEnabled: false
-                          primaryApprovers: []
-                          escalationApprovers: []
+                      ~ [0]:
+                          + primaryApprovers: [
+                              0:
+                                id: "66666666-0000-0000-0000-000000000200"
+                                userType: "Group"
+                            ]
                     ]
         ]
       (each changed rule is updated in place (PATCH of the rule); undeclared rules are left as they are)

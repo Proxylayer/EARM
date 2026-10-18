@@ -35,11 +35,12 @@ internal sealed class ResourceCreator
     /// <param name="Applied">The object (created, found after an ambiguous failure, or found under its key after "already exists").</param>
     /// <param name="Failure">Set when the object exists but a later step failed: the object is recorded and the resource is reported failed.</param>
     /// <param name="AdoptedExisting">Set when the create was answered with "already exists" and the existing object was taken over.</param>
-    public sealed record CreateOutcome(AppliedResource Applied, string? Failure, ExistingResource? AdoptedExisting);
+    /// <param name="FailureCode">The diagnostic code of <paramref name="Failure"/>; <c>null</c> for <see cref="EngineDiagnosticCodes.ResourceApplyFailed"/>.</param>
+    public sealed record CreateOutcome(AppliedResource Applied, string? Failure, ExistingResource? AdoptedExisting, string? FailureCode = null);
 
     /// <summary>
     /// Creates the object. "Already exists" is an idempotent success (the object is re-read by key and adopted); so is an ambiguous
-    /// failure (timeout, transport error, 5xx) after which the object turns out to exist (E-05): the create is not repeated, and not by the outer retry
+    /// failure (timeout, transport error, 5xx, a cancellation that is not the caller's) after which the object turns out to exist (E-05): the create is not repeated, and not by the outer retry
     /// either unless the create is an upsert (<see cref="IResourceProvider.CreateIsRepeatable"/>; review round 2 S2-07). A failure AFTER the object was written (a license, an owner, a restore step of the provider) is
     /// found again: the provider hands the partial result over (<see cref="ProviderException.Partial"/>), or the object is looked up by key; either way
     /// it is published and the resource is reported failed; a rerun finds it again by key and converges.
@@ -66,16 +67,17 @@ internal sealed class ResourceCreator
 
             return new CreateOutcome(new AppliedResource(instance.Id, existing.GraphId, existing.Raw, key), null, existing);
         }
-        catch (Exception ex) when (ProviderReads.IsAmbiguousWriteFailure(ex))
+        catch (Exception ex) when (ProviderReads.IsAmbiguousWriteFailure(ex) || (ex is OperationCanceledException && !cancellationToken.IsCancellationRequested))
         {
             // The write may have been committed although no answer came back: look for the object (waiting out replication) instead of failing or repeating the POST.
+            // A cancellation the caller did not ask for (a raw HTTP timeout of a client or decorator that does not map it to GraphTransportException) is the same case.
             var found = await TryReadAfterCreateAsync(provider, key, cancellationToken).ConfigureAwait(false);
             if (found is null)
             {
                 throw;
             }
 
-            string error = SecretRegistration.Scrub(ex.Message);
+            string error = ex is OperationCanceledException canceled ? NonCallerCancellation.Describe(canceled) : SecretRegistration.Scrub(ex.Message);
             EngineLog.CreateOutcomeUncertain(_logger, instance.Id.Id, error, found.GraphId);
             _diagnostics.AddForInstance(instance, Diagnostic.Warning(EngineDiagnosticCodes.CreateOutcomeUncertain, $"'{instance.Id.Id}': the create ended with an unknown outcome ({error}); the object exists (Graph id {found.GraphId}), so the create is counted as done. Values only returned at creation (a secret) are not available for it."));
             return new CreateOutcome(new AppliedResource(instance.Id, found.GraphId, found.Raw, key), null, null);
@@ -84,8 +86,10 @@ internal sealed class ResourceCreator
         {
             // A provider that writes in several steps (create, then owners, licenses, restore...) and failed after the first: the object exists even though the call failed.
             var found = await TryReadByKeyAsync(provider, key, cancellationToken).ConfigureAwait(false);
-            if (found is null)
+            if (found is null || (ex is ProviderException && Refuses(provider, instance, found)))
             {
+                // Nothing there; or the provider refused the object it found under the key (it answered "already exists" and the live object is one it
+                // must not manage, such as a permanent PIM assignment): nothing was created, and the provider's refusal is the outcome to report.
                 throw;
             }
 
@@ -284,30 +288,53 @@ internal sealed class ResourceCreator
         return $"{instance.Describe()}: the object was {verb} (Graph id {partial.GraphId}), but a later step failed: {SecretRegistration.Scrub(ex.Message)}. Run the deployment again to finish it.";
     }
 
-    /// <summary>After "already exists" was answered for a create: applies the declared properties to the adopted object now (one more PATCH where the provider supports it), instead of leaving it to the next run.</summary>
-    public async Task<AppliedResource> ApplyPropertiesToAdoptedAsync(IResourceProvider provider, ResourceInstance instance, ExistingResource found, AppliedResource adopted, CancellationToken cancellationToken)
+    /// <summary>
+    /// After "already exists" was answered for a create: applies the declared properties to the adopted object now (one more PATCH where the provider supports it), instead of leaving it to the next run.
+    /// An existing object the provider refuses to manage (its plan has an error, such as a permanent PIM assignment where a time-bound one is declared) is not adopted:
+    /// the resource fails with the provider's reason and code, and the Graph id of the object it found.
+    /// </summary>
+    public async Task<CreateOutcome> ApplyPropertiesToAdoptedAsync(IResourceProvider provider, ResourceInstance instance, ExistingResource found, AppliedResource adopted, CancellationToken cancellationToken)
     {
         var followUp = provider.Plan(instance, found, _planOptions);
         if (followUp.Type == ChangeType.NoChange || followUp.Type == ChangeType.Ignore)
         {
-            return adopted;
+            return new CreateOutcome(adopted, null, found);
         }
 
-        if (followUp.Type != ChangeType.Modify || followUp.Mode != ChangeMode.Patch || followUp.HasError)
+        if (followUp.HasError)
         {
-            _diagnostics.AddForInstance(instance, Diagnostic.Warning(EngineDiagnosticCodes.ImmutablePropertyChanged, $"'{instance.Id.Id}': the existing object differs from the template in a way that cannot be changed in place ({followUp.UnsupportedReason ?? string.Join("; ", followUp.Reasons)}); it was left as it is. Run 'deployment what-if' to see the difference."));
-            return adopted;
+            string refusal = $"{instance.Describe()}: Graph answered that the object already exists, and the existing object (Graph id {found.GraphId}) cannot be adopted: {followUp.UnsupportedReason}";
+            return new CreateOutcome(adopted, refusal, found, followUp.UnsupportedCode ?? EngineDiagnosticCodes.ImmutablePropertyChanged);
+        }
+
+        if (followUp.Type != ChangeType.Modify || followUp.Mode != ChangeMode.Patch)
+        {
+            _diagnostics.AddForInstance(instance, Diagnostic.Warning(EngineDiagnosticCodes.ImmutablePropertyChanged, $"'{instance.Id.Id}': the existing object differs from the template in a way that cannot be changed in place ({string.Join("; ", followUp.Reasons)}); it was left as it is. Run 'deployment what-if' to see the difference."));
+            return new CreateOutcome(adopted, null, found);
         }
 
         try
         {
             var updated = await _retry.WithRetryAsync(ct => provider.UpdateAsync(instance, found, followUp, _graph, ct), instance.RetryHint, cancellationToken).ConfigureAwait(false);
-            return updated;
+            return new CreateOutcome(updated, null, found);
         }
         catch (ProviderException ex) when (ex.Partial is { } partial)
         {
             _diagnostics.AddForInstance(instance, Diagnostic.Warning(EngineDiagnosticCodes.ResourceApplyFailed, $"'{instance.Id.Id}': {SecretRegistration.Scrub(ex.Message)}"));
-            return partial;
+            return new CreateOutcome(partial, null, found);
+        }
+    }
+
+    /// <summary>True when the provider's plan for the object it found under the key has an error: it refuses to manage that object.</summary>
+    private bool Refuses(IResourceProvider provider, ResourceInstance instance, ExistingResource found)
+    {
+        try
+        {
+            return provider.Plan(instance, found, _planOptions).HasError;
+        }
+        catch (Exception ex) when (ex is ProviderException or InvalidOperationException or ArgumentException)
+        {
+            return false;
         }
     }
 }
