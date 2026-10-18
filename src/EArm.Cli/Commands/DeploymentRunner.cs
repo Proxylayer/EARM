@@ -14,7 +14,6 @@ using EArm.Engine.Permissions;
 using EArm.Engine.Planning;
 using EArm.Engine.Providers;
 using EArm.Engine.WhatIf;
-using Microsoft.Extensions.Logging;
 
 namespace EArm.Cli.Commands;
 

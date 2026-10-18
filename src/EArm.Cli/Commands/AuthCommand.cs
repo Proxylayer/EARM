@@ -10,7 +10,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using EArm.Cli.Hosting;
 using EArm.Cli.Output;
-using EArm.Core.Diagnostics;
 using EArm.Engine.Permissions;
 using EArm.Graph;
 using EArm.Graph.Auth;

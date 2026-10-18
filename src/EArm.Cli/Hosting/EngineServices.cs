@@ -1,7 +1,6 @@
 using System;
 using System.IO;
 using System.Net.Http;
-using EArm.Cli;
 using EArm.Cli.Commands;
 using EArm.Core.Types;
 using EArm.Engine.Edges;

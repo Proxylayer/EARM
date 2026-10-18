@@ -8,7 +8,6 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using EArm.Cli.Output;
-using EArm.Core;
 using EArm.Core.Json;
 using EArm.Core.Types;
 

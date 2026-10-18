@@ -3,8 +3,6 @@ using System.CommandLine;
 using System.CommandLine.Help;
 using System.IO;
 using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
 using EArm.Cli.Output;
 using EArm.Core;
 using EArm.Core.Types;
