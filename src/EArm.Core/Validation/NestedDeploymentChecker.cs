@@ -212,7 +212,7 @@ internal sealed class NestedDeploymentChecker
                     }
                     else if (entryObject.ContainsKey("reference"))
                     {
-                        Error(DiagnosticCodes.NestedDeploymentFeatureNotSupported, $"Parameter '{name}': a Key Vault reference is not supported in a nested deployment; declare it as a secure parameter of the parent template (which may be a Key Vault reference) and pass [parameters('...')].", entryPath.Append("reference"));
+                        CheckKeyVaultReference(name, entryObject, entryPath);
                     }
                     else if (entryObject.ContainsKey("expression"))
                     {
@@ -234,6 +234,46 @@ internal sealed class NestedDeploymentChecker
                 Error(DiagnosticCodes.InvalidNestedDeployment, "'parametersLink' must be an object with a 'uri' (an https URL, or a path relative to this template).", linkPath);
             }
         }
+    }
+
+    /// <summary>
+    /// A Key Vault reference entry, <c>{ "reference": { "keyVault": { "id" }, "secretName"[, "secretVersion"] } }</c>: ARM allows it in the parameters
+    /// of a nested deployment, with expressions of the parent for the coordinates (a dynamic id,
+    /// https://learn.microsoft.com/azure/azure-resource-manager/templates/key-vault-parameter#reference-secrets-with-dynamic-id).
+    /// </summary>
+    private void CheckKeyVaultReference(string name, JsonObject entry, JsonPath entryPath)
+    {
+        var referencePath = entryPath.Append("reference");
+        if (entry.ContainsKey("value"))
+        {
+            Error(DiagnosticCodes.InvalidNestedDeployment, $"Parameter '{name}' has both 'value' and 'reference'; use one.", entryPath);
+        }
+
+        if (entry["reference"] is not JsonObject reference)
+        {
+            Error(DiagnosticCodes.InvalidNestedDeployment, $"Parameter '{name}': 'reference' must be an object: {{ \"keyVault\": {{ \"id\": \"...\" }}, \"secretName\": \"...\" }}.", referencePath);
+            return;
+        }
+
+        if (reference["keyVault"] is not JsonObject keyVault || !IsText(keyVault["id"]))
+        {
+            Error(DiagnosticCodes.InvalidNestedDeployment, $"Parameter '{name}': a Key Vault reference needs 'keyVault': {{ \"id\": \"<vault resource id>\" }}.", referencePath.Append("keyVault"));
+        }
+
+        if (!IsText(reference["secretName"]))
+        {
+            Error(DiagnosticCodes.InvalidNestedDeployment, $"Parameter '{name}': a Key Vault reference needs a 'secretName' string.", referencePath.Append("secretName"));
+        }
+
+        if (reference.TryGetPropertyValue("secretVersion", out var version) && version is not null && !IsText(version))
+        {
+            Error(DiagnosticCodes.InvalidNestedDeployment, $"Parameter '{name}': 'secretVersion' must be a string.", referencePath.Append("secretVersion"));
+        }
+    }
+
+    private static bool IsText(JsonNode? node)
+    {
+        return TemplateJson.AsString(node) is not null;
     }
 
     private NestedTemplateScope CheckScope(JsonObject properties, JsonPath path, bool linked)

@@ -58,11 +58,18 @@ public sealed class OfflineTemplateExpansion
     /// <summary>Every string of the template that is an expression (starts with <c>[</c>), for the lookup functions.</summary>
     public IEnumerable<string> ExpressionStrings => EnumerateExpressionStrings(Document.Root);
 
-    /// <summary>The parameters bound to Key Vault secrets that are not resolved yet.</summary>
+    /// <summary>
+    /// The parameters bound to Key Vault secrets that are not resolved yet: those of the main template, then those of the nested templates
+    /// (named <c>&lt;deployment path&gt;/&lt;parameter&gt;</c>).
+    /// </summary>
     public IEnumerable<(string Parameter, KeyVaultReference Reference)> KeyVaultReferences =>
         Document.ParameterValues.Values
             .Where(b => b.PendingReference is not null)
-            .Select(b => (b.Name, b.PendingReference!));
+            .Select(b => (b.Name, b.PendingReference!))
+            .Concat(NestedKeyVaultReferences);
+
+    /// <summary>The Key Vault references among the parameters of nested templates (empty when the expansion failed).</summary>
+    public IReadOnlyList<(string Parameter, KeyVaultReference Reference)> NestedKeyVaultReferences { get; private init; } = [];
 
     /// <summary>
     /// Warnings of the expansion of nested deployments (an https linked template that <see cref="LinkedTemplateReader.LocalOnly"/> does not fetch);
@@ -100,12 +107,15 @@ public sealed class OfflineTemplateExpansion
         var evaluator = ExpressionEvaluator.Default;
         var expansionDiagnostics = new List<Diagnostic>();
         IReadOnlyList<ResourceInstance> instances = new ResourceExpander(evaluator, catalog).Expand(analysis.Static, analysis.Static.Context, expansionDiagnostics);
+        IReadOnlyList<(string, KeyVaultReference)> nestedReferences = [];
         if (!expansionDiagnostics.Any(d => d.IsError))
         {
             // Nested and linked deployments: their templates are validated and their resources expanded too (permissions and run scopes include them).
             var root = TemplateScope.Root(document, analysis.Static, analysis.Static.Context);
             var reader = linkedTemplates ?? LinkedTemplateReader.LocalOnly;
-            instances = new NestedDeploymentExpander(evaluator, catalog, FunctionRegistry.Default, reader, offline: true, CancellationToken.None).Expand(root, instances, expansionDiagnostics);
+            var expander = new NestedDeploymentExpander(evaluator, catalog, FunctionRegistry.Default, reader, offline: true, CancellationToken.None);
+            instances = expander.Expand(root, instances, expansionDiagnostics);
+            nestedReferences = expander.KeyVaultReferences;
         }
 
         if (!expansionDiagnostics.Any(d => d.IsError))
@@ -135,7 +145,7 @@ public sealed class OfflineTemplateExpansion
             }
         }
 
-        return new OfflineTemplateExpansion(document, [], active, ignored) { Warnings = expansionDiagnostics.Where(d => !d.IsError).ToList() };
+        return new OfflineTemplateExpansion(document, [], active, ignored) { Warnings = expansionDiagnostics.Where(d => !d.IsError).ToList(), NestedKeyVaultReferences = nestedReferences };
     }
 
     private static IEnumerable<string> EnumerateExpressionStrings(JsonNode? root)

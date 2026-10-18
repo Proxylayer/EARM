@@ -228,9 +228,16 @@ PowerShell are no longer prerequisites (PowerShell remains only for the reposito
 
 ### `deployment validate`
 
-`earm deployment validate -f <template> [-p …] [--validation-level Template|Provider|ProviderNoRbac] [--no-prompt] [-o table|json]`. There is no `-n`: validate has no deployment name. By default (`--validation-level Template`) it is offline: JSON Schema (envelope and per-type property schemas), the type
+`earm deployment validate -f <template> [-p …] [--validation-level Template|Provider|ProviderNoRbac] [--fetch-links] [--no-prompt] [-o table|json]`. There is no `-n`: validate has no deployment name. By default (`--validation-level Template`) it is offline: JSON Schema (envelope and per-type property schemas), the type
 catalog, semantic checks, expression syntax and static evaluation (names, `dependsOn`, references, outputs, and every expression inside `properties`, which is evaluated far enough to report an undefined variable or parameter and an unknown function). No tenant access. Exit 0 with
 no errors (warnings allowed), 2 with errors, 1 when a file cannot be loaded.
+
+The templates of nested and linked deployments are validated too: inline templates and local linked files always; an https `templateLink.uri` or
+`parametersLink.uri` is **not downloaded** by default (`LinkedTemplateNotFetched`, a warning: the deployment is not expanded and what-if and create
+check it). `--fetch-links` (off by default) downloads them and validates them like local files, with the rules and the per-run cache of `what-if` and
+`create`: https only, no user name or password in the URL, no credentials sent, redirects never followed, at most 1 MiB and 120 s per file, the query
+string (a SAS token) sent but never shown, each URL downloaded once per run. A download that fails is then an error (`LinkedTemplateUnavailable`).
+No token is needed: the downloads are anonymous. Key Vault references among nested parameters are not resolved by `validate` (their values are unknown).
 
 `--validation-level` takes the Azure CLI's values (case-insensitive). `Template` (EARM's default; the Azure CLI defaults to `Provider`) is the offline validation above. `Provider` adds the
 steps of `what-if` up to the plan, once the offline checks pass: sign-in, the preflight with its consent check for the **write** scopes `create` would request,
@@ -310,6 +317,7 @@ deploys to one scope (the tenant the credential signs in to) and keeps no deploy
 | `-r` / `--result-format`, `--what-if-result-format`, `--no-pretty-print` | Same | `ResourceIdOnly` reports `Deploy` for an existing declared resource. |
 | `--no-prompt` | Same | Interactive `what-if` / `create` ask for missing parameter values. |
 | `--validation-level` | `validate` only | `Template` (EARM's default) is offline; `Provider` / `ProviderNoRbac` plan against the tenant read-only. `what-if` and `create` always read the tenant, so the option is not offered there. |
+| (none) | `--fetch-links` (`validate` only) | Offline `validate` downloads https linked templates and parameter files (az validates in Azure, which downloads them). |
 | `--rollback-on-error` | Omitted | See below. |
 | `-o json\|jsonc\|yaml\|yamlc\|tsv\|table\|none`, `--query` | Same | Default `table` instead of `json`. |
 | Exit codes | Different | `1` usage or failure, `2` validation, `3` sign-in or preflight, `5` changes with `--exit-code-on-changes`. |

@@ -8,6 +8,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `deployment validate --fetch-links` (off by default): the offline validation downloads the https linked templates and parameter files of
+  nested deployments, with the rules and the per-run cache of `what-if` and `create`, and validates them like local files. Without it they
+  are still not fetched (`LinkedTemplateNotFetched`, whose message now names the option).
+- Key Vault references in the parameters of nested deployments, as ARM allows: a `reference` entry of `properties.parameters` (its vault id,
+  secret name and version may be expressions of the parent, ARM's dynamic id) and a `reference` in the linked parameter file of
+  `parametersLink`. `what-if` and `create` resolve them after the preflight with the signed-in identity (secure, checked against the
+  parameter's constraints, `EARM_KEYVAULT_ALLOWED` applies; a failure is `KeyVaultReferenceUnresolved`, exit 3); offline they stay
+  unknown, and `earm permissions` and the run's Key Vault token take them into account. They were `NestedDeploymentFeatureNotSupported`.
+- Outer-scope nested templates are evaluated in the parent's context, as in ARM: `copyIndex()` in their resources and outputs is the iteration
+  of the deployment's own copy loop, and `reference('name')` also finds the parent template's resources by name (with the implicit
+  dependency).
+
 - `earm permissions` expresses Entra roles needed together: a `together: A + (B | C)` line in the table, an entry with an empty
   `anyOf` and an `allOf` array of parts in the JSON (the overlay key `rolesAllOf`). A catalog resource now needs Identity Governance
   Administrator together with Privileged Role Administrator (role-assignable template group) or with Groups Administrator, Intune
@@ -39,6 +51,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The what-if of an access package assignment policy shows a changed approval stage as the changed properties inside that stage
   (`requestApprovalSettings.stages[0].durationBeforeAutomaticDenial: "P14D" => "P7D"`) instead of the whole stage removed and added:
   stages are matched by position (overlay `memberKey` `$index`), as for the approval stages of a role management policy.
+- `reference()` / `references()` in the outputs of a nested template evaluated in the outer scope is now `ReferenceNotAllowedHere` (ARM
+  requires the inner scope there); EARM used to evaluate it. Set `"expressionEvaluationOptions": { "scope": "inner" }` on the deployment.
 - A group PIM policy (`roleManagementPolicies`) deferred because a schedule request of the same run onboards its group is now applied at
   the end of that run, once Graph lists the onboarded group's policy, instead of by the next run: such a template converges in one run.
   `create` reports `PimPolicyNotAvailable` only when Graph still lists no policy at the end of the retry; the what-if still shows the

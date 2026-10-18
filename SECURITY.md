@@ -127,7 +127,7 @@ yourself, and usually much less ([docs/permissions.md](docs/permissions.md#deleg
   ([docs/format.md](docs/format.md#security-considerations)). Other channels of an expression language (timing, the tenant objects a template creates or names, error
   messages of a template you control) cannot all be closed. **Do not supply secrets (secure parameters, Key Vault references) to `validate`, `what-if` or `create` runs of
   templates you do not trust**, for example the pull-request validation of a repository that accepts outside contributions: run those without secrets or with throw-away values.
-- **Key Vault references use the caller's identity.** A parameter file names a vault and a secret, and EARM reads it with the signed-in identity's Key Vault token, so a template or
+- **Key Vault references use the caller's identity.** A parameter file (or the parameters of a nested deployment, whose vault may be computed by the template) names a vault and a secret, and EARM reads it with the signed-in identity's Key Vault token, so a template or
   parameter file can reference any vault that identity can read, and the value (tainted) may then flow into a resource property the template defines, where whoever can read that
   object sees it. Set **`EARM_KEYVAULT_ALLOWED`** (a comma-separated list of vault names) in every pipeline that deploys: a reference to any other vault is refused before a token is
   requested. Give the identity access only to the vaults a deployment needs.

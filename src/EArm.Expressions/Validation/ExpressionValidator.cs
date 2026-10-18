@@ -28,7 +28,7 @@ namespace EArm.Expressions.Validation;
 /// duplicate ids after name evaluation, secure values in resource keys or plain outputs, reference() targets
 /// that are not statically resolvable.</item>
 /// </list>
-/// Runs offline; <see cref="Analyze"/> also returns the <see cref="StaticContext"/> for callers that need the
+/// Runs offline; <see cref="Analyze(TemplateDocument)"/> also returns the <see cref="StaticContext"/> for callers that need the
 /// evaluated model.
 /// </summary>
 public sealed class ExpressionValidator : ITemplateValidator
@@ -73,13 +73,22 @@ public sealed class ExpressionValidator : ITemplateValidator
     /// <summary>Validates and returns the static model alongside the diagnostics.</summary>
     public ExpressionAnalysis Analyze(TemplateDocument document)
     {
+        return Analyze(document, null);
+    }
+
+    /// <summary>
+    /// Validates the template of a nested deployment evaluated in the outer scope (<paramref name="outer"/>: the deployment's copy iteration and the
+    /// parent's resources), or a template of its own when <paramref name="outer"/> is <c>null</c>.
+    /// </summary>
+    public ExpressionAnalysis Analyze(TemplateDocument document, OuterTemplateScope? outer)
+    {
         ArgumentNullException.ThrowIfNull(document);
 
         var diagnostics = new List<Diagnostic>();
-        var walker = new ExpressionPlacementWalker(_functions, document, diagnostics);
+        var walker = new ExpressionPlacementWalker(_functions, document, diagnostics, outer);
         walker.Run();
 
-        var staticContext = _evaluator.Evaluate(document);
+        var staticContext = _evaluator.Evaluate(document, outer);
         var seen = new HashSet<(string Code, JsonPath? Path)>(diagnostics.Select(d => (d.Code, d.Path)));
         foreach (var diagnostic in staticContext.Diagnostics)
         {
@@ -103,7 +112,7 @@ public sealed class ExpressionValidator : ITemplateValidator
 
 }
 
-/// <summary>The outcome of <see cref="ExpressionValidator.Analyze"/>.</summary>
+/// <summary>The outcome of <see cref="ExpressionValidator.Analyze(TemplateDocument)"/>.</summary>
 public sealed record ExpressionAnalysis(StaticContext Static, IReadOnlyList<Diagnostic> Diagnostics)
 {
     public bool HasErrors => Diagnostics.Any(d => d.IsError);
