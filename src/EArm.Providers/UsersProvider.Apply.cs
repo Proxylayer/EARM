@@ -6,7 +6,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using EArm.Graph;
 using EArm.Core.Secrets;
-using EArm.Core.Types;
 using EArm.Engine;
 using EArm.Engine.Providers;
 using EArm.Expressions.Values;

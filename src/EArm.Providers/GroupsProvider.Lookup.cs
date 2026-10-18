@@ -7,7 +7,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using EArm.Graph;
 using EArm.Core;
-using EArm.Core.Types;
 using EArm.Engine.Providers;
 using GraphApi = EArm.Graph.GraphApi;
 
