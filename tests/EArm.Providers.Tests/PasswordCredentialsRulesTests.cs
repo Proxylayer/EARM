@@ -154,9 +154,9 @@ public sealed class PasswordCredentialsRulesTests
         var desired = new DesiredPasswordCredential(null, null, null, 30);
         var live = Credential("k", Now.AddDays(100));
 
-        Assert.Empty(PasswordCredentialsRules.RotationTriggers(desired, live, Now));
-        Assert.Empty(PasswordCredentialsRules.RotationTriggers(desired with { RotationTag = "q3" }, Credential("k", Now.AddDays(100), "ci-secret#q3"), Now));
-        Assert.Empty(PasswordCredentialsRules.RotationTriggers(desired with { EndDateTime = live.EndDateTime!.Value.AddMilliseconds(500) }, live, Now));
+        Assert.Empty(PasswordCredentialsRules.AssessRotation(desired, live, Now).Triggers);
+        Assert.Empty(PasswordCredentialsRules.AssessRotation(desired with { RotationTag = "q3" }, Credential("k", Now.AddDays(100), "ci-secret#q3"), Now).Triggers);
+        Assert.Empty(PasswordCredentialsRules.AssessRotation(desired with { EndDateTime = live.EndDateTime!.Value.AddMilliseconds(500) }, live, Now).Triggers);
     }
 
     [Fact]
@@ -164,13 +164,13 @@ public sealed class PasswordCredentialsRulesTests
     {
         var live = Credential("k", Now.AddDays(100), "ci-secret#2026Q3");
 
-        var trigger = Assert.Single(PasswordCredentialsRules.RotationTriggers(new DesiredPasswordCredential(null, null, "2026Q4", 30), live, Now));
+        var trigger = Assert.Single(PasswordCredentialsRules.AssessRotation(new DesiredPasswordCredential(null, null, "2026Q4", 30), live, Now).Triggers);
         Assert.Equal("rotationTag", trigger.Property);
         Assert.Equal("2026Q3", trigger.Before!.GetValue<string>());
         Assert.Equal("2026Q4", trigger.After!.GetValue<string>());
         Assert.Contains("'2026Q3' → '2026Q4'", trigger.Reason, StringComparison.Ordinal);
 
-        var removed = Assert.Single(PasswordCredentialsRules.RotationTriggers(new DesiredPasswordCredential(null, null, null, 30), live, Now));
+        var removed = Assert.Single(PasswordCredentialsRules.AssessRotation(new DesiredPasswordCredential(null, null, null, 30), live, Now).Triggers);
         Assert.Null(removed.After);
         Assert.Contains("→ none", removed.Reason, StringComparison.Ordinal);
     }
@@ -246,7 +246,7 @@ public sealed class PasswordCredentialsRulesTests
         var wantedEnd = Now.AddDays(200);
         var wantedStart = Now.AddDays(-1);
 
-        var triggers = PasswordCredentialsRules.RotationTriggers(new DesiredPasswordCredential(wantedEnd, wantedStart, null, 30), live, Now);
+        var triggers = PasswordCredentialsRules.AssessRotation(new DesiredPasswordCredential(wantedEnd, wantedStart, null, 30), live, Now).Triggers;
 
         Assert.Equal(2, triggers.Count);
         Assert.Equal("endDateTime", triggers[0].Property);
@@ -260,20 +260,20 @@ public sealed class PasswordCredentialsRulesTests
     {
         var desired = new DesiredPasswordCredential(null, null, null, 30);
 
-        var soon = Assert.Single(PasswordCredentialsRules.RotationTriggers(desired, Credential("k", Now.AddDays(10)), Now));
+        var soon = Assert.Single(PasswordCredentialsRules.AssessRotation(desired, Credential("k", Now.AddDays(10)), Now).Triggers);
         Assert.Equal("endDateTime", soon.Property);
         Assert.Contains("expires on", soon.Reason, StringComparison.Ordinal);
         Assert.Contains("in 10 days", soon.Reason, StringComparison.Ordinal);
         Assert.Contains("fewer than rotateBeforeDays (30)", soon.Reason, StringComparison.Ordinal);
         Assert.Equal(PasswordCredentialsRules.Format(PasswordCredentialsRules.DefaultEndDateTime(Now)), soon.After!.GetValue<string>());
 
-        var expired = Assert.Single(PasswordCredentialsRules.RotationTriggers(desired, Credential("k", Now.AddDays(-1)), Now));
+        var expired = Assert.Single(PasswordCredentialsRules.AssessRotation(desired, Credential("k", Now.AddDays(-1)), Now).Triggers);
         Assert.Contains("expired on", expired.Reason, StringComparison.Ordinal);
 
-        Assert.Empty(PasswordCredentialsRules.RotationTriggers(desired with { RotateBeforeDays = 5 }, Credential("k", Now.AddDays(10)), Now));
-        Assert.Empty(PasswordCredentialsRules.RotationTriggers(desired, Credential("k", Now.AddDays(30).AddMinutes(1)), Now));
-        Assert.Single(PasswordCredentialsRules.RotationTriggers(desired, Credential("k", Now.AddDays(30).AddMinutes(-1)), Now));
-        Assert.Empty(PasswordCredentialsRules.RotationTriggers(desired, Credential("k", null), Now));
+        Assert.Empty(PasswordCredentialsRules.AssessRotation(desired with { RotateBeforeDays = 5 }, Credential("k", Now.AddDays(10)), Now).Triggers);
+        Assert.Empty(PasswordCredentialsRules.AssessRotation(desired, Credential("k", Now.AddDays(30).AddMinutes(1)), Now).Triggers);
+        Assert.Single(PasswordCredentialsRules.AssessRotation(desired, Credential("k", Now.AddDays(30).AddMinutes(-1)), Now).Triggers);
+        Assert.Empty(PasswordCredentialsRules.AssessRotation(desired, Credential("k", null), Now).Triggers);
     }
 
     [Fact]

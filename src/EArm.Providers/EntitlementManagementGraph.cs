@@ -26,8 +26,6 @@ internal static class EntitlementManagementGraph
 
     public const string AccessPackagesPath = Root + "/accessPackages";
 
-    public const string ResourceRequestsPath = Root + "/resourceRequests";
-
     public const string AssignmentPoliciesPath = Root + "/assignmentPolicies";
 
     /// <summary>The only origin system EARM manages.</summary>

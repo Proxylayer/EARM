@@ -319,15 +319,4 @@ public static class RoleAssignmentsRules
         return extra;
     }
 
-    /// <summary>The kind of principal a Graph collection holds; <c>null</c> for anything but users, groups and service principals.</summary>
-    public static string? PrincipalNoun(string? collection)
-    {
-        return collection?.ToLowerInvariant() switch
-        {
-            "users" => "user",
-            "groups" => "group",
-            "serviceprincipals" => "service principal",
-            _ => null,
-        };
-    }
 }

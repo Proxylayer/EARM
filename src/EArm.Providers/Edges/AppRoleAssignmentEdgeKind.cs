@@ -18,13 +18,12 @@ namespace EArm.Providers.Edges;
 /// Each item resolves to (principal = the declarer, resource service principal, app role id); the edge's
 /// <see cref="Edge.TargetId"/> is the composite <c>{resourceId}/{appRoleId}</c> (a principal may hold several roles
 /// on one resource, and the edge pass keys principal-side existence and tracked removals by target), the real ids
-/// travel in <see cref="Edge.Extra"/> (<c>resourceId</c>, <c>appRoleId</c>, and <c>id</c> for recorded edges).
+/// travel in <see cref="Edge.Extra"/> (<c>resourceId</c>, <c>appRoleId</c>).
 /// <para>
 /// Reads: <c>GET /{users|groups|servicePrincipals}/{principalId}/appRoleAssignments?$top=999</c> (every page) from
 /// the principal's side; the resource is answered from the template when it was deployed in this run, else
 /// <c>GET /servicePrincipals(appId='…')</c> / <c>GET /servicePrincipals/{id}</c> with the summary select. Writes:
-/// <c>POST /servicePrincipals/{resourceId}/appRoleAssignedTo { principalId, resourceId, appRoleId }</c>,
-/// <c>DELETE /servicePrincipals/{resourceId}/appRoleAssignedTo/{id}</c>. Validation: an unknown role value or id, a
+/// <c>POST /servicePrincipals/{resourceId}/appRoleAssignedTo { principalId, resourceId, appRoleId }</c> only (ensure-only, never a DELETE). Validation: an unknown role value or id, a
 /// disabled role, or a role whose <c>allowedMemberTypes</c> excludes the declarer's kind (users and groups are
 /// <c>User</c>, service principals <c>Application</c>) is an invalid item.
 /// </para>
@@ -267,14 +266,14 @@ public sealed class AppRoleAssignmentEdgeKind : IEdgeKindHandler
         return new BatchRequest("POST", AppRoleAssignmentsLookup.AssignedToPath(resourceId), body);
     }
 
+    /// <summary>
+    /// Never called: principal-side app role assignments are ensure-only (the kind has no target-side property, so the edge pass plans no removal of
+    /// it); an assignment is removed only by deleting its <c>Microsoft.Entra/appRoleAssignments</c> resource.
+    /// </summary>
     public BatchRequest RemoveRequest(Edge edge, JsonObject? liveExtra, GraphApi api)
     {
         ArgumentNullException.ThrowIfNull(edge);
-        var (resourceId, _) = Composite(edge);
-        string id = JsonObjects.GetId(liveExtra)
-            ?? JsonObjects.GetId(edge.Extra)
-            ?? throw new InvalidOperationException($"The app role assignment edge {Describe(edge)} has no assignment id; it must be read before it can be removed.");
-        return new BatchRequest("DELETE", AppRoleAssignmentsLookup.AssignedToPath(resourceId) + "/" + GraphPath.Segment(id));
+        throw new NotSupportedException($"The app role assignment edge {Describe(edge)} cannot be removed by the edge pass: principal-side app role assignments are ensure-only.");
     }
 
     // ---- identity ----

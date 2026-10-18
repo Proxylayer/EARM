@@ -339,12 +339,6 @@ public sealed class RoleAssignmentsRulesTests
 
         var extra = RoleAssignmentsRules.LiveExtra(Obj("{ \"id\": \"a1\", \"roleDefinitionId\": \"" + BuiltInRoles.GlobalReader.ToUpperInvariant() + "\", \"directoryScopeId\": \"/3B9F9A6E-0D4C-4B1E-8C9C-2F4B7A6D1E10\" }"));
         Assert.Equal("{\"id\":\"a1\",\"roleDefinitionId\":\"" + BuiltInRoles.GlobalReader + "\",\"directoryScopeId\":\"/" + UnitId + "\"}", extra.ToJsonString());
-
-        Assert.Equal("user", RoleAssignmentsRules.PrincipalNoun("Users"));
-        Assert.Equal("group", RoleAssignmentsRules.PrincipalNoun("groups"));
-        Assert.Equal("service principal", RoleAssignmentsRules.PrincipalNoun("servicePrincipals"));
-        Assert.Null(RoleAssignmentsRules.PrincipalNoun("applications"));
-        Assert.Null(RoleAssignmentsRules.PrincipalNoun(null));
     }
 
     [Fact]

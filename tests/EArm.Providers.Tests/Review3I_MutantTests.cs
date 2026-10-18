@@ -346,7 +346,7 @@ public sealed class Review3I_MutantTests
         var desired = new DesiredPasswordCredential(null, null, desiredTag, 30);
         var live = Live(Now.AddDays(100)) with { DisplayName = liveTag is null ? "ci" : "ci#" + liveTag };
 
-        var triggers = PasswordCredentialsRules.RotationTriggers(desired, live, Now);
+        var triggers = PasswordCredentialsRules.AssessRotation(desired, live, Now).Triggers;
 
         Assert.Equal(rotates, triggers.Any(t => t.Property == PasswordCredentialsRules.RotationTagProperty));
     }

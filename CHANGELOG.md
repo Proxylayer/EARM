@@ -57,6 +57,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   properties, so an application that appeared after the plan's read no longer gets the default `signInAudience: AzureADMyOrg` merged
   into it. A real create still ends with `AzureADMyOrg` (Graph's documented default; EARM PATCHes it right after the create should
   Graph have applied another value).
+- applications/passwordCredentials: the `PasswordCredentialOrphaned` message no longer says EARM "did not record" the extra credentials
+  (EARM keeps no state); it names the credentials that were not there when the run read the application.
 - A request that times out (or is otherwise cancelled without Ctrl+C) no longer aborts the whole `what-if`: the resource whose read
   timed out is an error row and the rest of the what-if completes. The same holds for an existing-resource lookup (`reference(id,
   apiVersion)` stays a placeholder and is reported as unresolved), the orphan report (that type is not listed, with a warning), the

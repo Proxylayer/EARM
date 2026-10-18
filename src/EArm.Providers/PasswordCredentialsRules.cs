@@ -312,20 +312,11 @@ public static class PasswordCredentialsRules
     // ---- rotation ----
 
     /// <summary>
-    /// Why the live credential is replaced, or empty for <c>NoChange</c>: the <c>rotationTag</c> differs from the
-    /// tag in the live <c>displayName</c> (absent ≡ absent; a live credential without a tag matches any declared tag, see
-    /// <see cref="AssessRotation"/>), a declared <c>endDateTime</c> / <c>startDateTime</c> differs from the live
-    /// value, the credential expired, or it expires within <c>rotateBeforeDays</c> and a replacement would live longer.
-    /// A credential created without <c>endDateTime</c> keeps the expiry it was given (reruns do not drift towards "now + 180 days").
-    /// See <see cref="AssessRotation"/> for the warnings.
-    /// </summary>
-    public static IReadOnlyList<RotationTrigger> RotationTriggers(DesiredPasswordCredential desired, PasswordCredentialSummary live, DateTimeOffset now)
-    {
-        return AssessRotation(desired, live, now).Triggers;
-    }
-
-    /// <summary>
-    /// <see cref="RotationTriggers"/> plus the <see cref="ProviderWarnings.SecretExpiresSoon"/> text for a credential that is expired or in its
+    /// Why the live credential is replaced (<see cref="RotationAssessment.Triggers"/>, empty for <c>NoChange</c>): the <c>rotationTag</c> differs from the
+    /// tag in the live <c>displayName</c> (absent ≡ absent; a live credential without a tag matches any declared tag, see below), a declared
+    /// <c>endDateTime</c> / <c>startDateTime</c> differs from the live value, the credential expired, or it expires within <c>rotateBeforeDays</c> and a
+    /// replacement would live longer. A credential created without <c>endDateTime</c> keeps the expiry it was given (reruns do not drift towards
+    /// "now + 180 days"). Plus the <see cref="ProviderWarnings.SecretExpiresSoon"/> text for a credential that is expired or in its
     /// rotation window but would not get a later expiry from a replacement (Review 1D / E-07): a declared fixed <c>endDateTime</c> inside the
     /// window, or a <c>rotateBeforeDays</c> longer than the default lifetime, used to rotate the secret on every run because the
     /// replacement ends no later than the credential it replaces. The credential is rotated only when

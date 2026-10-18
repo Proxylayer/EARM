@@ -26,7 +26,7 @@ public sealed partial class ApplicationsProvider
 
         string name = desired.Id.NameLeaf;
         var key = ResolveKey(desired);
-        var derived = ApplicationsRules.NormalizeDesired(properties, name);
+        ApplicationsRules.NormalizeDesired(properties, name);
         // The upsert merges its body into an application that already exists (one created after the plan's read, or the restored one), so it carries only
         // what the template declares: the overlay defaults describe the application EARM creates and are checked against the created object below.
         var body = BuildDeclaredBody(desired);
@@ -56,7 +56,7 @@ public sealed partial class ApplicationsProvider
             // From here on the application exists again (it is out of the recycle bin): a failure of a later step must hand it over, or the run loses the object.
             var restoredLive = (restoredResponse.Body as JsonObject is { } restoredBody ? (JsonObject)restoredBody.DeepClone() : (JsonObject)deleted.DeepClone());
             restoredLive["id"] = deletedId;
-            restoredPartial = new AppliedResource(desired.Id, deletedId, restoredLive, key, derived.ToExtra()) { Warnings = warnings };
+            restoredPartial = new AppliedResource(desired.Id, deletedId, restoredLive, key) { Warnings = warnings };
         }
 
         try
@@ -82,7 +82,7 @@ public sealed partial class ApplicationsProvider
             }
 
             string id = RequireId(live, desired);
-            var written = new AppliedResource(desired.Id, id, live, key, derived.ToExtra()) { Warnings = warnings };
+            var written = new AppliedResource(desired.Id, id, live, key) { Warnings = warnings };
             if (deferredUris || followUp.Count > 0)
             {
                 // The object exists now: a failure of the second PATCH hands it over (ProviderException.Partial) so the executor records it.
@@ -185,7 +185,7 @@ public sealed partial class ApplicationsProvider
 
         string name = desired.Id.NameLeaf;
         var key = ResolveKey(desired);
-        var derived = ApplicationsRules.NormalizeDesired(properties, name);
+        ApplicationsRules.NormalizeDesired(properties, name);
         if (JsonObjects.GetString(existing.Raw, "appId") is { } liveAppId)
         {
             ApplicationsRules.SubstituteAppId(properties, liveAppId);
@@ -232,6 +232,6 @@ public sealed partial class ApplicationsProvider
 
         var live = await GetApplicationAsync(graph, path, desired.Api, desired.RetryHint, _selects.For(key, ManagedProperties), cancellationToken).ConfigureAwait(false)
             ?? throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{desired.Describe()}: the application ({existing.GraphId}) vanished after the update.", desired.Id);
-        return new AppliedResource(desired.Id, existing.GraphId, live, key, derived.ToExtra());
+        return new AppliedResource(desired.Id, existing.GraphId, live, key);
     }
 }
