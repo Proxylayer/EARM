@@ -464,6 +464,8 @@ found = create.
 | `servicePrincipals` | `appId` of the application it instantiates | the `appId` (usually `[reference('app').appId]`) |
 | `applications/federatedIdentityCredentials` | `name` under the parent application | the credential's `name` |
 | `applications/passwordCredentials` | `displayName` `<name>#<rotationTag>` under the parent application, matched by the base name (the tag is what follows the `#`; a `#` in the name or in `rotationTag` is rejected offline) | the base name |
+| `applications/keyCredentials` | the exact `displayName` under the parent application (the certificate thumbprint decides NoChange or replacement; several same-name certificates are `AmbiguousMatch`) | the `displayName` |
+| `applications/extensionProperties` | Graph `name` `extension_<appId without dashes>_<name>` under the parent application | the short name |
 | `conditionalAccess/authenticationContextClassReferences` | `id` (`c1`..`c99`) | the id |
 | `authenticationMethodConfigurations` | the method id (case-insensitive; Graph id `Fido2`, `Sms`...) | the method id (`fido2`, `sms`...); a tenant singleton: not found is an error, never a create |
 | `roleAssignments` | (`roleDefinitionId`, `principalId`, `directoryScopeId`) | a label (`guid(...)`); not part of the identity |

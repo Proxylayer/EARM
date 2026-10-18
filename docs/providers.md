@@ -306,6 +306,65 @@ credential collection. A real-tenant run that upserted `github-0` and `github-1`
 workload identity federation considerations likewise say to create the credentials of one parent sequentially. Credentials of different
 applications are still written in parallel.
 
+### Worked example: `KeyCredentialsProvider` (a collection Graph only replaces whole)
+
+`Microsoft.Entra/applications/keyCredentials`: a certificate credential of an application. The name is
+`<application uniqueName>/<credential displayName>`; the credential is found among the application's `keyCredentials` by its **exact**
+`displayName` (the stateless key, like `passwordCredentials`, without a rotation tag: the certificate itself says whether it changed). The
+certificate's SHA-1 thumbprint, computed from the `key` bytes, decides whether the live credential is the declared one.
+
+Graph has no single-certificate add that works without proof of possession: `addKey` needs a JWT signed with a key the application already
+holds ([application-addkey](https://learn.microsoft.com/en-us/graph/api/application-addkey?view=graph-rest-1.0)), so it cannot add the first certificate
+and would need a private key. EARM therefore writes the **whole collection** with `PATCH /applications/{id}`, which replaces the property
+([applications-how-to-add-certificate](https://learn.microsoft.com/en-us/graph/applications-how-to-add-certificate): "including only the new certificate
+replaces the existing certificates"), and keeps it **ensure-only**: every entry whose `displayName` differs is sent back exactly as read, with its
+`key` and `keyId`, so certificates uploaded in the portal or managed by another tool survive. The single-object read
+`GET /applications/{id}?$select=keyCredentials` is the only one that returns `key` ([keyCredential](https://learn.microsoft.com/en-us/graph/api/resources/keycredential?view=graph-rest-1.0));
+should an unmanaged entry come back without it, nothing is written (re-sending it would remove that certificate).
+
+| Operation | Requests |
+|---|---|
+| Read | `GET /applications/{parentId}?$select=id,keyCredentials` (or the `uniqueName` alternate key); a 404 is "does not exist" |
+| Create / replace | under a per-application gate: `[GET /applications(uniqueName='…')?$select=id]` → `GET /applications/{id}?$select=id,keyCredentials` → `PATCH /applications/{id} { "keyCredentials": [ <every other entry as read>, { displayName, type, usage, key[, startDateTime][, endDateTime] } ] }` → the read again for the new `keyId` |
+| Delete | the same read-modify-write without the same-name entries; a missing application or credential is "already gone" |
+
+- `Plan`: `Create` when no credential has the name; `NoChange` when the thumbprint, `type`, `usage` and the **declared** dates match (undeclared
+  dates are Graph's, taken from the certificate); otherwise `Modify` (mode `Patch`: the entry is replaced in the same PATCH, so the application
+  is never without it). The row shows `displayName`, `thumbprint`, `type`, `usage` and the dates, never the certificate bytes.
+- Refused (unsupported rows): two or more live credentials with the name (`AmbiguousMatch`: EARM cannot tell which one it manages and never removes
+  one on its own), a parent application that also declares `keyCredentials` (it would replace the collection), a `key` that is not a public X.509
+  certificate (a PEM private key or a PFX/PKCS#12 is refused: private keys are never handled), a `type` other than `AsymmetricX509Cert` and a
+  `usage` other than `Verify` (Learn, application-addkey: "AsymmetricX509Cert: The usage must be Verify"; `Sign` goes with `X509CertAndPassword`,
+  which carries the private key).
+- `key` may be a `securestring` parameter (for example a Key Vault reference in the parameter file, the existing mechanism): it is compared, and its
+  thumbprint is masked in what-if. A Key Vault *certificate* object is not read directly; store the public certificate (`.cer`, base64) as a secret
+  or pass it as a plain parameter.
+- Service principals are out of scope: their certificates sign SAML tokens and need the private key (`addTokenSigningCertificate`).
+- `reference(...)` returns `keyId`, `displayName`, `thumbprint`, `type`, `usage` and the dates. Writes to one application's certificates go one at a time.
+  Complete mode lists the certificates of declared applications that the template does not name as orphans (never deleted).
+- A credential written outside EARM between EARM's read and its PATCH is lost (Graph has no conditional PATCH for the collection); the window is one
+  read and one write under the gate.
+
+### Worked example: `ExtensionPropertiesProvider` (immutable definitions, destructive deletes)
+
+`Microsoft.Entra/applications/extensionProperties`: a directory extension definition. The name is `<application uniqueName>/<short name>`;
+Graph stores the name as `extension_<appId without dashes>_<name>` ([application-post-extensionproperty](https://learn.microsoft.com/en-us/graph/api/application-post-extensionproperty?view=graph-rest-1.0)),
+which is what `reference(...).name` returns and what users and groups carry the values under.
+
+| Operation | Requests |
+|---|---|
+| Read | `GET /applications/{parentId}?$select=id,appId` (or the `uniqueName` alternate key) → `GET /applications/{id}/extensionProperties?$filter=name eq 'extension_…_<name>'` ([extensionproperty](https://learn.microsoft.com/en-us/graph/api/resources/extensionproperty?view=graph-rest-1.0): `name` supports `$filter` `eq`) |
+| Create | `POST /applications/{id}/extensionProperties { name, dataType, targetObjects, isMultiValued }` (`isMultiValued` defaults to false, create only) |
+| Delete | `DELETE /applications/{id}/extensionProperties/{extensionId}` ([extensionproperty-delete](https://learn.microsoft.com/en-us/graph/api/extensionproperty-delete?view=graph-rest-1.0)); a 404 is "already gone" |
+
+- Graph has no update: the overlay marks every property immutable (`immutable: ["*"]`), so a changed `dataType`, `targetObjects` or
+  `isMultiValued` plans a `Recreate`, which is only done when confirmed (the prompt or `-y`, `RecreateNotConfirmed` otherwise).
+- Every delete (`deployment delete`, the delete half of a recreate) carries a `DestructiveDelete` warning (`IDeleteWarningSource`): the values stored
+  under the extension on every target object become unreachable, and recreating it does not bring them back.
+- An extension synced from on-premises Active Directory (`isSyncedFromOnPremises`) cannot be deleted through Graph (Learn) and is kept by
+  `deployment delete` (`IDeleteRefusalSource`, `NotDeletable`).
+- A declared `properties.name` must be the short name; the full `extension_…` name is a `NameMappedPropertyConflict`.
+
 ### Worked example: `UsersProvider` (create-only secrets, action-backed licenses)
 
 `Microsoft.Entra/users`: the name is the `userPrincipalName` (a guest's `#EXT#` is percent-encoded on the path). Every read
