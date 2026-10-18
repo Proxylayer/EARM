@@ -9,7 +9,6 @@ using Azure.Identity;
 using EArm.Cli.Hosting;
 using EArm.Graph;
 using EArm.Graph.Auth;
-using EArm.TestSupport;
 using Xunit;
 
 namespace EArm.Tests.Cli;

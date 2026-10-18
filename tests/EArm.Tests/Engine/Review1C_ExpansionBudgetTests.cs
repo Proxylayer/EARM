@@ -9,10 +9,8 @@ using EArm.Core.Loading;
 using EArm.Core.Types;
 using EArm.Engine.Planning;
 using EArm.Engine.Providers;
-using EArm.Expressions;
 using EArm.Expressions.Evaluation;
 using EArm.Expressions.Static;
-using EArm.Tests.Cli;
 using EArm.Tests.Engine;
 using Xunit;
 

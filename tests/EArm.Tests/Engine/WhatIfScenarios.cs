@@ -8,7 +8,6 @@ using EArm.Core;
 using EArm.Core.Loading;
 using EArm.Core.Types;
 using EArm.Engine.Planning;
-using EArm.Engine.Providers;
 using EArm.Engine.WhatIf;
 using EArm.Providers;
 using EArm.TestSupport;

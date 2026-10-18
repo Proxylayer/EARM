@@ -8,7 +8,6 @@ using EArm.Core.Diagnostics;
 using EArm.Core.Loading;
 using EArm.Core.Types;
 using EArm.Engine.Planning;
-using EArm.Expressions;
 using EArm.Expressions.Evaluation;
 using EArm.Expressions.Static;
 using Xunit;

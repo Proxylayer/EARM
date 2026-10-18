@@ -1,10 +1,7 @@
 using System;
-using System.Linq;
 using System.Text.Json.Nodes;
 using EArm.Core;
 using EArm.Core.Diagnostics;
-using EArm.Core.Secrets;
-using EArm.Expressions;
 using EArm.Expressions.Evaluation;
 using EArm.Expressions.Functions;
 using EArm.Expressions.Values;

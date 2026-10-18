@@ -1,6 +1,5 @@
 using System.Linq;
 using System.Text;
-using EArm.Core;
 using EArm.Core.Diagnostics;
 using EArm.Core.Json;
 using Xunit;

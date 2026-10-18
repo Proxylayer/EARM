@@ -5,7 +5,6 @@ using EArm.Core;
 using EArm.Core.Diagnostics;
 using EArm.Core.Json;
 using EArm.Core.Secrets;
-using EArm.Expressions;
 using EArm.Expressions.Values;
 using EArm.Tests.Engine;
 using Xunit;

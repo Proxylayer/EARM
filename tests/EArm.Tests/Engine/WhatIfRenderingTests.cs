@@ -3,16 +3,13 @@ using System.IO;
 using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
-using EArm.Graph;
 using EArm.Cli;
 using EArm.Cli.Commands;
 using EArm.Cli.Output;
 using EArm.Core.Json;
 using EArm.Core.Secrets;
-using EArm.Engine;
 using EArm.Engine.Providers;
 using EArm.Engine.WhatIf;
-using EArm.Expressions.Values;
 using Microsoft.Extensions.Logging;
 using Xunit;
 

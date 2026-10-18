@@ -4,12 +4,10 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using Azure.Core;
 using Azure.Identity;
 using EArm.Cli.Hosting;
 using EArm.Graph;
 using EArm.Graph.Auth;
-using EArm.TestSupport;
 using Xunit;
 
 namespace EArm.Tests.Cli;

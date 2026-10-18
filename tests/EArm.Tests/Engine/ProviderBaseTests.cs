@@ -8,7 +8,6 @@ using EArm.Core;
 using EArm.Core.Diagnostics;
 using EArm.Core.Secrets;
 using EArm.Engine;
-using EArm.Engine.Planning;
 using EArm.Engine.Providers;
 using EArm.TestSupport;
 using Xunit;

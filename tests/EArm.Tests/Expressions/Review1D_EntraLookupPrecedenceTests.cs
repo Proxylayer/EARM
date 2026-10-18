@@ -3,7 +3,6 @@ using System.Threading.Tasks;
 using EArm.Core;
 using EArm.Core.Diagnostics;
 using EArm.Expressions.Evaluation;
-using EArm.Expressions.Static;
 using Xunit;
 
 namespace EArm.Tests;

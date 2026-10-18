@@ -7,7 +7,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using EArm.Cli;
 using EArm.Cli.Commands;
-using EArm.Engine;
 using EArm.TestSupport;
 using EArm.Tests.Engine;
 using Xunit;

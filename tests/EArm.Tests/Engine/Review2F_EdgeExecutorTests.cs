@@ -9,7 +9,6 @@ using System.Threading.Tasks;
 using EArm.Core.Types;
 using EArm.Engine.Edges;
 using EArm.Engine.Planning;
-using EArm.Engine.Providers;
 using EArm.Graph;
 using EArm.Providers;
 using EArm.TestSupport;

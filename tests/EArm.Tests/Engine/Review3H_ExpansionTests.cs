@@ -1,6 +1,5 @@
 using System.Linq;
 using System.Threading.Tasks;
-using EArm.Engine.Execution;
 using Xunit;
 
 namespace EArm.Tests.Engine;

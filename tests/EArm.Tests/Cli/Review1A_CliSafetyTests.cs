@@ -1,16 +1,8 @@
 using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text.Json.Nodes;
-using System.Threading;
 using System.Threading.Tasks;
 using EArm.Cli;
-using EArm.Cli.Commands;
-using EArm.Engine;
-using EArm.Engine.Planning;
-using EArm.Graph;
-using EArm.Tests.Engine;
 using Xunit;
 
 namespace EArm.Tests.Cli;
