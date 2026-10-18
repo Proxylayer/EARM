@@ -1,6 +1,5 @@
 using System;
 using EArm.Graph.Auth;
-using EArm.Graph.Tests.Infrastructure;
 using Xunit;
 
 namespace EArm.Graph.Tests;

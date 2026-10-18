@@ -1,6 +1,4 @@
 using System;
-using System.Collections.Generic;
-using EArm.Graph;
 using Xunit;
 
 namespace EArm.Graph.Tests;

@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
-using EArm.Graph;
 using EArm.Graph.Tests.Infrastructure;
 using Xunit;
 

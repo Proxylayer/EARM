@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -8,7 +7,6 @@ using System.Threading.Tasks;
 using Azure.Core;
 using Azure.Identity;
 using EArm.Graph.Auth;
-using EArm.Graph.Tests.Infrastructure;
 using Xunit;
 
 namespace EArm.Graph.Tests;
