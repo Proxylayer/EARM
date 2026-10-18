@@ -5,7 +5,6 @@ using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using EArm.Graph;
 using EArm.Core;
-using EArm.Providers;
 using Xunit;
 
 namespace EArm.Integration.Tests;
