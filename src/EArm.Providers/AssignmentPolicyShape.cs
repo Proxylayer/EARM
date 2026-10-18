@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Text.Json.Nodes;
 using EArm.Engine.Providers;
@@ -16,7 +17,9 @@ namespace EArm.Providers;
 /// <item><see cref="MergeForPut"/>: the full document for Graph's replace-only <c>PUT</c>: the live policy with the declared values merged in (objects
 /// merge, a declared array replaces the live one, each declared entry merged over the live entry it matches).</item>
 /// </list>
-/// Array entries match by <c>groupId</c> / <c>userId</c> (subject sets, compared order-insensitively by the shared diff), else by position (stages).
+/// Array entries match by <c>groupId</c> / <c>userId</c> (subject sets, compared order-insensitively by the shared diff), a subject set without an id
+/// (<c>requestorManager</c>, the sponsors) by its <c>@odata.type</c> (and <c>managerLevel</c>), else by position (stages). The same rules cover the
+/// approvers of the stages and the reviewers of <c>reviewSettings</c>.
 /// </summary>
 internal static class AssignmentPolicyShape
 {
@@ -69,9 +72,22 @@ internal static class AssignmentPolicyShape
                 return projected;
             }
 
+            case (JsonValue desiredValue, JsonValue liveValue) when SameInstant(desiredValue, liveValue):
+                // Graph may write a timestamp back with milliseconds or another offset (a review's startDateTime): the same instant is no drift.
+                return desiredValue.DeepClone();
+
             default:
                 return live?.DeepClone();
         }
+    }
+
+    /// <summary>Two ISO 8601 timestamps (with a time part) that name the same instant.</summary>
+    private static bool SameInstant(JsonValue desired, JsonValue live)
+    {
+        return desired.TryGetValue(out string? left) && live.TryGetValue(out string? right) && left.Contains('T', StringComparison.Ordinal) && right.Contains('T', StringComparison.Ordinal)
+            && DateTimeOffset.TryParse(left, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var a)
+            && DateTimeOffset.TryParse(right, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var b)
+            && a == b;
     }
 
     /// <summary>The <c>PUT</c> document: <paramref name="live"/> without its read-only properties, with <paramref name="desired"/> merged in.</summary>
@@ -161,8 +177,30 @@ internal static class AssignmentPolicyShape
             return -1;
         }
 
+        // A subject set without an id (requestorManager, targetUserSponsors, internalSponsors ...): the same type (and manager level) in any position.
+        if (JsonObjects.GetString(declared, "@odata.type") is { } type)
+        {
+            string? level = declared["managerLevel"]?.ToJsonString();
+            for (int i = 0; i < live.Count; i++)
+            {
+                if (!used.Contains(i) && live[i] is JsonObject candidate && SameODataType(JsonObjects.GetString(candidate, "@odata.type"), type)
+                    && (level is null || candidate["managerLevel"]?.ToJsonString() == level))
+                {
+                    return i;
+                }
+            }
+
+            return -1;
+        }
+
         int index = declared.Parent is JsonArray parent ? parent.IndexOf(declared) : -1;
         return index >= 0 && index < live.Count && !used.Contains(index) && live[index] is JsonObject ? index : -1;
+    }
+
+    /// <summary>Two <c>@odata.type</c> values name the same type (<c>#microsoft.graph.x</c> and <c>microsoft.graph.x</c> alike, any casing).</summary>
+    private static bool SameODataType(string? left, string right)
+    {
+        return left is not null && string.Equals(left.TrimStart('#'), right.TrimStart('#'), StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>A subject set's <c>description</c> is read-only (Learn: resources/groupmembers); it is not sent back.</summary>

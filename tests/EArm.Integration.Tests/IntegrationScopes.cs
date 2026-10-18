@@ -114,6 +114,8 @@ internal static class IntegrationScopes
         new("app-management.entra.json", Needs.AppManagement, With(("defaultDescription", "placeholder"))),
         new("cross-tenant.entra.json", Needs.CrossTenant, With(("partnerTenantId", PlaceholderGuid1), ("hybridJoinAccepted", "false"))),
         new("group-lifecycle.entra.json", Needs.GroupLifecycle, Empty()),
+        new("access-packages-app.entra.json", Needs.AccessPackages, Empty()),
+        new("access-packages-site.entra.json", Needs.AccessPackages | Needs.SharePointSite, With(("siteUrl", "https://contoso.sharepoint.com/sites/example"), ("siteRole", "Example Members"))),
     ];
 
     private const string PlaceholderGuid1 = "00000000-0000-0000-0000-0000000000a1";

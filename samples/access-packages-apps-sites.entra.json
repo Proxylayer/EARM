@@ -1,0 +1,99 @@
+{
+  "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "An access package over an application and a SharePoint Online site (entitlement management): an Orders Portal app registration with two app roles and its service principal, one catalog holding the service principal (originSystem AadApplication, originId its object id) and the team's site (originSystem SharePointOnline, originId its URL), and one package granting the Approver app role and the site's Members group, with a policy that lets every member user request it for 180 days. The site must exist; Graph lists a site in a catalog only to a delegated caller, so deploy as a signed-in user who is an Identity Governance Administrator and a SharePoint Administrator (or an administrator of the site). See docs/access-packages.md."
+  },
+  "parameters": {
+    "siteUrl": { "type": "string", "defaultValue": "https://contoso.sharepoint.com/sites/OrdersTeam", "metadata": { "description": "The URL of the team's existing SharePoint Online site (a trailing slash and the casing do not matter)." } },
+    "siteTitle": { "type": "string", "defaultValue": "Orders Team", "metadata": { "description": "The site's title: its default groups are '<title> Owners', '<title> Members' and '<title> Visitors'." } },
+    "assignmentDuration": { "type": "string", "defaultValue": "P180D", "metadata": { "description": "How long an assignment of the package lasts." } }
+  },
+  "variables": {
+    "catalogName": "Orders Collaboration",
+    "packageName": "Orders Approvers",
+    "approverRoleId": "8f2b6c1e-4a7d-4e1b-9c3a-2d5e7f9a1b01",
+    "readerRoleId": "8f2b6c1e-4a7d-4e1b-9c3a-2d5e7f9a1b02"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Entra/applications", "apiVersion": "2026-10-01-preview", "name": "orders-portal",
+      "properties": {
+        "displayName": "Orders Portal",
+        "signInAudience": "AzureADMyOrg",
+        "appRoles": [
+          { "id": "[variables('approverRoleId')]", "value": "Orders.Approve", "displayName": "Approver", "description": "Approve orders in the portal", "isEnabled": true, "allowedMemberTypes": ["User"] },
+          { "id": "[variables('readerRoleId')]", "value": "Orders.Read", "displayName": "Reader", "description": "Read orders in the portal", "isEnabled": true, "allowedMemberTypes": ["User"] }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.Entra/servicePrincipals", "apiVersion": "2026-10-01-preview", "name": "[reference('orders-portal').appId]",
+      "properties": { "appRoleAssignmentRequired": true }
+    },
+    {
+      "type": "Microsoft.Entra/entitlementManagement/catalogs", "apiVersion": "2026-10-01-preview", "name": "[variables('catalogName')]",
+      "properties": { "description": "The Orders Portal and the Orders team site" }
+    },
+    {
+      "type": "Microsoft.Entra/entitlementManagement/catalogResources", "apiVersion": "2026-10-01-preview",
+      "name": "[guid(variables('catalogName'), 'orders-portal')]",
+      "properties": {
+        "catalogId": "[reference(variables('catalogName')).id]",
+        "originId": "[reference(resourceId('Microsoft.Entra/servicePrincipals', reference('orders-portal').appId)).id]",
+        "originSystem": "AadApplication"
+      }
+    },
+    {
+      "type": "Microsoft.Entra/entitlementManagement/catalogResources", "apiVersion": "2026-10-01-preview",
+      "name": "[guid(variables('catalogName'), 'orders-site')]",
+      "properties": {
+        "catalogId": "[reference(variables('catalogName')).id]",
+        "originId": "[parameters('siteUrl')]",
+        "originSystem": "SharePointOnline"
+      }
+    },
+    {
+      "type": "Microsoft.Entra/entitlementManagement/accessPackages", "apiVersion": "2026-10-01-preview", "name": "[variables('packageName')]",
+      "properties": {
+        "catalogId": "[reference(variables('catalogName')).id]",
+        "description": "Approve orders in the Orders Portal and work in the Orders team site."
+      }
+    },
+    {
+      "type": "Microsoft.Entra/entitlementManagement/resourceRoleScopes", "apiVersion": "2026-10-01-preview",
+      "name": "[guid(variables('packageName'), 'orders-portal', 'Approver')]",
+      "properties": {
+        "accessPackageId": "[reference(variables('packageName')).id]",
+        "resourceOriginId": "[reference(resourceId('Microsoft.Entra/servicePrincipals', reference('orders-portal').appId)).id]",
+        "originSystem": "AadApplication",
+        "role": "Approver"
+      }
+    },
+    {
+      "type": "Microsoft.Entra/entitlementManagement/resourceRoleScopes", "apiVersion": "2026-10-01-preview",
+      "name": "[guid(variables('packageName'), 'orders-site', 'Members')]",
+      "properties": {
+        "accessPackageId": "[reference(variables('packageName')).id]",
+        "resourceOriginId": "[parameters('siteUrl')]",
+        "originSystem": "SharePointOnline",
+        "role": "[format('{0} Members', parameters('siteTitle'))]"
+      }
+    },
+    {
+      "type": "Microsoft.Entra/entitlementManagement/accessPackages/assignmentPolicies", "apiVersion": "2026-10-01-preview",
+      "name": "[format('{0}/Requested by member users', variables('packageName'))]",
+      "properties": {
+        "description": "[format('Member users request it without approval; it ends after {0}.', parameters('assignmentDuration'))]",
+        "allowedTargetScope": "allMemberUsers",
+        "expiration": { "type": "afterDuration", "duration": "[parameters('assignmentDuration')]" },
+        "requestorSettings": { "enableTargetsToSelfAddAccess": true, "enableTargetsToSelfRemoveAccess": true, "enableTargetsToSelfUpdateAccess": false, "allowCustomAssignmentSchedule": false },
+        "requestApprovalSettings": { "isApprovalRequiredForAdd": false, "isApprovalRequiredForUpdate": false, "isRequestorJustificationRequired": true, "stages": [] }
+      }
+    }
+  ],
+  "outputs": {
+    "catalogId": { "type": "string", "value": "[reference(variables('catalogName')).id]" },
+    "accessPackageId": { "type": "string", "value": "[reference(variables('packageName')).id]" }
+  }
+}

@@ -1006,11 +1006,11 @@ $specs['entitlementManagement.catalogs'] = [ordered]@{
 
 $specs['entitlementManagement.catalogResources'] = [ordered]@{
     NamePattern = $script:GuidPattern
-    Description = 'A group added to an entitlement management catalog (accessPackageResource, written through accessPackageResourceRequest adminAdd / adminRemove). Found by the tuple (catalogId, originId); the GUID name is a label.'
+    Description = 'A group, an application (service principal) or a SharePoint Online site added to an entitlement management catalog (accessPackageResource, written through accessPackageResourceRequest adminAdd / adminRemove). Found by the tuple (catalogId, originId), a site URL compared case-insensitively and without its trailing slash; the GUID name is a label.'
     Props       = [ordered]@{
         catalogId    = Str 'Required: the catalog''s object id, for example [reference(''catalog'').id].' -Min 1
-        originId     = Str 'Required: the group''s object id, for example [reference(''group'').id].' -Min 1
-        originSystem = Str 'AadGroup (the default, and the only origin EARM manages).' -Enum 'AadGroup'
+        originId     = Str 'Required: the group''s object id ([reference(''group'').id]); for AadApplication the service principal''s object id ([reference(''sp'').id]); for SharePointOnline the site URL (https://contoso.sharepoint.com/sites/Example).' -Min 1
+        originSystem = Str 'AadGroup (the default), AadApplication (an enterprise application: originId is its service principal) or SharePointOnline (a site: originId is its URL).' -Enum 'AadGroup', 'AadApplication', 'SharePointOnline'
     }
 }
 
@@ -1027,12 +1027,12 @@ $specs['entitlementManagement.accessPackages'] = [ordered]@{
 
 $specs['entitlementManagement.resourceRoleScopes'] = [ordered]@{
     NamePattern = $script:GuidPattern
-    Description = 'A group role an access package grants (accessPackageResourceRoleScope). Found by the tuple (accessPackageId, resourceOriginId, role); the GUID name is a label. The group must be a resource of the package''s catalog.'
+    Description = 'A role an access package grants of a resource of its catalog (accessPackageResourceRoleScope): a group role, an app role of an application, or a site group of a SharePoint Online site. Found by the tuple (accessPackageId, resourceOriginId, role); the GUID name is a label. The resource must be a resource of the package''s catalog.'
     Props       = [ordered]@{
         accessPackageId  = Str 'Required: the access package''s object id, for example [reference(''package'').id].' -Min 1
-        resourceOriginId = Str 'Required: the group''s object id, for example [reference(''group'').id].' -Min 1
-        role             = Str 'Required: the group role''s display name. Eligible Member and Eligible Owner (PIM for Groups eligibility) are offered only for a group onboarded in PIM for Groups.' -Enum 'Member', 'Owner', 'Eligible Member', 'Eligible Owner'
-        originSystem     = Str 'AadGroup (the default, and the only origin EARM manages).' -Enum 'AadGroup'
+        resourceOriginId = Str 'Required: the catalog resource''s originId: the group''s or service principal''s object id, or the site URL.' -Min 1
+        role             = Str 'Required: the role. A group: Member, Owner, Eligible Member or Eligible Owner (the eligible roles only for a group onboarded in PIM for Groups). An application: the app role''s display name or id (Default Access for an app without app roles). A SharePoint Online site: the site group''s display name (for example Contoso Members) or its number in the site.' -Min 1
+        originSystem     = Str 'AadGroup (the default), AadApplication or SharePointOnline: the origin system of the catalog resource.' -Enum 'AadGroup', 'AadApplication', 'SharePointOnline'
     }
 }
 
@@ -1065,7 +1065,41 @@ $specs['entitlementManagement.accessPackages.assignmentPolicies'] = [ordered]@{
                 fallbackEscalationApprovers     = Arr -d 'The fallback escalation approvers.' -Items $subjectSet -Nullable
             })))
         }))
-        reviewSettings          = FreeObj 'accessPackageAssignmentReviewSettings (optional access reviews).' -Nullable
+        reviewSettings          = Obj -d 'accessPackageAssignmentReviewSettings: recurring access reviews of the assignments made through the policy. Only declared members are compared; reviewers are compared as sets.' -Nullable -Props (Props ([ordered]@{
+            isEnabled                       = Bool 'Whether the assignments of the policy are reviewed.'
+            expirationBehavior              = Str 'What happens to an assignment nobody reviewed: keepAccess, removeAccess or acceptAccessRecommendation.' -Enum 'keepAccess', 'removeAccess', 'acceptAccessRecommendation'
+            isRecommendationEnabled         = Bool 'Whether reviewers see recommendations (Graph default true).'
+            isReviewerJustificationRequired = Bool 'Whether a reviewer must justify an approval (Graph default true).'
+            isSelfReview                    = Bool 'Whether the assignees review their own access (then no reviewers are needed).'
+            schedule                        = Obj -d 'entitlementManagementSchedule: when the first review starts, how long each review lasts, how often it recurs.' -Props (Props ([ordered]@{
+                startDateTime = Str 'When the first review starts (ISO 8601, UTC), for example 2026-11-01T00:00:00Z.'
+                expiration    = Obj -d 'expirationPattern: how long each review stays open.' -Props (Props ([ordered]@{
+                    type        = Str 'afterDuration (with duration), afterDateTime, noExpiration or notSpecified.' -Enum 'notSpecified', 'noExpiration', 'afterDateTime', 'afterDuration'
+                    duration    = Str 'afterDuration: an ISO 8601 duration, for example P14D.' -Nullable
+                    endDateTime = Str 'afterDateTime: when the review ends (ISO 8601).' -Nullable
+                }))
+                recurrence    = Obj -d 'patternedRecurrence: how often the review recurs.' -Props (Props ([ordered]@{
+                    pattern = Obj -d 'recurrencePattern, for example { "type": "absoluteMonthly", "interval": 3 } for quarterly.' -Props (Props ([ordered]@{
+                        type           = Str 'daily, weekly, absoluteMonthly, relativeMonthly, absoluteYearly or relativeYearly.' -Enum 'daily', 'weekly', 'absoluteMonthly', 'relativeMonthly', 'absoluteYearly', 'relativeYearly'
+                        interval       = Int 'The number of units (days, weeks, months, years) between occurrences; at least 1.' -Min 1
+                        month          = Int 'absoluteYearly / relativeYearly: the month (1-12); Graph returns 0 otherwise.' -Min 0 -Max 12
+                        dayOfMonth     = Int 'absoluteMonthly / absoluteYearly: the day of the month (1-31); Graph returns 0 otherwise.' -Min 0 -Max 31
+                        daysOfWeek     = Arr -d 'weekly / relativeMonthly / relativeYearly: the days of the week.' -Items (Str '' -Enum 'sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday') -Nullable
+                        firstDayOfWeek = Str 'weekly: the first day of the week.' -Enum 'sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday' -Nullable
+                        index          = Str 'relativeMonthly / relativeYearly: which instance of daysOfWeek.' -Enum 'first', 'second', 'third', 'fourth', 'last' -Nullable
+                    }))
+                    range   = Obj -d 'recurrenceRange: noEnd, endDate (with endDate) or numbered (with numberOfOccurrences).' -Props (Props ([ordered]@{
+                        type                = Str 'noEnd, endDate or numbered.' -Enum 'noEnd', 'endDate', 'numbered'
+                        startDate           = Str 'The first date (yyyy-MM-dd).' -Nullable
+                        endDate             = Str 'endDate: the last date (yyyy-MM-dd).' -Nullable
+                        numberOfOccurrences = Int 'numbered: how many reviews; Graph returns 0 otherwise.' -Min 0
+                        recurrenceTimeZone  = Str 'The time zone of the dates.' -Nullable
+                    }))
+                }))
+            }))
+            primaryReviewers                = Arr -d 'The reviewers (required when isEnabled and not isSelfReview), compared as a set.' -Items $subjectSet -Nullable
+            fallbackReviewers               = Arr -d 'Who reviews when the primary reviewers cannot (for example a requestorManager without a manager), compared as a set.' -Items $subjectSet -Nullable
+        }))
         automaticRequestSettings = FreeObj 'accessPackageAutomaticRequestSettings (auto-assignment policies only).' -Nullable
         questions               = Arr -d 'accessPackageQuestion array.' -Items (FreeObj '') -Nullable
         notificationSettings    = FreeObj 'accessPackageNotificationSettings.' -Nullable

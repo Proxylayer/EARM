@@ -43,7 +43,11 @@ internal static class PermissionRoles
             }
         }
 
-        if (RolesTogether(overlay.Raw?["rolesAllOf"]) is { Count: > 0 } parts)
+        if (RolesTogetherForValue(instance, overlay.Raw?["rolesAllOfByValue"]) is { } byValue)
+        {
+            roles.AddTogether(byValue.Parts, resource, byValue.Reason);
+        }
+        else if (RolesTogether(overlay.Raw?["rolesAllOf"]) is { Count: > 0 } parts)
         {
             roles.AddTogether(parts.Select(p => NarrowForGroup(p, targetGroup)), resource, GroupReason(targetGroup));
         }
@@ -102,6 +106,38 @@ internal static class PermissionRoles
         return parts;
     }
 
+    /// <summary>
+    /// The overlay's <c>rolesAllOfByValue</c> (<c>{ property: { value: rolesAllOf parts } }</c>) for the value the instance declares (evaluated when the
+    /// offline expansion could, for example from a parameter), in place of <c>rolesAllOf</c>: a catalog resource's roles depend on its <c>originSystem</c>.
+    /// <c>null</c> when the property is absent, still computed, or another value.
+    /// </summary>
+    private static (List<IReadOnlyList<string>> Parts, string Reason)? RolesTogetherForValue(ResourceInstance instance, JsonNode? node)
+    {
+        if (node is not JsonObject byProperty || (instance.Properties ?? instance.Declaration.Properties) is not JsonObject declared)
+        {
+            return null;
+        }
+
+        foreach (var (property, values) in byProperty)
+        {
+            if (JsonObjects.FindKey(declared, property) is not { } key || declared[key] is not JsonValue literal || !literal.TryGetValue(out string? value)
+                || values is not JsonObject table)
+            {
+                continue;
+            }
+
+            foreach (var (candidate, parts) in table)
+            {
+                if (candidate.Equals(value.Trim(), StringComparison.OrdinalIgnoreCase) && RolesTogether(parts) is { Count: > 0 } found)
+                {
+                    return (found, $"provider: {property} {candidate}");
+                }
+            }
+        }
+
+        return null;
+    }
+
     private static string GroupReason(GroupKind kind)
     {
         return kind switch
@@ -135,6 +171,14 @@ internal static class PermissionRoles
         return type.EndsWith("/entitlementManagement/catalogResources", StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>A catalog resource that declares a literal <c>originSystem</c> other than <c>AadGroup</c> (an application or a site) adds no group.</summary>
+    private static bool DeclaresOtherOrigin(ResourceInstance instance)
+    {
+        return (instance.Properties ?? instance.Declaration.Properties) is JsonObject declared && JsonObjects.FindKey(declared, "originSystem") is { } key
+            && declared[key] is JsonValue value && value.TryGetValue(out string? origin)
+            && !origin.TrimStart().StartsWith('[') && !origin.Trim().Equals("AadGroup", StringComparison.OrdinalIgnoreCase);
+    }
+
     private static bool IsGroupPimRequest(string type)
     {
         return type.EndsWith("/privilegedAccess/groupEligibilityScheduleRequests", StringComparison.OrdinalIgnoreCase)
@@ -160,12 +204,12 @@ internal static class PermissionRoles
     /// (its <c>group</c> or <c>scopeId</c>) is role-assignable, as far as the template says: a group of the template that the property references with a
     /// literal <c>isAssignableToRole</c> (absent counts as false); <see cref="GroupKind.Unknown"/> for an existing group (including a <c>group</c>
     /// uniqueName), a computed flag, or a property that references no template group (a directory role policy); <see cref="GroupKind.NotApplicable"/> for
-    /// every other type.
+    /// a catalog resource of an application or site, and for every other type.
     /// </summary>
     internal static GroupKind TargetGroupKind(ResourceInstance instance, IReadOnlyList<ResourceInstance> instances)
     {
         var properties = GroupProperties(instance.Type);
-        if (properties.Length == 0)
+        if (properties.Length == 0 || (IsCatalogResource(instance.Type) && DeclaresOtherOrigin(instance)))
         {
             return GroupKind.NotApplicable;
         }

@@ -133,9 +133,9 @@ public sealed class TemplateSchemaValidationTests
 
         // entitlement management (access packages)
         I(AccessPackages, "entitlementManagement/catalogs", 0, ["state"], "\"draft\"", "enum"),
-        I(AccessPackages, "entitlementManagement/catalogResources", 0, ["originSystem"], "\"SharePointOnline\"", "enum"),
+        I(AccessPackages, "entitlementManagement/catalogResources", 0, ["originSystem"], "\"AzureResources\"", "enum"),
         I(AccessPackages, "entitlementManagement/accessPackages", 0, ["isHidden"], "\"no\"", "type"),
-        I(AccessPackages, "entitlementManagement/resourceRoleScopes", 0, ["role"], "\"Contributor\"", "enum"),
+        I(AccessPackages, "entitlementManagement/resourceRoleScopes", 0, ["role"], "42", "type"),
         I(AccessPackages, "entitlementManagement/accessPackages/assignmentPolicies", 0, ["expiration", "type"], "\"afterAWhile\"", "enum"),
 
         // tenant policies

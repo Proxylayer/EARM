@@ -38,6 +38,7 @@ public sealed class PermissionsGoldenTests
             ("pim-group-onboarding", "pim-group-onboarding"),
             ("privileged-access", "privileged-access"),
             ("access-packages", "access-packages"),
+            ("access-packages-apps-sites", "access-packages-apps-sites"),
         ];
         foreach (var (sample, parameters) in samples)
         {

@@ -1,0 +1,55 @@
+{
+  "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "An access package over an existing SharePoint Online site (EARM_IT_SP_SITE_URL): a prefixed catalog holding the site (originSystem SharePointOnline, originId its URL), and an access package granting one of the site's groups (EARM_IT_SP_SITE_ROLE) with a policy that lets member users request it. The site itself is never changed."
+  },
+  "parameters": {
+    "prefix": { "type": "string" },
+    "siteUrl": { "type": "string" },
+    "siteRole": { "type": "string" }
+  },
+  "variables": {
+    "catalog": "[format('{0}-catalog-site', parameters('prefix'))]",
+    "package": "[format('{0}-package-site', parameters('prefix'))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Entra/entitlementManagement/catalogs", "apiVersion": "2026-10-01-preview", "name": "[variables('catalog')]",
+      "properties": { "description": "EARM integration test catalog (site)" }
+    },
+    {
+      "type": "Microsoft.Entra/entitlementManagement/catalogResources", "apiVersion": "2026-10-01-preview",
+      "name": "[guid(parameters('prefix'), 'catalog-site')]",
+      "properties": { "catalogId": "[reference(variables('catalog')).id]", "originId": "[parameters('siteUrl')]", "originSystem": "SharePointOnline" }
+    },
+    {
+      "type": "Microsoft.Entra/entitlementManagement/accessPackages", "apiVersion": "2026-10-01-preview", "name": "[variables('package')]",
+      "properties": { "catalogId": "[reference(variables('catalog')).id]", "description": "EARM integration test package (site)" }
+    },
+    {
+      "type": "Microsoft.Entra/entitlementManagement/resourceRoleScopes", "apiVersion": "2026-10-01-preview",
+      "name": "[guid(parameters('prefix'), 'package-site-role')]",
+      "properties": {
+        "accessPackageId": "[reference(variables('package')).id]",
+        "resourceOriginId": "[parameters('siteUrl')]",
+        "originSystem": "SharePointOnline",
+        "role": "[parameters('siteRole')]"
+      }
+    },
+    {
+      "type": "Microsoft.Entra/entitlementManagement/accessPackages/assignmentPolicies", "apiVersion": "2026-10-01-preview",
+      "name": "[format('{0}/Self service', variables('package'))]",
+      "properties": {
+        "description": "Member users request it without approval",
+        "allowedTargetScope": "allMemberUsers",
+        "expiration": { "type": "afterDuration", "duration": "P30D" },
+        "requestorSettings": { "enableTargetsToSelfAddAccess": true, "enableTargetsToSelfRemoveAccess": true },
+        "requestApprovalSettings": { "isApprovalRequiredForAdd": false, "isRequestorJustificationRequired": false, "stages": [] }
+      }
+    }
+  ],
+  "outputs": {
+    "packageId": { "type": "string", "value": "[reference(variables('package')).id]" }
+  }
+}

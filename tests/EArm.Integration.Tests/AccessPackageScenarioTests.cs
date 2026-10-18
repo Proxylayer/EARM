@@ -56,6 +56,13 @@ public sealed class AccessPackageScenarioTests : IntegrationTestBase
         Assert.Equal("Approval", policy.Text("displayName"));
         Assert.Equal("P30D", policy.Nested("expiration")!.Text("duration"));
         Assert.True((bool?)policy.Nested("requestApprovalSettings")!["isApprovalRequiredForAdd"] == true, "The policy does not require approval.");
+        var review = policy.Nested("reviewSettings");
+        Assert.NotNull(review);
+        Assert.True((bool?)review["isEnabled"] == true, "The policy's access review is not enabled.");
+        Assert.Equal(3, (int?)review.Nested("schedule")!.Nested("recurrence")!.Nested("pattern")!["interval"]);
+        var approvers = await GroupByNameAsync(Fixture.Name("apappr"), "id");
+        Assert.NotNull(approvers);
+        Assert.Contains(review["primaryReviewers"]!.AsArray().OfType<JsonObject>(), r => string.Equals(r.Text("groupId"), approvers.RequireId(), System.StringComparison.OrdinalIgnoreCase));
 
         await AssertNoChangesEventuallyAsync(() => Fixture.Cli.WhatIfAsync(run, Ct, "--exit-code-on-changes"), "what-if after create");
 
@@ -77,7 +84,17 @@ public sealed class AccessPackageScenarioTests : IntegrationTestBase
         Assert.Equal("allMemberUsers", updated.Text("allowedTargetScope"));
         await AssertNoChangesEventuallyAsync(() => Fixture.Cli.WhatIfAsync(changed, Ct, "--exit-code-on-changes"), "what-if after the duration change");
 
-        AssertExit(0, await Fixture.Cli.DeleteAllAsync(changed, Ct), "deployment delete");
+        // A review change: each review now stays open 7 days; the merged PUT keeps the reviewers.
+        var reviewChanged = changed.WithParameter("reviewDuration", "P7D");
+        AssertChange(await Fixture.Cli.WhatIfAsync(reviewChanged, Ct, "--exit-code-on-changes"), "/assignmentPolicies/Approval", "Modify", "what-if with another review duration");
+        AssertCreated(await Fixture.Cli.CreateAsync(reviewChanged, Ct), "create with another review duration");
+        var reviewed = await EventuallyAsync(
+            () => Graph.GetObjectAsync(new GraphRequest($"{Root}/assignmentPolicies/{policy.RequireId()}"), Ct),
+            found => found?.Nested("reviewSettings")?.Nested("schedule")?.Nested("expiration")?.Text("duration") == "P7D");
+        Assert.NotEmpty(reviewed!.Nested("reviewSettings")!["primaryReviewers"]!.AsArray());
+        await AssertNoChangesEventuallyAsync(() => Fixture.Cli.WhatIfAsync(reviewChanged, Ct, "--exit-code-on-changes"), "what-if after the review change");
+
+        AssertExit(0, await Fixture.Cli.DeleteAllAsync(reviewChanged, Ct), "deployment delete");
         Assert.Null(await FindOneEventuallyAsync(Root + "/accessPackages", "displayName", packageName, found => found is null));
         Assert.Null(await FindOneEventuallyAsync(Root + "/catalogs", "displayName", catalogName, found => found is null));
     }

@@ -1,0 +1,27 @@
+Permissions required by samples/access-packages-apps-sites.entra.json (mode: app, 9 resource(s))
+
+Microsoft Graph application permissions
+  Application.ReadWrite.All
+      /providers/Microsoft.Entra/applications/orders-portal
+      /providers/Microsoft.Entra/entitlementManagement/catalogResources/9b670d0c-344e-5bd5-bfd1-671af6c67fb5
+      /providers/Microsoft.Entra/servicePrincipals/ref(/providers/Microsoft.Entra/applications/orders-portal).appId
+      (Application.ReadWrite.OwnedBy would suffice for the applications this principal owns (1 resource(s)); provider)
+  EntitlementManagement.ReadWrite.All
+      /providers/Microsoft.Entra/entitlementManagement/accessPackages/Orders Approvers
+      /providers/Microsoft.Entra/entitlementManagement/accessPackages/Orders Approvers/assignmentPolicies/Requested by member users
+      /providers/Microsoft.Entra/entitlementManagement/catalogResources/9b670d0c-344e-5bd5-bfd1-671af6c67fb5
+      /providers/Microsoft.Entra/entitlementManagement/catalogResources/a38d9404-750b-5e43-9d6b-7df630a44b5f
+      /providers/Microsoft.Entra/entitlementManagement/catalogs/Orders Collaboration
+      /providers/Microsoft.Entra/entitlementManagement/resourceRoleScopes/07fc9f8c-db94-557b-8a3d-5172288686e5
+      /providers/Microsoft.Entra/entitlementManagement/resourceRoleScopes/179b7bfc-6e91-5494-85bc-f96687564f13
+      (provider)
+  Organization.Read.All
+      (every deployment)
+      (preflight: GET /organization)
+  Sites.FullControl.All
+      /providers/Microsoft.Entra/entitlementManagement/catalogResources/a38d9404-750b-5e43-9d6b-7df630a44b5f
+      (provider)
+
+note: Application permissions are Microsoft Graph app roles granted (with admin consent) to the service principal EARM signs in with (AZURE_CLIENT_ID, or the managed identity). Application.ReadWrite.OwnedBy replaces Application.ReadWrite.All for applications the service principal owns.
+note: 1 resource(s) have a name that depends on another resource (for example a service principal named after reference(...).appId); their permissions are computed from the declaration and the references it contains.
+note: Edge permissions are listed for every relationship property the template declares (including an empty array, which removes edges). Key Vault access is an Azure RBAC / access-policy requirement of the signed-in identity, not a Graph permission.

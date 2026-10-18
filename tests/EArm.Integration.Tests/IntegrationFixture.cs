@@ -136,6 +136,9 @@ public sealed class IntegrationFixture : IAsyncLifetime
         Assert.SkipUnless(!needs.HasFlag(Needs.AppManagement) || Settings.AllowAppManagement, $"{IntegrationSettings.AllowAppManagementVariable}=1 is required to change the tenant default app management policy (its description only; snapshot first, restored at the end).");
         Assert.SkipUnless(!needs.HasFlag(Needs.CrossTenant) || Settings.AllowCrossTenant, $"{IntegrationSettings.AllowCrossTenantVariable}=1 is required to change the tenant's cross-tenant access settings (one inbound trust toggle, snapshot first and restored; a partner configuration for {IntegrationSettings.PartnerTenantVariable}).");
         Assert.SkipUnless(!needs.HasFlag(Needs.GroupLifecycle) || Settings.AllowGroupLifecycle, $"{IntegrationSettings.AllowGroupLifecycleVariable}=1 is required to write the tenant's group expiration policy (created and deleted only when the tenant has none).");
+        Assert.SkipUnless(
+            !needs.HasFlag(Needs.SharePointSite) || (Settings.SharePointSiteUrl is not null && Settings.SharePointSiteRole is not null),
+            $"{IntegrationSettings.SharePointSiteUrlVariable} and {IntegrationSettings.SharePointSiteRoleVariable} are required to add an existing SharePoint Online site to a prefixed catalog (the signed-in user must be a SharePoint Administrator or an administrator of the site; Graph lists sites in a catalog only to delegated callers).");
         Assert.SkipUnless(!needs.HasFlag(Needs.PimPolicies) || Settings.AllowPimPolicies, $"{IntegrationSettings.AllowPimPoliciesVariable}=1 is required to change PIM role management policies (Message Center Reader and prefixed test groups only; snapshot first, restored at the end).");
     }
 

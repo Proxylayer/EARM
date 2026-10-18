@@ -28,8 +28,8 @@ internal static class EntitlementManagementGraph
 
     public const string AssignmentPoliciesPath = Root + "/assignmentPolicies";
 
-    /// <summary>The only origin system EARM manages.</summary>
-    public const string GroupOrigin = "AadGroup";
+    /// <summary>The default origin system (<see cref="AccessPackageResourceOrigin"/> lists the others EARM manages).</summary>
+    public const string GroupOrigin = AccessPackageResourceOrigin.Group;
 
     /// <summary>
     /// <c>GET {collection}?$filter=displayName eq '…'</c>, every page, re-matched client-side (case-insensitive). Several hits are
@@ -77,24 +77,43 @@ internal static class EntitlementManagementGraph
         return package["catalog"] is JsonObject catalog ? JsonObjects.GetId(catalog) : null;
     }
 
-    /// <summary>The catalog's resource for a group (<c>GET catalogs/{id}/resources?$filter=originId eq '…'</c>), or <c>null</c> (also when the catalog does not exist).</summary>
+    /// <summary>
+    /// The catalog's resource for a group, service principal or site (<c>GET catalogs/{id}/resources?$filter=originId eq '…'</c>, Learn:
+    /// accesspackagecatalog-list-resources), matched with <see cref="AccessPackageResourceOrigin.SameId"/>, or <c>null</c> (also when the catalog does not
+    /// exist). A site URL is asked for without its trailing slash; when the filter finds nothing, the catalog's whole list is matched client-side, since
+    /// Graph keeps the URL as it was added. Graph lists a site only to a delegated caller (Learn: accesspackagecatalog-list-resources).
+    /// </summary>
     public static async Task<JsonObject?> FindCatalogResourceAsync(IGraphClient graph, string catalogId, string originId, GraphApi api, RetryHint hint, CancellationToken cancellationToken)
     {
-        var request = new GraphRequest(CatalogsPath + "/" + GraphPath.Segment(catalogId) + "/resources", api, hint: hint)
-            .WithFilter($"originId eq '{ProviderSupport.EscapeLiteral(originId)}'");
+        string wanted = AccessPackageResourceOrigin.NormalizeId(originId);
+        string path = CatalogsPath + "/" + GraphPath.Segment(catalogId) + "/resources";
         try
         {
-            await foreach (var item in graph.GetAllPagesAsync(request, cancellationToken).ConfigureAwait(false))
+            var filtered = new GraphRequest(path, api, hint: hint).WithFilter($"originId eq '{ProviderSupport.EscapeLiteral(wanted)}'");
+            if (await FirstMatchAsync(graph, filtered, wanted, cancellationToken).ConfigureAwait(false) is { } resource)
             {
-                if (item is JsonObject resource && string.Equals(JsonObjects.GetString(resource, "originId"), originId, StringComparison.OrdinalIgnoreCase))
-                {
-                    return resource;
-                }
+                return resource;
             }
+
+            return AccessPackageResourceOrigin.IsUrl(wanted)
+                ? await FirstMatchAsync(graph, new GraphRequest(path, api, hint: hint), wanted, cancellationToken).ConfigureAwait(false)
+                : null;
         }
         catch (GraphException ex) when (ex.IsNotFound)
         {
             // The catalog is gone (or not created yet): no resource.
+            return null;
+        }
+    }
+
+    private static async Task<JsonObject?> FirstMatchAsync(IGraphClient graph, GraphRequest request, string originId, CancellationToken cancellationToken)
+    {
+        await foreach (var item in graph.GetAllPagesAsync(request, cancellationToken).ConfigureAwait(false))
+        {
+            if (item is JsonObject resource && AccessPackageResourceOrigin.SameId(JsonObjects.GetString(resource, "originId"), originId))
+            {
+                return resource;
+            }
         }
 
         return null;

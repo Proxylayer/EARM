@@ -42,6 +42,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   principals. The `tenant-policies` sample, permission goldens and the `tenant-policies-incremental` what-if scenario cover them; the gated
   integration scenarios (`EARM_IT_ALLOW_APP_MANAGEMENT`, `EARM_IT_ALLOW_CROSS_TENANT`, `EARM_IT_ALLOW_GROUP_LIFECYCLE`) are written but not yet run.
 - What-if scopes: `Policy.ReadWrite.ApplicationConfiguration` and `Policy.ReadWrite.CrossTenantAccess` read with `Policy.Read.All`.
+- Access reviews of access package assignments: an assignment policy's `reviewSettings` now has a typed schema (`isEnabled`,
+  `expirationBehavior`, `isRecommendationEnabled`, `isReviewerJustificationRequired`, `isSelfReview`, `schedule` with `startDateTime`,
+  `expiration` and `recurrence`, `primaryReviewers`, `fallbackReviewers`). Graph's filled-in review members and a `startDateTime` written back
+  with milliseconds are not drift; reviewers compare as sets, and a reviewer without an id (`requestorManager`, the sponsors) matches by its
+  type. `InvalidAccessPackageReviewSettings` (offline, and at plan time for computed values) checks reviewers when a review is enabled and not
+  a self-review, the schedule, the ISO 8601 duration of each review and the recurrence shape. A licence refusal of an enabled review is
+  `GovernanceLicenseRequired`. The access-packages sample reviews every access group's package quarterly.
+- Access packages over applications and SharePoint Online sites: `entitlementManagement/catalogResources` accepts `originSystem`
+  `AadApplication` (`originId` = the service principal's object id) and `SharePointOnline` (`originId` = the site URL, matched
+  case-insensitively and without a trailing slash), and `entitlementManagement/resourceRoleScopes` grants an app role (by display name or
+  app role id) or a site group (by full display name or its number in the site); `role` is no longer limited to the four group roles,
+  and a role scope's `originSystem` defaults to the catalog resource's. A template service principal is created before its catalog
+  resource. Permissions follow the kind: `Application.ReadWrite.All` or `Sites.FullControl.All` in place of `Group.ReadWrite.All`, and
+  the overlay key `rolesAllOfByValue` gives the Entra roles (Identity Governance Administrator for an app; with SharePoint
+  Administrator for a site). New sample `samples/access-packages-apps-sites.entra.json`. Graph lists sites in a catalog only to
+  delegated callers, so sites are deployed signed in.
 - `earm permissions` expresses Entra roles needed together: a `together: A + (B | C)` line in the table, an entry with an empty
   `anyOf` and an `allOf` array of parts in the JSON (the overlay key `rolesAllOf`). A catalog resource now needs Identity Governance
   Administrator together with Privileged Role Administrator (role-assignable template group) or with Groups Administrator, Intune

@@ -59,6 +59,13 @@ internal enum Needs
     /// tenant has none; an existing policy is only read.
     /// </summary>
     GroupLifecycle = 512,
+
+    /// <summary>
+    /// An existing SharePoint Online site the signed-in user administers (<c>EARM_IT_SP_SITE_URL</c>, with <c>EARM_IT_SP_SITE_ROLE</c> naming one of its
+    /// groups, for example <c>Team Members</c>): the site is added to a prefixed catalog and removed again, never created or changed. Graph lists sites in
+    /// a catalog only to delegated callers, so the run must be a user sign-in (SharePoint Administrator or site administrator).
+    /// </summary>
+    SharePointSite = 1024,
 }
 
 /// <summary>
@@ -80,6 +87,8 @@ internal sealed record IntegrationSettings
     public const string AllowCrossTenantVariable = "EARM_IT_ALLOW_CROSS_TENANT";
     public const string AllowGroupLifecycleVariable = "EARM_IT_ALLOW_GROUP_LIFECYCLE";
     public const string PartnerTenantVariable = "EARM_IT_PARTNER_TENANT";
+    public const string SharePointSiteUrlVariable = "EARM_IT_SP_SITE_URL";
+    public const string SharePointSiteRoleVariable = "EARM_IT_SP_SITE_ROLE";
     public const string SweepVariable = "EARM_IT_SWEEP";
     public const string InteractiveVariable = "EARM_IT_INTERACTIVE";
 
@@ -131,6 +140,12 @@ internal sealed record IntegrationSettings
     /// <summary><c>EARM_IT_PARTNER_TENANT</c>: the tenant id of a real other tenant for the partner configuration scenario, or null.</summary>
     public string? PartnerTenant { get; init; }
 
+    /// <summary><c>EARM_IT_SP_SITE_URL</c>: an existing SharePoint Online site the access package tests may add to a prefixed catalog, or null.</summary>
+    public string? SharePointSiteUrl { get; init; }
+
+    /// <summary><c>EARM_IT_SP_SITE_ROLE</c>: the display name of one of that site's groups (for example <c>Team Members</c>), or null.</summary>
+    public string? SharePointSiteRole { get; init; }
+
     /// <summary><c>EARM_IT_SWEEP=1</c>: the manual cleanup test may run.</summary>
     public bool SweepRequested { get; init; }
 
@@ -155,7 +170,8 @@ internal sealed record IntegrationSettings
             && (!needs.HasFlag(Needs.AccessPackages) || AllowAccessPackages)
             && (!needs.HasFlag(Needs.AppManagement) || AllowAppManagement)
             && (!needs.HasFlag(Needs.CrossTenant) || AllowCrossTenant)
-            && (!needs.HasFlag(Needs.GroupLifecycle) || AllowGroupLifecycle);
+            && (!needs.HasFlag(Needs.GroupLifecycle) || AllowGroupLifecycle)
+            && (!needs.HasFlag(Needs.SharePointSite) || (SharePointSiteUrl is not null && SharePointSiteRole is not null));
     }
 
     public static IntegrationSettings FromEnvironment()
@@ -190,6 +206,8 @@ internal sealed record IntegrationSettings
             AllowCrossTenant = IsOn(AllowCrossTenantVariable),
             AllowGroupLifecycle = IsOn(AllowGroupLifecycleVariable),
             PartnerTenant = Read(PartnerTenantVariable),
+            SharePointSiteUrl = Read(SharePointSiteUrlVariable),
+            SharePointSiteRole = Read(SharePointSiteRoleVariable),
             SweepRequested = IsOn(SweepVariable),
             InteractiveConsent = IsOn(InteractiveVariable),
         };

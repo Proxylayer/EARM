@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/entitlementManagement.resourceRoleScopes.json",
   "title": "Microsoft.Entra/entitlementManagement/resourceRoleScopes",
-  "description": "A group role an access package grants (accessPackageResourceRoleScope). Found by the tuple (accessPackageId, resourceOriginId, role); the GUID name is a label. The group must be a resource of the package's catalog.",
+  "description": "A role an access package grants of a resource of its catalog (accessPackageResourceRoleScope): a group role, an app role of an application, or a site group of a SharePoint Online site. Found by the tuple (accessPackageId, resourceOriginId, role); the GUID name is a label. The resource must be a resource of the package's catalog.",
   "type": "object",
   "properties": {
     "accessPackageId": {
@@ -10,16 +10,16 @@
       "anyOf": [ { "type": "string", "minLength": 1 }, { "$ref": "#/$defs/expression" } ]
     },
     "resourceOriginId": {
-      "description": "Required: the group's object id, for example [reference('group').id].",
+      "description": "Required: the catalog resource's originId: the group's or service principal's object id, or the site URL.",
       "anyOf": [ { "type": "string", "minLength": 1 }, { "$ref": "#/$defs/expression" } ]
     },
     "role": {
-      "description": "Required: the group role's display name. Eligible Member and Eligible Owner (PIM for Groups eligibility) are offered only for a group onboarded in PIM for Groups.",
-      "anyOf": [ { "type": "string", "enum": [ "Member", "Owner", "Eligible Member", "Eligible Owner" ] }, { "$ref": "#/$defs/expression" } ]
+      "description": "Required: the role. A group: Member, Owner, Eligible Member or Eligible Owner (the eligible roles only for a group onboarded in PIM for Groups). An application: the app role's display name or id (Default Access for an app without app roles). A SharePoint Online site: the site group's display name (for example Contoso Members) or its number in the site.",
+      "anyOf": [ { "type": "string", "minLength": 1 }, { "$ref": "#/$defs/expression" } ]
     },
     "originSystem": {
-      "description": "AadGroup (the default, and the only origin EARM manages).",
-      "anyOf": [ { "type": "string", "enum": [ "AadGroup" ] }, { "$ref": "#/$defs/expression" } ]
+      "description": "AadGroup (the default), AadApplication or SharePointOnline: the origin system of the catalog resource.",
+      "anyOf": [ { "type": "string", "enum": [ "AadGroup", "AadApplication", "SharePointOnline" ] }, { "$ref": "#/$defs/expression" } ]
     }
   },
   "additionalProperties": true,
@@ -47,7 +47,7 @@
     "permissions": {
       "application": ["EntitlementManagement.ReadWrite.All"],
       "roles": ["Identity Governance Administrator"],
-      "notes": "Learn (accesspackage-post-resourcerolescopes, accesspackage-delete-resourcerolescopes, accesspackagecatalog-list-resourceroles): EntitlementManagement.ReadWrite.All is the least privileged permission. Least privileged role: access package manager of the catalog, or Identity Governance Administrator. Eligible group roles need Microsoft Entra ID Governance and a group onboarded in PIM for Groups. Deleting a role scope removes the role from the people assigned (Graph does not refuse it)."
+      "notes": "Learn (accesspackage-post-resourcerolescopes, accesspackage-delete-resourcerolescopes, accesspackagecatalog-list-resourceroles): EntitlementManagement.ReadWrite.All is the least privileged permission. Least privileged role: access package manager of the catalog, or Identity Governance Administrator. Eligible group roles need Microsoft Entra ID Governance and a group onboarded in PIM for Groups. The same roles grant an app role of an application or a site group of a SharePoint Online site; adding the resource to the catalog (catalogResources) is where the resource's own roles are needed. Deleting a role scope removes the role from the people assigned (Graph does not refuse it)."
     }
   }
 }

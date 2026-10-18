@@ -17,8 +17,13 @@ internal static class AccessPackageApplyOrder
 {
     private const string GroupsType = "Microsoft.Entra/groups";
 
-    /// <summary>The declared role scopes that grant a role of the group <paramref name="catalogResource"/> adds to a catalog.</summary>
-    public static IReadOnlyList<ResourceInstance> RoleScopesOfGroup(ResourceInstance catalogResource, IReadOnlyList<ResourceInstance> declared)
+    private const string ServicePrincipalsType = "Microsoft.Entra/servicePrincipals";
+
+    /// <summary>
+    /// The declared role scopes that grant a role of the group, service principal or site <paramref name="catalogResource"/> adds to a catalog: the same
+    /// declared group or service principal referenced, or the same literal (a site URL regardless of case and trailing slash).
+    /// </summary>
+    public static IReadOnlyList<ResourceInstance> RoleScopesOfResource(ResourceInstance catalogResource, IReadOnlyList<ResourceInstance> declared)
     {
         ArgumentNullException.ThrowIfNull(catalogResource);
         ArgumentNullException.ThrowIfNull(declared);
@@ -27,7 +32,8 @@ internal static class AccessPackageApplyOrder
             return [];
         }
 
-        var groups = Referenced(catalogResource, properties, "originId", declared, GroupsType);
+        var targets = Referenced(catalogResource, properties, "originId", declared, GroupsType);
+        targets.UnionWith(Referenced(catalogResource, properties, "originId", declared, ServicePrincipalsType));
         string? literal = Normalized(DeclarationConflicts.Literal(properties, "originId"));
         return declared.Where(r =>
         {
@@ -37,7 +43,8 @@ internal static class AccessPackageApplyOrder
                 return false;
             }
 
-            return Referenced(r, scope, "resourceOriginId", declared, GroupsType).Any(groups.Contains)
+            return Referenced(r, scope, "resourceOriginId", declared, GroupsType).Any(targets.Contains)
+                || Referenced(r, scope, "resourceOriginId", declared, ServicePrincipalsType).Any(targets.Contains)
                 || (literal is not null && literal == Normalized(DeclarationConflicts.Literal(scope, "resourceOriginId")));
         }).ToList();
     }
@@ -136,6 +143,6 @@ internal static class AccessPackageApplyOrder
 
     private static string? Normalized(string? text)
     {
-        return text?.Trim().ToLowerInvariant();
+        return text is null ? null : AccessPackageResourceOrigin.NormalizeId(text).ToLowerInvariant();
     }
 }
