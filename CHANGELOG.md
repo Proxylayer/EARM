@@ -71,6 +71,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- What-if: a resource that reads `reference(id, apiVersion)` (directly or through a variable) of an object the same run creates is a
+  "known at deployment" (`?`) row instead of an error row (`reference(): existing resource … was not found`). A variable whose value
+  depends on such a reference is not remembered, so `create` without `-y` reads the object once it exists.
 - `earm permissions` no longer lists the nonexistent `AppRoleAssignment.Read.All` for a `reference(id, apiVersion)` lookup of an app
   role assignment: it lists `Application.Read.All`, the permission that reads app role assignments.
 - applications: the create upsert (`PATCH /applications(uniqueName='…')` with `Prefer: create-if-missing`) now carries only the declared

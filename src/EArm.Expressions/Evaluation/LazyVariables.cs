@@ -186,9 +186,15 @@ public sealed class LazyVariables
                 ? CopyExpansion.Expand(evaluator, iteration.Name, iteration.Count, iteration.Input, context, requiresName: true, $"variable iteration '{iteration.Name}'")
                 : evaluator.EvaluateTree(definition, context);
             context.Budget.Retain(value);
-            lock (_gate)
+
+            // A value that depends on reference() of an object that is not there yet (an existing-resource lookup of an object this run creates) is not
+            // remembered: create without -y runs with the store its what-if filled, and the object is found once it is published.
+            if (!UnknownJson.OriginsOf(value).HasFlag(UnknownOrigins.Reference))
             {
-                _memo[name] = value;
+                lock (_gate)
+                {
+                    _memo[name] = value;
+                }
             }
 
             return value;
