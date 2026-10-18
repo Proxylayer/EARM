@@ -185,6 +185,7 @@ public sealed partial class DeploymentExecutor
             EngineLog.Applying(Logger, instance.Id.Id, change.Type.ToString(), change.Mode.ToString());
 
             string? afterApplyFailure = null;
+            string? afterApplyFailureCode = null;
             AppliedResource applied;
             switch (change.Type)
             {
@@ -200,14 +201,16 @@ public sealed partial class DeploymentExecutor
                 case ChangeType.Create:
                 {
                     var created = await _creator.CreateAsync(provider, instance, key, cancellationToken).ConfigureAwait(false);
-                    applied = created.Applied;
-                    afterApplyFailure = created.Failure;
-                    if (created.AdoptedExisting is { } found && afterApplyFailure is null)
+                    if (created.AdoptedExisting is { } found && created.Failure is null)
                     {
-                        // "Already exists": the object was adopted; the declared properties are applied now, in this run, instead of at the next one.
-                        applied = await _creator.ApplyPropertiesToAdoptedAsync(provider, instance, found, applied, cancellationToken).ConfigureAwait(false);
+                        // "Already exists": the object was adopted; the declared properties are applied now, in this run, instead of at the next one
+                        // (or the provider refuses the object it found, and the resource fails with its reason).
+                        created = await _creator.ApplyPropertiesToAdoptedAsync(provider, instance, found, created.Applied, cancellationToken).ConfigureAwait(false);
                     }
 
+                    applied = created.Applied;
+                    afterApplyFailure = created.Failure;
+                    afterApplyFailureCode = created.FailureCode;
                     break;
                 }
 
@@ -264,7 +267,7 @@ public sealed partial class DeploymentExecutor
             stopwatch.Stop();
             if (afterApplyFailure is not null)
             {
-                RecordFailure(instance, batchIndex, EngineDiagnosticCodes.ResourceApplyFailed, afterApplyFailure, stopwatch.Elapsed, applied.GraphId);
+                RecordFailure(instance, batchIndex, afterApplyFailureCode ?? EngineDiagnosticCodes.ResourceApplyFailed, afterApplyFailure, stopwatch.Elapsed, applied.GraphId);
                 return;
             }
 

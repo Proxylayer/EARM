@@ -95,6 +95,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `create` without `-y` (or with `-c`): a variable that looks up with `reference(id, apiVersion)` an object the same run creates no longer
   keeps the "was not found" of the what-if pass, which failed every resource reading it. A not-found lookup is not remembered by the
   variable store, so the run evaluates the variable again once the object exists.
+- A create answered "already exists" whose existing object the provider refuses to manage (a permanent PIM assignment where a
+  time-bound one is declared, `PimAssignmentConflict`) is no longer adopted with only an `ImmutablePropertyChanged` warning when the
+  object shows up late: the resource fails with the provider's code, reason and the object's Graph id. When the provider itself finds
+  and refuses the object, its refusal is reported as is, instead of "the object was created but the create did not complete".
 
 ## [0.2.0] - 2026-10-17
 
