@@ -23,15 +23,15 @@ internal sealed record ScenarioTemplate(string File, Needs Needs, IReadOnlyDicti
 internal static class IntegrationScopes
 {
     /// <summary>
-    /// What the fixture's own Graph client needs besides the scenarios: the preflight, the direct reads and writes of the tests and probes (applications,
-    /// groups, users), and the cleanup guard, which lists every object kind with the prefix (policies and role management read) and deletes and purges
+    /// What the fixture's own Graph client needs besides the scenarios: the preflight (a user reads <c>GET /organization</c> with <c>User.Read</c>; a service
+    /// principal needs the application permission <c>Organization.Read.All</c> instead, which is not requested here), the direct reads and writes of the
+    /// tests and probes (applications, groups, users), and the cleanup guard, which lists every object kind with the prefix (policies and role management read) and deletes and purges
     /// applications, service principals, groups, users and administrative units (purging a soft-deleted user takes <c>User.DeleteRestore.All</c>).
     /// Kept in step with the "Every test" row of tests/EArm.Integration.Tests/README.md.
     /// </summary>
     internal static readonly IReadOnlyList<string> CleanupScopes =
     [
         RunScopes.SignIn,
-        "Organization.Read.All",
         "Application.ReadWrite.All",
         "Group.ReadWrite.All",
         "User.ReadWrite.All",

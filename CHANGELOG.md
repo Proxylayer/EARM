@@ -32,6 +32,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- `earm permissions` narrows the roles of a group PIM policy's `onboarding` by the group, as for the PIM for Groups requests: Privileged
+  Role Administrator for a role-assignable template group that `group` or `scopeId` references, Identity Governance Administrator,
+  Groups Administrator, User Administrator or Directory Writers for any other template group (all five when the group is not declared in
+  the template). The policy itself still needs Privileged Role Administrator.
+- The what-if of an access package assignment policy shows a changed approval stage as the changed properties inside that stage
+  (`requestApprovalSettings.stages[0].durationBeforeAutomaticDenial: "P14D" => "P7D"`) instead of the whole stage removed and added:
+  stages are matched by position (overlay `memberKey` `$index`), as for the approval stages of a role management policy.
 - A group PIM policy (`roleManagementPolicies`) deferred because a schedule request of the same run onboards its group is now applied at
   the end of that run, once Graph lists the onboarded group's policy, instead of by the next run: such a template converges in one run.
   `create` reports `PimPolicyNotAvailable` only when Graph still lists no policy at the end of the retry; the what-if still shows the
@@ -71,6 +78,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- What-if: a resource that reads `reference(id, apiVersion)` (directly or through a variable) of an object the same run creates is a
+  "known at deployment" (`?`) row instead of an error row (`reference(): existing resource … was not found`). A variable whose value
+  depends on such a reference is not remembered, so `create` without `-y` reads the object once it exists.
 - `earm permissions` no longer lists the nonexistent `AppRoleAssignment.Read.All` for a `reference(id, apiVersion)` lookup of an app
   role assignment: it lists `Application.Read.All`, the permission that reads app role assignments.
 - applications: the create upsert (`PATCH /applications(uniqueName='…')` with `Prefer: create-if-missing`) now carries only the declared

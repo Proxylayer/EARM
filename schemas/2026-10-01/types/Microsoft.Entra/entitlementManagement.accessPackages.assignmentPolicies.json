@@ -296,7 +296,7 @@
     "createOnly": [],
     "secure": [],
     "relationships": [],
-    "memberKey": {},
+    "memberKey": { "requestApprovalSettings.stages": "$index" },
     "stripOnRead": ["id", "createdDateTime", "modifiedDateTime", "accessPackage", "catalog", "@odata.context"],
     "nullable": {},
     "permissions": {

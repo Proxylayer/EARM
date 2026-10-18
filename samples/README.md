@@ -76,9 +76,9 @@ Notes:
 - `privileged-access.entra.json` needs Microsoft Entra ID P2 (or ID Governance) and a **delegated** Global Administrator or Privileged Role
   Administrator run: objects in a restricted management administrative unit cannot be changed with application permissions, and after the first run
   only those two roles (or a role scoped to the unit) can change the emergency group's members. Point `emergencyAccountIds` at your real break-glass
-  accounts and keep them excluded from every Conditional Access policy. PIM refuses MFA and an authentication context together on activation, which is
-  why tier 0 uses the context and tier 1 MFA. The first run defers the tier 1 group's PIM policy (`PimPolicyNotAvailable` warning) while the engineer's
-  eligibility onboards the group; run it again to apply the policy. Leave `caPolicyState` report-only until the sign-in logs show the policy's effect;
+  accounts and keep them excluded from every Conditional Access policy. Tier 0 activation requires the authentication context and tier 1 MFA: PIM is
+  believed to refuse both together on one activation rule set, but that has not been verified. The tier 1 group's PIM policy waits (`PimPolicyNotAvailable`
+  in the what-if) while the engineer's eligibility onboards the group, and is applied at the end of the same run. Leave `caPolicyState` report-only until the sign-in logs show the policy's effect;
   `enabled` is applied only with `--allow-ca-enforce` (without it the policy stays as it is, with a warning).
 - `app-with-sp-and-secret.entra.json` returns the client secret exactly once, in the run that creates or rotates it; rerunning without changing `secretTag`
   prints that output as `null` with a warning. Change `secretTag` to rotate.

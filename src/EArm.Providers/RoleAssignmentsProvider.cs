@@ -192,17 +192,6 @@ public sealed class RoleAssignmentsProvider : ProviderBase, IOrphanCandidateSour
         }
 
         var change = base.Plan(desired, existing, options);
-        if (change is { Type: ChangeType.Modify, Mode: ChangeMode.Patch, HasError: false })
-        {
-            // The overlay marks every property immutable ("*"): the base plan has no per-property list to match, so any effective difference would replace the
-            // assignment. Not reached in practice: every allowed property is part of the key, and a changed key finds no object (a Create).
-            change = change with
-            {
-                Mode = ChangeMode.Recreate,
-                Reasons = [.. change.Reasons, "the composite key (roleDefinitionId, principalId, directoryScopeId) changed under the same name; the assignment is deleted and created again"],
-            };
-        }
-
         if (!change.HasError && change.Type is ChangeType.Create or ChangeType.Modify && RoleAssignmentsRules.IsGlobalAdministrator(JsonObjects.GetString(properties, "roleDefinitionId")))
         {
             change = change with { Reasons = [.. change.Reasons, RoleAssignmentsRules.GlobalAdministratorReason] };

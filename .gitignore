@@ -24,8 +24,8 @@ Thumbs.db
 desktop.ini
 
 # ---- EARM runtime ----
-# State files (.earm/state/<name>.json, ids and hashes only) are safe to commit in a user's repository,
-# but this repository holds no real deployments: anything a local run writes here is scratch.
+# State files and locks (.earm/state/<name>.json, *.entrastate.json, deployment.lock) belonged to versions before the stateless
+# redesign; EARM no longer writes them. They stay ignored so old local files never get committed.
 .earm/
 *.entrastate.json
 **/state/*.lock

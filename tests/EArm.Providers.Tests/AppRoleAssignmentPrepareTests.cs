@@ -135,6 +135,26 @@ public sealed class AppRoleAssignmentPrepareTests
     }
 
     [Fact]
+    public async Task APlan_ForAnAssignmentFoundByItsKey_IsNoChange_AndAnyDifference_IsAReplacementByTheSharedPlan()
+    {
+        var (host, provider, resourceId, principalId) = await ArrangeAsync();
+        var live = new JsonObject { ["principalId"] = principalId, ["resourceId"] = resourceId, ["appRoleId"] = RoleId };
+        var same = await InstanceAsync(host, resourceId, principalId);
+        same.Properties = (JsonObject)live.DeepClone();
+        var other = await InstanceAsync(host, resourceId, principalId);
+        other.Properties = new JsonObject { ["principalId"] = principalId, ["resourceId"] = resourceId, ["appRoleId"] = Guid.Empty.ToString("D") };
+
+        var unchanged = provider.Plan(same, new ExistingResource("ara1", live, live), PlanOptions.Default);
+        var replaced = provider.Plan(other, new ExistingResource("ara1", live, live), PlanOptions.Default);
+
+        Assert.Equal(ChangeType.NoChange, unchanged.Type);
+        Assert.Equal(ChangeType.Modify, replaced.Type);
+        Assert.Equal(ChangeMode.Recreate, replaced.Mode);
+        Assert.False(replaced.HasError);
+        Assert.Contains(replaced.Reasons, r => r.Contains("deleted and created again", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task APlan_ForAnIgnoredInstance_IsAnIgnoreRow()
     {
         var (host, provider, resourceId, principalId) = await ArrangeAsync();

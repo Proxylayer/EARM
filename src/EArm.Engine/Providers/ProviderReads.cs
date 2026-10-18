@@ -5,30 +5,11 @@ using EArm.Core.Secrets;
 namespace EArm.Engine.Providers;
 
 /// <summary>
-/// Generic helpers over live reads: the <c>createdDateTime</c> fingerprint of an object, the check that a live object carries the key
-/// it was looked up by (compared case-insensitively as Graph does), and the classification of a write failure whose outcome is unknown.
+/// Generic helpers over live reads: the check that a live object carries the key it was looked up by (compared case-insensitively as
+/// Graph does), and the classification of a write failure whose outcome is unknown.
 /// </summary>
 public static class ProviderReads
 {
-    /// <summary>The <c>createdDateTime</c> of a live object (its immutable fingerprint), or <c>null</c> when it has none.</summary>
-    public static DateTimeOffset? CreatedDateTimeOf(JsonObject? raw)
-    {
-        if (raw is null || !JsonObjects.TryGetIgnoreCase(raw, "createdDateTime", out var node) || node is not JsonValue value)
-        {
-            return null;
-        }
-
-        if (value.TryGetValue<DateTimeOffset>(out var direct))
-        {
-            return direct;
-        }
-
-        return value.TryGetValue<string>(out string? text)
-            && DateTimeOffset.TryParse(text, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AssumeUniversal, out var parsed)
-            ? parsed
-            : null;
-    }
-
     /// <summary>
     /// True when the live object carries every key value that can be verified and at least one could be: a key property the
     /// live object does not expose is skipped, but an object that exposes none of them cannot be shown to be the right one.

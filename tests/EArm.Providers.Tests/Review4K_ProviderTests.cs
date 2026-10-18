@@ -53,8 +53,6 @@ public sealed class Review4K_ProviderTests
         string resourceId = "/providers/" + subject.Type + "/" + subject.Name;
         var live = host.Directory.Find(subject.Collection, subject.KeyProperty, subject.Name)!;
         live["createdDateTime"] ??= "2026-03-04T05:06:07Z";
-        var expected = ProviderReads.CreatedDateTimeOf(live);
-        Assert.NotNull(expected);
         host.ClearRequests();
 
         var whatIf = await host.WhatIfAsync(document);

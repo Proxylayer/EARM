@@ -222,13 +222,23 @@ internal static class ReferenceFunctions
             case ReferenceResult.Live live:
                 return tainted ? TaintHelper.Taint(JsonValues.Clone(live.Object)) : JsonValues.Clone(live.Object);
             case ReferenceResult.Placeholder placeholder:
-                // The symbol is display text (it reaches messages and other symbols); the identity itself stays in Source.
-                return UnknownJson.Create(DeploymentFunctions.Symbol(call.Redact(0, placeholder.Id.Id), shownVersion is null ? null : call.Redact(1, shownVersion)), UnknownOrigins.Reference, tainted, source: placeholder.Id);
+                return Placeholder(call, placeholder.Id, shownVersion, tainted);
+            case ReferenceResult.NotFound notFound when call.Context.Resources.Contains(notFound.Id) && !call.Context.References.IsConditionFalse(notFound.Id):
+                // reference(id, apiVersion) of a resource of this template that does not exist yet: the run creates it, so its state is known at deployment
+                // (what-if shows "?"), exactly like reference(id) of it. A variable holding it is not memoised (LazyVariables), so it is read again once created.
+                return Placeholder(call, notFound.Id, shownVersion, tainted);
             case ReferenceResult.NotFound notFound:
                 throw new ExpressionEvaluationException(DiagnosticCodes.ReferenceTargetNotFound, $"reference(): existing resource '{call.Redact(0, notFound.Id.Id)}' (apiVersion {call.Redact(1, notFound.ApiVersion)}) was not found.", call.Offset);
             default:
                 throw call.Failure($"the reference resolver returned an unexpected result ({result.GetType().Name}).");
         }
+    }
+
+    /// <summary>The deploy-time placeholder for the state of <paramref name="id"/>.</summary>
+    private static JsonValue Placeholder(FunctionCall call, ResourceIdentifier id, string? shownVersion, bool tainted)
+    {
+        // The symbol is display text (it reaches messages and other symbols); the identity itself stays in Source.
+        return UnknownJson.Create(DeploymentFunctions.Symbol(call.Redact(0, id.Id), shownVersion is null ? null : call.Redact(1, shownVersion)), UnknownOrigins.Reference, tainted, source: id);
     }
 
     /// <summary>
