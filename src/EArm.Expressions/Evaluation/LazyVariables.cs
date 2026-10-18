@@ -232,10 +232,14 @@ public sealed class LazyVariables
     {
         return new ExpressionEvaluationException(DiagnosticCodes.VariableCycle, $"Variable '{name}' refers to itself (directly or through other variables).");
     }
-    /// <summary>Exception filter: remembers a failure of the variable (never matches, so nothing is caught and re-thrown). Failures that depend on where the variable was read from (depth, stack) are not remembered.</summary>
+    /// <summary>
+    /// Exception filter: remembers a failure of the variable (never matches, so nothing is caught and re-thrown). Failures that depend on where the variable
+    /// was read from (depth, stack) are not remembered, nor is a lookup of an existing resource that was not found: <c>create</c> without <c>-y</c> runs with
+    /// the store its what-if filled, and the object may be one the run creates (<c>reference(id, apiVersion)</c> finds it once it is published).
+    /// </summary>
     private bool Record(string name, ExpressionException ex)
     {
-        if (ex.Code is not (DiagnosticCodes.VariableChainTooDeep or DiagnosticCodes.ExpressionTooDeep or DiagnosticCodes.EvaluationBudgetExceeded))
+        if (ex.Code is not (DiagnosticCodes.VariableChainTooDeep or DiagnosticCodes.ExpressionTooDeep or DiagnosticCodes.EvaluationBudgetExceeded or DiagnosticCodes.ReferenceTargetNotFound))
         {
             lock (_gate)
             {

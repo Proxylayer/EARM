@@ -92,6 +92,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - An update of an existing object cut short by Ctrl+C (between two requests of the provider) or by a raw HTTP timeout is no longer reported
   as skipped or as an unexpected error: the object is read back by key and planned again, and the resource is reported applied when the
   object now matches the template, or failed with its Graph id ("the update may have been applied in part or not at all") when it does not.
+- `create` without `-y` (or with `-c`): a variable that looks up with `reference(id, apiVersion)` an object the same run creates no longer
+  keeps the "was not found" of the what-if pass, which failed every resource reading it. A not-found lookup is not remembered by the
+  variable store, so the run evaluates the variable again once the object exists.
 
 ## [0.2.0] - 2026-10-17
 
