@@ -272,6 +272,8 @@ $specs['applications'] = [ordered]@{
         isFallbackPublicClient = Bool 'Treat the application as a public client when no redirect URI matches.' -Nullable
         keyCredentials         = Arr -d 'Certificates and keys (passthrough; only diffed when declared).' -Items (FreeObj '')
         owners                 = EdgeIds 'Ownership edge, target side: the full desired set of owner object ids (reference(...).id). Owners not listed are removed.'
+        tokenLifetimePolicies  = EdgeIds 'Token lifetime policy edge, principal side (ensure-only): the object id of the token lifetime policy assigned to the application (Graph allows one).'
+        appManagementPolicies  = EdgeIds 'App management policy edge, principal side (ensure-only): the object id of the app management policy assigned to the application (Graph allows one).'
     }
 }
 
@@ -358,6 +360,9 @@ $specs['servicePrincipals'] = [ordered]@{
         ownerOf                    = EdgeIds 'Ownership edge, principal side: object ids of applications, service principals or groups this principal must own.'
         appRoleAssignments         = EdgeAppRoleAssignments
         directoryRoles             = EdgeDirectoryRoles ''
+        tokenLifetimePolicies      = EdgeIds 'Token lifetime policy edge, principal side (ensure-only): the object id of the token lifetime policy assigned to the service principal (Graph allows one).'
+        claimsMappingPolicies      = EdgeIds 'Claims mapping policy edge, principal side (ensure-only): object ids of the claims mapping policies assigned to the service principal.'
+        appManagementPolicies      = EdgeIds 'App management policy edge, principal side (ensure-only): the object id of the app management policy assigned to the service principal (Graph allows one).'
     }
 }
 
@@ -381,6 +386,7 @@ $specs['groups'] = [ordered]@{
         owners                        = EdgeIds 'Ownership edge, target side: the full desired set of owner object ids.'
         memberOf                      = EdgeIds 'Nested group membership edge, principal side: group object ids this group must be a member of.'
         administrativeUnits           = EdgeIds 'Administrative unit membership edge, principal side: administrative unit object ids.'
+        groupLifecyclePolicies        = EdgeIds 'Group lifecycle (expiration) policy edge, principal side (ensure-only): the object id of the tenant''s group lifecycle policy, whose managedGroupTypes must be Selected. Microsoft 365 groups only.'
         appRoleAssignments            = EdgeAppRoleAssignments
         directoryRoles                = EdgeDirectoryRoles ' (role-assignable groups only)'
         assignedLicenses              = EdgeLicenses ' for group-based licensing'
@@ -688,6 +694,129 @@ $specs['authenticationMethodConfigurations'] = [ordered]@{
         isOfficePhoneAllowed       = Bool 'voice: allow office phone numbers.'
         allowExternalIdToUseEmailOtp = Str 'email: default, enabled or disabled.' -Enum 'default', 'enabled', 'disabled'
     }
+}
+
+# --- groupLifecyclePolicies (tenant singleton) ---------------------------------------------------------------------
+$specs['groupLifecyclePolicies'] = [ordered]@{
+    NamePattern = '^(?i:default)$'
+    Description = 'The tenant''s Microsoft 365 group expiration policy (groupLifecyclePolicy). Graph allows one per tenant, so the resource name is always default; the policy is found by listing the collection. With managedGroupTypes Selected, groups join it through their groupLifecyclePolicies edge. Delete switches group expiration off. Needs Microsoft Entra ID P1 or P2 licences for the members of the governed groups.'
+    Props       = [ordered]@{
+        groupLifetimeInDays         = Int 'Required on create: days until a group expires and must be renewed (Microsoft Entra offers 180, 365 or a custom value of 30 days or more).' -Min 1
+        managedGroupTypes           = Str 'Required on create: All (every Microsoft 365 group), Selected (only the groups added to the policy) or None.' -Enum 'All', 'Selected', 'None'
+        alternateNotificationEmails = Str 'Addresses notified about groups without owners, separated by semicolons; compared as a case-insensitive set.' -Nullable
+    }
+}
+
+# --- policies/tokenLifetimePolicies ----------------------------------------------------------------------------------
+$specs['policies.tokenLifetimePolicies'] = [ordered]@{
+    NamePattern = $uniqueNamePattern
+    Description = 'An access token lifetime policy (tokenLifetimePolicy). The resource name is the displayName; it is looked up by displayName on every run (more than one match is an error). Assigned to applications and service principals with their tokenLifetimePolicies edge.'
+    Props       = [ordered]@{
+        displayName           = Str 'Set from the resource name; declaring it is only allowed when it equals the name.'
+        definition            = Arr -d 'Required: one policy document, {"TokenLifetimePolicy":{"Version":1,"AccessTokenLifetime":"02:00:00"}}, as a JSON string or (sugar) an object. AccessTokenLifetime is 10 minutes to 1 day; refresh and session token lifetimes are not supported. Compared by JSON content.' -Items ([ordered]@{ anyOf = @([ordered]@{ type = 'string'; minLength = 2 }, [ordered]@{ type = 'object' }, $script:Expression) }) -Min 1
+        isOrganizationDefault = Bool 'Makes the policy the tenant default (only one policy can be). Defaults to false.'
+    }
+}
+
+# --- policies/claimsMappingPolicies ----------------------------------------------------------------------------------
+$specs['policies.claimsMappingPolicies'] = [ordered]@{
+    NamePattern = $uniqueNamePattern
+    Description = 'A claims mapping policy (claimsMappingPolicy). The resource name is the displayName; it is looked up by displayName on every run (more than one match is an error). Assigned to service principals with their claimsMappingPolicies edge.'
+    Props       = [ordered]@{
+        displayName           = Str 'Set from the resource name; declaring it is only allowed when it equals the name.'
+        definition            = Arr -d 'Required: one policy document, {"ClaimsMappingPolicy":{"Version":1,"IncludeBasicClaimSet":"true","ClaimsSchema":[...]}}, as a JSON string or (sugar) an object. At most 50 ClaimsSchema entries and 50 transformations (Graph ignores the rest). Compared by JSON content.' -Items ([ordered]@{ anyOf = @([ordered]@{ type = 'string'; minLength = 2 }, [ordered]@{ type = 'object' }, $script:Expression) }) -Min 1
+        isOrganizationDefault = Bool 'Must be false (or absent): Graph applies claims mapping to service principals only.'
+    }
+}
+
+# --- policies/appManagementPolicies and policies/defaultAppManagementPolicy ------------------------------------------
+$restriction = Obj '' -Required 'restrictionType' -Props (Props ([ordered]@{
+    restrictionType                      = Str 'passwordCredentials: passwordAddition, passwordLifetime, symmetricKeyAddition, symmetricKeyLifetime, customPasswordAddition; keyCredentials: asymmetricKeyLifetime, trustedCertificateAuthority. The key of the set.' -Min 1
+    state                                = Str 'enabled or disabled (a disabled restriction exempts the object).' -Enum 'enabled', 'disabled'
+    maxLifetime                          = Str 'Lifetime restrictions: the maximum lifetime as an ISO 8601 duration, for example P90D.' -Nullable
+    restrictForAppsCreatedAfterDateTime  = Str 'Applies to applications created after this date (ISO 8601).' -Nullable
+    excludeActors                        = FreeObj 'Actors exempted from the restriction (appManagementPolicyActorExemptions).' -Nullable
+    certificateBasedApplicationConfigurationIds = StrArr 'trustedCertificateAuthority: the certificate based application configuration ids.' -Unique
+}))
+$appManagementConfiguration = { param($d) Obj -d $d -Props (Props ([ordered]@{
+    passwordCredentials = Arr -d 'Password and symmetric key restrictions, compared as a set keyed by restrictionType. A declared array is sent whole: declare every restriction you keep.' -Items $restriction
+    keyCredentials      = Arr -d 'Certificate (asymmetric key) restrictions, compared as a set keyed by restrictionType.' -Items $restriction
+})) }
+
+$specs['policies.appManagementPolicies'] = [ordered]@{
+    NamePattern = $uniqueNamePattern
+    Description = 'A custom app management policy (appManagementPolicy): credential restrictions for the applications and service principals it is assigned to with their appManagementPolicies edge (one per object). The resource name is the displayName; it is looked up by displayName on every run (more than one match is an error). Restrictions it leaves out fall back to the tenant default policy.'
+    Props       = [ordered]@{
+        displayName  = Str 'Set from the resource name; declaring it is only allowed when it equals the name.'
+        description  = Str 'Required on create (Learn, appmanagementpolicy-post).'
+        isEnabled    = Bool 'Whether the policy is enforced.'
+        restrictions = Obj -d 'The restrictions (customAppManagementConfiguration). Undeclared members keep their live values.' -Props (Props ([ordered]@{
+            passwordCredentials     = Arr -d 'Password and symmetric key restrictions, compared as a set keyed by restrictionType.' -Items $restriction
+            keyCredentials          = Arr -d 'Certificate restrictions, compared as a set keyed by restrictionType.' -Items $restriction
+            applicationRestrictions = FreeObj 'Custom policies: application restrictions, for example identifierUris.nonDefaultUriAddition.'
+        }))
+    }
+}
+
+$specs['policies.defaultAppManagementPolicy'] = [ordered]@{
+    NamePattern = '^(?i:default)$'
+    Description = 'The tenant default app management policy (tenantAppManagementPolicy), a singleton that always exists (disabled by default). The resource name is always default. Updated with a merge PATCH, never created; deployment delete keeps it (NotDeletable: Graph documents neither a delete nor a reset), so switch it off with isEnabled: false. Undeclared members of a declared restrictions object keep their live values.'
+    Props       = [ordered]@{
+        displayName                  = Str 'Display name (Default app management tenant policy).'
+        description                  = Str 'Description.' -Nullable
+        isEnabled                    = Bool 'Whether the default restrictions are enforced (false by default).'
+        applicationRestrictions      = & $appManagementConfiguration 'Restrictions on application objects.'
+        servicePrincipalRestrictions = & $appManagementConfiguration 'Restrictions on service principals.'
+    }
+}
+
+# --- policies/crossTenantAccessPolicy (default) and policies/crossTenantAccessPolicy/partners ------------------------
+$crossTenantTargets = { param($d) Obj -d $d -Props (Props ([ordered]@{
+    accessType = Str 'allowed or blocked.' -Enum 'allowed', 'blocked', 'unknownFutureValue'
+    targets    = Arr -d 'The users, groups or applications the access type applies to; AllUsers / AllApplications for everyone.' -Items (Obj '' -Required 'target' -Props (Props ([ordered]@{
+        target     = Str 'An object id or application id, or AllUsers / AllApplications / Office365.' -Min 1
+        targetType = Str 'user, group or application.' -Enum 'user', 'group', 'application', 'unknownFutureValue'
+    })))
+})) }
+$b2bSetting = { param($d) Obj -d $d -Nullable -Props (Props ([ordered]@{
+    usersAndGroups = & $crossTenantTargets 'The users and groups.'
+    applications   = & $crossTenantTargets 'The applications.'
+})) }
+$crossTenantSettings = [ordered]@{
+    b2bCollaborationInbound  = & $b2bSetting 'B2B collaboration with users of the other tenant in this tenant. Undeclared members keep their live values.'
+    b2bCollaborationOutbound = & $b2bSetting 'B2B collaboration of this tenant''s users in the other tenant.'
+    b2bDirectConnectInbound  = & $b2bSetting 'B2B direct connect (Teams shared channels) inbound.'
+    b2bDirectConnectOutbound = & $b2bSetting 'B2B direct connect outbound.'
+    inboundTrust             = Obj -d 'Which claims of the other tenant Conditional Access trusts.' -Nullable -Props (Props ([ordered]@{
+        isMfaAccepted                       = Bool 'Trust MFA performed in the other tenant.'
+        isCompliantDeviceAccepted           = Bool 'Trust compliant device claims.'
+        isHybridAzureADJoinedDeviceAccepted = Bool 'Trust Microsoft Entra hybrid joined device claims.'
+    }))
+    tenantRestrictions       = FreeObj 'Tenant restrictions (usersAndGroups, applications, devices).' -Nullable
+    invitationRedemptionIdentityProviderConfiguration = FreeObj 'The identity providers guests redeem invitations with, in order.' -Nullable
+}
+
+$defaultSettings = [ordered]@{}
+foreach ($key in $crossTenantSettings.Keys) { $defaultSettings[$key] = $crossTenantSettings[$key] }
+$specs['policies.crossTenantAccessPolicy'] = [ordered]@{
+    NamePattern = '^(?i:default)$'
+    Description = 'The default cross-tenant access configuration (crossTenantAccessPolicyConfigurationDefault): the settings every partner without its own configuration inherits. A singleton named default: updated with PATCH (every declared setting object is sent whole, its undeclared members kept from the live object), never created; deployment delete resets it to the Microsoft service defaults (resetToSystemDefault). isServiceDefault and automaticUserConsentSettings are read-only here.'
+    Props       = $defaultSettings
+}
+
+$partnerSettings = [ordered]@{
+    tenantId          = Str 'Set from the resource name (the partner''s tenant id); declaring it is only allowed when it equals the name.' -Pattern $script:GuidPattern
+    isServiceProvider = Bool 'Whether the partner is a cloud service provider for this tenant.'
+    automaticUserConsentSettings = Obj -d 'Automatic redemption of invitations (consent prompts suppressed).' -Nullable -Props (Props ([ordered]@{
+        inboundAllowed  = Bool 'Suppress the consent prompt for the partner''s users in this tenant.'
+        outboundAllowed = Bool 'Suppress the consent prompt for this tenant''s users in the partner tenant.'
+    }))
+}
+foreach ($key in $crossTenantSettings.Keys) { if ($key -ne 'invitationRedemptionIdentityProviderConfiguration') { $partnerSettings[$key] = $crossTenantSettings[$key] } }
+$specs['policies.crossTenantAccessPolicy.partners'] = [ordered]@{
+    NamePattern = $script:GuidPattern
+    Description = 'A partner-specific cross-tenant access configuration (crossTenantAccessPolicyConfigurationPartner). The resource name is the partner''s tenant id. A setting left null inherits the default configuration. Created with POST, updated with PATCH (declared setting objects sent whole, undeclared members kept), deleted with DELETE (refused by Graph while a user synchronization policy exists). isInMultiTenantOrganization is set by the multitenant organization.'
+    Props       = $partnerSettings
 }
 
 # --- roleEligibilityScheduleRequests (PIM eligibility, ARM-styled) ------------------------------------------------

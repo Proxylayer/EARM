@@ -10,6 +10,18 @@ public enum RelationshipKind
     AppRoleAssignment,
     DirectoryRoleAssignment,
 
+    /// <summary><c>groupLifecyclePolicies</c> on Microsoft 365 groups: the group is added to a lifecycle (expiration) policy whose <c>managedGroupTypes</c> is <c>Selected</c>.</summary>
+    GroupLifecyclePolicy,
+
+    /// <summary><c>tokenLifetimePolicies</c> on applications and service principals: <c>POST …/tokenLifetimePolicies/$ref</c>.</summary>
+    TokenLifetimePolicy,
+
+    /// <summary><c>claimsMappingPolicies</c> on service principals: <c>POST …/claimsMappingPolicies/$ref</c>.</summary>
+    ClaimsMappingPolicy,
+
+    /// <summary><c>appManagementPolicies</c> on applications and service principals: <c>POST …/appManagementPolicies/$ref</c>.</summary>
+    AppManagementPolicy,
+
     /// <summary>Action-backed (<c>assignLicense</c>), not a tracked edge; listed so providers treat the property as non-PATCHable.</summary>
     License,
 }

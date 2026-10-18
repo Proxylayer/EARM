@@ -1,0 +1,256 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/policies.defaultAppManagementPolicy.json",
+  "title": "Microsoft.Entra/policies/defaultAppManagementPolicy",
+  "description": "The tenant default app management policy (tenantAppManagementPolicy), a singleton that always exists (disabled by default). The resource name is always default. Updated with a merge PATCH, never created; deployment delete keeps it (NotDeletable: Graph documents neither a delete nor a reset), so switch it off with isEnabled: false. Undeclared members of a declared restrictions object keep their live values.",
+  "type": "object",
+  "properties": {
+    "displayName": {
+      "description": "Display name (Default app management tenant policy).",
+      "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+    },
+    "description": { "description": "Description.", "anyOf": [ { "type": [ "string", "null" ] }, { "$ref": "#/$defs/expression" } ] },
+    "isEnabled": {
+      "description": "Whether the default restrictions are enforced (false by default).",
+      "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/expression" } ]
+    },
+    "applicationRestrictions": {
+      "description": "Restrictions on application objects.",
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "passwordCredentials": {
+              "description": "Password and symmetric key restrictions, compared as a set keyed by restrictionType. A declared array is sent whole: declare every restriction you keep.",
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "restrictionType": {
+                            "description": "passwordCredentials: passwordAddition, passwordLifetime, symmetricKeyAddition, symmetricKeyLifetime, customPasswordAddition; keyCredentials: asymmetricKeyLifetime, trustedCertificateAuthority. The key of the set.",
+                            "anyOf": [ { "type": "string", "minLength": 1 }, { "$ref": "#/$defs/expression" } ]
+                          },
+                          "state": {
+                            "description": "enabled or disabled (a disabled restriction exempts the object).",
+                            "anyOf": [ { "type": "string", "enum": [ "enabled", "disabled" ] }, { "$ref": "#/$defs/expression" } ]
+                          },
+                          "maxLifetime": {
+                            "description": "Lifetime restrictions: the maximum lifetime as an ISO 8601 duration, for example P90D.",
+                            "anyOf": [ { "type": [ "string", "null" ] }, { "$ref": "#/$defs/expression" } ]
+                          },
+                          "restrictForAppsCreatedAfterDateTime": {
+                            "description": "Applies to applications created after this date (ISO 8601).",
+                            "anyOf": [ { "type": [ "string", "null" ] }, { "$ref": "#/$defs/expression" } ]
+                          },
+                          "excludeActors": {
+                            "description": "Actors exempted from the restriction (appManagementPolicyActorExemptions).",
+                            "anyOf": [ { "type": [ "object", "null" ] }, { "$ref": "#/$defs/expression" } ]
+                          },
+                          "certificateBasedApplicationConfigurationIds": {
+                            "description": "trustedCertificateAuthority: the certificate based application configuration ids.",
+                            "anyOf": [
+                              { "type": "array", "items": { "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] } },
+                              { "$ref": "#/$defs/expression" }
+                            ]
+                          }
+                        },
+                        "required": [ "restrictionType" ]
+                      },
+                      { "$ref": "#/$defs/expression" }
+                    ]
+                  }
+                },
+                { "$ref": "#/$defs/expression" }
+              ]
+            },
+            "keyCredentials": {
+              "description": "Certificate (asymmetric key) restrictions, compared as a set keyed by restrictionType.",
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "restrictionType": {
+                            "description": "passwordCredentials: passwordAddition, passwordLifetime, symmetricKeyAddition, symmetricKeyLifetime, customPasswordAddition; keyCredentials: asymmetricKeyLifetime, trustedCertificateAuthority. The key of the set.",
+                            "anyOf": [ { "type": "string", "minLength": 1 }, { "$ref": "#/$defs/expression" } ]
+                          },
+                          "state": {
+                            "description": "enabled or disabled (a disabled restriction exempts the object).",
+                            "anyOf": [ { "type": "string", "enum": [ "enabled", "disabled" ] }, { "$ref": "#/$defs/expression" } ]
+                          },
+                          "maxLifetime": {
+                            "description": "Lifetime restrictions: the maximum lifetime as an ISO 8601 duration, for example P90D.",
+                            "anyOf": [ { "type": [ "string", "null" ] }, { "$ref": "#/$defs/expression" } ]
+                          },
+                          "restrictForAppsCreatedAfterDateTime": {
+                            "description": "Applies to applications created after this date (ISO 8601).",
+                            "anyOf": [ { "type": [ "string", "null" ] }, { "$ref": "#/$defs/expression" } ]
+                          },
+                          "excludeActors": {
+                            "description": "Actors exempted from the restriction (appManagementPolicyActorExemptions).",
+                            "anyOf": [ { "type": [ "object", "null" ] }, { "$ref": "#/$defs/expression" } ]
+                          },
+                          "certificateBasedApplicationConfigurationIds": {
+                            "description": "trustedCertificateAuthority: the certificate based application configuration ids.",
+                            "anyOf": [
+                              { "type": "array", "items": { "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] } },
+                              { "$ref": "#/$defs/expression" }
+                            ]
+                          }
+                        },
+                        "required": [ "restrictionType" ]
+                      },
+                      { "$ref": "#/$defs/expression" }
+                    ]
+                  }
+                },
+                { "$ref": "#/$defs/expression" }
+              ]
+            }
+          }
+        },
+        { "$ref": "#/$defs/expression" }
+      ]
+    },
+    "servicePrincipalRestrictions": {
+      "description": "Restrictions on service principals.",
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "passwordCredentials": {
+              "description": "Password and symmetric key restrictions, compared as a set keyed by restrictionType. A declared array is sent whole: declare every restriction you keep.",
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "restrictionType": {
+                            "description": "passwordCredentials: passwordAddition, passwordLifetime, symmetricKeyAddition, symmetricKeyLifetime, customPasswordAddition; keyCredentials: asymmetricKeyLifetime, trustedCertificateAuthority. The key of the set.",
+                            "anyOf": [ { "type": "string", "minLength": 1 }, { "$ref": "#/$defs/expression" } ]
+                          },
+                          "state": {
+                            "description": "enabled or disabled (a disabled restriction exempts the object).",
+                            "anyOf": [ { "type": "string", "enum": [ "enabled", "disabled" ] }, { "$ref": "#/$defs/expression" } ]
+                          },
+                          "maxLifetime": {
+                            "description": "Lifetime restrictions: the maximum lifetime as an ISO 8601 duration, for example P90D.",
+                            "anyOf": [ { "type": [ "string", "null" ] }, { "$ref": "#/$defs/expression" } ]
+                          },
+                          "restrictForAppsCreatedAfterDateTime": {
+                            "description": "Applies to applications created after this date (ISO 8601).",
+                            "anyOf": [ { "type": [ "string", "null" ] }, { "$ref": "#/$defs/expression" } ]
+                          },
+                          "excludeActors": {
+                            "description": "Actors exempted from the restriction (appManagementPolicyActorExemptions).",
+                            "anyOf": [ { "type": [ "object", "null" ] }, { "$ref": "#/$defs/expression" } ]
+                          },
+                          "certificateBasedApplicationConfigurationIds": {
+                            "description": "trustedCertificateAuthority: the certificate based application configuration ids.",
+                            "anyOf": [
+                              { "type": "array", "items": { "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] } },
+                              { "$ref": "#/$defs/expression" }
+                            ]
+                          }
+                        },
+                        "required": [ "restrictionType" ]
+                      },
+                      { "$ref": "#/$defs/expression" }
+                    ]
+                  }
+                },
+                { "$ref": "#/$defs/expression" }
+              ]
+            },
+            "keyCredentials": {
+              "description": "Certificate (asymmetric key) restrictions, compared as a set keyed by restrictionType.",
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "restrictionType": {
+                            "description": "passwordCredentials: passwordAddition, passwordLifetime, symmetricKeyAddition, symmetricKeyLifetime, customPasswordAddition; keyCredentials: asymmetricKeyLifetime, trustedCertificateAuthority. The key of the set.",
+                            "anyOf": [ { "type": "string", "minLength": 1 }, { "$ref": "#/$defs/expression" } ]
+                          },
+                          "state": {
+                            "description": "enabled or disabled (a disabled restriction exempts the object).",
+                            "anyOf": [ { "type": "string", "enum": [ "enabled", "disabled" ] }, { "$ref": "#/$defs/expression" } ]
+                          },
+                          "maxLifetime": {
+                            "description": "Lifetime restrictions: the maximum lifetime as an ISO 8601 duration, for example P90D.",
+                            "anyOf": [ { "type": [ "string", "null" ] }, { "$ref": "#/$defs/expression" } ]
+                          },
+                          "restrictForAppsCreatedAfterDateTime": {
+                            "description": "Applies to applications created after this date (ISO 8601).",
+                            "anyOf": [ { "type": [ "string", "null" ] }, { "$ref": "#/$defs/expression" } ]
+                          },
+                          "excludeActors": {
+                            "description": "Actors exempted from the restriction (appManagementPolicyActorExemptions).",
+                            "anyOf": [ { "type": [ "object", "null" ] }, { "$ref": "#/$defs/expression" } ]
+                          },
+                          "certificateBasedApplicationConfigurationIds": {
+                            "description": "trustedCertificateAuthority: the certificate based application configuration ids.",
+                            "anyOf": [
+                              { "type": "array", "items": { "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] } },
+                              { "$ref": "#/$defs/expression" }
+                            ]
+                          }
+                        },
+                        "required": [ "restrictionType" ]
+                      },
+                      { "$ref": "#/$defs/expression" }
+                    ]
+                  }
+                },
+                { "$ref": "#/$defs/expression" }
+              ]
+            }
+          }
+        },
+        { "$ref": "#/$defs/expression" }
+      ]
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "expression": { "type": "string", "pattern": "^\\[.*\\]$", "description": "A template expression, for example [parameters('env')]." }
+  },
+  "x-earm": {
+    "type": "Microsoft.Entra/policies/defaultAppManagementPolicy",
+    "parentType": null,
+    "graphPath": "/policies/defaultAppManagementPolicy",
+    "apiVersions": { "2026-10-01-preview": "v1.0", "2026-10-01-preview.beta": "beta" },
+    "nameMapsTo": "id",
+    "nameKind": "id",
+    "namePattern": "^(?i:default)$",
+    "keyProperties": ["id"],
+    "requiredOnCreate": [],
+    "defaults": {},
+    "immutable": [],
+    "createOnly": [],
+    "secure": [],
+    "relationships": [],
+    "memberKey": {"applicationRestrictions.passwordCredentials": "restrictionType", "applicationRestrictions.keyCredentials": "restrictionType", "servicePrincipalRestrictions.passwordCredentials": "restrictionType", "servicePrincipalRestrictions.keyCredentials": "restrictionType"},
+    "stripOnRead": ["id"],
+    "nullable": {},
+    "permissions": {
+      "application": ["Policy.ReadWrite.ApplicationConfiguration", "Policy.Read.All"],
+      "notes": "Learn (appmanagementpolicy-post, -update, -delete, -post-appliesto, tenantappmanagementpolicy-update): Policy.ReadWrite.ApplicationConfiguration is the least privileged write permission (delegated and application), with Cloud Application Administrator or Application Administrator as the least privileged roles; reads need Policy.Read.All (Global Reader). The Entra how-to (configure-app-management-policies) asks for Security Administrator in addition. Learn states no licence requirement on these pages.",
+      "roles": ["Cloud Application Administrator", "Application Administrator"]
+    }
+  }
+}

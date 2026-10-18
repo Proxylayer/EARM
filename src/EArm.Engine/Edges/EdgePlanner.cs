@@ -487,6 +487,10 @@ public sealed class EdgePlanner
             EdgeKind.AdministrativeUnitMembership => "administrative unit",
             EdgeKind.Ownership => "ownable object",
             EdgeKind.Manager => "user",
+            EdgeKind.GroupLifecyclePolicy => "group lifecycle policy",
+            EdgeKind.TokenLifetimePolicy => "token lifetime policy",
+            EdgeKind.ClaimsMappingPolicy => "claims mapping policy",
+            EdgeKind.AppManagementPolicy => "app management policy",
             _ => "target",
         };
     }

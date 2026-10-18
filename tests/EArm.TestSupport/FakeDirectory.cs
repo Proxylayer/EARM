@@ -338,6 +338,11 @@ public sealed partial class FakeDirectory
                     groupId => GroupEligibility.OnboardedGroups.Contains(groupId, StringComparer.OrdinalIgnoreCase) || GroupAssignmentSchedules.OnboardedGroups.Contains(groupId, StringComparer.OrdinalIgnoreCase));
             }
 
+            if (TryHandleTenantPolicies(method, path, query, body, hint, pageSize, out var policyResult))
+            {
+                return policyResult;
+            }
+
             var route = Route.Parse(path, KnownRoots);
             if (route is null)
             {

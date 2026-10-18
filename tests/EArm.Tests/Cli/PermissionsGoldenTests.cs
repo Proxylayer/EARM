@@ -31,6 +31,7 @@ public sealed class PermissionsGoldenTests
             ("app-certificates-extensions", "app-certificates-extensions"),
             ("tenant-security", "tenant-security"),
             ("authentication-methods", "authentication-methods"),
+            ("tenant-policies", "tenant-policies"),
             ("pim-eligibility", "pim-eligibility"),
             ("pim-active", "pim-active"),
             ("pim-policies", "pim-policies"),

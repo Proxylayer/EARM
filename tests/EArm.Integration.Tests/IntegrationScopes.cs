@@ -83,6 +83,9 @@ internal static class IntegrationScopes
         "EntitlementManagement.ReadWrite.All",
     ];
 
+    // The tenant policy guards (TenantPolicyRestoreGuard) restore the default app management policy, the default cross-tenant configuration and the
+    // group expiration policy through the fixture's own client, so ComputeAsync adds their write scopes when the gate is on.
+
     /// <summary>Every scenario template and the gates of the tests that deploy it (keep in step with the <c>Fixture.Require</c> calls of the scenario classes).</summary>
     internal static readonly IReadOnlyList<ScenarioTemplate> Templates =
     [
@@ -107,6 +110,10 @@ internal static class IntegrationScopes
         new("pim-policy-group-onboarding.entra.json", Needs.Domain | Needs.Pim | Needs.PimPolicies, With(("domain", "example.onmicrosoft.com"))),
         new("access-packages.entra.json", Needs.AccessPackages, Empty()),
         new("access-packages-eligible.entra.json", Needs.Domain | Needs.Pim | Needs.AccessPackages, With(("domain", "example.onmicrosoft.com"))),
+        new("app-policies.entra.json", Needs.Tenant, Empty()),
+        new("app-management.entra.json", Needs.AppManagement, With(("defaultDescription", "placeholder"))),
+        new("cross-tenant.entra.json", Needs.CrossTenant, With(("partnerTenantId", PlaceholderGuid1), ("hybridJoinAccepted", "false"))),
+        new("group-lifecycle.entra.json", Needs.GroupLifecycle, Empty()),
     ];
 
     private const string PlaceholderGuid1 = "00000000-0000-0000-0000-0000000000a1";
@@ -151,6 +158,21 @@ internal static class IntegrationScopes
         if (settings.AllowAccessPackages)
         {
             names.UnionWith(AccessPackageCleanupScopes);
+        }
+
+        if (settings.AllowAppManagement)
+        {
+            names.Add("Policy.ReadWrite.ApplicationConfiguration");
+        }
+
+        if (settings.AllowCrossTenant)
+        {
+            names.Add("Policy.ReadWrite.CrossTenantAccess");
+        }
+
+        if (settings.AllowGroupLifecycle)
+        {
+            names.Add("Directory.ReadWrite.All");
         }
 
         foreach (var template in Enabled(settings))

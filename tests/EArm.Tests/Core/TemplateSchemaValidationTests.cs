@@ -30,6 +30,7 @@ public sealed class TemplateSchemaValidationTests
     private const string PimActive = "pim-active";
     private const string PimPolicies = "pim-policies";
     private const string AccessPackages = "access-packages";
+    private const string TenantPolicies = "tenant-policies";
     private const string SchemaUri = "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#";
 
     private static readonly TemplateLoader Loader = new();
@@ -136,6 +137,16 @@ public sealed class TemplateSchemaValidationTests
         I(AccessPackages, "entitlementManagement/accessPackages", 0, ["isHidden"], "\"no\"", "type"),
         I(AccessPackages, "entitlementManagement/resourceRoleScopes", 0, ["role"], "\"Contributor\"", "enum"),
         I(AccessPackages, "entitlementManagement/accessPackages/assignmentPolicies", 0, ["expiration", "type"], "\"afterAWhile\"", "enum"),
+
+        // tenant policies
+        I(TenantPolicies, "groupLifecyclePolicies", 0, ["managedGroupTypes"], "\"Some\"", "enum"),
+        I(TenantPolicies, "groups", 0, ["groupLifecyclePolicies"], "\"x\"", "type"),
+        I(TenantPolicies, "policies/tokenLifetimePolicies", 0, ["isOrganizationDefault"], "\"yes\"", "type"),
+        I(TenantPolicies, "policies/claimsMappingPolicies", 0, ["definition"], "\"{}\"", "type"),
+        I(TenantPolicies, "policies/appManagementPolicies", 0, ["restrictions", "passwordCredentials", 0, "state"], "\"on\"", "enum"),
+        I(TenantPolicies, "policies/defaultAppManagementPolicy", 0, ["isEnabled"], "\"yes\"", "type"),
+        I(TenantPolicies, "policies/crossTenantAccessPolicy", 0, ["b2bDirectConnectOutbound", "usersAndGroups", "accessType"], "\"maybe\"", "enum"),
+        I(TenantPolicies, "policies/crossTenantAccessPolicy/partners", 0, ["inboundTrust", "isMfaAccepted"], "\"yes\"", "type"),
     ];
 
     public static TheoryData<int> InjectionIndexes()
@@ -250,7 +261,7 @@ public sealed class TemplateSchemaValidationTests
             Assert.Contains(definition.Type, covered);
         }
 
-        Assert.Equal(28, ResourceTypeCatalog.Default.Types.Count);
+        Assert.Equal(35, ResourceTypeCatalog.Default.Types.Count);
         foreach (string keyword in new[] { "enum", "pattern", "type", "required", "additionalProperties" })
         {
             Assert.Contains(Injections, i => i.Keyword == keyword);

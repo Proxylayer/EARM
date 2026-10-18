@@ -794,6 +794,66 @@ onboards a group by itself (only a `roleManagementPolicies` onboarding opt-in do
 delivered assignments (`EntitlementManagementGraph.CountDeliveredAssignmentsAsync`, `null` on 400 / 403 / 404) and turns them into the warning `deployment delete` shows in its preview and logs before the delete (none when nobody holds the role).
 Tests: `AccessPackagesProviderTests`, `AccessPackageOnboardingTests` and `AccessPackageRulesTests` over `FakeEntitlementManagement` (routed from `FakeDirectory`), and
 `AccessPackageScenarioTests` against a real tenant (`EARM_IT_ALLOW_ACCESS_PACKAGES=1`).
+### Worked example: tenant policies
+
+Seven types manage tenant-wide policies. They share `TenantPolicyProviderBase` (the unsupported row, the client-side display-name lookup, the
+create / patch-and-read / delete helpers) and three shapes:
+
+| Shape | Base | Types | Name |
+|---|---|---|---|
+| display-name policy | `DisplayNamePolicyProviderBase` (`StsPolicyProviderBase` for the two STS policies) | `policies/tokenLifetimePolicies`, `policies/claimsMappingPolicies`, `policies/appManagementPolicies` | `displayName`; the whole collection is read and matched case-insensitively (Learn documents `$filter` on these lists, but not on `displayName`); more than one match is `AmbiguousMatch` |
+| fixed-path singleton | `SingletonPolicyProviderBase` | `policies/defaultAppManagementPolicy`, `policies/crossTenantAccessPolicy` | always `default` |
+| one of a kind | `GroupLifecyclePoliciesProvider` | `groupLifecyclePolicies` | always `default`: Graph allows one per tenant and the object has no display name, so `GET /groupLifecyclePolicies` is listed (two policies are `AmbiguousMatch`) |
+| keyed configuration | `CrossTenantAccessPartnersProvider` | `policies/crossTenantAccessPolicy/partners` | the partner's `tenantId` |
+
+The `policies/…` types are pseudo-child type names like `conditionalAccess/…`: top-level resources with a one-segment name
+(`/providers/Microsoft.Entra/policies/crossTenantAccessPolicy/default`, `/providers/Microsoft.Entra/policies/crossTenantAccessPolicy/partners/{tenantId}`).
+
+| Type | Read | Create | Update | Delete |
+|---|---|---|---|---|
+| `groupLifecyclePolicies` | `GET /groupLifecyclePolicies` (every page) | `POST /groupLifecyclePolicies` (201, object) | `PATCH …/{id}` → GET | `DELETE …/{id}` (group expiration is switched off: delete-risk note) |
+| `policies/tokenLifetimePolicies`, `policies/claimsMappingPolicies`, `policies/appManagementPolicies` | `GET /policies/{collection}` (every page) | `POST /policies/{collection}` (201, object; the app management page's example shows 200) | `PATCH …/{id}` (204) → GET | `DELETE …/{id}` (204; the assigned objects fall back to the default: delete-risk note) |
+| `policies/defaultAppManagementPolicy` | `GET /policies/defaultAppManagementPolicy` | never (a missing object is an error) | `PATCH /policies/defaultAppManagementPolicy` (204) → GET | kept: `NotDeletable` (Learn lists Get and Update only, and no reset); switch it off with `isEnabled: false` |
+| `policies/crossTenantAccessPolicy` | `GET /policies/crossTenantAccessPolicy/default` | never | `PATCH …/default` (204) → GET | `POST …/default/resetToSystemDefault` (204): back to the Microsoft service defaults (delete-risk note) |
+| `policies/crossTenantAccessPolicy/partners` | `GET /policies/crossTenantAccessPolicy/partners/{tenantId}` (404 = create) | `POST /policies/crossTenantAccessPolicy/partners` `{ tenantId, … }` (201, object) | `PATCH …/partners/{tenantId}` (204) → GET | `DELETE …/partners/{tenantId}` (204); Graph refuses it while the partner has a user synchronization policy, which EARM does not manage (the error says so) |
+
+Comparison and bodies:
+
+- **STS policy documents.** `definition` is a string collection holding ONE escaped JSON document (Learn: tokenlifetimepolicy, claimsmappingpolicy).
+  A template may declare it as that string or, as sugar, as a JSON object, which is serialised compactly before it is sent. The document must parse,
+  have its root element (`TokenLifetimePolicy`, `ClaimsMappingPolicy`) and `"Version": 1`; documents compare by JSON content (members sorted, whitespace
+  ignored), and when the contents are equal the declared value takes the live string, so a policy Graph serves reformatted is not drift.
+  Token lifetime: `AccessTokenLifetime` 10 minutes to 1 day (Learn's range; default 1 hour); the retired refresh and session token settings
+  (`MaxInactiveTime`, `MaxAgeSingleFactor`, …) are refused. Claims mapping: `isOrganizationDefault: true` is refused (Learn: "can only be applied to
+  service principals"). The token lifetime update page lists a `description` the resource does not have; EARM's schema leaves it out.
+- **Group lifecycle.** `managedGroupTypes` is `All`, `Selected` or `None`; `alternateNotificationEmails` (one semicolon-separated string) compares as a
+  case-insensitive address set. `groupLifetimeInDays` must be a positive whole number (the portal offers 180, 365 or a custom value of 30 or more).
+- **App management restrictions.** `passwordCredentials` and `keyCredentials` compare as sets keyed by `restrictionType` (overlay `memberKey`). Learn
+  states that PATCH keeps omitted properties but not whether a supplied nested object merges, and the Entra guidance warns that a restriction left out
+  of a patched collection is disabled; so the undeclared members of a declared `restrictions` (custom) or `applicationRestrictions` /
+  `servicePrincipalRestrictions` (default) object are copied from the live object first (`TenantPolicyShape`) and resent. A declared array is
+  sent whole: declare every restriction of an array you manage. Learn lists `description` as required on create for a custom policy.
+- **Cross-tenant settings.** Every declared setting object (`b2bCollaborationInbound`, …, `inboundTrust`, `tenantRestrictions`,
+  `automaticUserConsentSettings`, `invitationRedemptionIdentityProviderConfiguration`) is sent whole with its undeclared live members filled in
+  (recursively through nested objects), for the same reason. On the default configuration `isServiceDefault` and `automaticUserConsentSettings` are
+  read-only and cannot be declared; on a partner, `isInMultiTenantOrganization` (set by the multitenant organization). A `null` partner setting
+  inherits the default configuration. The configurations have no `id`: `default` and the tenant id stand in for `reference().id`.
+- **Orphans.** Complete mode lists the display-name policies and the partner configurations (by tenant id); the singletons never.
+
+The assignments are four ensure-only, principal-side edge kinds in `EArm.Providers/Edges` ([edges.md](edges.md)): `TokenLifetimePolicyEdgeKind`,
+`ClaimsMappingPolicyEdgeKind` and `AppManagementPolicyEdgeKind` share `PolicyAssignmentEdgeKind` (`POST …/{navigation}/$ref`, read from the principal);
+`GroupLifecyclePolicyEdgeKind` uses `addGroup` / `removeGroup` and is read with `GET /groups/{id}/groupLifecyclePolicies`. Graph allows one token
+lifetime and one app management policy per application or service principal (Learn: application-post-tokenlifetimepolicies,
+appmanagementpolicy-post-appliesto), so a principal that already holds another one is an invalid item; Learn states no such limit for claims mapping.
+
+Sources (Graph v1.0 on Microsoft Learn): resources/grouplifecyclepolicy, grouplifecyclepolicy-addgroup, group-list-grouplifecyclepolicies;
+resources/tokenlifetimepolicy, tokenlifetimepolicy-list / -post-tokenlifetimepolicies / -update / -delete, application- and
+serviceprincipal-post-tokenlifetimepolicies; resources/claimsmappingpolicy, serviceprincipal-post-claimsmappingpolicies; resources/appmanagementpolicy,
+appmanagementpolicy-post / -update / -delete / -post-appliesto, resources/tenantappmanagementpolicy, tenantappmanagementpolicy-get / -update, and the
+Entra how-to configure-app-management-policies; resources/crosstenantaccesspolicy-overview, crosstenantaccesspolicyconfigurationdefault-update /
+-resettosystemdefault, crosstenantaccesspolicy-post-partners, crosstenantaccesspolicyconfigurationpartner-update / -delete. None of the tenant policy
+types has been run against a real tenant yet; `TenantPolicyScenarioTests` (gated, see tests/EArm.Integration.Tests/README.md) is written for that pass.
+
 ## Adding an edge kind
 
 Part B edge kinds (app role assignments, directory roles) live next to their standalone provider and

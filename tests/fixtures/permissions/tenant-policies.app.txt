@@ -1,0 +1,45 @@
+Permissions required by samples/tenant-policies.entra.json (mode: app, 10 resource(s))
+
+Microsoft Graph application permissions
+  Application.Read.All
+      /providers/Microsoft.Entra/applications/contoso-portal
+      (edge: appManagementPolicies)
+  Application.ReadWrite.All
+      /providers/Microsoft.Entra/applications/contoso-portal
+      /providers/Microsoft.Entra/servicePrincipals/ref(/providers/Microsoft.Entra/applications/contoso-portal).appId
+      (Application.ReadWrite.OwnedBy would suffice for the applications this principal owns (1 resource(s)); edge: claimsMappingPolicies; edge: tokenLifetimePolicies; provider)
+  Directory.ReadWrite.All
+      /providers/Microsoft.Entra/groupLifecyclePolicies/default
+      /providers/Microsoft.Entra/groups/team-sales-emea
+      (edge: groupLifecyclePolicies; provider)
+  Group.ReadWrite.All
+      /providers/Microsoft.Entra/groups/team-sales-emea
+      (provider)
+  Organization.Read.All
+      (every deployment)
+      (preflight: GET /organization)
+  Policy.Read.All
+      /providers/Microsoft.Entra/applications/contoso-portal
+      /providers/Microsoft.Entra/policies/appManagementPolicies/Portal secrets (30 days)
+      /providers/Microsoft.Entra/policies/claimsMappingPolicies/Portal employee id claim
+      /providers/Microsoft.Entra/policies/crossTenantAccessPolicy/default
+      /providers/Microsoft.Entra/policies/crossTenantAccessPolicy/partners/2f0a1f3e-5b6c-4d7e-8f90-a1b2c3d4e5f6
+      /providers/Microsoft.Entra/policies/defaultAppManagementPolicy/default
+      /providers/Microsoft.Entra/policies/tokenLifetimePolicies/Portal access tokens (2h)
+      /providers/Microsoft.Entra/servicePrincipals/ref(/providers/Microsoft.Entra/applications/contoso-portal).appId
+      (edge: claimsMappingPolicies; edge: tokenLifetimePolicies; provider)
+  Policy.ReadWrite.ApplicationConfiguration
+      /providers/Microsoft.Entra/applications/contoso-portal
+      /providers/Microsoft.Entra/policies/appManagementPolicies/Portal secrets (30 days)
+      /providers/Microsoft.Entra/policies/claimsMappingPolicies/Portal employee id claim
+      /providers/Microsoft.Entra/policies/defaultAppManagementPolicy/default
+      /providers/Microsoft.Entra/policies/tokenLifetimePolicies/Portal access tokens (2h)
+      (edge: appManagementPolicies; provider)
+  Policy.ReadWrite.CrossTenantAccess
+      /providers/Microsoft.Entra/policies/crossTenantAccessPolicy/default
+      /providers/Microsoft.Entra/policies/crossTenantAccessPolicy/partners/2f0a1f3e-5b6c-4d7e-8f90-a1b2c3d4e5f6
+      (provider)
+
+note: Application permissions are Microsoft Graph app roles granted (with admin consent) to the service principal EARM signs in with (AZURE_CLIENT_ID, or the managed identity). Application.ReadWrite.OwnedBy replaces Application.ReadWrite.All for applications the service principal owns.
+note: 1 resource(s) have a name that depends on another resource (for example a service principal named after reference(...).appId); their permissions are computed from the declaration and the references it contains.
+note: Edge permissions are listed for every relationship property the template declares (including an empty array, which removes edges). Key Vault access is an Azure RBAC / access-policy requirement of the signed-in identity, not a Graph permission.

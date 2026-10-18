@@ -67,6 +67,11 @@ Hardening for these types:
   Do not make the identity that runs EARM an approver of the policies it deploys.
 - Review every `~ Modify` of a `roleManagementPolicies` rule (approval, enablement, expiration) and of an authentication method's `state`, targets and
   key restrictions in the what-if before `create`; keep Conditional Access policies report-only until their sign-in impact is known.
+- The tenant policy types are tenant-wide too. `Policy.ReadWrite.CrossTenantAccess` (`policies/crossTenantAccessPolicy`, `…/partners`) decides which
+  external tenants' users get in and whose MFA and device claims Conditional Access trusts; `Policy.ReadWrite.ApplicationConfiguration` (token
+  lifetime, claims mapping and app management policies) changes the tokens every application receives and the credential rules every new application
+  must follow. Review their `~ Modify` rows like the PIM ones; `deployment delete` resets the default cross-tenant settings and deletes the group
+  expiration policy (both listed with a delete-risk note).
 
 ### What is defended against (hostile templates and parameter files)
 

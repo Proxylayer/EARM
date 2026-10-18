@@ -1,0 +1,42 @@
+{
+  "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "A prefixed, DISABLED custom app management policy assigned to a prefixed application, and the description of the tenant default app management policy (the only tenant-wide change; the test snapshots and restores it)."
+  },
+  "parameters": {
+    "prefix": { "type": "string" },
+    "defaultDescription": { "type": "string" }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Entra/policies/appManagementPolicies",
+      "apiVersion": "2026-10-01-preview",
+      "name": "[format('{0}-amp', parameters('prefix'))]",
+      "properties": {
+        "description": "EARM integration test policy (disabled).",
+        "isEnabled": false,
+        "restrictions": {
+          "passwordCredentials": [ { "restrictionType": "passwordLifetime", "state": "enabled", "maxLifetime": "P90D", "restrictForAppsCreatedAfterDateTime": "2025-01-01T00:00:00Z" } ]
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Entra/applications",
+      "apiVersion": "2026-10-01-preview",
+      "name": "[format('{0}-amp-app', parameters('prefix'))]",
+      "properties": {
+        "displayName": "[format('{0}-amp-app', parameters('prefix'))]",
+        "appManagementPolicies": [ "[reference(format('{0}-amp', parameters('prefix'))).id]" ]
+      }
+    },
+    {
+      "type": "Microsoft.Entra/policies/defaultAppManagementPolicy",
+      "apiVersion": "2026-10-01-preview",
+      "name": "default",
+      "properties": {
+        "description": "[parameters('defaultDescription')]"
+      }
+    }
+  ]
+}

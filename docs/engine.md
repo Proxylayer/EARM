@@ -468,6 +468,10 @@ found = create.
 | `applications/extensionProperties` | Graph `name` `extension_<appId without dashes>_<name>` under the parent application | the short name |
 | `conditionalAccess/authenticationContextClassReferences` | `id` (`c1`..`c99`) | the id |
 | `authenticationMethodConfigurations` | the method id (case-insensitive; Graph id `Fido2`, `Sms`...) | the method id (`fido2`, `sms`...); a tenant singleton: not found is an error, never a create |
+| `groupLifecyclePolicies` | the tenant's only group expiration policy (`GET /groupLifecyclePolicies`; two are `AmbiguousMatch`) | `default` |
+| `policies/defaultAppManagementPolicy`, `policies/crossTenantAccessPolicy` | the fixed path (`/policies/defaultAppManagementPolicy`, `/policies/crossTenantAccessPolicy/default`) | `default`; a tenant singleton: not found is an error, never a create |
+| `policies/tokenLifetimePolicies`, `policies/claimsMappingPolicies`, `policies/appManagementPolicies` | `displayName`, matched client-side over the whole collection (`AmbiguousMatch` on duplicates) | the display name |
+| `policies/crossTenantAccessPolicy/partners` | `tenantId` (`GET …/partners/{tenantId}`) | the partner's tenant id |
 | `roleAssignments` | (`roleDefinitionId`, `principalId`, `directoryScopeId`) | a label (`guid(...)`); not part of the identity |
 | `roleEligibilityScheduleRequests` | (`principalId`, `roleDefinitionId`, `directoryScopeId` or `appScopeId`), Direct eligibility schedules only | a label |
 | `roleAssignmentScheduleRequests` | (`principalId`, `roleDefinitionId`, `directoryScopeId` or `appScopeId`), Direct assignment schedules with `assignmentType` Assigned only (a permanent one is refused: `PimAssignmentConflict`) | a label |

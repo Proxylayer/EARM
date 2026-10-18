@@ -1,0 +1,50 @@
+Deployment 'tenant-policies-incremental' (Incremental) on tenant 11111111-1111-1111-1111-111111111111
+
+Resource and property changes are indicated with these symbols:
+  + Create
+  ~ Modify
+  - Delete
+  = NoChange
+  * Ignore
+  ? Value only known at deployment time
+  ! Change cannot be applied as planned
+
+The deployment would make the following changes:
+
+  ~ /providers/Microsoft.Entra/groupLifecyclePolicies/default [Microsoft.Entra/groupLifecyclePolicies]
+      ~ properties.groupLifetimeInDays: 180 => 365
+      ~ properties.managedGroupTypes: "All" => "Selected"
+
+  + /providers/Microsoft.Entra/policies/claimsMappingPolicies/Employee id [Microsoft.Entra/policies/claimsMappingPolicies]
+      name: "Employee id"
+      type: "Microsoft.Entra/policies/claimsMappingPolicies"
+      apiVersion: "2026-10-01-preview"
+      properties:
+        definition: [
+          0: "{\u0022ClaimsMappingPolicy\u0022:{\u0022Version\u0022:1,\u0022IncludeBasicClaimSet\u0022:\u0022true\u0022,\u0022ClaimsSchema\u0022:[{\u0022Source\u0022:\u0022user\u0022,\u0022ID\u0022:\u0022employeeid\u0022,\u0022JwtClaimType\u0022:\u0022employeeid\u0022}]}}"
+        ]
+
+  = /providers/Microsoft.Entra/policies/crossTenantAccessPolicy/default [Microsoft.Entra/policies/crossTenantAccessPolicy]
+
+  + /providers/Microsoft.Entra/policies/crossTenantAccessPolicy/partners/2f0a1f3e-5b6c-4d7e-8f90-a1b2c3d4e5f6 [Microsoft.Entra/policies/crossTenantAccessPolicy/partners]
+      name: "2f0a1f3e-5b6c-4d7e-8f90-a1b2c3d4e5f6"
+      type: "Microsoft.Entra/policies/crossTenantAccessPolicy/partners"
+      apiVersion: "2026-10-01-preview"
+      properties:
+        inboundTrust:
+          isMfaAccepted: true
+          isCompliantDeviceAccepted: false
+          isHybridAzureADJoinedDeviceAccepted: false
+
+  ~ /providers/Microsoft.Entra/policies/defaultAppManagementPolicy/default [Microsoft.Entra/policies/defaultAppManagementPolicy]
+      ~ properties.isEnabled: false => true
+
+  ~ /providers/Microsoft.Entra/policies/tokenLifetimePolicies/Web sessions [Microsoft.Entra/policies/tokenLifetimePolicies]
+      ~ properties.definition: [
+          + [0]: "{\u0022TokenLifetimePolicy\u0022:{\u0022Version\u0022:1,\u0022AccessTokenLifetime\u0022:\u002202:00:00\u0022}}"
+          - [0]: "{\u0022TokenLifetimePolicy\u0022:{\u0022Version\u0022:1,\u0022AccessTokenLifetime\u0022:\u002201:00:00\u0022}}"
+        ]
+
+Resource changes: 2 to create, 3 to modify, 0 to delete, 1 unchanged, 0 ignored.
+Edges: 0 to add, 0 to remove.
+Required permissions: Directory.ReadWrite.All, Policy.Read.All, Policy.ReadWrite.ApplicationConfiguration, Policy.ReadWrite.CrossTenantAccess.

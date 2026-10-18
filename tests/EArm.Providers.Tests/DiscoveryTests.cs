@@ -35,6 +35,13 @@ public sealed class DiscoveryTests
     [InlineData("Microsoft.Entra/conditionalAccess/policies", typeof(ConditionalAccessPoliciesProvider))]
     [InlineData("Microsoft.Entra/conditionalAccess/authenticationContextClassReferences", typeof(AuthenticationContextClassReferencesProvider))]
     [InlineData("Microsoft.Entra/authenticationMethodConfigurations", typeof(AuthenticationMethodConfigurationsProvider))]
+    [InlineData("Microsoft.Entra/groupLifecyclePolicies", typeof(GroupLifecyclePoliciesProvider))]
+    [InlineData("Microsoft.Entra/policies/crossTenantAccessPolicy/partners", typeof(CrossTenantAccessPartnersProvider))]
+    [InlineData("Microsoft.Entra/policies/crossTenantAccessPolicy", typeof(CrossTenantAccessPolicyProvider))]
+    [InlineData("Microsoft.Entra/policies/defaultAppManagementPolicy", typeof(DefaultAppManagementPolicyProvider))]
+    [InlineData("Microsoft.Entra/policies/appManagementPolicies", typeof(AppManagementPoliciesProvider))]
+    [InlineData("Microsoft.Entra/policies/claimsMappingPolicies", typeof(ClaimsMappingPoliciesProvider))]
+    [InlineData("Microsoft.Entra/policies/tokenLifetimePolicies", typeof(TokenLifetimePoliciesProvider))]
     [InlineData("Microsoft.Entra/roleEligibilityScheduleRequests", typeof(RoleEligibilityScheduleRequestsProvider))]
     [InlineData("Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests", typeof(GroupEligibilityScheduleRequestsProvider))]
     [InlineData("Microsoft.Entra/roleAssignmentScheduleRequests", typeof(RoleAssignmentScheduleRequestsProvider))]
@@ -70,14 +77,19 @@ public sealed class DiscoveryTests
         Assert.True(kinds.Contains(EdgeKind.Manager));
         Assert.True(kinds.Contains(EdgeKind.AppRoleAssignment));
         Assert.True(kinds.Contains(EdgeKind.DirectoryRole));
-        Assert.Equal(6, kinds.Handlers.Count);
+        Assert.True(kinds.Contains(EdgeKind.GroupLifecyclePolicy));
+        Assert.True(kinds.Contains(EdgeKind.AppManagementPolicy));
+        Assert.True(kinds.Contains(EdgeKind.ClaimsMappingPolicy));
+        Assert.True(kinds.Contains(EdgeKind.TokenLifetimePolicy));
+        Assert.Equal(10, kinds.Handlers.Count);
         Assert.Equal(4, kinds.OfPhase(EdgePhase.A).Count);
-        Assert.Equal(2, kinds.OfPhase(EdgePhase.B).Count);
+        Assert.Equal(6, kinds.OfPhase(EdgePhase.B).Count);
         Assert.True(kinds.TryGet(EdgeKind.DirectoryRole, out var directoryRoles));
         Assert.IsType<DirectoryRoleEdgeKind>(directoryRoles);
         Assert.Equal(EdgePhase.B, directoryRoles.Phase);
         var bindings = ProviderDiscovery.DiscoverEdgeKinds(typeof(ProviderDiscovery).Assembly);
-        Assert.Equal(2, bindings.Count);
+        Assert.Equal(6, bindings.Count);
+        Assert.Contains(bindings, b => b.Kind == EdgeKind.GroupLifecyclePolicy);
         Assert.Contains(bindings, b => b.Kind == EdgeKind.AppRoleAssignment);
         Assert.Contains(bindings, b => b.Kind == EdgeKind.DirectoryRole);
     }

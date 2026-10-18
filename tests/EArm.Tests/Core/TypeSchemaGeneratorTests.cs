@@ -69,7 +69,7 @@ public sealed class TypeSchemaGeneratorTests
         await process.WaitForExitAsync(timeout.Token);
 
         Assert.True(process.ExitCode == 0, "New-TypeSchemas.ps1 failed: " + await stderr + await stdout);
-        Assert.Contains("Rewrote 28 type schema file(s)", await stdout, StringComparison.Ordinal);
+        Assert.Contains("Rewrote 35 type schema file(s)", await stdout, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -94,7 +94,7 @@ public sealed class TypeSchemaGeneratorTests
             var second = Read(copy);
 
             Assert.Equal(original.Keys.Order(StringComparer.Ordinal).ToList(), first.Keys.Order(StringComparer.Ordinal).ToList());
-            Assert.Equal(28, first.Count);
+            Assert.Equal(35, first.Count);
             foreach (var pair in first)
             {
                 Assert.True(original[pair.Key].AsSpan().SequenceEqual(pair.Value), $"the generator output for {pair.Key} differs from the checked-in schema (run tools/New-TypeSchemas.ps1 and commit, or fix the DSL)");

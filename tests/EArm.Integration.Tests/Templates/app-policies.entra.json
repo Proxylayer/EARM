@@ -1,0 +1,48 @@
+{
+  "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "A prefixed token lifetime policy assigned to a prefixed application, and a prefixed claims mapping policy assigned to its service principal. Nothing tenant-wide: isOrganizationDefault stays false."
+  },
+  "parameters": {
+    "prefix": { "type": "string" },
+    "accessTokenLifetime": { "type": "string", "defaultValue": "02:00:00" }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Entra/policies/tokenLifetimePolicies",
+      "apiVersion": "2026-10-01-preview",
+      "name": "[format('{0}-tlp', parameters('prefix'))]",
+      "properties": {
+        "definition": [ { "TokenLifetimePolicy": { "Version": 1, "AccessTokenLifetime": "[parameters('accessTokenLifetime')]" } } ],
+        "isOrganizationDefault": false
+      }
+    },
+    {
+      "type": "Microsoft.Entra/policies/claimsMappingPolicies",
+      "apiVersion": "2026-10-01-preview",
+      "name": "[format('{0}-cmp', parameters('prefix'))]",
+      "properties": {
+        "definition": [ { "ClaimsMappingPolicy": { "Version": 1, "IncludeBasicClaimSet": "true", "ClaimsSchema": [ { "Source": "user", "ID": "employeeid", "JwtClaimType": "employeeid" } ] } } ]
+      }
+    },
+    {
+      "type": "Microsoft.Entra/applications",
+      "apiVersion": "2026-10-01-preview",
+      "name": "[format('{0}-policy-app', parameters('prefix'))]",
+      "properties": {
+        "displayName": "[format('{0}-policy-app', parameters('prefix'))]",
+        "tokenLifetimePolicies": [ "[reference(format('{0}-tlp', parameters('prefix'))).id]" ]
+      }
+    },
+    {
+      "type": "Microsoft.Entra/servicePrincipals",
+      "apiVersion": "2026-10-01-preview",
+      "name": "[reference(format('{0}-policy-app', parameters('prefix'))).appId]",
+      "dependsOn": [ "[resourceId('Microsoft.Entra/applications', format('{0}-policy-app', parameters('prefix')))]" ],
+      "properties": {
+        "claimsMappingPolicies": [ "[reference(format('{0}-cmp', parameters('prefix'))).id]" ]
+      }
+    }
+  ]
+}

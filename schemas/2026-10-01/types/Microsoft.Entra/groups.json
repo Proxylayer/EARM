@@ -83,6 +83,13 @@
         { "$ref": "#/$defs/expression" }
       ]
     },
+    "groupLifecyclePolicies": {
+      "description": "Group lifecycle (expiration) policy edge, principal side (ensure-only): the object id of the tenant's group lifecycle policy, whose managedGroupTypes must be Selected. Microsoft 365 groups only.",
+      "anyOf": [
+        { "type": "array", "items": { "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] } },
+        { "$ref": "#/$defs/expression" }
+      ]
+    },
     "appRoleAssignments": {
       "description": "App role assignment edge, principal side (applied by the edge pass, tracked in state): [{ resourceId | resourceAppId, appRole | appRoleId }]. appRole is the role's value, resolved against the resource service principal; 00000000-0000-0000-0000-000000000000 is default access.",
       "anyOf": [
@@ -219,7 +226,8 @@
       { "property": "administrativeUnits", "kind": "administrativeUnitMembership", "side": "principal" },
       { "property": "appRoleAssignments", "kind": "appRoleAssignment", "side": "principal" },
       { "property": "directoryRoles", "kind": "directoryRoleAssignment", "side": "principal" },
-      { "property": "assignedLicenses", "kind": "license", "side": "principal" }
+      { "property": "assignedLicenses", "kind": "license", "side": "principal" },
+      { "property": "groupLifecyclePolicies", "kind": "groupLifecyclePolicy", "side": "principal" }
     ],
     "memberKey": {},
     "stripOnRead": ["id", "createdDateTime", "deletedDateTime", "renewedDateTime", "expirationDateTime", "mail", "proxyAddresses", "securityIdentifier", "onPremisesSyncEnabled", "onPremisesLastSyncDateTime", "onPremisesSecurityIdentifier", "onPremisesDomainName", "onPremisesNetBiosName", "onPremisesSamAccountName", "onPremisesProvisioningErrors", "serviceProvisioningErrors", "createdByAppId", "organizationId", "isManagementRestricted", "membershipRuleProcessingStatus", "theme", "hasMembersWithLicenseErrors"],

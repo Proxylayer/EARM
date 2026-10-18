@@ -29,7 +29,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   is a confirmed recreate; every delete warns that the stored values are lost (`DestructiveDelete`), and an extension synced from
   on-premises is kept by `deployment delete`.
 - Sample `app-certificates-extensions` with both types.
-
+- Tenant policy resource types (docs/providers.md, "Worked example: tenant policies"):
+  `Microsoft.Entra/groupLifecyclePolicies` (the group expiration policy, a singleton named `default`),
+  `Microsoft.Entra/policies/tokenLifetimePolicies`, `Microsoft.Entra/policies/claimsMappingPolicies` and
+  `Microsoft.Entra/policies/appManagementPolicies` (keyed by `displayName`; duplicates are `AmbiguousMatch`),
+  `Microsoft.Entra/policies/defaultAppManagementPolicy` (the tenant default, never created; delete keeps it, `NotDeletable`),
+  `Microsoft.Entra/policies/crossTenantAccessPolicy` (the default cross-tenant access configuration, `default`; delete resets it to the service
+  defaults) and `Microsoft.Entra/policies/crossTenantAccessPolicy/partners` (keyed by the partner's `tenantId`). Policy documents
+  (`definition`) may be declared as JSON objects and compare by content; undeclared members of declared nested setting objects keep their live values.
+- Principal-side, ensure-only policy edges: `groupLifecyclePolicies` on Microsoft 365 groups (`addGroup`, for a `Selected` policy),
+  `tokenLifetimePolicies` and `appManagementPolicies` on applications and service principals (one per object), `claimsMappingPolicies` on service
+  principals. The `tenant-policies` sample, permission goldens and the `tenant-policies-incremental` what-if scenario cover them; the gated
+  integration scenarios (`EARM_IT_ALLOW_APP_MANAGEMENT`, `EARM_IT_ALLOW_CROSS_TENANT`, `EARM_IT_ALLOW_GROUP_LIFECYCLE`) are written but not yet run.
+- What-if scopes: `Policy.ReadWrite.ApplicationConfiguration` and `Policy.ReadWrite.CrossTenantAccess` read with `Policy.Read.All`.
 - `earm permissions` expresses Entra roles needed together: a `together: A + (B | C)` line in the table, an entry with an empty
   `anyOf` and an `allOf` array of parts in the JSON (the overlay key `rolesAllOf`). A catalog resource now needs Identity Governance
   Administrator together with Privileged Role Administrator (role-assignable template group) or with Groups Administrator, Intune

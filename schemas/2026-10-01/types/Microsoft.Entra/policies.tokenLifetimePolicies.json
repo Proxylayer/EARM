@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/policies.tokenLifetimePolicies.json",
+  "title": "Microsoft.Entra/policies/tokenLifetimePolicies",
+  "description": "An access token lifetime policy (tokenLifetimePolicy). The resource name is the displayName; it is looked up by displayName on every run (more than one match is an error). Assigned to applications and service principals with their tokenLifetimePolicies edge.",
+  "type": "object",
+  "properties": {
+    "displayName": {
+      "description": "Set from the resource name; declaring it is only allowed when it equals the name.",
+      "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+    },
+    "definition": {
+      "description": "Required: one policy document, {\"TokenLifetimePolicy\":{\"Version\":1,\"AccessTokenLifetime\":\"02:00:00\"}}, as a JSON string or (sugar) an object. AccessTokenLifetime is 10 minutes to 1 day; refresh and session token lifetimes are not supported. Compared by JSON content.",
+      "anyOf": [
+        {
+          "type": "array",
+          "items": { "anyOf": [ { "type": "string", "minLength": 2 }, { "type": "object" }, { "$ref": "#/$defs/expression" } ] },
+          "minItems": 1
+        },
+        { "$ref": "#/$defs/expression" }
+      ]
+    },
+    "isOrganizationDefault": {
+      "description": "Makes the policy the tenant default (only one policy can be). Defaults to false.",
+      "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/expression" } ]
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "expression": { "type": "string", "pattern": "^\\[.*\\]$", "description": "A template expression, for example [parameters('env')]." }
+  },
+  "x-earm": {
+    "type": "Microsoft.Entra/policies/tokenLifetimePolicies",
+    "parentType": null,
+    "graphPath": "/policies/tokenLifetimePolicies",
+    "apiVersions": { "2026-10-01-preview": "v1.0", "2026-10-01-preview.beta": "beta" },
+    "nameMapsTo": "displayName",
+    "nameKind": "displayName",
+    "namePattern": "^\\S(.{0,254}\\S)?$",
+    "keyProperties": ["displayName"],
+    "requiredOnCreate": ["definition"],
+    "defaults": {},
+    "immutable": [],
+    "createOnly": [],
+    "secure": [],
+    "relationships": [],
+    "memberKey": {},
+    "stripOnRead": ["id", "deletedDateTime"],
+    "nullable": {},
+    "permissions": {
+      "application": ["Policy.ReadWrite.ApplicationConfiguration", "Policy.Read.All"],
+      "notes": "Learn (tokenlifetimepolicy-post-tokenlifetimepolicies, -update, -delete): Policy.ReadWrite.ApplicationConfiguration is the least privileged write permission (delegated and application); tokenlifetimepolicy-list reads with Policy.Read.All. Learn names no role on these pages; Cloud Application Administrator and Application Administrator manage application policies. Assigning the policy (the tokenLifetimePolicies edge) needs Application.ReadWrite.All (Application.ReadWrite.OwnedBy for owned objects) and Policy.Read.All instead.",
+      "roles": ["Cloud Application Administrator", "Application Administrator"]
+    }
+  }
+}
