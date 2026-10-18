@@ -1,6 +1,9 @@
-Permissions required by samples/tenant-policies.entra.json (mode: app, 6 resource(s))
+Permissions required by samples/tenant-policies.entra.json (mode: app, 8 resource(s))
 
 Microsoft Graph application permissions
+  Application.Read.All
+      /providers/Microsoft.Entra/applications/contoso-portal
+      (edge: appManagementPolicies)
   Application.ReadWrite.All
       /providers/Microsoft.Entra/applications/contoso-portal
       /providers/Microsoft.Entra/servicePrincipals/ref(/providers/Microsoft.Entra/applications/contoso-portal).appId
@@ -17,14 +20,19 @@ Microsoft Graph application permissions
       (preflight: GET /organization)
   Policy.Read.All
       /providers/Microsoft.Entra/applications/contoso-portal
+      /providers/Microsoft.Entra/policies/appManagementPolicies/Portal secrets (30 days)
       /providers/Microsoft.Entra/policies/claimsMappingPolicies/Portal employee id claim
+      /providers/Microsoft.Entra/policies/defaultAppManagementPolicy/default
       /providers/Microsoft.Entra/policies/tokenLifetimePolicies/Portal access tokens (2h)
       /providers/Microsoft.Entra/servicePrincipals/ref(/providers/Microsoft.Entra/applications/contoso-portal).appId
       (edge: claimsMappingPolicies; edge: tokenLifetimePolicies; provider)
   Policy.ReadWrite.ApplicationConfiguration
+      /providers/Microsoft.Entra/applications/contoso-portal
+      /providers/Microsoft.Entra/policies/appManagementPolicies/Portal secrets (30 days)
       /providers/Microsoft.Entra/policies/claimsMappingPolicies/Portal employee id claim
+      /providers/Microsoft.Entra/policies/defaultAppManagementPolicy/default
       /providers/Microsoft.Entra/policies/tokenLifetimePolicies/Portal access tokens (2h)
-      (provider)
+      (edge: appManagementPolicies; provider)
 
 note: Application permissions are Microsoft Graph app roles granted (with admin consent) to the service principal EARM signs in with (AZURE_CLIENT_ID, or the managed identity). Application.ReadWrite.OwnedBy replaces Application.ReadWrite.All for applications the service principal owns.
 note: 1 resource(s) have a name that depends on another resource (for example a service principal named after reference(...).appId); their permissions are computed from the declaration and the references it contains.

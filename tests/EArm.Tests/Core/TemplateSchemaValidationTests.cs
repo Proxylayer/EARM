@@ -140,6 +140,8 @@ public sealed class TemplateSchemaValidationTests
         I(TenantPolicies, "groups", 0, ["groupLifecyclePolicies"], "\"x\"", "type"),
         I(TenantPolicies, "policies/tokenLifetimePolicies", 0, ["isOrganizationDefault"], "\"yes\"", "type"),
         I(TenantPolicies, "policies/claimsMappingPolicies", 0, ["definition"], "\"{}\"", "type"),
+        I(TenantPolicies, "policies/appManagementPolicies", 0, ["restrictions", "passwordCredentials", 0, "state"], "\"on\"", "enum"),
+        I(TenantPolicies, "policies/defaultAppManagementPolicy", 0, ["isEnabled"], "\"yes\"", "type"),
     ];
 
     public static TheoryData<int> InjectionIndexes()
@@ -254,7 +256,7 @@ public sealed class TemplateSchemaValidationTests
             Assert.Contains(definition.Type, covered);
         }
 
-        Assert.Equal(29, ResourceTypeCatalog.Default.Types.Count);
+        Assert.Equal(31, ResourceTypeCatalog.Default.Types.Count);
         foreach (string keyword in new[] { "enum", "pattern", "type", "required", "additionalProperties" })
         {
             Assert.Contains(Injections, i => i.Keyword == keyword);

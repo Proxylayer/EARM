@@ -1,8 +1,18 @@
 {
   "template": "samples/tenant-policies.entra.json",
   "mode": "delegated",
-  "resourceCount": 6,
+  "resourceCount": 8,
   "permissions": [
+    {
+      "name": "Application.Read.All",
+      "kind": "graphDelegated",
+      "resources": [
+        "/providers/Microsoft.Entra/applications/contoso-portal"
+      ],
+      "reasons": [
+        "edge: appManagementPolicies"
+      ]
+    },
     {
       "name": "Application.ReadWrite.All",
       "kind": "graphDelegated",
@@ -43,7 +53,9 @@
       "kind": "graphDelegated",
       "resources": [
         "/providers/Microsoft.Entra/applications/contoso-portal",
+        "/providers/Microsoft.Entra/policies/appManagementPolicies/Portal secrets (30 days)",
         "/providers/Microsoft.Entra/policies/claimsMappingPolicies/Portal employee id claim",
+        "/providers/Microsoft.Entra/policies/defaultAppManagementPolicy/default",
         "/providers/Microsoft.Entra/policies/tokenLifetimePolicies/Portal access tokens (2h)",
         "/providers/Microsoft.Entra/servicePrincipals/ref(/providers/Microsoft.Entra/applications/contoso-portal).appId"
       ],
@@ -57,10 +69,14 @@
       "name": "Policy.ReadWrite.ApplicationConfiguration",
       "kind": "graphDelegated",
       "resources": [
+        "/providers/Microsoft.Entra/applications/contoso-portal",
+        "/providers/Microsoft.Entra/policies/appManagementPolicies/Portal secrets (30 days)",
         "/providers/Microsoft.Entra/policies/claimsMappingPolicies/Portal employee id claim",
+        "/providers/Microsoft.Entra/policies/defaultAppManagementPolicy/default",
         "/providers/Microsoft.Entra/policies/tokenLifetimePolicies/Portal access tokens (2h)"
       ],
       "reasons": [
+        "edge: appManagementPolicies",
         "provider"
       ]
     }
@@ -86,11 +102,14 @@
       ],
       "resources": [
         "/providers/Microsoft.Entra/applications/contoso-portal",
+        "/providers/Microsoft.Entra/policies/appManagementPolicies/Portal secrets (30 days)",
         "/providers/Microsoft.Entra/policies/claimsMappingPolicies/Portal employee id claim",
+        "/providers/Microsoft.Entra/policies/defaultAppManagementPolicy/default",
         "/providers/Microsoft.Entra/policies/tokenLifetimePolicies/Portal access tokens (2h)",
         "/providers/Microsoft.Entra/servicePrincipals/ref(/providers/Microsoft.Entra/applications/contoso-portal).appId"
       ],
       "reasons": [
+        "edge: appManagementPolicies",
         "edge: claimsMappingPolicies",
         "edge: tokenLifetimePolicies",
         "provider"

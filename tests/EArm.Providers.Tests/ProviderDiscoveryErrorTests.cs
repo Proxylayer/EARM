@@ -181,7 +181,7 @@ public sealed class ProviderDiscoveryErrorTests
         var bindings = ProviderDiscovery.DiscoverEdgeKinds(typeof(ProviderDiscovery).Assembly);
 
         Assert.Equal(
-            [EArm.Engine.Edges.EdgeKind.AppRoleAssignment, EArm.Engine.Edges.EdgeKind.DirectoryRole, EArm.Engine.Edges.EdgeKind.GroupLifecyclePolicy, EArm.Engine.Edges.EdgeKind.TokenLifetimePolicy, EArm.Engine.Edges.EdgeKind.ClaimsMappingPolicy],
+            [EArm.Engine.Edges.EdgeKind.AppRoleAssignment, EArm.Engine.Edges.EdgeKind.DirectoryRole, EArm.Engine.Edges.EdgeKind.GroupLifecyclePolicy, EArm.Engine.Edges.EdgeKind.TokenLifetimePolicy, EArm.Engine.Edges.EdgeKind.ClaimsMappingPolicy, EArm.Engine.Edges.EdgeKind.AppManagementPolicy],
             bindings.Select(b => b.Kind).Order().ToArray());
         Assert.ThrowsAny<ArgumentException>(() => new EntraProviderAttribute(" "));
         Assert.ThrowsAny<ArgumentException>(() => new EntraProviderAttribute(null!));

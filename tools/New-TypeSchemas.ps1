@@ -273,6 +273,7 @@ $specs['applications'] = [ordered]@{
         keyCredentials         = Arr -d 'Certificates and keys (passthrough; only diffed when declared).' -Items (FreeObj '')
         owners                 = EdgeIds 'Ownership edge, target side: the full desired set of owner object ids (reference(...).id). Owners not listed are removed.'
         tokenLifetimePolicies  = EdgeIds 'Token lifetime policy edge, principal side (ensure-only): the object id of the token lifetime policy assigned to the application (Graph allows one).'
+        appManagementPolicies  = EdgeIds 'App management policy edge, principal side (ensure-only): the object id of the app management policy assigned to the application (Graph allows one).'
     }
 }
 
@@ -335,6 +336,7 @@ $specs['servicePrincipals'] = [ordered]@{
         directoryRoles             = EdgeDirectoryRoles ''
         tokenLifetimePolicies      = EdgeIds 'Token lifetime policy edge, principal side (ensure-only): the object id of the token lifetime policy assigned to the service principal (Graph allows one).'
         claimsMappingPolicies      = EdgeIds 'Claims mapping policy edge, principal side (ensure-only): object ids of the claims mapping policies assigned to the service principal.'
+        appManagementPolicies      = EdgeIds 'App management policy edge, principal side (ensure-only): the object id of the app management policy assigned to the service principal (Graph allows one).'
     }
 }
 
@@ -698,6 +700,47 @@ $specs['policies.claimsMappingPolicies'] = [ordered]@{
         displayName           = Str 'Set from the resource name; declaring it is only allowed when it equals the name.'
         definition            = Arr -d 'Required: one policy document, {"ClaimsMappingPolicy":{"Version":1,"IncludeBasicClaimSet":"true","ClaimsSchema":[...]}}, as a JSON string or (sugar) an object. At most 50 ClaimsSchema entries and 50 transformations (Graph ignores the rest). Compared by JSON content.' -Items ([ordered]@{ anyOf = @([ordered]@{ type = 'string'; minLength = 2 }, [ordered]@{ type = 'object' }, $script:Expression) }) -Min 1
         isOrganizationDefault = Bool 'Must be false (or absent): Graph applies claims mapping to service principals only.'
+    }
+}
+
+# --- policies/appManagementPolicies and policies/defaultAppManagementPolicy ------------------------------------------
+$restriction = Obj '' -Required 'restrictionType' -Props (Props ([ordered]@{
+    restrictionType                      = Str 'passwordCredentials: passwordAddition, passwordLifetime, symmetricKeyAddition, symmetricKeyLifetime, customPasswordAddition; keyCredentials: asymmetricKeyLifetime, trustedCertificateAuthority. The key of the set.' -Min 1
+    state                                = Str 'enabled or disabled (a disabled restriction exempts the object).' -Enum 'enabled', 'disabled'
+    maxLifetime                          = Str 'Lifetime restrictions: the maximum lifetime as an ISO 8601 duration, for example P90D.' -Nullable
+    restrictForAppsCreatedAfterDateTime  = Str 'Applies to applications created after this date (ISO 8601).' -Nullable
+    excludeActors                        = FreeObj 'Actors exempted from the restriction (appManagementPolicyActorExemptions).' -Nullable
+    certificateBasedApplicationConfigurationIds = StrArr 'trustedCertificateAuthority: the certificate based application configuration ids.' -Unique
+}))
+$appManagementConfiguration = { param($d) Obj -d $d -Props (Props ([ordered]@{
+    passwordCredentials = Arr -d 'Password and symmetric key restrictions, compared as a set keyed by restrictionType. A declared array is sent whole: declare every restriction you keep.' -Items $restriction
+    keyCredentials      = Arr -d 'Certificate (asymmetric key) restrictions, compared as a set keyed by restrictionType.' -Items $restriction
+})) }
+
+$specs['policies.appManagementPolicies'] = [ordered]@{
+    NamePattern = $uniqueNamePattern
+    Description = 'A custom app management policy (appManagementPolicy): credential restrictions for the applications and service principals it is assigned to with their appManagementPolicies edge (one per object). The resource name is the displayName; it is looked up by displayName on every run (more than one match is an error). Restrictions it leaves out fall back to the tenant default policy.'
+    Props       = [ordered]@{
+        displayName  = Str 'Set from the resource name; declaring it is only allowed when it equals the name.'
+        description  = Str 'Required on create (Learn, appmanagementpolicy-post).'
+        isEnabled    = Bool 'Whether the policy is enforced.'
+        restrictions = Obj -d 'The restrictions (customAppManagementConfiguration). Undeclared members keep their live values.' -Props (Props ([ordered]@{
+            passwordCredentials     = Arr -d 'Password and symmetric key restrictions, compared as a set keyed by restrictionType.' -Items $restriction
+            keyCredentials          = Arr -d 'Certificate restrictions, compared as a set keyed by restrictionType.' -Items $restriction
+            applicationRestrictions = FreeObj 'Custom policies: application restrictions, for example identifierUris.nonDefaultUriAddition.'
+        }))
+    }
+}
+
+$specs['policies.defaultAppManagementPolicy'] = [ordered]@{
+    NamePattern = '^(?i:default)$'
+    Description = 'The tenant default app management policy (tenantAppManagementPolicy), a singleton that always exists (disabled by default). The resource name is always default. Updated with a merge PATCH, never created; deployment delete keeps it (NotDeletable: Graph documents neither a delete nor a reset), so switch it off with isEnabled: false. Undeclared members of a declared restrictions object keep their live values.'
+    Props       = [ordered]@{
+        displayName                  = Str 'Display name (Default app management tenant policy).'
+        description                  = Str 'Description.' -Nullable
+        isEnabled                    = Bool 'Whether the default restrictions are enforced (false by default).'
+        applicationRestrictions      = & $appManagementConfiguration 'Restrictions on application objects.'
+        servicePrincipalRestrictions = & $appManagementConfiguration 'Restrictions on service principals.'
     }
 }
 

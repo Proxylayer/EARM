@@ -444,6 +444,13 @@
         { "type": "array", "items": { "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] } },
         { "$ref": "#/$defs/expression" }
       ]
+    },
+    "appManagementPolicies": {
+      "description": "App management policy edge, principal side (ensure-only): the object id of the app management policy assigned to the application (Graph allows one).",
+      "anyOf": [
+        { "type": "array", "items": { "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] } },
+        { "$ref": "#/$defs/expression" }
+      ]
     }
   },
   "additionalProperties": true,
@@ -466,7 +473,8 @@
     "secure": [],
     "relationships": [
       { "property": "owners", "kind": "ownership", "side": "target" },
-      { "property": "tokenLifetimePolicies", "kind": "tokenLifetimePolicy", "side": "principal" }
+      { "property": "tokenLifetimePolicies", "kind": "tokenLifetimePolicy", "side": "principal" },
+      { "property": "appManagementPolicies", "kind": "appManagementPolicy", "side": "principal" }
     ],
     "memberKey": { "appRoles": "id", "api.oauth2PermissionScopes": "id" },
     "stripOnRead": ["id", "appId", "createdDateTime", "deletedDateTime", "publisherDomain", "applicationTemplateId", "disabledByMicrosoftStatus", "certification", "verifiedPublisher", "defaultRedirectUri", "info.logoUrl", "passwordCredentials", "keyCredentials"],

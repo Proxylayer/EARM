@@ -31,7 +31,7 @@
         "securityEnabled": false,
         "mailNickname": "sales-emea",
         "visibility": "Private",
-        "groupLifecyclePolicies": [ "[reference('default').id]" ]
+        "groupLifecyclePolicies": [ "[reference(resourceId('Microsoft.Entra/groupLifecyclePolicies', 'default')).id]" ]
       }
     },
     {
@@ -49,7 +49,8 @@
       "properties": {
         "displayName": "Contoso portal",
         "signInAudience": "AzureADMyOrg",
-        "tokenLifetimePolicies": [ "[reference('Portal access tokens (2h)').id]" ]
+        "tokenLifetimePolicies": [ "[reference('Portal access tokens (2h)').id]" ],
+        "appManagementPolicies": [ "[reference('Portal secrets (30 days)').id]" ]
       }
     },
     {
@@ -75,6 +76,33 @@
       "dependsOn": [ "[resourceId('Microsoft.Entra/applications', 'contoso-portal')]" ],
       "properties": {
         "claimsMappingPolicies": [ "[reference('Portal employee id claim').id]" ]
+      }
+    },
+    {
+      "type": "Microsoft.Entra/policies/defaultAppManagementPolicy",
+      "apiVersion": "2026-10-01-preview",
+      "name": "default",
+      "properties": {
+        "isEnabled": true,
+        "applicationRestrictions": {
+          "passwordCredentials": [
+            { "restrictionType": "passwordLifetime", "state": "enabled", "maxLifetime": "P180D", "restrictForAppsCreatedAfterDateTime": "2025-01-01T00:00:00Z" }
+          ]
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Entra/policies/appManagementPolicies",
+      "apiVersion": "2026-10-01-preview",
+      "name": "Portal secrets (30 days)",
+      "properties": {
+        "description": "Client secrets of the portal expire within 30 days.",
+        "isEnabled": true,
+        "restrictions": {
+          "passwordCredentials": [
+            { "restrictionType": "passwordLifetime", "state": "enabled", "maxLifetime": "P30D", "restrictForAppsCreatedAfterDateTime": "2025-01-01T00:00:00Z" }
+          ]
+        }
       }
     }
   ]

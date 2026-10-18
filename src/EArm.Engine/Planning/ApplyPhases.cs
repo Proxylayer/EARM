@@ -54,6 +54,8 @@ public static class ApplyPhases
             "groupLifecyclePolicies" => 1,
             "policies/tokenLifetimePolicies" => 1,
             "policies/claimsMappingPolicies" => 1,
+            "policies/appManagementPolicies" => 1,
+            "policies/defaultAppManagementPolicy" => 1,
             _ => UnknownTypePhase,
         };
     }
@@ -98,6 +100,8 @@ public static class ApplyPhases
             "groupLifecyclePolicies" => 12,
             "policies/tokenLifetimePolicies" => 12,
             "policies/claimsMappingPolicies" => 12,
+            "policies/appManagementPolicies" => 12,
+            "policies/defaultAppManagementPolicy" => 13,
             _ => 4,
         };
     }
@@ -150,5 +154,7 @@ public static class ApplyPhases
         "groupLifecyclePolicies",
         "policies/tokenLifetimePolicies",
         "policies/claimsMappingPolicies",
+        "policies/appManagementPolicies",
+        "policies/defaultAppManagementPolicy",
     ];
 }

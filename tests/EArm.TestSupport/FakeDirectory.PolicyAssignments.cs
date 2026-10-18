@@ -85,6 +85,11 @@ public sealed partial class FakeDirectory
                 {
                     throw BadRequest("definition is required.", hint);
                 }
+
+                if (policy.Collection == AppManagementPoliciesPath && GetString(created, "description") is null)
+                {
+                    throw BadRequest("description is required.", hint);
+                }
             });
             return true;
         }
