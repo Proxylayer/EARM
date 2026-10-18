@@ -88,7 +88,6 @@
     "nullable": {},
     "permissions": {
       "application": ["Policy.ReadWrite.ConditionalAccess", "Policy.Read.All"],
-      "delegated": ["Policy.ReadWrite.ConditionalAccess", "Policy.Read.All"],
       "roles": ["Conditional Access Administrator", "Security Administrator"]
     }
   }

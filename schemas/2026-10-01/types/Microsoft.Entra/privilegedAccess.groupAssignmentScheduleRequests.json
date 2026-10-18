@@ -111,7 +111,6 @@
     "nullable": {},
     "permissions": {
       "application": ["PrivilegedAssignmentSchedule.ReadWrite.AzureADGroup", "Directory.Read.All"],
-      "delegated": ["PrivilegedAssignmentSchedule.ReadWrite.AzureADGroup", "Directory.Read.All"],
       "roles": ["Privileged Role Administrator", "Identity Governance Administrator", "Groups Administrator", "User Administrator", "Directory Writers"],
       "notes": "Learn (privilegedaccessgroup-post-assignmentschedulerequests, privilegedaccessgroup-list-assignmentschedules): PrivilegedAssignmentSchedule.ReadWrite.AzureADGroup is the least privileged permission for the requests (delegated and application); reads need PrivilegedAssignmentSchedule.Read.AzureADGroup. Delegated callers need Privileged Role Administrator for a role-assignable group; for other groups Identity Governance Administrator, Groups Administrator, Directory Writers or User Administrator suffice (or the caller owns the group); the permission manifest narrows the roles to Privileged Role Administrator for a role-assignable template group that groupId references and drops it for any other template group. Directory.Read.All covers the principal-kind check and the group uniqueName lookup. The first request onboards the group in PIM for Groups permanently. The tenant needs Microsoft Entra ID Governance (or P2)."
     }

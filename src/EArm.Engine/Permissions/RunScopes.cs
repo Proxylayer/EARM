@@ -51,8 +51,8 @@ public sealed record RunScopeSet(RunVerb Verb, IReadOnlyList<RunScope> Scopes, b
 /// </list>
 /// A read scope that a write scope of the same family covers (<c>X.Read.Y</c> next to <c>X.ReadWrite.Y</c>) is folded into the write scope.
 /// <para>
-/// The per-type <c>delegated</c> lists of the schema overlays (<see cref="PermissionSet.Delegated"/>) are deliberately not used: they are an
-/// unconditional union, while the providers' <c>RequiredPermissions</c> are conditional on what an instance declares (for example
+/// The schema overlays carry no per-type <c>delegated</c> lists (they were removed): such a list is an unconditional union, while the
+/// providers' <c>RequiredPermissions</c> are conditional on what an instance declares (for example
 /// <c>RoleManagement.ReadWrite.Directory</c> only for a role-assignable group), and <see cref="PermissionManifest.ForMode"/> already maps the
 /// one application-only permission (<c>Application.ReadWrite.OwnedBy</c>) to its delegated scope. App-only sign-ins keep <c>.default</c>.
 /// </para>

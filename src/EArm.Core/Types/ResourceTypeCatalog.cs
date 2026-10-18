@@ -419,6 +419,6 @@ public sealed class ResourceTypeCatalog
             return PermissionSet.Empty;
         }
 
-        return new PermissionSet(StringList(node["application"]), StringList(node["delegated"]), StringList(node["roles"]), node);
+        return new PermissionSet(StringList(node["application"]), StringList(node["roles"]), node);
     }
 }

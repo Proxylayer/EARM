@@ -64,7 +64,6 @@
     "nullable": {},
     "permissions": {
       "application": ["AdministrativeUnit.ReadWrite.All"],
-      "delegated": ["AdministrativeUnit.ReadWrite.All"],
       "roles": ["Privileged Role Administrator"]
     }
   }

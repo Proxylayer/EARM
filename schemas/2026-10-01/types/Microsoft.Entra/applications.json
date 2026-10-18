@@ -466,7 +466,6 @@
     "ignoreLiveOnly": ["web", "api"],
     "permissions": {
       "application": ["Application.ReadWrite.OwnedBy", "Application.ReadWrite.All"],
-      "delegated": ["Application.ReadWrite.All"],
       "roles": ["Application Developer", "Cloud Application Administrator", "Application Administrator"],
       "notes": "Application.ReadWrite.OwnedBy suffices for applications the caller owns; otherwise Application.ReadWrite.All."
     }

@@ -205,7 +205,6 @@
     "nullable": {},
     "permissions": {
       "application": ["Application.ReadWrite.OwnedBy", "Application.ReadWrite.All"],
-      "delegated": ["Application.ReadWrite.All"],
       "roles": ["Cloud Application Administrator", "Application Administrator"],
       "notes": "Service principals for first-party (Microsoft) application ids need Application.ReadWrite.All."
     }

@@ -32,6 +32,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `earm permissions`: a PIM for Groups request whose `groupId` references a template group narrows those alternatives by the group's
   kind, as catalog resources do: only Privileged Role Administrator for a role-assignable group, the other four for any other group.
   An existing group (or `group`) keeps all five.
+- The type schema overlays no longer carry the per-type `permissions.delegated` lists. They were never read (delegated scopes come
+  from the providers' conditional rules), so they could only drift from what a run requests.
 - Access package resource role scopes no longer count the package's delivered assignments on every read (one call per role scope in
   every what-if and create): the count is read only when a delete is planned (`deployment delete` and its preview, the delete half of a
   replacement), through the new `IDeleteWarningSource.DescribeDeleteRiskAsync` and `TemplateDeleter.FindDeclaredObjectsAsync`.

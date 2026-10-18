@@ -37,7 +37,6 @@
     "nullable": {},
     "permissions": {
       "application": ["AuthenticationContext.ReadWrite.All"],
-      "delegated": ["AuthenticationContext.ReadWrite.All"],
       "notes": "Learn (authenticationcontextclassreference-update/-delete): AuthenticationContext.ReadWrite.All is the least privileged application permission; Policy.ReadWrite.ConditionalAccess is the higher privileged alternative. The pages mention a known permissions issue that may require consent to both.",
       "roles": ["Conditional Access Administrator"]
     }

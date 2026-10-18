@@ -75,7 +75,7 @@ delegated list above, then:
 Every set except `validate` adds `Organization.Read.All` (the preflight reads `GET /organization`) and `User.Read` (sign-in; the edge pass can read
 `GET /me`). A read scope next to its write scope (`Group.Read.All` with `Group.ReadWrite.All`) is folded into the write scope. `needsKeyVault` is true when
 the template has Key Vault parameter references: the run then also needs a `https://vault.azure.net` token. Entra roles are not part of the scope set; they
-are a property of the user, not of the token. The schema overlays' per-type `delegated` lists are not used: the providers' conditional rules are more
+are a property of the user, not of the token. The schema overlays carry no per-type `delegated` list: the providers' conditional rules are more
 precise, and `Application.ReadWrite.OwnedBy` is the only application permission without a same-named scope.
 
 ```json

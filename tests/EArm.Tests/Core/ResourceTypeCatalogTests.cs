@@ -147,7 +147,8 @@ public sealed class ResourceTypeCatalogTests
         }
 
         Assert.NotEmpty(definition.Permissions.Application);
-        Assert.NotEmpty(definition.Permissions.Delegated);
+        // Delegated scopes come from the providers' conditional rules (RunScopes); an overlay list would be an unused, drifting union.
+        Assert.Null(definition.Permissions.Raw?["delegated"]);
         // Every type names the Entra roles a user needs: alternatives (roles), or roles needed together (rolesAllOf: catalog resources).
         Assert.True(definition.Permissions.Roles.Count > 0 || definition.Permissions.Raw?["rolesAllOf"] is System.Text.Json.Nodes.JsonArray { Count: > 1 }, "roles or rolesAllOf");
         Assert.NotNull(definition.Permissions.Raw);

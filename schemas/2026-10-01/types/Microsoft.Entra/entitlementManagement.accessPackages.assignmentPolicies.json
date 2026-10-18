@@ -301,7 +301,6 @@
     "nullable": {},
     "permissions": {
       "application": ["EntitlementManagement.ReadWrite.All"],
-      "delegated": ["EntitlementManagement.ReadWrite.All"],
       "roles": ["Identity Governance Administrator"],
       "notes": "Learn (entitlementmanagement-post-assignmentpolicies, accesspackageassignmentpolicy-update, accesspackageassignmentpolicy-delete): EntitlementManagement.ReadWrite.All is the least privileged permission. Least privileged role: access package manager of the catalog, or Identity Governance Administrator. Update is a full-replace PUT. A policy with assignments cannot be deleted."
     }
