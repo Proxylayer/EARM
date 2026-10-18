@@ -32,9 +32,11 @@ internal enum ValidationLevel
 }
 
 /// <summary>
-/// <c>earm deployment validate -f &lt;file&gt; [-p ...] [--validation-level Template|Provider|ProviderNoRbac] [--no-prompt] [-o ...]</c>: offline validation,
+/// <c>earm deployment validate -f &lt;file&gt; [-p ...] [--validation-level Template|Provider|ProviderNoRbac] [--fetch-links] [--no-prompt] [-o ...]</c>: offline validation,
 /// plus, with <c>--validation-level Provider</c> / <c>ProviderNoRbac</c>, a read-only plan against the tenant (the steps of <c>what-if</c> up to the plan:
 /// sign-in, preflight with its consent check, Key Vault references, live reads) whose findings are added to the report; nothing is written.
+/// <c>--fetch-links</c> lets the offline pass download the https linked templates and parameter files of nested deployments, with the rules and the
+/// per-run cache of what-if and create (<see cref="LinkedTemplateDownloads.ForRun()"/>); without it they are not fetched (<c>LinkedTemplateNotFetched</c>).
 /// Exit 0 when there are no errors, 2 on validation errors, 1 when the template or a parameter file cannot be loaded or an argument is malformed,
 /// 3 when the online level cannot sign in.
 /// </summary>
@@ -60,12 +62,18 @@ internal static class ValidateCommand
         };
         validationLevel.AcceptOnlyFromAmongIgnoreCase(nameof(ValidationLevel.Provider), nameof(ValidationLevel.ProviderNoRbac), nameof(ValidationLevel.Template));
 
+        var fetchLinks = new Option<bool>("--fetch-links")
+        {
+            Description = "Also download the https linked templates and parameter files of nested deployments (https only, no credentials, no redirects, bounded size and time) and validate them. Off by default: validate does not use the network and reports LinkedTemplateNotFetched.",
+        };
+
         var noPrompt = DeploymentOptions.CreateNoPrompt();
 
         var command = new Command("validate", "Validates a template offline (JSON Schema, type catalog, semantic checks); with --validation-level Provider also against the tenant (read only).");
         command.Options.Add(templateFile);
         command.Options.Add(parameters);
         command.Options.Add(validationLevel);
+        command.Options.Add(fetchLinks);
         command.Options.Add(noPrompt);
         command.SetAction((parseResult, ct) =>
         {
@@ -82,7 +90,8 @@ internal static class ValidateCommand
                 Connection = GlobalOptions.BuildConnection(parseResult, 4),
                 LogLevel = GlobalOptions.GetLogLevel(parseResult),
             };
-            return RunAsync(file, tokens, format, parseResult.InvocationConfiguration.Output, parseResult.InvocationConfiguration.Error, ct, level, online);
+            var linkedTemplates = parseResult.GetValue(fetchLinks) ? LinkedTemplateDownloads.ForRun() : null;
+            return RunAsync(file, tokens, format, parseResult.InvocationConfiguration.Output, parseResult.InvocationConfiguration.Error, ct, level, online, linkedTemplates);
         });
         return command;
     }
@@ -95,7 +104,8 @@ internal static class ValidateCommand
         TextWriter stderr,
         CancellationToken ct,
         ValidationLevel level = ValidationLevel.Template,
-        DeploymentInvocation? online = null)
+        DeploymentInvocation? online = null,
+        LinkedTemplateReader? linkedTemplates = null)
     {
         var report = new ValidationReport { TemplateFile = templateFile };
 
@@ -131,11 +141,11 @@ internal static class ValidateCommand
         var analysis = new ExpressionValidator(catalog).Analyze(document);
         diagnostics.AddRange(analysis.Diagnostics);
 
-        // Nested and linked deployments: their templates are validated too, offline. Local linked templates are read; https ones are not downloaded
-        // (LinkedTemplateNotFetched): validate stays offline, what-if and create check them.
+        // Nested and linked deployments: their templates are validated too, offline. Local linked templates are read; https ones are downloaded only
+        // with --fetch-links (linkedTemplates set), otherwise not (LinkedTemplateNotFetched) and what-if and create check them.
         if (!diagnostics.Any(d => d.IsError) && document.Resources.Any(r => DeploymentResourceType.Is(r.Type)))
         {
-            var expansion = OfflineTemplateExpansion.Run(document, catalog, LinkedTemplateReader.LocalOnly);
+            var expansion = OfflineTemplateExpansion.Run(document, catalog, linkedTemplates ?? LinkedTemplateReader.LocalOnly);
             diagnostics.AddRange(expansion.Succeeded ? expansion.Warnings : expansion.Errors);
         }
 

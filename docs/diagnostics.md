@@ -203,7 +203,7 @@ template's path in the parent, or the linked file).
 | `LinkedTemplateContentVersionMismatch` | Error | `templateLink.contentVersion` / `parametersLink.contentVersion` differs from the `contentVersion` of the linked file (ARM rule). |
 | `NestedDeploymentLimitExceeded` | Error | Nested deployments go deeper than 10 levels, or more than 500 are expanded in one run (ARM's what-if limit of nested templates). |
 | `NestedDeploymentNotStatic` | Error / Warning | A value that decides what a nested deployment expands (its `condition`, `name`, `mode`, template location or parameter file) depends on a value only known at deployment. Offline (`validate`, `permissions`) it is a warning: the value may only lack a parameter, and the deployment is not expanded. |
-| `LinkedTemplateNotFetched` | Warning | `validate` does not download https linked templates (or parameter files); the deployment is not expanded offline. `what-if`, `create` and `delete` download and check it. |
+| `LinkedTemplateNotFetched` | Warning | `validate` does not download https linked templates (or parameter files) unless `--fetch-links` is given; the deployment is not expanded offline. `what-if`, `create` and `delete` download and check it. |
 
 ## Still not checked offline
 

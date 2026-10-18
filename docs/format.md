@@ -304,7 +304,8 @@ same name (in any template) are a duplicate as well.
 encloses is `LinkedTemplateCycle`.
 
 **Offline validation.** `deployment validate` expands nested and linked templates offline: inline templates and local linked files are validated
-(their findings point at the place in the file that holds them), https links are not downloaded (`LinkedTemplateNotFetched`, a warning), and a
+(their findings point at the place in the file that holds them), https links are not downloaded unless `--fetch-links` asks for it
+([cli.md](cli.md#deployment-validate); without it `LinkedTemplateNotFetched`, a warning), and a
 deployment whose condition, name or link depends on a value that is not known offline is not expanded (a warning). `what-if`, `create` and
 `delete` download https links and validate everything before the first sign-in.
 

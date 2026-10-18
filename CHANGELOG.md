@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `deployment validate --fetch-links` (off by default): the offline validation downloads the https linked templates and parameter files of
+  nested deployments, with the rules and the per-run cache of `what-if` and `create`, and validates them like local files. Without it they
+  are still not fetched (`LinkedTemplateNotFetched`, whose message now names the option).
+
 - `earm permissions` expresses Entra roles needed together: a `together: A + (B | C)` line in the table, an entry with an empty
   `anyOf` and an `allOf` array of parts in the JSON (the overlay key `rolesAllOf`). A catalog resource now needs Identity Governance
   Administrator together with Privileged Role Administrator (role-assignable template group) or with Groups Administrator, Intune

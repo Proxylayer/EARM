@@ -339,7 +339,7 @@ internal sealed class NestedDeploymentExpander
         if (!_reader.CanFetch(location))
         {
             diagnostics.Add(_offline
-                ? parentScope.Warning(EngineDiagnosticCodes.LinkedTemplateNotFetched, $"{kind} {location.Display} of nested deployment '{deployment.Id.Name}' is an https URL; offline validation does not download it, so its resources are checked by what-if and create.", path)
+                ? parentScope.Warning(EngineDiagnosticCodes.LinkedTemplateNotFetched, $"{kind} {location.Display} of nested deployment '{deployment.Id.Name}' is an https URL; offline validation does not download it, so its resources are checked by what-if and create (deployment validate --fetch-links downloads it).", path)
                 : parentScope.Error(EngineDiagnosticCodes.LinkedTemplateUnavailable, $"{kind} {location.Display} of nested deployment '{deployment.Id.Name}' is an https URL and downloads are not available here.", path));
             return null;
         }
