@@ -20,7 +20,10 @@ namespace EArm.Engine.Permissions;
 /// </summary>
 public static class PermissionManifest
 {
-    /// <summary>Read permission that <see cref="Preflight"/> needs on every run (<c>GET /organization?$select=id</c>).</summary>
+    /// <summary>
+    /// The application permission the preflight's <c>GET /organization</c> needs on every app-only run. A signed-in user reads it with <c>User.Read</c>
+    /// (Learn: organization-get), so delegated runs request this admin-consent scope only for <c>tenant()</c>.
+    /// </summary>
     public const string Preflight = "Organization.Read.All";
 
     internal const string OwnedBy = "Application.ReadWrite.OwnedBy";

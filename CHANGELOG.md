@@ -34,6 +34,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   An existing group (or `group`) keeps all five.
 - The type schema overlays no longer carry the per-type `permissions.delegated` lists. They were never read (delegated scopes come
   from the providers' conditional rules), so they could only drift from what a run requests.
+- A plain `earm auth login` requests only `User.Read` (the base set no longer includes `Organization.Read.All`, which needs admin consent),
+  so a user without an admin role can sign in. Signed-in runs no longer request `Organization.Read.All` for the preflight either: `User.Read`
+  reads `GET /organization` (id, display name, verified domains). A template that calls `tenant()` still requests it, for `countryCode`.
 - Access package resource role scopes no longer count the package's delivered assignments on every read (one call per role scope in
   every what-if and create): the count is read only when a delete is planned (`deployment delete` and its preview, the delete half of a
   replacement), through the new `IDeleteWarningSource.DescribeDeleteRiskAsync` and `TemplateDeleter.FindDeclaredObjectsAsync`.

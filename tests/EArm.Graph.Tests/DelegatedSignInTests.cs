@@ -171,7 +171,7 @@ public sealed class DelegatedSignInTests
             var record = await factory.LoginAsync(new GraphAuthOptions(), [GraphCloud.Public.SignInScopes], deviceCode: false, null, Ct);
 
             var request = Assert.Single(factory.Requests);
-            Assert.Equal(["User.Read", "Organization.Read.All"], request.Scopes.Names);
+            Assert.Equal(["User.Read"], request.Scopes.Names);
             Assert.Null(request.Account);
             Assert.Equal(PublicClients.GraphCommandLineTools, request.Options.ClientId);
             Assert.Equal(PublicClients.GraphCommandLineTools, record.ClientId);

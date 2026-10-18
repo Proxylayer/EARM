@@ -19,7 +19,7 @@ conditions with the offline context, and asks every resource provider what it ne
    read custom role definitions (`RoleManagement.Read.Directory`), `tenant()` reads `/organization`, and a `reference(resourceId('Microsoft.Entra/<type>', …), apiVersion)`
    existing-resource lookup needs the read variant of that type's permissions. A lookup that a write permission of the same family already covers
    (`Application.ReadWrite.All` ⊇ `Application.Read.All`) is folded away;
-4. **the preflight**: every online verb reads `GET /organization?$select=id,displayName,verifiedDomains,countryLetterCode` (`Organization.Read.All`, app mode; the same read feeds `tenant()`);
+4. **the preflight**: every online verb reads `GET /organization?$select=id,displayName,verifiedDomains,countryLetterCode` (`Organization.Read.All` in app mode; a signed-in user reads `id`, `displayName` and `verifiedDomains` with `User.Read`, Learn: organization-get; the same read feeds `tenant()`, whose `countryCode` needs `Organization.Read.All`, which a template that calls `tenant()` lists);
 5. **Key Vault parameter references** as an Azure requirement of the signed-in identity (not a Graph permission).
 
 A languageVersion 2.0 `"existing": true` resource is only read: it needs the read variant of its type's permissions (reason `lookup: existing resource ("existing": true, read only)`, folded away when a write permission of the same family is listed), no edge permission and no Entra role.
@@ -72,14 +72,14 @@ delegated list above, then:
 | `delete` | write for the permissions a declared type's provider asks for; edge and lookup permissions folded to reads (deleting an object removes its edges) |
 | `validate` | none (offline) |
 
-Every set except `validate` adds `Organization.Read.All` (the preflight reads `GET /organization`) and `User.Read` (sign-in; the edge pass can read
-`GET /me`). A read scope next to its write scope (`Group.Read.All` with `Group.ReadWrite.All`) is folded into the write scope. `needsKeyVault` is true when
+Every set except `validate` adds `User.Read` (sign-in; the edge pass can read `GET /me`, and the preflight reads `GET /organization` with it).
+`Organization.Read.All` needs admin consent and is in the set only when the template calls `tenant()`. A read scope next to its write scope (`Group.Read.All` with `Group.ReadWrite.All`) is folded into the write scope. `needsKeyVault` is true when
 the template has Key Vault parameter references: the run then also needs a `https://vault.azure.net` token. Entra roles are not part of the scope set; they
 are a property of the user, not of the token. The schema overlays carry no per-type `delegated` list: the providers' conditional rules are more
 precise, and `Application.ReadWrite.OwnedBy` is the only application permission without a same-named scope.
 
 ```json
-{ "template": "…", "verb": "whatif", "graphScopes": ["Application.Read.All", "…", "Organization.Read.All", "User.Read"], "needsKeyVault": true,
+{ "template": "…", "verb": "whatif", "graphScopes": ["Application.Read.All", "…", "User.Read"], "needsKeyVault": true,
   "scopes": [ { "name": "Application.Read.All", "resources": ["…"], "reasons": ["lookup: appRole()", "provider (read of Application.ReadWrite.All)"] } ] }
 ```
 
@@ -93,14 +93,16 @@ A scope that has not been consented stops the run with "Consent needed" (exit 3,
 ### Admin consent
 
 Per the Microsoft Graph permissions reference, nearly every scope EARM requests needs **admin consent**: everything except `User.Read`, including
-`Organization.Read.All` (the preflight), `Policy.Read.All` and every `Policy.ReadWrite.*`, `Application.Read.All` / `Application.ReadWrite.All`,
+`Organization.Read.All` (only for `tenant()`), `Policy.Read.All` and every `Policy.ReadWrite.*`, `Application.Read.All` / `Application.ReadWrite.All`,
 `RoleManagement.Read.Directory` / `RoleManagement.ReadWrite.Directory`, `AppRoleAssignment.ReadWrite.All`, `DelegatedPermissionGrant.ReadWrite.All` and the
 directory-wide `Group.*`, `User.*.All`, `Directory.Read.All` and `AdministrativeUnit.*` scopes. In practice:
 
 - An administrator who may grant consent (for example a Global Administrator or Privileged Role Administrator) answers the prompt of `earm auth login` for
   themselves. Leave **Consent on behalf of your
   organization** unticked unless every user should get the grant (see [SECURITY.md](../SECURITY.md#delegated-sign-in-and-shared-consent)).
-- Any other user gets "Need admin approval": an administrator grants the listed delegated permissions to the sign-in app (Enterprise applications > Microsoft Graph
+- A plain `earm auth login` requests only `User.Read`, which any user may consent to; the admin-consent scopes come with `--scopes`, `-f <template>`
+  or the first run that needs them.
+- Any other user gets "Need admin approval" for those scopes: an administrator grants the listed delegated permissions to the sign-in app (Enterprise applications > Microsoft Graph
   Command Line Tools > Permissions), or the tenant's admin consent workflow is used.
 - A consented scope is not a role: the user still needs the Entra roles of `--mode delegated` for the objects the template manages.
 

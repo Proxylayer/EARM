@@ -126,7 +126,9 @@ Your own app registration is an **optional override**, only for these cases; pas
 Unattended runs (CI, scheduled jobs) do not sign in as a user at all: use a service principal, workload identity or managed identity (`--auth default`, the
 `AZURE_*` variables), which keeps requesting `.default` and uses the application permissions an administrator granted it.
 
-**Scopes.** A plain `login` requests the base set `User.Read` and `Organization.Read.All`. To consent ahead of time what later runs will request:
+**Scopes.** A plain `login` requests the base set `User.Read` alone: the one Graph scope a user without an admin role can consent to, which also
+covers the preflight's `GET /organization`. Scopes that need admin consent are requested only when a template needs them. To consent ahead of time
+what later runs will request:
 
 | Option | Meaning |
 |---|---|
@@ -160,7 +162,8 @@ With `-f <template>` (and `-p`, `--verb` as for `login`, default `create`), it a
 ### Consent
 
 **Scopes per verb.** A run signed in as a user requests exactly the delegated scopes of its verb, computed offline from the template (`earm permissions -f <template>
---verb <verb>` lists them, with the reason for each). Every online verb adds `Organization.Read.All` (the preflight reads `/organization`) and `User.Read`.
+--verb <verb>` lists them, with the reason for each). Every online verb adds `User.Read` (sign-in; it also covers the preflight's
+`GET /organization`); `Organization.Read.All` is requested only by a template that calls `tenant()`.
 
 | Verb | Delegated scopes requested |
 |---|---|
@@ -388,7 +391,7 @@ above already allow. `deployment delete` needs the same permissions as managing 
 
 `--verb whatif|create|delete` prints instead the delegated scopes one run of that verb requests for a signed-in user (implies `--mode delegated`;
 `--mode app` with `--verb` exits 1): what-if gets only read scopes, create the write scopes, delete write for the declared types and reads for edges
-and lookups; every set includes `Organization.Read.All` (preflight) and `User.Read` (sign-in), and reports whether the run needs a Key Vault token.
+and lookups; every set includes `User.Read` (sign-in and preflight; `Organization.Read.All` only for `tenant()`), and reports whether the run needs a Key Vault token.
 See [permissions.md](permissions.md#delegated-scopes-per-run).
 
 ## `schema`

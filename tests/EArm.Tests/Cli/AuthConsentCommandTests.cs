@@ -77,9 +77,10 @@ public sealed class AuthConsentCommandTests
 
         Assert.Equal(0, table.ExitCode);
         Assert.Contains("to Microsoft Graph Command Line Tools (14d82eec-204b-4c2f-b7e8-296a70dab67e)", table.StandardOutput, StringComparison.Ordinal);
-        Assert.Contains("Delegated scopes consented: User.Read Organization.Read.All", table.StandardOutput, StringComparison.Ordinal);
+        Assert.Contains("Delegated scopes consented: User.Read", table.StandardOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("Organization.Read.All", table.StandardOutput, StringComparison.Ordinal);
         Assert.Contains("shared by every tool", table.StandardOutput, StringComparison.Ordinal);
-        Assert.All(factory.Requests, r => Assert.Equal(["https://graph.microsoft.com/User.Read", "https://graph.microsoft.com/Organization.Read.All"], r.Scopes.Scopes));
+        Assert.All(factory.Requests, r => Assert.Equal(["https://graph.microsoft.com/User.Read"], r.Scopes.Scopes));
         Assert.All(factory.Requests, r => Assert.Equal(PublicClients.GraphCommandLineTools, r.Options.ClientId));
         Assert.Equal(0, json.ExitCode);
         Assert.Equal(PublicClients.GraphCommandLineTools, json.Json["clientId"]!.GetValue<string>());
@@ -99,8 +100,8 @@ public sealed class AuthConsentCommandTests
 
         Assert.Equal(0, result.ExitCode);
         var request = Assert.Single(factory.Requests);
-        Assert.Equal(["User.Read", "Organization.Read.All", "Group.ReadWrite.All", "Policy.Read.All", "Application.ReadWrite.All"], request.Scopes.Names);
-        Assert.Equal(5, result.Json["scopes"]!.AsArray().Count);
+        Assert.Equal(["User.Read", "Group.ReadWrite.All", "Policy.Read.All", "Application.ReadWrite.All"], request.Scopes.Names);
+        Assert.Equal(4, result.Json["scopes"]!.AsArray().Count);
     }
 
     [Fact]
@@ -136,7 +137,7 @@ public sealed class AuthConsentCommandTests
         Assert.Contains("Policy.ReadWrite.ConditionalAccess", createRequests[0].Scopes.Names);
         Assert.Contains("Mail.Send", createRequests[0].Scopes.Names);
         Assert.Contains("User.Read", createRequests[0].Scopes.Names);
-        Assert.Contains("Organization.Read.All", createRequests[0].Scopes.Names);
+        Assert.DoesNotContain("Organization.Read.All", createRequests[0].Scopes.Names);
         Assert.Equal(GraphCloud.Public.KeyVaultConsentScopes, createRequests[1].Scopes);
         Assert.NotNull(createRequests[1].Account);
         Assert.Equal(0, whatIf.ExitCode);

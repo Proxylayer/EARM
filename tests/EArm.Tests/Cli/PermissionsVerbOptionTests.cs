@@ -29,7 +29,7 @@ public sealed class PermissionsVerbOptionTests
         Assert.Equal(verb.ToLowerInvariant(), json["verb"]!.GetValue<string>());
         Assert.True(json["needsKeyVault"]!.GetValue<bool>());
         var names = json["graphScopes"]!.AsArray().Select(n => n!.GetValue<string>()).ToList();
-        Assert.Contains("Organization.Read.All", names);
+        Assert.DoesNotContain("Organization.Read.All", names);
         Assert.Contains("User.Read", names);
         Assert.Equal(names, json["scopes"]!.AsArray().Select(s => s!["name"]!.GetValue<string>()).ToList());
     }
@@ -89,5 +89,23 @@ public sealed class PermissionsVerbOptionTests
 
         Assert.Equal(0, result.ExitCode);
         Assert.Equal(string.Empty, result.StandardOutput);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task OrganizationReadAll_IsRequestedOnlyWhenTheTemplateCallsTenant(bool callsTenant)
+    {
+        // A signed-in user reads GET /organization (id, displayName, verifiedDomains) with User.Read; Organization.Read.All needs admin consent.
+        using var sandbox = new CliSandbox(nameof(OrganizationReadAll_IsRequestedOnlyWhenTheTemplateCallsTenant) + callsTenant);
+        string description = callsTenant ? ", \"description\": \"[tenant().countryCode]\"" : string.Empty;
+        string template = sandbox.WriteTemplate("tenant.entra.json", "\"resources\": [ { \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"g\", \"properties\": { \"displayName\": \"g\"" + description + ", \"mailEnabled\": false, \"mailNickname\": \"g\", \"securityEnabled\": true } } ]");
+
+        var result = await CliRunner.RunAsync("permissions", "-f", template, "--verb", "create", "-o", "json");
+
+        Assert.Equal(0, result.ExitCode);
+        var names = result.Json["graphScopes"]!.AsArray().Select(n => n!.GetValue<string>()).ToList();
+        Assert.Contains("User.Read", names);
+        Assert.Equal(callsTenant, names.Contains("Organization.Read.All"));
     }
 }
