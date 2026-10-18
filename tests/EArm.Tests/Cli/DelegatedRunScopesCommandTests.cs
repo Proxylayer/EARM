@@ -119,7 +119,7 @@ public sealed class DelegatedRunScopesCommandTests
     private sealed class WiredFactory : GraphAuthFactory
     {
         public WiredFactory(AuthRecordStore store)
-            : base(store, cacheDirectories: [Path.GetTempPath()])
+            : base(store, cacheDirectories: [Path.Combine(Path.GetTempPath(), "earm-test-token-cache-" + Guid.NewGuid().ToString("N"))]) // a private, never-created directory: a logout here has nothing to delete
         {
         }
 

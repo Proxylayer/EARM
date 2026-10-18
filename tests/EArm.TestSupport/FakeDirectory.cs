@@ -80,6 +80,8 @@ public sealed partial class FakeDirectory
         ["/servicePrincipals"] = "#microsoft.graph.servicePrincipal",
         ["/applications"] = "#microsoft.graph.application",
         ["/directory/administrativeUnits"] = "#microsoft.graph.administrativeUnit",
+        ["/devices"] = "#microsoft.graph.device",
+        ["/contacts"] = "#microsoft.graph.orgContact",
     };
 
     private static readonly Dictionary<string, string> CollectionByODataType = ODataTypeByCollection.ToDictionary(p => p.Value, p => p.Key, StringComparer.OrdinalIgnoreCase);
@@ -131,6 +133,12 @@ public sealed partial class FakeDirectory
     /// accepts the PATCH (204) and serves the old values for a while.
     /// </summary>
     public int AuthenticationMethodStaleReads { get; set; }
+
+    /// <summary>
+    /// The <c>secretText</c> every <c>addPassword</c> answers with; <c>null</c> (default) answers a fresh random one. Leak tests set a
+    /// canary here and assert it never reaches an error, a log line or a diagnostic.
+    /// </summary>
+    public string? SecretText { get; set; }
 
     /// <summary>Entitlement management: catalogs, catalog resources, access packages, resource role scopes and assignment policies.</summary>
     public FakeEntitlementManagement EntitlementManagement { get; } = new();

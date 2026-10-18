@@ -33,7 +33,7 @@ public sealed partial class PasswordCredentialsProvider
         catch (Exception ex) when (IsAmbiguousWrite(ex))
         {
             // The credential may exist although no answer came back, and the secret was lost with the answer: the call is never repeated
-            // blindly. Report any same-name credential EARM did not record so the user can remove it; nothing is deleted automatically.
+            // blindly. Report any same-name credential this run's read did not see so the user can remove it; nothing is deleted automatically.
             throw await DescribeAmbiguousAddAsync(desired, parentId, name, ex, graph, cancellationToken).ConfigureAwait(false);
         }
 
@@ -86,11 +86,11 @@ public sealed partial class PasswordCredentialsProvider
             if (orphans.Count > 0)
             {
                 string ids = string.Join(", ", orphans.Select(o => $"keyId {o.KeyId} (hint '{o.Hint}', expires {(o.EndDateTime is { } end ? PasswordCredentialsRules.Format(end) : "?")})"));
-                text += $" {ProviderWarnings.PasswordCredentialOrphaned}: the application now holds {orphans.Count} credential(s) named '{name}' that EARM did not record: {ids}. Their secrets are lost; remove them with POST /applications/{parentId}/removePassword {{ \"keyId\": \"…\" }} (EARM never deletes them automatically), then run the deployment again.";
+                text += $" {ProviderWarnings.PasswordCredentialOrphaned}: the application now holds {orphans.Count} credential(s) named '{name}' that were not there when this run read it: {ids}. Their secrets are lost; remove them with POST /applications/{parentId}/removePassword {{ \"keyId\": \"…\" }} (EARM never deletes them automatically), then run the deployment again.";
             }
             else
             {
-                text += " No unrecorded credential named '" + name + "' was found, so the deployment can simply be run again.";
+                text += " No credential named '" + name + "' appeared besides the ones this run read, so the deployment can simply be run again.";
             }
         }
         catch (Exception reconcile) when (reconcile is GraphException or GraphTransportException)

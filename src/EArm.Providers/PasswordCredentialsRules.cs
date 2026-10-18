@@ -16,7 +16,7 @@ namespace EArm.Providers;
 public sealed record PasswordCredentialSummary(string KeyId, string? DisplayName, DateTimeOffset? StartDateTime, DateTimeOffset? EndDateTime, string? Hint);
 
 /// <summary>What the template asks of a credential, parsed from the evaluated properties.</summary>
-public sealed record DesiredPasswordCredential(DateTimeOffset? EndDateTime, DateTimeOffset? StartDateTime, string? RotationTag, int RotateBeforeDays);
+public sealed record DesiredPasswordCredential(DateTimeOffset? EndDateTime, DateTimeOffset? StartDateTime, string? RotationTag, int RotateBeforeDays, bool StampRotationTag = false);
 
 /// <summary>The outcome of <see cref="PasswordCredentialsRules.AssessRotation"/>: why the credential is replaced, and what the user should know (warning code + text).</summary>
 public sealed record RotationAssessment(IReadOnlyList<RotationTrigger> Triggers, IReadOnlyList<ProviderWarning> Warnings);
@@ -51,6 +51,9 @@ public static class PasswordCredentialsRules
     public const string RotationTagProperty = "rotationTag";
 
     public const string RotateBeforeDaysProperty = "rotateBeforeDays";
+
+    /// <summary>EARM-only, opt-in: rotate a live credential that carries no <c>rotationTag</c> so the declared tag is stamped into its name.</summary>
+    public const string StampRotationTagProperty = "stampRotationTag";
 
     public const string KeyIdProperty = "keyId";
 
@@ -267,7 +270,21 @@ public static class PasswordCredentialsRules
             rotateBeforeDays = (int)days;
         }
 
-        desired = new DesiredPasswordCredential(endDateTime, startDateTime, rotationTag, rotateBeforeDays);
+        bool stampRotationTag = false;
+        if (JsonObjects.TryGetIgnoreCase(properties, StampRotationTagProperty, out var stamp) && !JsonObjects.IsAbsent(stamp))
+        {
+            if (SecretJson.IsSecret(stamp) || UnknownJson.IsUnknown(stamp) || !JsonValues.TryGetBool(stamp, out stampRotationTag))
+            {
+                return $"properties.{StampRotationTagProperty} must be true or false, got {JsonValues.Describe(stamp)}.";
+            }
+
+            if (stampRotationTag && rotationTag is null)
+            {
+                return $"properties.{StampRotationTagProperty} is true but no properties.{RotationTagProperty} is declared, so there is no tag to stamp; declare a {RotationTagProperty}, or remove {StampRotationTagProperty}.";
+            }
+        }
+
+        desired = new DesiredPasswordCredential(endDateTime, startDateTime, rotationTag, rotateBeforeDays, stampRotationTag);
         return null;
     }
 
@@ -295,20 +312,11 @@ public static class PasswordCredentialsRules
     // ---- rotation ----
 
     /// <summary>
-    /// Why the live credential is replaced, or empty for <c>NoChange</c>: the <c>rotationTag</c> differs from the
-    /// tag in the live <c>displayName</c> (absent ≡ absent; a live credential without a tag matches any declared tag, see
-    /// <see cref="AssessRotation"/>), a declared <c>endDateTime</c> / <c>startDateTime</c> differs from the live
-    /// value, the credential expired, or it expires within <c>rotateBeforeDays</c> and a replacement would live longer.
-    /// A credential created without <c>endDateTime</c> keeps the expiry it was given (reruns do not drift towards "now + 180 days").
-    /// See <see cref="AssessRotation"/> for the warnings.
-    /// </summary>
-    public static IReadOnlyList<RotationTrigger> RotationTriggers(DesiredPasswordCredential desired, PasswordCredentialSummary live, DateTimeOffset now)
-    {
-        return AssessRotation(desired, live, now).Triggers;
-    }
-
-    /// <summary>
-    /// <see cref="RotationTriggers"/> plus the <see cref="ProviderWarnings.SecretExpiresSoon"/> text for a credential that is expired or in its
+    /// Why the live credential is replaced (<see cref="RotationAssessment.Triggers"/>, empty for <c>NoChange</c>): the <c>rotationTag</c> differs from the
+    /// tag in the live <c>displayName</c> (absent ≡ absent; a live credential without a tag matches any declared tag, see below), a declared
+    /// <c>endDateTime</c> / <c>startDateTime</c> differs from the live value, the credential expired, or it expires within <c>rotateBeforeDays</c> and a
+    /// replacement would live longer. A credential created without <c>endDateTime</c> keeps the expiry it was given (reruns do not drift towards
+    /// "now + 180 days"). Plus the <see cref="ProviderWarnings.SecretExpiresSoon"/> text for a credential that is expired or in its
     /// rotation window but would not get a later expiry from a replacement (Review 1D / E-07): a declared fixed <c>endDateTime</c> inside the
     /// window, or a <c>rotateBeforeDays</c> longer than the default lifetime, used to rotate the secret on every run because the
     /// replacement ends no later than the credential it replaces. The credential is rotated only when
@@ -317,7 +325,8 @@ public static class PasswordCredentialsRules
     /// Upgrade path: a live credential named with the plain base name (written by an EARM version that kept the tag in its local state)
     /// carries no tag. When the template declares one, the credential is treated as matching (no surprise rotation on upgrade) and
     /// <see cref="ProviderWarnings.RotationTagNotStamped"/> says the tag is written into the name by the next rotation; until then a
-    /// changed <c>rotationTag</c> cannot be detected, so declaring a different <c>endDateTime</c> is the way to force that rotation.
+    /// changed <c>rotationTag</c> cannot be detected. The opt-in <c>stampRotationTag: true</c> rotates such a credential instead, stamping the tag; it has no
+    /// effect on a credential whose name already carries a tag, so it can stay declared.
     /// </para>
     /// </summary>
     public static RotationAssessment AssessRotation(DesiredPasswordCredential desired, PasswordCredentialSummary live, DateTimeOffset now)
@@ -328,12 +337,21 @@ public static class PasswordCredentialsRules
         var warnings = new List<ProviderWarning>();
 
         string? liveTag = LiveTag(live);
-        if (liveTag is null && desired.RotationTag is not null)
+        if (liveTag is null && desired.RotationTag is not null && desired.StampRotationTag)
+        {
+            string stamped = PasswordCredentialName.Declared(live.DisplayName ?? string.Empty, desired.RotationTag).DisplayName;
+            triggers.Add(new RotationTrigger(
+                RotationTagProperty,
+                Leaf(liveTag),
+                Leaf(desired.RotationTag),
+                $"{StampRotationTagProperty} is true and the live credential '{live.DisplayName}' (keyId {live.KeyId}) carries no {RotationTagProperty}: it is replaced by one named '{stamped}'"));
+        }
+        else if (liveTag is null && desired.RotationTag is not null)
         {
             string stamped = PasswordCredentialName.Declared(live.DisplayName ?? string.Empty, desired.RotationTag).DisplayName;
             warnings.Add(new ProviderWarning(
                 ProviderWarnings.RotationTagNotStamped,
-                $"the live credential '{live.DisplayName}' (keyId {live.KeyId}) carries no {RotationTagProperty} in its displayName (it was created before EARM kept the tag there); it is treated as matching {RotationTagProperty} {Describe(desired.RotationTag)} and NOT rotated. The next rotation names it '{stamped}'; until then a changed {RotationTagProperty} is not detected, so declare a different {EndDateTimeProperty} to rotate it now."));
+                $"the live credential '{live.DisplayName}' (keyId {live.KeyId}) carries no {RotationTagProperty} in its displayName (it was created before EARM kept the tag there); it is treated as matching {RotationTagProperty} {Describe(desired.RotationTag)} and NOT rotated. The next rotation names it '{stamped}'; until then a changed {RotationTagProperty} is not detected. Set {StampRotationTagProperty}: true (or declare a different {EndDateTimeProperty}) to rotate it now."));
         }
         else if (!string.Equals(desired.RotationTag, liveTag, StringComparison.Ordinal))
         {

@@ -22,6 +22,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   manages an object that must already exist and never creates it (`AdoptOnlyNotFound` instead of a create; a user needs none of the
   create-only properties); `objectId` pins the Graph object id the key must lead to (`AdoptedObjectMismatch`), which makes an adoption
   by `displayName` a hard check. `deployment delete` leaves adopt-only objects alone. Malformed declarations are `InvalidAdoptOnly`.
+- applications/passwordCredentials: `stampRotationTag` (EARM-only boolean, default `false`). When `true` and the live credential's
+  `displayName` carries no `rotationTag` (created before EARM kept the tag there), the secret is rotated once so the declared tag is
+  stamped into the new credential's name, instead of keeping it with the `RotationTagNotStamped` warning. It needs a `rotationTag` and
+  has no effect once the tag is stamped, so it can stay declared.
 
 ### Changed
 
@@ -61,6 +65,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - `earm permissions` no longer lists the nonexistent `AppRoleAssignment.Read.All` for a `reference(id, apiVersion)` lookup of an app
   role assignment: it lists `Application.Read.All`, the permission that reads app role assignments.
+- applications: the create upsert (`PATCH /applications(uniqueName='…')` with `Prefer: create-if-missing`) now carries only the declared
+  properties, so an application that appeared after the plan's read no longer gets the default `signInAudience: AzureADMyOrg` merged
+  into it. A real create still ends with `AzureADMyOrg` (Graph's documented default; EARM PATCHes it right after the create should
+  Graph have applied another value).
+- Group `owners`: a service principal owner is now read through `GET /groups/{id}/owners/microsoft.graph.servicePrincipal`, because v1.0
+  `GET /groups/{id}/owners` does not list service principal owners (Learn). A declared service principal owner was planned as an add on
+  every run, and an undeclared one was never pruned. Device and organizational contact members need no such read: v1.0 lists them.
+- applications/passwordCredentials: the `PasswordCredentialOrphaned` message no longer says EARM "did not record" the extra credentials
+  (EARM keeps no state); it names the credentials that were not there when the run read the application.
 - A request that times out (or is otherwise cancelled without Ctrl+C) no longer aborts the whole `what-if`: the resource whose read
   timed out is an error row and the rest of the what-if completes. The same holds for an existing-resource lookup (`reference(id,
   apiVersion)` stays a placeholder and is reported as unresolved), the orphan report (that type is not listed, with a warning), the

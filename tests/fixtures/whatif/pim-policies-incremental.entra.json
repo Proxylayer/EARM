@@ -43,6 +43,7 @@
       "properties": {
         "group": "pim-ops",
         "accessId": "member",
+        "onboarding": { "temporaryEligiblePrincipalId": "66666666-0000-0000-0000-000000000300" },
         "rules": [
           { "id": "Expiration_Admin_Eligibility", "isExpirationRequired": false },
           { "id": "Notification_Admin_EndUser_Assignment", "notificationRecipients": ["security@contoso.com"] }

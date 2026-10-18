@@ -125,6 +125,29 @@ public sealed partial class PasswordCredentialsProviderTests
     }
 
     [Fact]
+    public async Task LegacyUntaggedCredential_WithStampRotationTag_IsRotatedOnce_IntoATaggedCredential()
+    {
+        var host = SeededHost(DateTimeOffset.UtcNow.AddDays(100), out _, out string seededKeyId);
+        string properties = "\"rotationTag\": \"2026Q4\", \"stampRotationTag\": true";
+
+        var whatIf = await host.WhatIfAsync(host.Resources(Template(properties), Outputs));
+        var row = whatIf.ChangeOfType(SecretType);
+        Assert.Equal(ChangeType.Modify, row.Type);
+        Assert.Contains(row.Reasons, r => r.Contains("stampRotationTag is true", StringComparison.Ordinal));
+        Assert.DoesNotContain(whatIf.Plan.Diagnostics, d => d.Code == EngineDiagnosticCodes.RotationTagNotStamped);
+
+        var run = await host.CreateAsync(host.Resources(Template(properties), Outputs));
+        Check.Succeeded(run);
+        Assert.Equal("ci-secret#2026Q4", Check.Body(run.Writes[0])["passwordCredential"]!["displayName"]!.GetValue<string>());
+        Assert.Equal(seededKeyId, Check.Body(run.Writes[1])["keyId"]!.GetValue<string>());
+        Assert.False(Check.Body(run.Writes[0])["passwordCredential"]!.AsObject().ContainsKey("stampRotationTag"), "EARM-only: never sent to Graph");
+
+        var again = await host.CreateAsync(host.Resources(Template(properties), Outputs));
+        Assert.Equal(ChangeType.NoChange, again.Op(SecretName).ChangeType);
+        Check.NoWrites(again);
+    }
+
+    [Fact]
     public async Task SeveralSameBaseCredentials_TheOneWithTheDeclaredTagIsChosen()
     {
         var host = new ProviderHost();

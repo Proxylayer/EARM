@@ -10,45 +10,6 @@ using EArm.Expressions.Values;
 
 namespace EArm.Providers;
 
-/// <summary>Ids the provider derived for <c>appRoles</c> / <c>api.oauth2PermissionScopes</c> members declared without one (<c>value</c> → id).</summary>
-public sealed record DerivedMemberIds(IReadOnlyDictionary<string, string> AppRoles, IReadOnlyDictionary<string, string> Scopes)
-{
-    public bool IsEmpty => AppRoles.Count == 0 && Scopes.Count == 0;
-
-    /// <summary>The <c>extra</c> block of the applied resource (the derived ids), or <c>null</c> when nothing was derived.</summary>
-    public JsonObject? ToExtra()
-    {
-        if (IsEmpty)
-        {
-            return null;
-        }
-
-        var derived = new JsonObject();
-        if (AppRoles.Count > 0)
-        {
-            derived["appRoles"] = ToObject(AppRoles);
-        }
-
-        if (Scopes.Count > 0)
-        {
-            derived["oauth2PermissionScopes"] = ToObject(Scopes);
-        }
-
-        return new JsonObject { ["derivedIds"] = derived };
-    }
-
-    private static JsonObject ToObject(IReadOnlyDictionary<string, string> map)
-    {
-        var obj = new JsonObject();
-        foreach (var pair in map.OrderBy(p => p.Key, StringComparer.Ordinal))
-        {
-            obj[pair.Key] = pair.Value;
-        }
-
-        return obj;
-    }
-}
-
 /// <summary>
 /// The pure rules of the applications provider, kept free of Graph I/O so they can be
 /// tested on their own:
@@ -91,25 +52,21 @@ public static class ApplicationsRules
     /// Normalises the evaluated template properties in place (idempotent): fills derived ids and <c>isEnabled: true</c>
     /// on roles/scopes, <c>enableAccessTokenIssuance</c> / <c>enableIdTokenIssuance</c> on a declared
     /// <c>web.implicitGrantSettings</c>, and turns an explicit <c>api.requestedAccessTokenVersion: null</c> into
-    /// <c>1</c>. Returns the ids that were derived (also when an earlier call already filled them). Pass
-    /// <paramref name="uniqueName"/> <c>null</c> while the name is still symbolic: no id is derived then.
+    /// <c>1</c>. Pass <paramref name="uniqueName"/> <c>null</c> while the name is still symbolic: no id is derived then.
     /// </summary>
-    public static DerivedMemberIds NormalizeDesired(JsonObject properties, string? uniqueName)
+    public static void NormalizeDesired(JsonObject properties, string? uniqueName)
     {
         ArgumentNullException.ThrowIfNull(properties);
-        var roles = new Dictionary<string, string>(StringComparer.Ordinal);
-        var scopes = new Dictionary<string, string>(StringComparer.Ordinal);
-
         if (TryGetArray(properties, "appRoles", out var roleArray))
         {
-            NormalizeMembers(roleArray, uniqueName, roles);
+            NormalizeMembers(roleArray, uniqueName);
         }
 
         if (TryGetObject(properties, "api", out var api))
         {
             if (TryGetArray(api, "oauth2PermissionScopes", out var scopeArray))
             {
-                NormalizeMembers(scopeArray, uniqueName, scopes);
+                NormalizeMembers(scopeArray, uniqueName);
             }
 
             if (JsonObjects.FindKey(api, "requestedAccessTokenVersion") is { } versionKey && IsJsonNull(api[versionKey]))
@@ -122,11 +79,9 @@ public static class ApplicationsRules
         {
             FillImplicitGrantSettings(grant);
         }
-
-        return new DerivedMemberIds(roles, scopes);
     }
 
-    private static void NormalizeMembers(JsonArray members, string? uniqueName, Dictionary<string, string> derived)
+    private static void NormalizeMembers(JsonArray members, string? uniqueName)
     {
         foreach (var item in members)
         {
@@ -146,16 +101,9 @@ public static class ApplicationsRules
                 continue;
             }
 
-            string derivedId = DeriveMemberId(uniqueName, value).ToString("D");
-            string idKey = JsonObjects.FindKey(member, "id") ?? "id";
             if (!JsonObjects.TryGetIgnoreCase(member, "id", out var id) || JsonObjects.IsAbsent(id))
             {
-                member[idKey] = derivedId;
-                derived[value] = derivedId;
-            }
-            else if (JsonObjects.KeyEquals(JsonObjects.GetString(member, "id"), derivedId))
-            {
-                derived[value] = derivedId;
+                member[JsonObjects.FindKey(member, "id") ?? "id"] = DeriveMemberId(uniqueName, value).ToString("D");
             }
         }
     }

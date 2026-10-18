@@ -291,17 +291,13 @@ public sealed class AppRoleAssignmentScenarioTests
         var viaExtra = new Edge(EdgeKind.AppRoleAssignment, t.ResourceId, aliceId, "servicePrincipals", new JsonObject { ["appRoleId"] = UserRoleId });
         Assert.Equal(handler.IdentityOf(edge), handler.IdentityOf(viaExtra));
 
-        // Add / remove requests.
+        // Add requests; principal-side edges are ensure-only, so a remove request is never built.
         var add = handler.AddRequest(edge, GraphApi.V1);
         Assert.Equal("POST", add.Method);
         Assert.Equal(AssignedTo(t.ResourceId), add.Path);
         Assert.Equal(aliceId, add.Body!["principalId"]!.GetValue<string>());
-        var remove = handler.RemoveRequest(edge, new JsonObject { ["id"] = "assignment-1" }, GraphApi.V1);
-        Assert.Equal("DELETE", remove.Method);
-        Assert.EndsWith("/assignment-1", remove.Path, StringComparison.Ordinal);
-        Assert.Throws<InvalidOperationException>(() => handler.RemoveRequest(edge, null, GraphApi.V1));
-        var withExtraId = edge with { Extra = new JsonObject { ["id"] = "from-extra" } };
-        Assert.EndsWith("/from-extra", handler.RemoveRequest(withExtraId, null, GraphApi.V1).Path, StringComparison.Ordinal);
+        var refused = Assert.Throws<NotSupportedException>(() => handler.RemoveRequest(edge, new JsonObject { ["id"] = "assignment-1" }, GraphApi.V1));
+        Assert.Contains("ensure-only", refused.Message, StringComparison.Ordinal);
     }
 
     [Fact]

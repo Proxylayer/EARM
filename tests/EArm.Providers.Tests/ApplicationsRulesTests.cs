@@ -35,7 +35,7 @@ public sealed class ApplicationsRulesTests
               "web": { "implicitGrantSettings": { } } }
             """)!;
 
-        var derived = ApplicationsRules.NormalizeDesired(properties, Name);
+        ApplicationsRules.NormalizeDesired(properties, Name);
 
         string expectedRole = ApplicationsRules.DeriveMemberId(Name, "Orders.Read").ToString("D");
         string expectedScope = ApplicationsRules.DeriveMemberId(Name, "access_as_user").ToString("D");
@@ -48,14 +48,10 @@ public sealed class ApplicationsRulesTests
         Assert.False(properties["web"]!["implicitGrantSettings"]!["enableAccessTokenIssuance"]!.GetValue<bool>());
         Assert.False(properties["web"]!["implicitGrantSettings"]!["enableIdTokenIssuance"]!.GetValue<bool>());
 
-        Assert.Equal(expectedRole, derived.AppRoles["Orders.Read"]);
-        Assert.DoesNotContain("Orders.Admin", derived.AppRoles.Keys);
-        Assert.Equal(expectedScope, derived.Scopes["access_as_user"]);
-        Assert.Equal("{\"derivedIds\":{\"appRoles\":{\"Orders.Read\":\"" + expectedRole + "\"},\"oauth2PermissionScopes\":{\"access_as_user\":\"" + expectedScope + "\"}}}", derived.ToExtra()!.ToJsonString());
-
-        // Idempotent: a second pass reports the same derived ids.
-        var again = ApplicationsRules.NormalizeDesired(properties, Name);
-        Assert.Equal(derived.ToExtra()!.ToJsonString(), again.ToExtra()!.ToJsonString());
+        // Idempotent: a second pass changes nothing.
+        string once = properties.ToJsonString();
+        ApplicationsRules.NormalizeDesired(properties, Name);
+        Assert.Equal(once, properties.ToJsonString());
     }
 
     [Fact]
@@ -63,10 +59,8 @@ public sealed class ApplicationsRulesTests
     {
         var properties = (JsonObject)JsonNode.Parse("""{ "appRoles": [ { "value": "x" } ] }""")!;
 
-        var derived = ApplicationsRules.NormalizeDesired(properties, null);
+        ApplicationsRules.NormalizeDesired(properties, null);
 
-        Assert.True(derived.IsEmpty);
-        Assert.Null(derived.ToExtra());
         Assert.Null(properties["appRoles"]![0]!["id"]);
         Assert.True(properties["appRoles"]![0]!["isEnabled"]!.GetValue<bool>());
     }

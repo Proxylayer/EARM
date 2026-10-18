@@ -14,9 +14,9 @@ namespace EArm.TestSupport;
 /// <item><c>GET /policies/roleManagementPolicyAssignments?$filter=scopeId eq '…' and scopeType eq '…' [and roleDefinitionId eq '…']</c> (the scope filter is
 /// required, as Graph says), with <c>$expand=policy($expand=rules)</c>. A directory role (scopeType DirectoryRole or Directory, scopeId '/') has a policy
 /// for every role id except <see cref="RolesWithoutPolicy"/>; a group (scopeType Group) has a member and an owner policy once it exists, and before PIM for
-/// Groups onboards it only when <see cref="PoliciesBeforeOnboarding"/> (the default, as Learn implies: ids change on onboarding); otherwise the expanded list
-/// answers <c>404 ResourceNotFound</c> and the plain list by member role an assignment with a pre-onboarding policy id
-/// (<see cref="PreOnboardingPolicyId"/>, not a policy), as a real tenant does (probe PP7), and the policy appears on onboarding with its new id.</item>
+/// Groups onboards it only when <see cref="PoliciesBeforeOnboarding"/> (opt-in, as Learn implies: ids change on onboarding); by default, as a real tenant does (probe PP7),
+/// the expanded list answers <c>404 ResourceNotFound</c> and the plain list by member role an assignment with a pre-onboarding policy id
+/// (<see cref="PreOnboardingPolicyId"/>, not a policy), and the policy appears on onboarding with its new id.</item>
 /// <item><c>GET /policies/roleManagementPolicies/{id}</c> (with <c>$expand=rules</c>).</item>
 /// <item><c>PATCH /policies/roleManagementPolicies/{id}/rules/{ruleId}</c>: the body must carry the rule's <c>@odata.type</c> (400 otherwise); an unknown
 /// policy or rule id is a 404; the top-level members of the body replace the rule's. A group policy PATCH onboards the group.</item>
@@ -40,10 +40,10 @@ public sealed class FakeRoleManagementPolicies
     public string TenantId { get; init; } = "11111111-1111-1111-1111-111111111111";
 
     /// <summary>
-    /// Whether a group's policies are listed before PIM for Groups onboards it (Learn implies they are). When false, the assignment list of a group that is
-    /// not onboarded answers <c>404 ResourceNotFound</c>, which is what a real tenant does.
+    /// Whether a group's policies are listed before PIM for Groups onboards it (Learn implies they are; default false). When false, the assignment list of a group
+    /// that is not onboarded answers <c>404 ResourceNotFound</c>, which is what a real tenant does.
     /// </summary>
-    public bool PoliciesBeforeOnboarding { get; set; } = true;
+    public bool PoliciesBeforeOnboarding { get; set; }
 
     /// <summary>Role ids Graph lists no policy for.</summary>
     public HashSet<string> RolesWithoutPolicy { get; } = new(StringComparer.OrdinalIgnoreCase);

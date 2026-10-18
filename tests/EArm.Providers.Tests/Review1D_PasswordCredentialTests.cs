@@ -41,7 +41,7 @@ public sealed class Review1D_PasswordCredentialTests
         Assert.Equal(ProviderWarnings.SecretExpiresSoon, warning.Code);
         Assert.Contains("2026-10-30T00:00:00Z", warning.Message, StringComparison.Ordinal);
         Assert.Contains("NOT rotated", warning.Message, StringComparison.Ordinal);
-        Assert.Empty(PasswordCredentialsRules.RotationTriggers(Desired(end), Live(end), Now));
+        Assert.Empty(PasswordCredentialsRules.AssessRotation(Desired(end), Live(end), Now).Triggers);
     }
 
     [Fact]
@@ -61,7 +61,7 @@ public sealed class Review1D_PasswordCredentialTests
     {
         var live = Live(Now.AddDays(10));
 
-        var trigger = Assert.Single(PasswordCredentialsRules.RotationTriggers(Desired(), live, Now));
+        var trigger = Assert.Single(PasswordCredentialsRules.AssessRotation(Desired(), live, Now).Triggers);
 
         Assert.Equal(PasswordCredentialsRules.EndDateTimeProperty, trigger.Property);
         Assert.Contains("expires on", trigger.Reason, StringComparison.Ordinal);

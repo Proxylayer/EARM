@@ -115,7 +115,9 @@ public sealed partial class FakeDirectory
     /// <summary>
     /// A reference navigation. Listing it models two real-tenant behaviours (probe h, GroupMembershipProbes): a type cast
     /// (<c>/groups/{id}/members/microsoft.graph.servicePrincipal</c>) lists only the objects of that type, and v1.0
-    /// <c>GET /groups/{id}/members</c> omits service principal members (beta, the type cast and <c>$expand=members</c> list them).
+    /// <c>GET /groups/{id}/members</c> omits service principal members (beta, the type cast and <c>$expand=members</c> list them). v1.0
+    /// <c>GET /groups/{id}/owners</c> omits service principal owners the same way (Learn, group-list-owners: "service principals are not listed as group
+    /// owners"); application and service principal owners are listed whole.
     /// </summary>
     private (HttpStatusCode, JsonNode?) HandleReferenceNavigation(string method, Route route, string navPath, string nav, IReadOnlyDictionary<string, string>? query, JsonNode? body, RetryHint hint, int pageSize, bool beta)
     {
@@ -182,7 +184,7 @@ public sealed partial class FakeDirectory
         }
 
         string? cast = route.ChildSelector is { IsAlternateKey: false } selector && selector.Value.StartsWith("microsoft.graph.", StringComparison.OrdinalIgnoreCase) ? "#" + selector.Value : null;
-        bool omitServicePrincipals = cast is null && !beta && nav.Equals("members", StringComparison.OrdinalIgnoreCase) && route.Root.Equals("groups", StringComparison.OrdinalIgnoreCase);
+        bool omitServicePrincipals = cast is null && !beta && (nav.Equals("members", StringComparison.OrdinalIgnoreCase) || nav.Equals("owners", StringComparison.OrdinalIgnoreCase)) && route.Root.Equals("groups", StringComparison.OrdinalIgnoreCase);
         var objects = new List<JsonObject>();
         foreach (var id in ReferencedIds(navPath, nav))
         {

@@ -46,8 +46,6 @@ internal static class GroupsShape
         /// </summary>
         public bool IsPermanentlyDeleted => IsDistributionList || IsMailEnabledSecurity;
 
-        /// <summary>True for the kinds EARM can create (security, Microsoft 365, dynamic): their deleted objects wait in the recycle bin and keep their keys.</summary>
-        public bool IsSoftDeleted => !IsPermanentlyDeleted;
     }
 
     public static Analysis Analyze(JsonObject? properties)

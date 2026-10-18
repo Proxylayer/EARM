@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
@@ -25,8 +26,11 @@ public sealed partial class ApplicationsProvider
 
         string name = desired.Id.NameLeaf;
         var key = ResolveKey(desired);
-        var derived = ApplicationsRules.NormalizeDesired(properties, name);
-        var body = BuildCreateBody(desired);
+        ApplicationsRules.NormalizeDesired(properties, name);
+        // The upsert merges its body into an application that already exists (one created after the plan's read, or the restored one), so it carries only
+        // what the template declares: the overlay defaults describe the application EARM creates and are checked against the created object below.
+        var body = BuildDeclaredBody(desired);
+        var undeclaredDefaults = UndeclaredDefaults(body);
         RemoveServerAssigned(body);
         RemoveUniqueName(body);
         var warnings = new List<ProviderWarning>();
@@ -52,7 +56,7 @@ public sealed partial class ApplicationsProvider
             // From here on the application exists again (it is out of the recycle bin): a failure of a later step must hand it over, or the run loses the object.
             var restoredLive = (restoredResponse.Body as JsonObject is { } restoredBody ? (JsonObject)restoredBody.DeepClone() : (JsonObject)deleted.DeepClone());
             restoredLive["id"] = deletedId;
-            restoredPartial = new AppliedResource(desired.Id, deletedId, restoredLive, key, derived.ToExtra()) { Warnings = warnings };
+            restoredPartial = new AppliedResource(desired.Id, deletedId, restoredLive, key) { Warnings = warnings };
         }
 
         try
@@ -62,9 +66,13 @@ public sealed partial class ApplicationsProvider
             var response = await graph.PatchAsync(upsert, body, cancellationToken).ConfigureAwait(false);
 
             JsonObject live;
+            JsonObject followUp = [];
             if (response.IsCreated && response.Body is JsonObject created)
             {
                 live = created;
+
+                // A real create: an overlay default Graph did not apply on its own (Learn documents the same defaults) is written right after.
+                followUp = DefaultsMissingFrom(live, undeclaredDefaults);
             }
             else
             {
@@ -74,26 +82,30 @@ public sealed partial class ApplicationsProvider
             }
 
             string id = RequireId(live, desired);
-            var written = new AppliedResource(desired.Id, id, live, key, derived.ToExtra()) { Warnings = warnings };
-            if (deferredUris)
+            var written = new AppliedResource(desired.Id, id, live, key) { Warnings = warnings };
+            if (deferredUris || followUp.Count > 0)
             {
                 // The object exists now: a failure of the second PATCH hands it over (ProviderException.Partial) so the executor records it.
                 try
                 {
-                    string appId = JsonObjects.GetString(live, "appId")
-                        ?? throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{desired.Describe()}: Graph returned no appId, so identifierUris containing '{ApplicationsRules.AppIdPlaceholder}' cannot be written.", desired.Id);
-                    ApplicationsRules.SubstituteAppId(properties, appId);
-                    JsonObjects.TryGetIgnoreCase(properties, "identifierUris", out var uris);
-                    var finalUris = SecretJson.Reveal(JsonValues.Clone(uris));
+                    if (deferredUris)
+                    {
+                        string appId = JsonObjects.GetString(live, "appId")
+                            ?? throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{desired.Describe()}: Graph returned no appId, so identifierUris containing '{ApplicationsRules.AppIdPlaceholder}' cannot be written.", desired.Id);
+                        ApplicationsRules.SubstituteAppId(properties, appId);
+                        JsonObjects.TryGetIgnoreCase(properties, "identifierUris", out var uris);
+                        followUp["identifierUris"] = SecretJson.Reveal(JsonValues.Clone(uris));
+                    }
 
                     // The object was created a moment ago: the PATCH by id may hit replication lag.
                     var second = new GraphRequest(EntityPath(id), desired.Api, hint: RetryHint.ExpectReplicationLag);
-                    await graph.PatchAsync(second, new JsonObject { ["identifierUris"] = finalUris }, cancellationToken).ConfigureAwait(false);
-                    live[JsonObjects.FindKey(live, "identifierUris") ?? "identifierUris"] = JsonValues.Clone(finalUris);
+                    await graph.PatchAsync(second, followUp, cancellationToken).ConfigureAwait(false);
+                    MergeInto(live, followUp);
                 }
                 catch (Exception ex) when (ex is GraphException or GraphTransportException or ProviderException { Partial: null })
                 {
-                    throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{desired.Describe()}: the application was created (id {id}) but writing its identifierUris failed: {ex.Message}", desired.Id, ex) { Partial = written };
+                    string what = string.Join(", ", followUp.Select(p => p.Key).DefaultIfEmpty("identifierUris"));
+                    throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{desired.Describe()}: the application was created (id {id}) but writing its {what} failed: {ex.Message}", desired.Id, ex) { Partial = written };
                 }
             }
 
@@ -102,6 +114,61 @@ public sealed partial class ApplicationsProvider
         catch (Exception ex) when (restoredPartial is not null && (ex is GraphException or GraphTransportException || ex is ProviderException { Partial: null }))
         {
             throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{desired.Describe()}: the soft-deleted application ({restoredPartial.GraphId}) was restored but bringing it to the declared state failed: {ex.Message}", desired.Id, ex) { Partial = restoredPartial };
+        }
+    }
+
+    /// <summary>The upsert body before the server-assigned and key properties are removed: the declared properties and the name, secrets revealed, no overlay defaults.</summary>
+    private JsonObject BuildDeclaredBody(ResourceInstance desired)
+    {
+        var body = CloneProperties(desired);
+        InjectName(body, desired);
+        return Reveal(body);
+    }
+
+    /// <summary>The overlay defaults (dotted path, value) <paramref name="declared"/> leaves unset.</summary>
+    private List<KeyValuePair<string, JsonNode?>> UndeclaredDefaults(JsonObject declared)
+    {
+        var undeclared = new List<KeyValuePair<string, JsonNode?>>();
+        foreach (var pair in Definition.Defaults ?? [])
+        {
+            if (!JsonObjects.TryGetDotted(declared, pair.Key, out var value) || JsonObjects.IsAbsent(value))
+            {
+                undeclared.Add(pair);
+            }
+        }
+
+        return undeclared;
+    }
+
+    /// <summary>A merge-PATCH body of the <paramref name="defaults"/> the created object <paramref name="live"/> does not carry with the default value.</summary>
+    private static JsonObject DefaultsMissingFrom(JsonObject live, List<KeyValuePair<string, JsonNode?>> defaults)
+    {
+        var patch = new JsonObject();
+        foreach (var pair in defaults)
+        {
+            if (!JsonObjects.TryGetDotted(live, pair.Key, out var value) || !JsonNode.DeepEquals(value, pair.Value))
+            {
+                JsonObjects.SetDefault(patch, pair.Key, JsonValues.Clone(pair.Value));
+            }
+        }
+
+        return patch;
+    }
+
+    /// <summary>Writes the members of <paramref name="patch"/> into <paramref name="live"/>, nested objects merged member by member.</summary>
+    private static void MergeInto(JsonObject live, JsonObject patch)
+    {
+        foreach (var pair in patch)
+        {
+            string key = JsonObjects.FindKey(live, pair.Key) ?? pair.Key;
+            if (pair.Value is JsonObject nested && live[key] is JsonObject target)
+            {
+                MergeInto(target, nested);
+            }
+            else
+            {
+                live[key] = JsonValues.Clone(pair.Value);
+            }
         }
     }
 
@@ -118,7 +185,7 @@ public sealed partial class ApplicationsProvider
 
         string name = desired.Id.NameLeaf;
         var key = ResolveKey(desired);
-        var derived = ApplicationsRules.NormalizeDesired(properties, name);
+        ApplicationsRules.NormalizeDesired(properties, name);
         if (JsonObjects.GetString(existing.Raw, "appId") is { } liveAppId)
         {
             ApplicationsRules.SubstituteAppId(properties, liveAppId);
@@ -165,6 +232,6 @@ public sealed partial class ApplicationsProvider
 
         var live = await GetApplicationAsync(graph, path, desired.Api, desired.RetryHint, _selects.For(key, ManagedProperties), cancellationToken).ConfigureAwait(false)
             ?? throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{desired.Describe()}: the application ({existing.GraphId}) vanished after the update.", desired.Id);
-        return new AppliedResource(desired.Id, existing.GraphId, live, key, derived.ToExtra());
+        return new AppliedResource(desired.Id, existing.GraphId, live, key);
     }
 }

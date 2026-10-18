@@ -6,52 +6,7 @@
   "changes": [
     {
       "resourceId": "/providers/Microsoft.Entra/roleManagementPolicies/6d9fb633-9db3-530c-86fc-ef7e782f70a7",
-      "changeType": "Modify",
-      "before": {
-        "name": "6d9fb633-9db3-530c-86fc-ef7e782f70a7",
-        "type": "Microsoft.Entra/roleManagementPolicies",
-        "apiVersion": "2026-10-01-preview",
-        "properties": {
-          "scopeType": "Group",
-          "scopeId": "66666666-0000-0000-0000-000000000100",
-          "roleDefinitionId": "member",
-          "rules": [
-            {
-              "id": "Expiration_Admin_Eligibility",
-              "isExpirationRequired": true,
-              "maximumDuration": "P365D",
-              "target": {
-                "caller": "Admin",
-                "operations": [
-                  "All"
-                ],
-                "level": "Eligibility",
-                "inheritableSettings": [],
-                "enforcedSettings": []
-              },
-              "ruleType": "RoleManagementPolicyExpirationRule"
-            },
-            {
-              "id": "Notification_Admin_EndUser_Assignment",
-              "notificationType": "Email",
-              "recipientType": "Admin",
-              "notificationLevel": "All",
-              "isDefaultRecipientsEnabled": true,
-              "notificationRecipients": [],
-              "target": {
-                "caller": "EndUser",
-                "operations": [
-                  "All"
-                ],
-                "level": "Assignment",
-                "inheritableSettings": [],
-                "enforcedSettings": []
-              },
-              "ruleType": "RoleManagementPolicyNotificationRule"
-            }
-          ]
-        }
-      },
+      "changeType": "Create",
       "after": {
         "name": "6d9fb633-9db3-530c-86fc-ef7e782f70a7",
         "type": "Microsoft.Entra/roleManagementPolicies",
@@ -61,37 +16,14 @@
             {
               "id": "Expiration_Admin_Eligibility",
               "isExpirationRequired": false,
-              "ruleType": "RoleManagementPolicyExpirationRule",
-              "maximumDuration": "P365D",
-              "target": {
-                "caller": "Admin",
-                "operations": [
-                  "All"
-                ],
-                "level": "Eligibility",
-                "inheritableSettings": [],
-                "enforcedSettings": []
-              }
+              "ruleType": "RoleManagementPolicyExpirationRule"
             },
             {
               "id": "Notification_Admin_EndUser_Assignment",
               "notificationRecipients": [
                 "security@contoso.com"
               ],
-              "ruleType": "RoleManagementPolicyNotificationRule",
-              "notificationType": "Email",
-              "recipientType": "Admin",
-              "notificationLevel": "All",
-              "isDefaultRecipientsEnabled": true,
-              "target": {
-                "caller": "EndUser",
-                "operations": [
-                  "All"
-                ],
-                "level": "Assignment",
-                "inheritableSettings": [],
-                "enforcedSettings": []
-              }
+              "ruleType": "RoleManagementPolicyNotificationRule"
             }
           ],
           "scopeId": "66666666-0000-0000-0000-000000000100",
@@ -99,182 +31,10 @@
           "scopeType": "Group"
         }
       },
-      "delta": [
-        {
-          "path": "properties.rules",
-          "propertyChangeType": "Array",
-          "before": [
-            {
-              "id": "Expiration_Admin_Eligibility",
-              "isExpirationRequired": true,
-              "maximumDuration": "P365D",
-              "target": {
-                "caller": "Admin",
-                "operations": [
-                  "All"
-                ],
-                "level": "Eligibility",
-                "inheritableSettings": [],
-                "enforcedSettings": []
-              },
-              "ruleType": "RoleManagementPolicyExpirationRule"
-            },
-            {
-              "id": "Notification_Admin_EndUser_Assignment",
-              "notificationType": "Email",
-              "recipientType": "Admin",
-              "notificationLevel": "All",
-              "isDefaultRecipientsEnabled": true,
-              "notificationRecipients": [],
-              "target": {
-                "caller": "EndUser",
-                "operations": [
-                  "All"
-                ],
-                "level": "Assignment",
-                "inheritableSettings": [],
-                "enforcedSettings": []
-              },
-              "ruleType": "RoleManagementPolicyNotificationRule"
-            }
-          ],
-          "after": [
-            {
-              "id": "Expiration_Admin_Eligibility",
-              "isExpirationRequired": false,
-              "ruleType": "RoleManagementPolicyExpirationRule",
-              "maximumDuration": "P365D",
-              "target": {
-                "caller": "Admin",
-                "operations": [
-                  "All"
-                ],
-                "level": "Eligibility",
-                "inheritableSettings": [],
-                "enforcedSettings": []
-              }
-            },
-            {
-              "id": "Notification_Admin_EndUser_Assignment",
-              "notificationRecipients": [
-                "security@contoso.com"
-              ],
-              "ruleType": "RoleManagementPolicyNotificationRule",
-              "notificationType": "Email",
-              "recipientType": "Admin",
-              "notificationLevel": "All",
-              "isDefaultRecipientsEnabled": true,
-              "target": {
-                "caller": "EndUser",
-                "operations": [
-                  "All"
-                ],
-                "level": "Assignment",
-                "inheritableSettings": [],
-                "enforcedSettings": []
-              }
-            }
-          ],
-          "children": [
-            {
-              "path": "Expiration_Admin_Eligibility",
-              "propertyChangeType": "Modify",
-              "before": {
-                "id": "Expiration_Admin_Eligibility",
-                "isExpirationRequired": true,
-                "maximumDuration": "P365D",
-                "target": {
-                  "caller": "Admin",
-                  "operations": [
-                    "All"
-                  ],
-                  "level": "Eligibility",
-                  "inheritableSettings": [],
-                  "enforcedSettings": []
-                },
-                "ruleType": "RoleManagementPolicyExpirationRule"
-              },
-              "after": {
-                "id": "Expiration_Admin_Eligibility",
-                "isExpirationRequired": false,
-                "ruleType": "RoleManagementPolicyExpirationRule",
-                "maximumDuration": "P365D",
-                "target": {
-                  "caller": "Admin",
-                  "operations": [
-                    "All"
-                  ],
-                  "level": "Eligibility",
-                  "inheritableSettings": [],
-                  "enforcedSettings": []
-                }
-              },
-              "children": [
-                {
-                  "path": "isExpirationRequired",
-                  "propertyChangeType": "Modify",
-                  "before": true,
-                  "after": false
-                }
-              ]
-            },
-            {
-              "path": "Notification_Admin_EndUser_Assignment",
-              "propertyChangeType": "Modify",
-              "before": {
-                "id": "Notification_Admin_EndUser_Assignment",
-                "notificationType": "Email",
-                "recipientType": "Admin",
-                "notificationLevel": "All",
-                "isDefaultRecipientsEnabled": true,
-                "notificationRecipients": [],
-                "target": {
-                  "caller": "EndUser",
-                  "operations": [
-                    "All"
-                  ],
-                  "level": "Assignment",
-                  "inheritableSettings": [],
-                  "enforcedSettings": []
-                },
-                "ruleType": "RoleManagementPolicyNotificationRule"
-              },
-              "after": {
-                "id": "Notification_Admin_EndUser_Assignment",
-                "notificationRecipients": [
-                  "security@contoso.com"
-                ],
-                "ruleType": "RoleManagementPolicyNotificationRule",
-                "notificationType": "Email",
-                "recipientType": "Admin",
-                "notificationLevel": "All",
-                "isDefaultRecipientsEnabled": true,
-                "target": {
-                  "caller": "EndUser",
-                  "operations": [
-                    "All"
-                  ],
-                  "level": "Assignment",
-                  "inheritableSettings": [],
-                  "enforcedSettings": []
-                }
-              },
-              "children": [
-                {
-                  "path": "notificationRecipients",
-                  "propertyChangeType": "Create",
-                  "after": [
-                    "security@contoso.com"
-                  ]
-                }
-              ]
-            }
-          ]
-        }
-      ],
       "unsupportedReason": null,
       "reasons": [
-        "each changed rule is updated in place (PATCH of the rule); undeclared rules are left as they are"
+        "group not onboarded: a temporary eligibility for 66666666-0000-0000-0000-000000000300 will onboard it, then be removed",
+        "Graph lists no PIM policy for the member access of group 66666666-0000-0000-0000-000000000100: PIM for Groups has not onboarded the group yet. The deployment requests a PT1H member eligibility for 66666666-0000-0000-0000-000000000300 (justification 'EARM onboarding of 66666666-0000-0000-0000-000000000100 for policy management'), waits for Graph to list the group's policy, removes the eligibility, and then applies the declared rules to that policy; nothing else is created"
       ]
     },
     {
@@ -860,14 +620,15 @@
   "diagnostics": [],
   "requiredPermissions": [
     "Directory.Read.All",
+    "PrivilegedEligibilitySchedule.ReadWrite.AzureADGroup",
     "RoleManagementPolicy.ReadWrite.AzureADGroup",
     "RoleManagementPolicy.ReadWrite.Directory"
   ],
   "unresolvedReferences": [],
   "skipped": [],
   "summary": {
-    "create": 0,
-    "modify": 2,
+    "create": 1,
+    "modify": 1,
     "delete": 0,
     "noChange": 1,
     "deploy": 0,

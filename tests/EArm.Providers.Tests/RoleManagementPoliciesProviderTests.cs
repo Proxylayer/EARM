@@ -255,9 +255,11 @@ public sealed class RoleManagementPoliciesProviderTests
     // ---- groups ----
 
     [Fact]
-    public async Task AGroupPolicy_ByUniqueNameAndAccessId_IsPatched_OnboardsTheGroup_AndFollowsTheNewPolicyId()
+    public async Task AGroupPolicy_ListedBeforeOnboarding_ByUniqueNameAndAccessId_IsPatched_OnboardsTheGroup_AndFollowsTheNewPolicyId()
     {
+        // The Learn-implied tenant (opt-in on the fake): a group's policy is listed before onboarding and the first rule PATCH onboards the group under new ids.
         var host = new ProviderHost();
+        host.Directory.RoleManagementPolicies.PoliciesBeforeOnboarding = true;
         string ops = host.Directory.AddGroup("pim-ops", "PIM Ops")["id"]!.GetValue<string>();
         var document = host.Resources(Policy("""
             { "group": "pim-ops", "accessId": "Member", "rules": [
@@ -290,7 +292,6 @@ public sealed class RoleManagementPoliciesProviderTests
     public async Task AGroupNotYetOnboarded_WithoutASameRunRequest_IsPimPolicyNotAvailable()
     {
         var host = new ProviderHost();
-        host.Directory.RoleManagementPolicies.PoliciesBeforeOnboarding = false;
         host.Directory.AddGroup("pim-ops", "PIM Ops");
         var document = host.Resources(Policy("""{ "group": "pim-ops", "accessId": "member", "rules": [ { "id": "Expiration_EndUser_Assignment", "maximumDuration": "PT4H" } ] }""", GroupPolicyName));
 
@@ -307,7 +308,6 @@ public sealed class RoleManagementPoliciesProviderTests
     public async Task AGroupOnboardedBySameRunRequest_IsDeferredWithAWarning_TheRequestGoesAhead_AndTheNextRunAppliesThePolicy()
     {
         var host = new ProviderHost();
-        host.Directory.RoleManagementPolicies.PoliciesBeforeOnboarding = false;
         string ops = host.Directory.AddGroup("pim-ops", "PIM Ops")["id"]!.GetValue<string>();
         string alice = host.Directory.AddUser("alice@contoso.com", "Alice")["id"]!.GetValue<string>();
         string policy = Policy("""{ "group": "pim-ops", "accessId": "member", "rules": [ { "id": "Expiration_EndUser_Assignment", "maximumDuration": "PT4H" } ] }""", GroupPolicyName);

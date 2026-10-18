@@ -68,7 +68,7 @@ public sealed class ConsentProbeSession : IDisposable
     /// <summary>The Graph scope name the probes request incrementally (<c>EARM_IT_CONSENT_PROBE_SCOPE</c>, default <see cref="DefaultProbeScope"/>).</summary>
     public string ProbeScope { get; }
 
-    /// <summary>What the base sign-in consents: <c>User.Read Organization.Read.All</c>, as <c>earm auth login</c> does.</summary>
+    /// <summary>What the base sign-in consents: <c>User.Read</c>, as <c>earm auth login</c> does (the cloud's sign-in scopes).</summary>
     internal TokenScopes BaseScopes { get; }
 
     /// <summary>The explicitly requested set of the probes: the base scopes plus <see cref="ProbeScope"/>.</summary>

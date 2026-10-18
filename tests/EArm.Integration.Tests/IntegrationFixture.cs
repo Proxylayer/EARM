@@ -317,7 +317,10 @@ public sealed class IntegrationFixture : IAsyncLifetime
         {
             try
             {
-                if (await _graph!.GetObjectAsync(new GraphRequest(path), CancellationToken.None) is not null)
+                // A delete is eventually consistent: a single read right after the sweep can still see the object, so re-read until it is gone or the time is up.
+                var graph = _graph!;
+                var live = await IntegrationTestBase.EventuallyAsync(() => graph.GetObjectAsync(new GraphRequest(path), CancellationToken.None), found => found is null, CancellationToken.None);
+                if (live is not null)
                 {
                     _leftovers.Add($"{path}: the teardown sweep did not delete this tracked object (CleanupScenarioTests expects it gone)");
                 }

@@ -34,7 +34,7 @@ public static class ProviderWarnings
     /// <summary>A conditional access policy declares <c>state: enabled</c> without <c>--allow-ca-enforce</c>: created report-only, or an existing policy's live state is kept.</summary>
     public const string ConditionalAccessEnforcementNotAllowed = EngineDiagnosticCodes.ConditionalAccessEnforcementNotAllowed;
 
-    /// <summary>A <c>addPassword</c> call failed ambiguously and a credential with the same name that EARM did not record exists: it is reported, never removed.</summary>
+    /// <summary>A <c>addPassword</c> call failed ambiguously and a credential with the same name that this run's read did not see exists: it is reported, never removed.</summary>
     public const string PasswordCredentialOrphaned = EngineDiagnosticCodes.PasswordCredentialOrphaned;
 
     /// <summary>A FIDO2 authentication method configuration declares the deprecated <c>isAttestationEnforced</c> / <c>keyRestrictions</c> (removed October 2027; use <c>passkeyProfiles</c>).</summary>
