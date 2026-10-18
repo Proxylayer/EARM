@@ -96,7 +96,7 @@ public sealed class AuthSpikeSession : IDisposable
     /// <summary>This run's results log: every diagnostic line, appended live (tail it with <c>Get-Content -Wait</c> during a device-code run).</summary>
     public string LogPath { get; }
 
-    /// <summary>The base Graph scopes of the shared sign-in (S2 step a).</summary>
+    /// <summary>The base Graph scopes of the shared sign-in (S2 step a). The spike keeps the set it was run with; <c>earm auth login</c> now asks for <c>User.Read</c> only.</summary>
     internal IReadOnlyList<string> BaseGraphScopes => [GraphScope("User.Read"), GraphScope("Organization.Read.All")];
 
     internal IReadOnlyList<string> ExtendedGraphScopes => [.. BaseGraphScopes, .. ExtraScopeNames.Select(GraphScope)];

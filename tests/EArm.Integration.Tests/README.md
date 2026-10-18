@@ -427,7 +427,7 @@ normal run.
 |---|---|---|
 | `S1a` / `S1b` | Can the Graph CLI Tools client get a Key Vault token (`https://vault.azure.net/user_impersonation`, `/.default`)? `GRANTED [silently ...]` means the Graph sign-in's refresh token is enough; `GRANTED [... then interactive]` means an extra prompt; `DENIED (AADSTS65002)` or `(AADSTS650057)` means the client is not pre-authorized for Key Vault. | **Key Vault approach**: one client for Graph and `reference()` secrets, or a second client / credential for Key Vault. |
 | `S1c` | HTTP status of a metadata `GET` against the vault with that token: `200` usable, `401` token rejected, `403` token accepted but no data-plane permission (RBAC / access policy). | Confirms S1a/S1b in practice. |
-| `S2a` | The base sign-in (`User.Read`, `Organization.Read.All`). | Baseline of the login flow. |
+| `S2a` | The base sign-in (the spike's historical set `User.Read`, `Organization.Read.All`; `earm auth login` now asks for `User.Read` only). | Baseline of the login flow. |
 | `S2b` | Silent request with a new credential, the record and `DisableAutomaticAuthentication`: expected `GRANTED`. | The silent path of every later command works as today. |
 | `S2c` | Silent request for base + extra scopes: the exception type and AADSTS code (expected `AUTH-REQUIRED [AuthenticationRequiredException]`, often `AADSTS65001`), with no prompt. `GRANTED` means the extra scopes were already consented (revoke and re-run). | **Silent consent error mapping**: what EARM must recognise and turn into "consent needed: run `earm auth login --scopes ...`". |
 | `S2d` | The same set with prompting allowed: the incremental consent prompt. | **Incremental-consent flow** of `earm auth login` / the permission check. |
