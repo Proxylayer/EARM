@@ -49,11 +49,11 @@ public sealed partial class PimPolicyProbes
         var after = await EventuallyAsync(() => Fixture.PimPolicies.ReadAsync(scope, Ct), found => found is not null, seconds: 180, stepSeconds: 10);
         report.Expect(
             after is not null,
-            "180 s after the first eligibility request of a group its member policy is still not listed: the second run of a template that onboards the group would still report PimPolicyNotAvailable. Revisit RoleManagementPoliciesProvider.PlanMissing and docs/pim.md (the 'converges in two runs' claim).");
+            "180 s after the first eligibility request of a group its member policy is still not listed: neither the end-of-run retry (up to 90 s) nor the next run of a template that onboards the group would find it, and both would report PimPolicyNotAvailable. Revisit RoleManagementPoliciesProvider.PlanMissing and docs/pim.md (the 'applied at the end of the same run' claim).");
         if (after is not null)
         {
             string? newId = RoleManagementPolicyLookup.PolicyId(after);
-            report.Observe($"after onboarding the member policy is listed after about {(DateTime.UtcNow - started).TotalSeconds:F0} s: policy id {newId}, {PimPolicyRestoreGuard.RulesOf(after).Count} rules");
+            report.Observe($"after onboarding the member policy is listed after about {(DateTime.UtcNow - started).TotalSeconds:F0} s (the end-of-run retry waits up to 90 s): policy id {newId}, {PimPolicyRestoreGuard.RulesOf(after).Count} rules");
             if (before is not null)
             {
                 report.Observe($"the policy id {(string.Equals(newId, RoleManagementPolicyLookup.PolicyId(before), StringComparison.OrdinalIgnoreCase) ? "did NOT change" : "CHANGED")} on onboarding ({RoleManagementPolicyLookup.PolicyId(before)} -> {newId})");

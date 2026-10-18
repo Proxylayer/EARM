@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using EArm.Engine;
+using EArm.Engine.Execution;
 using EArm.Engine.Planning;
 using EArm.Engine.Providers;
 using EArm.Graph;
@@ -234,22 +235,66 @@ public sealed class RoleManagementPolicyOnboardingTests
     }
 
     [Fact]
-    public async Task WithASameRunRequest_TheOptInIsNotUsed_AndThePolicyIsDeferredAsBefore()
+    public async Task WithASameRunRequest_TheOptInIsNotUsed_AndThePolicyIsDeferredToTheEndOfTheRun()
     {
         var (host, group, principal) = RealTenant();
         string alice = host.Directory.AddUser("alice@contoso.com", "Alice")["id"]!.GetValue<string>();
-        string eligibility = Templates.Resource(GroupEligibilityScheduleRequestsProvider.ResourceType, EligibilityName, "{ \"group\": \"pim-ops\", \"principalId\": \"" + alice + "\", \"accessId\": \"member\", \"scheduleInfo\": { \"expiration\": { \"type\": \"AfterDuration\", \"duration\": \"P30D\" } } }");
-        var document = host.Resources(OptedIn(principal) + ", " + eligibility);
+        var document = host.Resources(OptedIn(principal) + ", " + AliceEligibility(alice));
 
         Assert.Equal(ChangeType.Ignore, (await host.WhatIfAsync(document)).Change(PolicyName).Type);
         var run = await host.CreateAsync(document);
 
         Check.Succeeded(run);
-        Check.Diagnostic(run, EngineDiagnosticCodes.PimPolicyNotAvailable);
+        Check.NoDiagnostic(run, EngineDiagnosticCodes.PimPolicyNotAvailable);
         var assign = Assert.Single(EligibilityPosts(run, "adminAssign"));
         Assert.Equal(alice, (string?)assign.Body!["principalId"]);
         Assert.Empty(EligibilityPosts(run, "adminRemove"));
         Assert.Contains(group, host.Directory.GroupEligibility.OnboardedGroups);
+        Assert.Equal("PT4H", MemberRule(host, group));
+    }
+
+    [Fact]
+    public async Task AGroupPolicyDeferredForASameRunRequest_IsAppliedAtTheEndOfTheSameRun_ToThePostOnboardingPolicy()
+    {
+        // A tenant like a real one (no group policy listed before onboarding) and no opt-in: the request onboards the group, and one run applies the policy.
+        var (host, group, _) = RealTenant();
+        string alice = host.Directory.AddUser("alice@contoso.com", "Alice")["id"]!.GetValue<string>();
+        string policy = Templates.Resource(Type, PolicyName, "{ \"group\": \"pim-ops\", \"accessId\": \"member\", \"rules\": [ { \"id\": \"Expiration_EndUser_Assignment\", \"maximumDuration\": \"PT4H\" } ] }");
+        var document = host.Resources(policy + ", " + AliceEligibility(alice));
+
+        var whatIf = await host.WhatIfAsync(document);
+        var deferred = whatIf.Change(PolicyName);
+        Assert.Equal(ChangeType.Ignore, deferred.Type);
+        Assert.True(deferred.RetryAtEndOfRun);
+        Assert.Contains(deferred.Reasons, r => r.Contains("applied at the end of this run", StringComparison.Ordinal));
+
+        var run = await host.CreateAsync(document);
+
+        Check.Succeeded(run);
+        Check.NoDiagnostic(run, EngineDiagnosticCodes.PimPolicyNotAvailable);
+        Assert.Equal(OperationStatus.Succeeded, run.Op(PolicyName).Status);
+        Assert.Equal(ChangeType.Modify, run.Change(PolicyName).Type);
+
+        // The request first (it onboards the group), then the rule PATCH on the policy the onboarding created; no temporary eligibility.
+        var writes = run.Writes.ToList();
+        int assign = writes.FindIndex(w => (string?)w.Body?["action"] == "adminAssign");
+        int patch = writes.FindIndex(w => w.Method == "PATCH");
+        Assert.True(assign >= 0 && patch > assign, run.DescribeRequests());
+        Assert.Empty(EligibilityPosts(run, "adminRemove"));
+        var patched = Assert.Single(host.Directory.RoleManagementPolicies.RulePatches);
+        Assert.Equal(RoleManagementPolicyLookup.PolicyId(LiveAssignment(host, group)!), patched.PolicyId);
+        Assert.Equal("PT4H", MemberRule(host, group));
+
+        // Converged in one run: the next one has nothing to do.
+        var rerun = await host.CreateAsync(document);
+        Check.Succeeded(rerun);
+        Check.NoWrites(rerun);
+        Assert.Equal(ChangeType.NoChange, (await host.WhatIfAsync(document)).Change(PolicyName).Type);
+    }
+
+    private static string AliceEligibility(string alice)
+    {
+        return Templates.Resource(GroupEligibilityScheduleRequestsProvider.ResourceType, EligibilityName, "{ \"group\": \"pim-ops\", \"principalId\": \"" + alice + "\", \"accessId\": \"member\", \"scheduleInfo\": { \"expiration\": { \"type\": \"AfterDuration\", \"duration\": \"P30D\" } } }");
     }
 
     [Fact]

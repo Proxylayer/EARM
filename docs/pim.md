@@ -66,8 +66,10 @@ A group joins PIM for Groups (**onboarding**) on its first schedule request or p
 policies once it is onboarded, and their ids change at onboarding, so EARM never caches a policy id (a rule `PATCH` answered 404 re-reads it once).
 
 When a template declares both a group's policy and a schedule request for that group and access, and the group is not onboarded yet, the first run
-**defers** the policy (an `Ignore` row with a `PimPolicyNotAvailable` warning), lets the request onboard the group under the default policy, and the
-**second run** applies the policy. Without a same-run request the policy row fails with `PimPolicyNotAvailable` (onboard the group first), unless the
+**defers** the policy to the end of the run (the what-if shows an `Ignore` row with a `PimPolicyNotAvailable` warning), lets the request onboard the
+group under the default policy, and then applies the policy **in the same run**: after the last batch the policy is read and planned again, the read
+repeated on the replication schedule (1, 2, 4 s, then every 5 s, up to 90 s) until Graph lists the onboarded group's policy. Only when Graph still
+lists none by then does the row stay `Ignored` with the `PimPolicyNotAvailable` warning, and the next run applies the policy. Without a same-run request the policy row fails with `PimPolicyNotAvailable` (onboard the group first), unless the
 policy opts in to onboarding (below). The default group policy often forbids permanent eligibility, so give the first group request an expiration.
 
 ### Onboarding opt-in

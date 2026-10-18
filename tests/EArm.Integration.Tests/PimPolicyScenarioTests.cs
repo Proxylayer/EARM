@@ -108,7 +108,8 @@ public sealed class PimPolicyScenarioTests : IntegrationTestBase
         PolicyScope? scope = null;
         try
         {
-            // First run: the group is new and PIM has not onboarded it, so Graph lists no policy; the eligibility of the same run onboards it.
+            // First run: the group is new and PIM has not onboarded it, so Graph lists no policy; the eligibility of the same run onboards it, and the
+            // policy is applied at the end of the run once Graph lists it (deferred to the next run only when Graph still lists none by then).
             var first = await Fixture.Cli.CreateAsync(run, Ct);
             AssertCreated(first, "first create");
             string groupId = Output(first, "groupId");
@@ -118,7 +119,7 @@ public sealed class PimPolicyScenarioTests : IntegrationTestBase
             string? status = (string?)policyOperation?["status"];
             bool warned = first.Combined.Contains(EngineDiagnosticCodes.PimPolicyNotAvailable, StringComparison.Ordinal);
             bool deferred = status == "Ignored";
-            Observe($"first run: the group policy operation is {policyOperation?.ToJsonString() ?? "(not listed)"}; {(deferred ? "DEFERRED to the next run" : "APPLIED in the first run")} (PimPolicyNotAvailable in the output: {warned})");
+            Observe($"first run: the group policy operation is {policyOperation?.ToJsonString() ?? "(not listed)"}; {(deferred ? "still DEFERRED at the end of the run (Graph listed no policy yet; the next run applies it)" : "APPLIED in the first run (at the end of the run)")} (PimPolicyNotAvailable in the output: {warned})");
             Assert.True(
                 (deferred && warned) || status == "Succeeded",
                 $"The first run neither deferred the group policy with a PimPolicyNotAvailable warning nor applied it (status '{status}', warning {warned}):{Environment.NewLine}{first.DescribeOperations()}{Environment.NewLine}{Tail(first.Combined)}");

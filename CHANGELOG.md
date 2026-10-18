@@ -26,8 +26,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `displayName` carries no `rotationTag` (created before EARM kept the tag there), the secret is rotated once so the declared tag is
   stamped into the new credential's name, instead of keeping it with the `RotationTagNotStamped` warning. It needs a `rotationTag` and
   has no effect once the tag is stamped, so it can stay declared.
+- End-of-run retry: a provider can defer a resource until later work of the same run has happened (`ResourceChange.RetryAtEndOfRun`). After
+  the last batch the executor reads and plans it again (log event 2088), repeating the read on the replication schedule (1, 2, 4 s, then
+  every 5 s, up to 90 s) while it is still deferred, and applies what that plan says.
 
 ### Changed
+
+- A group PIM policy (`roleManagementPolicies`) deferred because a schedule request of the same run onboards its group is now applied at
+  the end of that run, once Graph lists the onboarded group's policy, instead of by the next run: such a template converges in one run.
+  `create` reports `PimPolicyNotAvailable` only when Graph still lists no policy at the end of the retry; the what-if still shows the
+  deferred `Ignore` row with the warning.
 
 - `earm permissions`: a languageVersion 2.0 `"existing": true` resource needs only the read variant of its type's permissions and no
   Entra role.

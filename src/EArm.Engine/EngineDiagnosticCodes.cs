@@ -187,7 +187,8 @@ public static class EngineDiagnosticCodes
     /// <summary>
     /// A <c>roleManagementPolicies</c> declaration names a PIM policy Graph does not list (no <c>roleManagementPolicyAssignments</c> entry for the scope,
     /// role and access): an unknown directory role, or a group PIM for Groups has not onboarded yet. An error when nothing in the deployment onboards the
-    /// group; a warning (the policy is deferred to the next run) when a schedule request of the same deployment does.
+    /// group. When a schedule request of the same deployment does, the policy is deferred to the end of the run and applied then; the warning is reported
+    /// in the what-if, and by <c>create</c> only when Graph still lists no policy at the end of the run (the next run applies it).
     /// </summary>
     public const string PimPolicyNotAvailable = "PimPolicyNotAvailable";
 

@@ -305,7 +305,7 @@ public sealed class RoleManagementPoliciesProviderTests
     }
 
     [Fact]
-    public async Task AGroupOnboardedBySameRunRequest_IsDeferredWithAWarning_TheRequestGoesAhead_AndTheNextRunAppliesThePolicy()
+    public async Task AGroupOnboardedBySameRunRequest_IsDeferredWithAWarningInTheWhatIf_TheRequestGoesAhead_AndTheSameRunAppliesThePolicyAtItsEnd()
     {
         var host = new ProviderHost();
         string ops = host.Directory.AddGroup("pim-ops", "PIM Ops")["id"]!.GetValue<string>();
@@ -321,13 +321,10 @@ public sealed class RoleManagementPoliciesProviderTests
         var run = await host.CreateAsync(document);
 
         Check.Succeeded(run);
-        Check.Diagnostic(run, EngineDiagnosticCodes.PimPolicyNotAvailable);
+        Check.NoDiagnostic(run, EngineDiagnosticCodes.PimPolicyNotAvailable);
         Assert.Contains(ops, host.Directory.GroupEligibility.OnboardedGroups);
-        Assert.Empty(host.Directory.RoleManagementPolicies.RulePatches);
-
-        var second = await host.CreateAsync(document);
-        Check.Succeeded(second);
         Assert.Equal("Expiration_EndUser_Assignment", Assert.Single(host.Directory.RoleManagementPolicies.RulePatches).RuleId);
+        Assert.Equal("PT4H", LiveRule(host, "Expiration_EndUser_Assignment", "Group", ops, "member")["maximumDuration"]!.GetValue<string>());
         Assert.Equal(ChangeType.NoChange, (await host.WhatIfAsync(document)).Change(GroupPolicyName).Type);
     }
 
@@ -336,7 +333,10 @@ public sealed class RoleManagementPoliciesProviderTests
     [Fact]
     public async Task APolicy_IsAppliedBeforeTheRequestsOfTheSameRoleAndGroup()
     {
+        // The group's policy is listed before onboarding here, so it is written in its batch; on a tenant that lists none until the request onboards the
+        // group, the policy is deferred to the end of the run instead (AGroupOnboardedBySameRunRequest_...).
         var host = new ProviderHost();
+        host.Directory.RoleManagementPolicies.PoliciesBeforeOnboarding = true;
         string ops = host.Directory.AddGroup("pim-ops", "PIM Ops")["id"]!.GetValue<string>();
         string alice = host.Directory.AddUser("alice@contoso.com", "Alice")["id"]!.GetValue<string>();
         string roleEligibility = Templates.Resource(RoleEligibilityScheduleRequestsProvider.ResourceType, "0b1c2d3e-4f50-4617-8829-3a4b5c6d7e8f", "{ \"principalId\": \"" + alice + "\", \"roleDefinitionId\": \"[roleTemplate('Global Administrator')]\" }");

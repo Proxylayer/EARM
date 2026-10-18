@@ -70,7 +70,7 @@ public sealed partial class RoleManagementPoliciesProvider
     }
 
     /// <summary>
-    /// No live policy: an unknown scope is resolved at deployment; a directory role is an error; a group is deferred when a schedule request of this
+    /// No live policy: an unknown scope is resolved at deployment; a directory role is an error; a group is deferred to the end of the run when a schedule request of this
     /// deployment onboards it, onboarded by the create when the declaration opts in (<c>properties.onboarding</c>), and an error otherwise.
     /// </summary>
     private ResourceChange PlanMissing(ResourceInstance desired, JsonObject properties, OnboardingRequest? onboarding)
@@ -97,7 +97,10 @@ public sealed partial class RoleManagementPoliciesProvider
         {
             string message = ProviderWarnings.Format(
                 EngineDiagnosticCodes.PimPolicyNotAvailable,
-                $"{notOnboarded} yet. A schedule request of this deployment onboards it; the policy is applied by the next run (deploy again once this one succeeded). Until then the group's default policy applies to those requests.");
+                $"{notOnboarded} yet. A schedule request of this deployment onboards it; the policy is applied at the end of this run, once Graph lists it (if Graph still lists none by then, deploy again once this run succeeded). Until then the group's default policy applies to those requests.");
+
+            // Deferred to the end of the run, not to the next one: once the request that onboards the group has run, the executor reads and plans the
+            // policy again and applies the declared rules.
             return new ResourceChange
             {
                 Id = desired.Id,
@@ -106,6 +109,7 @@ public sealed partial class RoleManagementPoliciesProvider
                 Mode = ChangeMode.None,
                 After = JsonDiff.RenderObject(desired.Properties),
                 Reasons = [message],
+                RetryAtEndOfRun = true,
             };
         }
 

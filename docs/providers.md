@@ -671,8 +671,10 @@ privilegedidentitymanagement-for-groups-api-overview), so the provider never cac
 and is sent once more (the previous PATCH onboarded the group). When Graph lists no policy for a group (not onboarded yet):
 
 - a `privilegedAccess/groupEligibilityScheduleRequests` or `groupAssignmentScheduleRequests` of the same deployment names the group and access: the
-  policy row is deferred (an `Ignore` row with a `PimPolicyNotAvailable` warning), the requests go ahead under the group's default policy and onboard
-  the group, and the next run applies the policy;
+  policy row is deferred to the end of the run (an `Ignore` row marked `RetryAtEndOfRun`, with a `PimPolicyNotAvailable` warning in the what-if), the
+  requests go ahead under the group's default policy and onboard the group, and the executor's end-of-run retry plans the policy again and applies it,
+  so one run converges. Only when Graph still lists no policy at the end of the retry window does the row stay `Ignored` with the warning (the next
+  run applies the policy);
 - otherwise, when the policy declares `onboarding.temporaryEligiblePrincipalId`, the row is a `Create` with the note `group not onboarded: a temporary
   eligibility for <principal> will onboard it, then be removed`, and `CreateAsync` onboards the group (`GroupPolicyOnboarding`, below);
 - otherwise the row fails with `PimPolicyNotAvailable` (declare a group request, opt in to onboarding, or onboard the group in the portal).

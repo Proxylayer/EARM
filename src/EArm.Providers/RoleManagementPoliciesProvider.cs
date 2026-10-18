@@ -26,8 +26,9 @@ namespace EArm.Providers;
 /// <item><b>Plan</b>: only the declared rule ids are managed (live-only rules are left alone); each declared rule is filled from the live rule
 /// (<see cref="RoleManagementPolicyShape.FillFromLive"/>) and compared in ARM's shape. A declared rule id the live policy does not have is an error.</item>
 /// <item><b>Create</b>: never (every policy exists, Graph creates none). A directory role without a policy is <see cref="EngineDiagnosticCodes.PimPolicyNotAvailable"/>;
-/// so is a group PIM for Groups has not onboarded, unless a schedule request of the same deployment onboards it: then the policy is deferred to the next
-/// run (an Ignore row with a <see cref="EngineDiagnosticCodes.PimPolicyNotAvailable"/> warning) and the requests go ahead. A group policy that opts in
+/// so is a group PIM for Groups has not onboarded, unless a schedule request of the same deployment onboards it: then the policy is deferred to the end of
+/// the run (an Ignore row marked <see cref="ResourceChange.RetryAtEndOfRun"/>, with a <see cref="EngineDiagnosticCodes.PimPolicyNotAvailable"/> warning), the
+/// requests go ahead, and the executor plans the policy again once they have run. A group policy that opts in
 /// (<c>properties.onboarding.temporaryEligiblePrincipalId</c>) is a Create row instead: the create onboards the group with a temporary eligibility for that
 /// principal, removes it, and applies the rules to the policy listed afterwards (<see cref="GroupPolicyOnboarding"/>).</item>
 /// <item><b>Update</b>: <c>PATCH /policies/roleManagementPolicies/{policyId}/rules/{ruleId}</c> per changed rule, with its <c>@odata.type</c>. A group's
