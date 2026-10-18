@@ -359,9 +359,11 @@ is gone; identity is resolved from the live tenant on every run ([engine.md](eng
 - **Exit code 4** (state locked) is never returned; no other code changed.
 - **Complete mode no longer deletes.** A pipeline that relied on it to remove what the template dropped now gets a report (`orphans[]`, "Not declared in the
   template") and must remove those objects itself.
-- **Objects that were bound only through the state must be findable by key.** Applications and groups need a `uniqueName` equal to the template `name`
-  (EARM sets it on the objects it creates; an object adopted from outside without one is not found and would be created again: set its `uniqueName` in Graph
-  first, or, for an application, declare its `appId` so it is found by that and given the name). Display-name-keyed types (Conditional Access policies, named locations, administrative units, custom role definitions, authentication strengths) are
+- **Objects that were bound only through the state must be findable by key.** Applications and groups are found by a `uniqueName` equal to the template
+  `name` (EARM sets it on the objects it creates). An object adopted from outside without one has two fallbacks: an application whose `appId` is declared is
+  found by that and given the name; a group is adopted by its declared `displayName` when exactly one group without a `uniqueName` has it (a
+  `GroupAdoptedByDisplayName` warning; several such groups are `AmbiguousMatch`). An application without a declared `appId` is not found and would be created
+  again: set its `uniqueName` in Graph first, or declare its `appId`. Display-name-keyed types (Conditional Access policies, named locations, administrative units, custom role definitions, authentication strengths) are
   found by `displayName`: one renamed in the portal is no longer found, and the next run creates a second one. Run `what-if` first and check every `+ Create`.
 - **Legacy password credentials.** A credential is now found by its `displayName` `<name>#<rotationTag>`; one created by a state-file version is named
   `<name>` with no tag. It is still matched by its base name and reported with `RotationTagNotStamped`, and it is **not rotated by a changed `rotationTag`**
