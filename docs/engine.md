@@ -579,7 +579,11 @@ with a bearer token for the Key Vault scope; the vault suffix comes from the clo
 value **secure-tainted** whatever the declared type. A failure (`KeyVaultResolutionException`) is reported as
 `KeyVaultReferenceUnresolved` with the (redacted) Key Vault answer (exit 3). `deployment validate` stays offline. A
 pending reference that reaches `PlanAsync` is still an error for `create` and a warning plus deploy-time placeholder
-for `what-if`. Tests script the vault with `tests/EArm.TestSupport/ScriptedGraphHandler`.
+for `what-if`. The references among the parameters of nested deployments (an inline `reference` entry, whose coordinates the parent's expressions
+compute, or a linked parameter file) only appear while the planner expands the deployment: `NestedParameterBinder` binds them as pending references and
+`NestedKeyVaultSecrets` resolves them there with the planner's `PlannerOptions.KeyVaultSecrets` (the CLI passes the resolver of the signed-in identity),
+synchronously as linked templates are downloaded; an offline expansion only records them (`OfflineTemplateExpansion.NestedKeyVaultReferences`, which
+also decides the run's Key Vault token). Tests script the vault with `tests/EArm.TestSupport/ScriptedGraphHandler`.
 
 ## Provider contract (`EArm.Engine.Providers`)
 

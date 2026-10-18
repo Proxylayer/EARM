@@ -154,7 +154,7 @@ public sealed class DeploymentPlanner
         // 3c. Nested and linked deployments: their templates' resources join the instances (same graph, same batches).
         var rootScope = TemplateScope.Root(document, analysis.Static, context);
         var reader = _options.LinkedTemplates ?? LinkedTemplateReader.LocalOnly;
-        instances = new NestedDeploymentExpander(evaluator, catalog, _options.Functions, reader, offline: false, cancellationToken).Expand(rootScope, instances, diagnostics);
+        instances = new NestedDeploymentExpander(evaluator, catalog, _options.Functions, reader, offline: false, cancellationToken, _options.KeyVaultSecrets).Expand(rootScope, instances, diagnostics);
         ThrowIfErrors(diagnostics);
 
         // 4. Every type needs a provider (an unregistered type fails here); a nested deployment has none (nothing is written for it).

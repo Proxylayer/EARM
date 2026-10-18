@@ -8,15 +8,13 @@ using EArm.Core;
 using EArm.Core.Diagnostics;
 using EArm.Core.Json;
 using EArm.Core.Loading;
-using EArm.Core.Secrets;
 using EArm.Core.Types;
 using EArm.Core.Validation;
+using EArm.Engine.KeyVault;
 using EArm.Engine.Providers;
-using EArm.Expressions;
 using EArm.Expressions.Evaluation;
 using EArm.Expressions.Functions;
 using EArm.Expressions.Validation;
-using EArm.Expressions.Values;
 
 namespace EArm.Engine.Planning.Nested;
 
@@ -46,6 +44,8 @@ internal sealed class NestedDeploymentExpander
     private readonly bool _offline;
     private readonly CancellationToken _cancellationToken;
     private readonly TemplateLoader _loader;
+    private readonly NestedParameterBinder _binder;
+    private readonly NestedKeyVaultSecrets _keyVault;
     private int _deployments;
     private int _declarationOffset;
 
@@ -55,10 +55,11 @@ internal sealed class NestedDeploymentExpander
     /// <param name="reader">Reads linked templates and parameter files.</param>
     /// <param name="offline">
     /// True for offline validation: an https link the reader cannot fetch is reported as a warning (<see cref="EngineDiagnosticCodes.LinkedTemplateNotFetched"/>)
-    /// and its deployment is not expanded; otherwise it is an error.
+    /// and its deployment is not expanded; otherwise it is an error. Key Vault references of nested parameters stay unresolved offline.
     /// </param>
-    /// <param name="cancellationToken">Cancels downloads.</param>
-    public NestedDeploymentExpander(ExpressionEvaluator evaluator, ResourceTypeCatalog catalog, FunctionRegistry functions, LinkedTemplateReader reader, bool offline, CancellationToken cancellationToken)
+    /// <param name="cancellationToken">Cancels downloads and Key Vault reads.</param>
+    /// <param name="keyVault">Resolves the Key Vault references of nested parameters when not <paramref name="offline"/>; <c>null</c> makes such a reference an error.</param>
+    public NestedDeploymentExpander(ExpressionEvaluator evaluator, ResourceTypeCatalog catalog, FunctionRegistry functions, LinkedTemplateReader reader, bool offline, CancellationToken cancellationToken, KeyVaultSecretResolver? keyVault = null)
     {
         ArgumentNullException.ThrowIfNull(evaluator);
         ArgumentNullException.ThrowIfNull(catalog);
@@ -71,7 +72,12 @@ internal sealed class NestedDeploymentExpander
         _offline = offline;
         _cancellationToken = cancellationToken;
         _loader = new TemplateLoader(catalog);
+        _binder = new NestedParameterBinder(evaluator, offline);
+        _keyVault = new NestedKeyVaultSecrets(keyVault, offline, cancellationToken);
     }
+
+    /// <summary>The Key Vault references of the nested templates' parameters met by <see cref="Expand"/>, by <c>&lt;deployment path&gt;/&lt;parameter&gt;</c>.</summary>
+    public IReadOnlyList<(string Parameter, KeyVaultReference Reference)> KeyVaultReferences => _keyVault.References;
 
     /// <summary>
     /// Assigns <paramref name="root"/> to the instances of the main template and returns them followed by the instances of every nested template.
@@ -181,8 +187,20 @@ internal sealed class NestedDeploymentExpander
         TemplateDocument analyzed;
         if (kind == NestedTemplateScope.Inner)
         {
-            document = BindParameters(deployment, parent, document, settings, fileParameters, passed, diagnostics);
+            document = _binder.Bind(deployment, parent, document, settings, fileParameters, passed, diagnostics);
             found.AddRange(new TemplateValidator(_catalog).Validate(document));
+            if (!found.Any(d => d.IsError))
+            {
+                // Key Vault references (inline or in the linked parameter file): resolved now when planning after the preflight, unknown offline.
+                var resolved = _keyVault.Resolve(deployment, parent, document, settings, diagnostics);
+                if (resolved is null)
+                {
+                    return [];
+                }
+
+                document = resolved;
+            }
+
             analyzed = document;
         }
         else
@@ -283,12 +301,6 @@ internal sealed class NestedDeploymentExpander
                 diagnostics.Add(parent.Error(EngineDiagnosticCodes.LinkedTemplateContentVersionMismatch, $"parametersLink.contentVersion is '{expected}' but the parameter file {parametersLocation.Display} has contentVersion '{fileParameters.ContentVersion ?? "(none)"}'.", linkPath.Append("contentVersion")));
                 return null;
             }
-
-            if (fileParameters.Values.Values.Any(v => v.IsKeyVaultReference))
-            {
-                diagnostics.Add(parent.Error(DiagnosticCodes.NestedDeploymentFeatureNotSupported, $"The linked parameter file {parametersLocation.Display} holds a Key Vault reference, which is not supported for a nested deployment; pass the secret from a secure parameter of the parent template with 'parameters'.", linkPath));
-                return null;
-            }
         }
 
         if (settings.InlineTemplate is { } inline)
@@ -358,56 +370,6 @@ internal sealed class NestedDeploymentExpander
         }
 
         return null;
-    }
-
-    /// <summary>
-    /// Binds the values an inner-scope template receives from <c>properties.parameters</c>: each is the parent's expression evaluated now (a value that
-    /// depends on a resource the parent deploys is a deploy-time placeholder here and is evaluated again when the template's resources are planned and
-    /// applied, see <see cref="NestedParameters"/>).
-    /// </summary>
-    private TemplateDocument BindParameters(ResourceInstance deployment, TemplateScope parent, TemplateDocument document, DeploymentSettings settings, ParameterSet fileParameters, Dictionary<string, JsonNode?> passed, List<Diagnostic> diagnostics)
-    {
-        if (settings.Parameters is not { } map)
-        {
-            return document;
-        }
-
-        var bound = new Dictionary<string, BoundParameter>(document.ParameterValues, StringComparer.OrdinalIgnoreCase);
-        var parametersPath = deployment.Declaration.Path.Append("properties").Append("parameters");
-        var context = deployment.Context.ForScope(EvaluationScope.Resource);
-        foreach (var (name, entry) in map)
-        {
-            var entryPath = parametersPath.Append(name);
-            if (!document.Parameters.TryGetValue(name, out var definition))
-            {
-                diagnostics.Add(parent.Error(DiagnosticCodes.UnknownParameter, $"Nested deployment '{deployment.Id.Name}' passes a value for '{name}', but its template declares no such parameter.", entryPath));
-                continue;
-            }
-
-            var node = (entry as JsonObject)?["value"];
-            JsonNode? value;
-            try
-            {
-                value = _evaluator.EvaluateTree(node, context);
-            }
-            catch (ExpressionException ex)
-            {
-                diagnostics.Add(parent.Error(ex.Code, ex.MessageWithOffset, entryPath.Append("value")));
-                continue;
-            }
-
-            passed[definition.Name] = node;
-            bound[definition.Name] = new BoundParameter
-            {
-                Name = definition.Name,
-                Definition = definition,
-                Value = definition.IsSecure ? SecretJson.Taint(value) : value,
-                Source = ParameterValueSource.File,
-                IsDeployTimeValue = UnknownJson.ContainsUnknown(value),
-            };
-        }
-
-        return document with { ParameterValues = bound, SuppliedParameters = fileParameters };
     }
 
     /// <summary>The base context of the template's resources: its own (inner scope, <paramref name="info"/> set) or the parent's stores (outer scope).</summary>

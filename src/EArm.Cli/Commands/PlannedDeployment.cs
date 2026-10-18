@@ -10,6 +10,7 @@ using EArm.Core;
 using EArm.Core.Diagnostics;
 using EArm.Core.Loading;
 using EArm.Core.Types;
+using EArm.Engine;
 using EArm.Engine.Execution;
 using EArm.Engine.KeyVault;
 using EArm.Engine.Permissions;
@@ -223,6 +224,7 @@ internal sealed class PlannedDeployment : IDisposable
             OnSoftDeletedConflict = invocation.OnSoftDeletedConflict,
             Catalog = catalog,
             LinkedTemplates = linkedTemplates,
+            KeyVaultSecrets = services.CreateKeyVaultResolver(),
         });
 
         try
@@ -232,7 +234,9 @@ internal sealed class PlannedDeployment : IDisposable
         }
         catch (ValidationFailedException ex)
         {
-            return (FailValidation(invocation, ex.Diagnostics, stdout, stderr, ExitCodes.ValidationFailed), null, null);
+            // A Key Vault reference of a nested deployment is read while the plan expands it: an unreadable one exits 3, as one of the main template does.
+            int exit = ex.Diagnostics.Any(d => d.IsError && d.Code == EngineDiagnosticCodes.KeyVaultReferenceUnresolved) ? ExitCodes.AuthOrPreflight : ExitCodes.ValidationFailed;
+            return (FailValidation(invocation, ex.Diagnostics, stdout, stderr, exit), null, null);
         }
         catch (UnknownProviderException ex)
         {

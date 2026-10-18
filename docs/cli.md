@@ -237,7 +237,7 @@ The templates of nested and linked deployments are validated too: inline templat
 check it). `--fetch-links` (off by default) downloads them and validates them like local files, with the rules and the per-run cache of `what-if` and
 `create`: https only, no user name or password in the URL, no credentials sent, redirects never followed, at most 1 MiB and 120 s per file, the query
 string (a SAS token) sent but never shown, each URL downloaded once per run. A download that fails is then an error (`LinkedTemplateUnavailable`).
-No token is needed: the downloads are anonymous.
+No token is needed: the downloads are anonymous. Key Vault references among nested parameters are not resolved by `validate` (their values are unknown).
 
 `--validation-level` takes the Azure CLI's values (case-insensitive). `Template` (EARM's default; the Azure CLI defaults to `Provider`) is the offline validation above. `Provider` adds the
 steps of `what-if` up to the plan, once the offline checks pass: sign-in, the preflight with its consent check for the **write** scopes `create` would request,

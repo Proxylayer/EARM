@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Linq;
 using EArm.Core;
 using EArm.Core.Types;
-using EArm.Engine.KeyVault;
 using EArm.Engine.Providers;
 
 namespace EArm.Engine.Permissions;
@@ -115,7 +114,7 @@ public static class RunScopes
         }
 
         scopes.Add(SignIn, ["(every deployment)"], ["sign-in: the signed-in user's profile (GET /me) and the preflight (GET /organization)"]);
-        return new RunScopeSet(verb, scopes.Build(), KeyVaultSecretResolver.HasPendingReferences(expansion.Document));
+        return new RunScopeSet(verb, scopes.Build(), expansion.KeyVaultReferences.Any());
     }
 
     private sealed class ScopeAccumulator

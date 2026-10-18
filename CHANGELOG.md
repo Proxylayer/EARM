@@ -11,6 +11,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `deployment validate --fetch-links` (off by default): the offline validation downloads the https linked templates and parameter files of
   nested deployments, with the rules and the per-run cache of `what-if` and `create`, and validates them like local files. Without it they
   are still not fetched (`LinkedTemplateNotFetched`, whose message now names the option).
+- Key Vault references in the parameters of nested deployments, as ARM allows: a `reference` entry of `properties.parameters` (its vault id,
+  secret name and version may be expressions of the parent, ARM's dynamic id) and a `reference` in the linked parameter file of
+  `parametersLink`. `what-if` and `create` resolve them after the preflight with the signed-in identity (secure, checked against the
+  parameter's constraints, `EARM_KEYVAULT_ALLOWED` applies; a failure is `KeyVaultReferenceUnresolved`, exit 3); offline they stay
+  unknown, and `earm permissions` and the run's Key Vault token take them into account. They were `NestedDeploymentFeatureNotSupported`.
 
 - `earm permissions` expresses Entra roles needed together: a `together: A + (B | C)` line in the table, an entry with an empty
   `anyOf` and an `allOf` array of parts in the JSON (the overlay key `rolesAllOf`). A catalog resource now needs Identity Governance

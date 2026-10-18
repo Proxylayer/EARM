@@ -75,6 +75,12 @@ public sealed record PlannerOptions
     /// </summary>
     public Nested.LinkedTemplateReader? LinkedTemplates { get; init; }
 
+    /// <summary>
+    /// Resolves the Key Vault references among the parameters of nested deployments (inline <c>reference</c> entries and linked parameter files) while
+    /// they are expanded; <c>null</c> makes such a reference an error. The CLI passes the resolver of the signed-in identity (after the preflight).
+    /// </summary>
+    public KeyVault.KeyVaultSecretResolver? KeyVaultSecrets { get; init; }
+
     /// <summary>True when the token is an application (app-only) token (no <c>scp</c> claim; preflight reports principal type <c>application</c>): <c>ownerOf</c> on a user is then reported as <c>EdgeUnsupportedInAppMode</c> instead of read.</summary>
     public bool AppOnlyToken { get; init; }
 }

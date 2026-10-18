@@ -180,7 +180,8 @@ Conditional entry of `roleManagementPolicies`: `onboarding` → `PrivilegedEligi
   the "deleted-item restore" row above when `--on-soft-deleted-conflict restore` is used; the probe that finds them needs the type's read permission and is skipped
   with a `SoftDeleteProbeSkipped` warning when the identity lacks it.
 - **Key Vault.** A parameter bound to a Key Vault secret needs the signed-in identity to read that secret: the Azure RBAC role `Key Vault Secrets
-  User` (data plane) on the vault, or an access policy with `get` on secrets. It is listed as `azureRbac` and is independent of Graph.
+  User` (data plane) on the vault, or an access policy with `get` on secrets. It is listed as `azureRbac` and is independent of Graph. A parameter of
+  a nested deployment is listed as `<deployment>/<parameter>`.
 - A `403 Authorization_RequestDenied` on a resource fails that resource (independent branches continue only with `--continue-on-error`); the
   manifest row of its type above is what to grant.
 
