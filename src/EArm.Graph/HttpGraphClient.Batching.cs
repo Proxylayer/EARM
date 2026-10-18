@@ -70,6 +70,14 @@ public sealed partial class HttpGraphClient
                 envelopeFailure = ex;
                 break;
             }
+            catch (OperationCanceledException ex) when (offset > 0 && cancellationToken.IsCancellationRequested)
+            {
+                // The caller cancelled between chunks (a write is never abandoned on the wire, so this chunk was not sent): the earlier chunks' results
+                // are kept and this chunk and every later one is reported as cancelled, instead of throwing their results away.
+                failedAt = offset;
+                envelopeFailure = ex;
+                break;
+            }
 
             foreach (var item in responses)
             {
@@ -104,7 +112,9 @@ public sealed partial class HttpGraphClient
         {
             for (var i = failedAt; i < results.Length; i++)
             {
-                results[i] = GraphBatchWire.EnvelopeFailureResponse(requests[i], GraphBatchWire.WireId(i), envelopeFailure, i < Math.Min(failedAt + MaxBatchSize, requests.Count), hint);
+                results[i] = envelopeFailure is OperationCanceledException
+                    ? GraphBatchWire.CancelledResponse(requests[i], GraphBatchWire.WireId(i), hint)
+                    : GraphBatchWire.EnvelopeFailureResponse(requests[i], GraphBatchWire.WireId(i), envelopeFailure, i < Math.Min(failedAt + MaxBatchSize, requests.Count), hint);
             }
         }
 
@@ -163,6 +173,12 @@ public sealed partial class HttpGraphClient
             catch (GraphException ex)
             {
                 results[i] = new BatchResponse(current.Id, request, ex.Status, current.Body, ex);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                // Cancelled before the single re-send went out: this item and the ones after it keep the failure their envelope reported, and every
+                // result already known is returned instead of being thrown away.
+                break;
             }
             catch (GraphTransportException ex) when (ex.Failure is GraphTransportFailure.Network or GraphTransportFailure.Timeout or GraphTransportFailure.ResponseTooLarge)
             {

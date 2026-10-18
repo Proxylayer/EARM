@@ -269,14 +269,15 @@ load ──► validate ──► expand ──► graph ──► [per batch: r
 ### Graph batch item codes
 
 `HttpGraphClient.BatchAsync` (`$batch`, 20 sub-requests per envelope) returns one `BatchResponse` per sub-request; a failed one carries a `GraphException` in
-`BatchResponse.Error`, whose `Code` is the Graph error code of that sub-request (`Request_ResourceNotFound`, `Request_BadRequest`, ...). Two codes are EARM's own, set
-when an **envelope** of a later chunk fails after the earlier chunks were already reported. They are string literals on the item, not entries of
+`BatchResponse.Error`, whose `Code` is the Graph error code of that sub-request (`Request_ResourceNotFound`, `Request_BadRequest`, ...). Three codes are EARM's own, set
+when an **envelope** of a later chunk fails, or the caller cancels, after the earlier chunks were already reported. They are string literals on the item, not entries of
 `DiagnosticCodes` / `EngineDiagnosticCodes`, so they have no row in [diagnostics.md](diagnostics.md); scripts and CI logs can match on them:
 
 | Code | On which items | Meaning |
 |---|---|---|
 | `BatchEnvelopeFailed` | The items of the envelope that failed at the **transport** level after its retries (a timeout, a dropped connection, a response that was too large or unreadable, no sign-in) | There is no Graph error code to copy, so the item gets this one; its status is mapped from the failure (401, 504, 400 or 502) and the message starts with "The $batch envelope failed". It is **ambiguous** (`IsAmbiguous`) for a write that may have followed a commit; never for a read. When the envelope failed with a Graph error instead (for example a 4xx), the items keep that error's own code. |
 | `BatchNotSent` | The items of the chunks **after** the failed envelope | The chunk was never sent ("nothing was written for this sub-request"). Never ambiguous: safe to run again. |
+| `BatchCancelled` | The items of the chunks not sent because the caller cancelled after the first chunk | Status 499. The chunk was never sent; never ambiguous. A failed item whose individual re-send was cancelled keeps its own failure instead. |
 
 Only a failure of the **first** envelope throws; later failures are reported per item so the earlier results are kept. A sub-request that was re-sent on its own
 after a 429 or a replication-lag answer and failed again reports the code of that failure (empty when it was a transport failure of the single request).
@@ -526,8 +527,8 @@ logs**. Ctrl+C stops new work between resources, batches and edge operations; it
 - The CLI gives this end phase time to finish: `Program.ProcessTerminationTimeout` is 5 minutes instead of System.CommandLine's 2-second default
   (one request timeout for the write, one for the follow-up lookup, with margin).
 - `UsersProvider` treats a cancellation of its `assignLicense` step like any failure after `POST /users`: the user and its generated password go
-  out as `ProviderException.Partial` (password into the secure outputs file). Not covered: a multi-chunk `$batch` that is cancelled between chunks
-  throws away the per-item results of the chunks already sent (the edges are read back on the next run).
+  out as `ProviderException.Partial` (password into the secure outputs file). A multi-chunk `$batch` cancelled between chunks keeps the per-item
+  results of the chunks already sent; the chunks not sent are reported `BatchCancelled`.
 
 A rerun converges: everything the cancelled run wrote is found again by key.
 

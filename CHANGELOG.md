@@ -86,6 +86,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - A create whose request ends with a cancellation that is not Ctrl+C (a raw HTTP timeout that a client does not report as a transport
   timeout) is treated like a timed-out create: the key is read again and an object that exists is counted as created
   (`CreateOutcomeUncertain`) instead of failing the resource and leaving the object unrecorded.
+- `HttpGraphClient.BatchAsync` cancelled by the caller after its first 20-request chunk no longer throws away the per-item results of the
+  chunks already sent: they are returned, and the items of the chunks not sent carry the new item code `BatchCancelled` (status 499, never
+  ambiguous). A failed item whose individual re-send was cancelled keeps its original failure.
 
 ## [0.2.0] - 2026-10-17
 
