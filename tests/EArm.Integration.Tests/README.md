@@ -42,7 +42,7 @@ Four kinds of tests live here:
      (`pwsh -File test.ps1 -Target EArm.Integration.Tests -Detailed` shows it). With every gate on it is:
 
      ```powershell
-     earm auth login --tenant <tenant-id> --scopes AdministrativeUnit.Read.All AdministrativeUnit.ReadWrite.All Application.Read.All Application.ReadWrite.All AppRoleAssignment.ReadWrite.All AuthenticationContext.Read.All AuthenticationContext.ReadWrite.All DelegatedPermissionGrant.Read.All DelegatedPermissionGrant.ReadWrite.All Directory.Read.All Group.Read.All Group.ReadWrite.All GroupMember.Read.All GroupMember.ReadWrite.All Organization.Read.All Policy.Read.All Policy.Read.ConditionalAccess Policy.ReadWrite.ConditionalAccess RoleManagement.Read.Directory RoleManagement.ReadWrite.Directory User.DeleteRestore.All User.Read User.Read.All User.ReadWrite.All
+     earm auth login --tenant <tenant-id> --scopes AdministrativeUnit.Read.All AdministrativeUnit.ReadWrite.All Application.Read.All Application.ReadWrite.All AppRoleAssignment.ReadWrite.All AuthenticationContext.Read.All AuthenticationContext.ReadWrite.All DelegatedPermissionGrant.Read.All DelegatedPermissionGrant.ReadWrite.All Directory.Read.All Group.Read.All Group.ReadWrite.All GroupMember.Read.All GroupMember.ReadWrite.All Policy.Read.All Policy.Read.ConditionalAccess Policy.ReadWrite.ConditionalAccess RoleManagement.Read.Directory RoleManagement.ReadWrite.Directory User.DeleteRestore.All User.Read User.Read.All User.ReadWrite.All
      ```
 
      (with no gate on, the list drops `AdministrativeUnit.Read.All`, `AppRoleAssignment.ReadWrite.All`, `AuthenticationContext.*`, `DelegatedPermissionGrant.*` and
@@ -78,7 +78,7 @@ Four kinds of tests live here:
 
    | Test group | Graph permissions |
    |---|---|
-   | Every test (preflight, cleanup guard) | `Organization.Read.All` (the preflight's `GET /organization`: needed as an application permission by a service principal; a user reads it with `User.Read`, but the fixture still requests the delegated scope, so it must be consented), `User.Read` (delegated only), `Application.ReadWrite.All`, `Group.ReadWrite.All`, `User.ReadWrite.All`, `User.DeleteRestore.All` (purging deleted users), `AdministrativeUnit.ReadWrite.All`, `Policy.Read.All`, `RoleManagement.Read.Directory` (the sweep lists and deletes what a run created; `IntegrationScopes.CleanupScopes`) |
+   | Every test (preflight, cleanup guard) | `User.Read` (delegated only; it also covers the preflight's `GET /organization` for a user), `Organization.Read.All` (application permission only: a service principal needs it for the preflight's `GET /organization`; a user run does not request it), `Application.ReadWrite.All`, `Group.ReadWrite.All`, `User.ReadWrite.All`, `User.DeleteRestore.All` (purging deleted users), `AdministrativeUnit.ReadWrite.All`, `Policy.Read.All`, `RoleManagement.Read.Directory` (the sweep lists and deletes what a run created; `IntegrationScopes.CleanupScopes`) |
    | `ApplicationScenarioTests` | `Application.ReadWrite.All` |
    | `DirectoryScenarioTests` (groups, users, guest) | `User.ReadWrite.All`, `Group.ReadWrite.All`, `GroupMember.ReadWrite.All`, `User.Read.All` |
    | `ConditionalAccessScenarioTests` | `Policy.ReadWrite.ConditionalAccess`, `Policy.Read.All`, `Application.Read.All`, `Group.ReadWrite.All`; contexts `AuthenticationContext.ReadWrite.All` |
