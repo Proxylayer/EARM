@@ -157,6 +157,19 @@ public sealed class ResourceTypeCatalogTests
     }
 
     [Fact]
+    public void OverlayNotes_NameTheGovernanceLicence_WithOneWording()
+    {
+        // docs/permissions.md says "Microsoft Entra ID P2 or ID Governance"; the overlay notes say it the same way.
+        var notes = Catalog.Types
+            .Select(t => (t.Type, Notes: t.Permissions.Raw?["notes"]?.GetValue<string>() ?? string.Empty))
+            .Where(n => n.Notes.Contains("P2", StringComparison.Ordinal))
+            .ToList();
+
+        Assert.NotEmpty(notes);
+        Assert.All(notes, n => Assert.True(n.Notes.Contains("Microsoft Entra ID P2 or ID Governance", StringComparison.Ordinal), n.Type + ": " + n.Notes));
+    }
+
+    [Fact]
     public void ChildTypes_DeclareApplicationsAsParentAndDepthTwo()
     {
         var children = Catalog.ChildrenOf("microsoft.entra/APPLICATIONS");
