@@ -85,6 +85,31 @@ public sealed class JsonDiffPositionalTests
     }
 
     [Fact]
+    public void AnAccessPackageApprovalStageWhosePropertyChanged_IsShownAsThatPropertyInsideTheStage()
+    {
+        static JsonObject Policy(string denial)
+        {
+            return J("{ \"requestApprovalSettings\": { \"isApprovalRequiredForAdd\": true, \"stages\": [ "
+                + "{ \"durationBeforeAutomaticDenial\": \"" + denial + "\", \"isApproverJustificationRequired\": true, \"primaryApprovers\": [ { \"@odata.type\": \"#microsoft.graph.singleUser\", \"userId\": \"u1\" } ] } ] } }");
+        }
+
+        Assert.True(ResourceTypeCatalog.Default.TryGet("Microsoft.Entra/entitlementManagement/accessPackages/assignmentPolicies", out var definition));
+
+        var deltas = JsonDiff.Diff(Policy("P7D"), Policy("P14D"), JsonDiffOptions.ForDefinition(definition, existing: true));
+
+        var settings = Assert.Single(deltas);
+        var stages = Assert.Single(settings.Children!);
+        Assert.Equal(PropertyChangeType.Array, stages.Kind);
+        var stage = Assert.Single(stages.Children!);
+        Assert.Equal(PropertyChangeType.Modify, stage.Kind);
+        Assert.Equal("properties.requestApprovalSettings.stages[0]", stage.Path.ToString());
+        var property = Assert.Single(stage.Children!);
+        Assert.Equal("durationBeforeAutomaticDenial", property.Path.Last.Name);
+        Assert.Equal("\"P14D\"", property.Before!.ToJsonString());
+        Assert.Equal("\"P7D\"", property.After!.ToJsonString());
+    }
+
+    [Fact]
     public void WithoutThePositionalKey_AnArrayOfObjects_IsStillASet()
     {
         var options = new JsonDiffOptions { MemberKey = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["rules"] = "id" } };

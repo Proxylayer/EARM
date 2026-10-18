@@ -32,6 +32,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- The what-if of an access package assignment policy shows a changed approval stage as the changed properties inside that stage
+  (`requestApprovalSettings.stages[0].durationBeforeAutomaticDenial: "P14D" => "P7D"`) instead of the whole stage removed and added:
+  stages are matched by position (overlay `memberKey` `$index`), as for the approval stages of a role management policy.
 - A group PIM policy (`roleManagementPolicies`) deferred because a schedule request of the same run onboards its group is now applied at
   the end of that run, once Graph lists the onboarded group's policy, instead of by the next run: such a template converges in one run.
   `create` reports `PimPolicyNotAvailable` only when Graph still lists no policy at the end of the retry; the what-if still shows the
