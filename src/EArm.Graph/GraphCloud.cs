@@ -93,10 +93,12 @@ public sealed record GraphCloud
     public TokenScopes KeyVaultScopes => TokenScopes.Default(KeyVaultResource);
 
     /// <summary>
-    /// The delegated base set of a plain <c>earm auth login</c>: <c>User.Read</c> (the signed-in profile) and <c>Organization.Read.All</c> (the preflight's
-    /// <c>GET /organization</c>), which every deployment run requests too.
+    /// The delegated base set of a plain <c>earm auth login</c>: <c>User.Read</c> alone, which every deployment run requests too. It is the one scope a user
+    /// without an admin role can consent to (Learn: permissions-reference, admin consent "No"; <c>Organization.Read.All</c> needs admin consent), and it
+    /// covers the signed-in profile and the preflight's <c>GET /organization</c> (Learn: organization-get, User.Read reads <c>id</c>, <c>displayName</c>
+    /// and <c>verifiedDomains</c>). <c>Organization.Read.All</c> is requested only by a template that calls <c>tenant()</c> (for <c>countryCode</c>).
     /// </summary>
-    public TokenScopes SignInScopes => TokenScopes.Explicit(GraphOrigin, "User.Read", "Organization.Read.All");
+    public TokenScopes SignInScopes => TokenScopes.Explicit(GraphOrigin, "User.Read");
 
     /// <summary>
     /// The delegated Key Vault scope (<c>https://vault.azure.net/user_impersonation</c> in the public cloud) that needs a one-time interactive consent; after

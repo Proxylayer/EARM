@@ -196,7 +196,7 @@ public sealed class DelegatedRunScopesCommandTests
         Assert.NotEmpty(sandbox.Tokens.RequestedScopes);
         Assert.All(sandbox.Tokens.RequestedScopes, s => Assert.Equal(Requested(set), s));
         Assert.DoesNotContain("ReadWrite", Requested(set), StringComparison.Ordinal);
-        Assert.Contains("Organization.Read.All", set.GraphScopes);
+        Assert.DoesNotContain("Organization.Read.All", set.GraphScopes);
         Assert.Equal(0, Writes(sandbox));
     }
 

@@ -57,7 +57,6 @@
     "nullable": {},
     "permissions": {
       "application": ["DelegatedPermissionGrant.ReadWrite.All", "Application.Read.All"],
-      "delegated": ["DelegatedPermissionGrant.ReadWrite.All", "Application.Read.All"],
       "roles": ["Cloud Application Administrator", "Application Administrator"]
     }
   }

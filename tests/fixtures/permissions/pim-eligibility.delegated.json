@@ -78,7 +78,6 @@
         "Directory Writers",
         "Groups Administrator",
         "Identity Governance Administrator",
-        "Privileged Role Administrator",
         "User Administrator"
       ],
       "resources": [
@@ -86,7 +85,7 @@
         "/providers/Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests/b86139ae-e5db-5733-88a5-7febc874bc01"
       ],
       "reasons": [
-        "provider"
+        "provider: the group is not role-assignable"
       ]
     },
     {

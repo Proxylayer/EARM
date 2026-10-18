@@ -249,7 +249,6 @@
     "nullable": {},
     "permissions": {
       "application": ["User.ReadWrite.All"],
-      "delegated": ["User.ReadWrite.All"],
       "roles": ["User Administrator"],
       "conditional": {
         "memberOf": { "application": ["GroupMember.ReadWrite.All", "Directory.Read.All"], "roles": ["Groups Administrator"] },

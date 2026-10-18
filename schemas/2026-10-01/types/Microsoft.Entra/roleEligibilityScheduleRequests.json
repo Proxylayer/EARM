@@ -119,7 +119,6 @@
     "nullable": {},
     "permissions": {
       "application": ["RoleEligibilitySchedule.ReadWrite.Directory", "Directory.Read.All"],
-      "delegated": ["RoleEligibilitySchedule.ReadWrite.Directory", "Directory.Read.All"],
       "roles": ["Privileged Role Administrator"],
       "notes": "Learn (rbacapplication-post-roleeligibilityschedulerequests, rbacapplication-list-roleeligibilityschedules): RoleEligibilitySchedule.ReadWrite.Directory is the least privileged permission for the requests (delegated and application); reads need RoleEligibilitySchedule.Read.Directory. Delegated callers need Privileged Role Administrator (Global Reader suffices for reads). Directory.Read.All covers the principal-kind check and the role / administrative unit name lookups. The tenant needs Microsoft Entra ID P2 or ID Governance."
     }

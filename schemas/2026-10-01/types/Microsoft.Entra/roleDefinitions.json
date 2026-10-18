@@ -81,7 +81,6 @@
     "nullable": {},
     "permissions": {
       "application": ["RoleManagement.ReadWrite.Directory"],
-      "delegated": ["RoleManagement.ReadWrite.Directory"],
       "roles": ["Privileged Role Administrator"]
     }
   }

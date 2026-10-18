@@ -147,12 +147,26 @@ public sealed class ResourceTypeCatalogTests
         }
 
         Assert.NotEmpty(definition.Permissions.Application);
-        Assert.NotEmpty(definition.Permissions.Delegated);
+        // Delegated scopes come from the providers' conditional rules (RunScopes); an overlay list would be an unused, drifting union.
+        Assert.Null(definition.Permissions.Raw?["delegated"]);
         // Every type names the Entra roles a user needs: alternatives (roles), or roles needed together (rolesAllOf: catalog resources).
         Assert.True(definition.Permissions.Roles.Count > 0 || definition.Permissions.Raw?["rolesAllOf"] is System.Text.Json.Nodes.JsonArray { Count: > 1 }, "roles or rolesAllOf");
         Assert.NotNull(definition.Permissions.Raw);
         Assert.NotNull(definition.Schema);
         Assert.StartsWith(EmbeddedSchemas.TypeSchemaPrefix, definition.SchemaResourceName);
+    }
+
+    [Fact]
+    public void OverlayNotes_NameTheGovernanceLicence_WithOneWording()
+    {
+        // docs/permissions.md says "Microsoft Entra ID P2 or ID Governance"; the overlay notes say it the same way.
+        var notes = Catalog.Types
+            .Select(t => (t.Type, Notes: t.Permissions.Raw?["notes"]?.GetValue<string>() ?? string.Empty))
+            .Where(n => n.Notes.Contains("P2", StringComparison.Ordinal))
+            .ToList();
+
+        Assert.NotEmpty(notes);
+        Assert.All(notes, n => Assert.True(n.Notes.Contains("Microsoft Entra ID P2 or ID Governance", StringComparison.Ordinal), n.Type + ": " + n.Notes));
     }
 
     [Fact]

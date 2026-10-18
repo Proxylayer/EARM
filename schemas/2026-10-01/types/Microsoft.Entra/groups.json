@@ -226,7 +226,6 @@
     "nullable": {},
     "permissions": {
       "application": ["Group.ReadWrite.All", "GroupMember.ReadWrite.All"],
-      "delegated": ["Group.ReadWrite.All"],
       "roles": ["Groups Administrator"],
       "conditional": {
         "isAssignableToRole": { "application": ["RoleManagement.ReadWrite.Directory"], "roles": ["Privileged Role Administrator"] },

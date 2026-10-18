@@ -50,7 +50,6 @@
     "nullable": {},
     "permissions": {
       "application": ["RoleManagement.ReadWrite.Directory", "Directory.Read.All"],
-      "delegated": ["RoleManagement.ReadWrite.Directory", "Directory.Read.All"],
       "roles": ["Privileged Role Administrator"],
       "notes": "App-only callers can escalate their own privileges; grant with care."
     }

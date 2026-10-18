@@ -408,7 +408,8 @@ reported in `AppliedResource.Warnings`).
 `^c[1-9][0-9]?$`); there is no displayName lookup: the name is the Graph id. Graph upserts on this collection. The two Learn pages disagree on the range:
 [authenticationcontextclassreference](https://learn.microsoft.com/en-us/graph/api/resources/authenticationcontextclassreference) says `c1` to `c25`, while the Conditional Access documentation
 ([cloud apps, actions and authentication context](https://learn.microsoft.com/en-us/entra/identity/conditional-access/concept-conditional-access-cloud-apps): "up to 99 authentication context definitions (c1-c99)") allows `c1` to `c99`; EARM accepts
-`c1`..`c99` and leaves the limit to Graph, which answers a 400 for an id the tenant does not allow.
+`c1`..`c99` and leaves the limit to Graph, which answers a 400 for an id the tenant does not allow. (Checked again in October 2026: the Graph page
+still says `c1` to `c25`; the integration suite allocates its contexts from `c99` downwards, never below `c50`.)
 
 | Operation | Requests |
 |---|---|

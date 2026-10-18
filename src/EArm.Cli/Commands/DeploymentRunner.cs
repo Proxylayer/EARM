@@ -50,7 +50,7 @@ internal static class DeploymentRunner
         // 0. The secure outputs file must be usable BEFORE anything is written: a secret that cannot be saved is lost for good (E-03a).
         if (!invocation.WhatIf && !string.IsNullOrWhiteSpace(invocation.SecureOutputsFile) && SecureOutputsFile.Validate(invocation.SecureOutputsFile) is { } fileProblem)
         {
-            return VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.Failure, "SecureOutputsFileInvalid", $"--secure-outputs-file: {fileProblem}\nDeployment not started.");
+            return VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.Failure, CliDiagnosticCodes.SecureOutputsFileInvalid, $"--secure-outputs-file: {fileProblem}\nDeployment not started.");
         }
 
         bool needsWhatIf = invocation.WhatIf || invocation.ConfirmWithWhatIf;
@@ -117,7 +117,7 @@ internal static class DeploymentRunner
                         // The human line on stderr (next to the prompt), the one document on stdout.
                         stderr.WriteLine("Deployment not started.");
                         var declined = WhatIfJson.Build(confirmedWhatIf);
-                        return VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.Failure, "NotConfirmed", "Deployment not started.", document => document["whatIf"] = declined);
+                        return VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.Failure, CliDiagnosticCodes.NotConfirmed, "Deployment not started.", document => document["whatIf"] = declined);
                     }
 
                     // The what-if text is already on stdout: a refusal is reported on stderr only.

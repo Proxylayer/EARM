@@ -43,7 +43,6 @@
     "nullable": {},
     "permissions": {
       "application": ["EntitlementManagement.ReadWrite.All"],
-      "delegated": ["EntitlementManagement.ReadWrite.All"],
       "roles": ["Identity Governance Administrator"],
       "notes": "Learn (entitlementmanagement-post-catalogs, accesspackagecatalog-update, accesspackagecatalog-delete): EntitlementManagement.ReadWrite.All is the least privileged permission for writes, EntitlementManagement.Read.All for reads. Least privileged roles: catalog creator (create), catalog owner (update, delete), or Identity Governance Administrator. The tenant needs Microsoft Entra ID P2 or ID Governance."
     }

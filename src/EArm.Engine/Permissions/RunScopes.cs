@@ -47,12 +47,13 @@ public sealed record RunScopeSet(RunVerb Verb, IReadOnlyList<RunScope> Scopes, b
 /// <item><see cref="RunVerb.Delete"/> keeps write only for permissions a declared type's provider asks for and folds edge and lookup permissions to reads
 /// (deleting an object removes its edges);</item>
 /// <item><see cref="RunVerb.Validate"/> is empty;</item>
-/// <item>every other verb adds <see cref="PermissionManifest.Preflight"/> (<c>GET /organization</c>) and <see cref="SignIn"/>.</item>
+/// <item>every other verb adds <see cref="SignIn"/>, which also covers the preflight's <c>GET /organization</c> for a signed-in user (Learn: organization-get);
+/// <see cref="PermissionManifest.Preflight"/> (<c>Organization.Read.All</c>, admin consent) is requested only when the template calls <c>tenant()</c>.</item>
 /// </list>
 /// A read scope that a write scope of the same family covers (<c>X.Read.Y</c> next to <c>X.ReadWrite.Y</c>) is folded into the write scope.
 /// <para>
-/// The per-type <c>delegated</c> lists of the schema overlays (<see cref="PermissionSet.Delegated"/>) are deliberately not used: they are an
-/// unconditional union, while the providers' <c>RequiredPermissions</c> are conditional on what an instance declares (for example
+/// The schema overlays carry no per-type <c>delegated</c> lists (they were removed): such a list is an unconditional union, while the
+/// providers' <c>RequiredPermissions</c> are conditional on what an instance declares (for example
 /// <c>RoleManagement.ReadWrite.Directory</c> only for a role-assignable group), and <see cref="PermissionManifest.ForMode"/> already maps the
 /// one application-only permission (<c>Application.ReadWrite.OwnedBy</c>) to its delegated scope. App-only sign-ins keep <c>.default</c>.
 /// </para>
@@ -60,19 +61,11 @@ public sealed record RunScopeSet(RunVerb Verb, IReadOnlyList<RunScope> Scopes, b
 public static class RunScopes
 {
     /// <summary>
-    /// The basic profile scope. Sign-in consents it anyway (<c>earm auth login</c> requests it), and the edge pass falls back to
-    /// <c>GET /me?$select=id</c> for the signed-in principal; requesting it explicitly keeps the run's set equal to what login consented.
+    /// The basic profile scope. Sign-in consents it anyway (<c>earm auth login</c> requests it), the edge pass falls back to
+    /// <c>GET /me?$select=id</c> for the signed-in principal, and the preflight's <c>GET /organization</c> reads <c>id</c>, <c>displayName</c> and
+    /// <c>verifiedDomains</c> with it; requesting it explicitly keeps the run's set equal to what login consented.
     /// </summary>
     public const string SignIn = "User.Read";
-
-    /// <summary>
-    /// Read variants that do not exist as Graph scopes, and the scope that reads the same data. <c>AppRoleAssignment.Read.All</c> is not a
-    /// permission: app role assignments are read with <c>Application.Read.All</c> (Learn: serviceprincipal-list-approleassignedto).
-    /// </summary>
-    private static readonly Dictionary<string, string> ReadSubstitutes = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ["AppRoleAssignment.Read.All"] = "Application.Read.All",
-    };
 
     /// <summary>Validates and expands <paramref name="document"/> offline, then computes the run's scopes.</summary>
     /// <exception cref="InvalidOperationException">The template has validation or expansion errors (run <see cref="OfflineTemplateExpansion"/> to get them).</exception>
@@ -121,8 +114,7 @@ public static class RunScopes
             scopes.Add(name, entry.Resources, reasons);
         }
 
-        scopes.Add(PermissionManifest.Preflight, ["(every deployment)"], ["preflight: GET /organization"]);
-        scopes.Add(SignIn, ["(every deployment)"], ["sign-in: the signed-in user's profile (GET /me)"]);
+        scopes.Add(SignIn, ["(every deployment)"], ["sign-in: the signed-in user's profile (GET /me) and the preflight (GET /organization)"]);
         return new RunScopeSet(verb, scopes.Build(), KeyVaultSecretResolver.HasPendingReferences(expansion.Document));
     }
 
@@ -132,12 +124,6 @@ public static class RunScopes
 
         public void Add(string name, IEnumerable<string> resources, IEnumerable<string> reasons)
         {
-            if (ReadSubstitutes.TryGetValue(name, out string? substitute))
-            {
-                reasons = reasons.Select(r => r + " (" + name + " is not a scope)").ToList();
-                name = substitute;
-            }
-
             if (!_items.TryGetValue(name, out var entry))
             {
                 entry = (new SortedSet<string>(StringComparer.Ordinal), new SortedSet<string>(StringComparer.Ordinal));

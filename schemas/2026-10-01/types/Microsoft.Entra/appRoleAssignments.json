@@ -50,7 +50,6 @@
     "nullable": {},
     "permissions": {
       "application": ["AppRoleAssignment.ReadWrite.All", "Application.Read.All", "Directory.Read.All"],
-      "delegated": ["AppRoleAssignment.ReadWrite.All", "Application.Read.All", "Directory.Read.All"],
       "roles": ["Cloud Application Administrator", "Application Administrator"],
       "notes": "Granting Microsoft Graph application permissions through delegated access requires Privileged Role Administrator; app-only access can grant anything."
     }

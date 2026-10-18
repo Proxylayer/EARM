@@ -192,6 +192,51 @@ public sealed class PermissionManifestRoleCombinationTests
             definition.Permissions.Roles);
     }
 
+    private static string GroupPimRequest(string type, string groupId)
+    {
+        // An active assignment must be time-bound.
+        string schedule = type.Contains("Assignment", StringComparison.Ordinal) ? ", \"scheduleInfo\": { \"expiration\": { \"type\": \"AfterDuration\", \"duration\": \"PT8H\" } }" : string.Empty;
+        return Resource(type, "[guid('pim')]", "{ \"groupId\": \"" + groupId + "\", \"principalId\": \"" + GroupId + "\", \"accessId\": \"member\"" + schedule + " }");
+    }
+
+    [Theory]
+    [InlineData("Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests")]
+    [InlineData("Microsoft.Entra/privilegedAccess/groupAssignmentScheduleRequests")]
+    public async Task AGroupPimRequestOnARoleAssignableTemplateGroup_NeedsOnlyPrivilegedRoleAdministrator(string type)
+    {
+        var result = await ArrayTemplateAsync(nameof(AGroupPimRequestOnARoleAssignableTemplateGroup_NeedsOnlyPrivilegedRoleAdministrator) + type.Length,
+            string.Join(", ", Group("ra", "true"), GroupPimRequest(type, "[reference('ra').id]")), "--mode", "delegated");
+
+        // The role-assignable group's own requirement (Privileged Role Administrator) is the same set, so the two share one entry.
+        var role = RoleOf(result, "ScheduleRequests/");
+        Assert.Equal(["Privileged Role Administrator"], Strings(role["anyOf"]));
+        Assert.Contains("provider: the group is role-assignable", Strings(role["reasons"]));
+    }
+
+    [Theory]
+    [InlineData("Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests", "")]
+    [InlineData("Microsoft.Entra/privilegedAccess/groupAssignmentScheduleRequests", "false")]
+    public async Task AGroupPimRequestOnAnOrdinaryTemplateGroup_DropsPrivilegedRoleAdministrator(string type, string assignable)
+    {
+        var result = await ArrayTemplateAsync(nameof(AGroupPimRequestOnAnOrdinaryTemplateGroup_DropsPrivilegedRoleAdministrator) + type.Length,
+            string.Join(", ", Group("plain", assignable), GroupPimRequest(type, "[reference('plain').id]")), "--mode", "delegated");
+
+        var role = RoleOf(result, "ScheduleRequests/");
+        Assert.Equal(["Directory Writers", "Groups Administrator", "Identity Governance Administrator", "User Administrator"], Strings(role["anyOf"]));
+        Assert.Equal(["provider: the group is not role-assignable"], Strings(role["reasons"]));
+    }
+
+    [Fact]
+    public async Task AGroupPimRequestOnAnExistingGroup_KeepsEveryAlternative()
+    {
+        var result = await ArrayTemplateAsync(nameof(AGroupPimRequestOnAnExistingGroup_KeepsEveryAlternative),
+            GroupPimRequest("Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests", "33333333-3333-3333-3333-333333333333"), "--mode", "delegated");
+
+        var role = RoleOf(result, "ScheduleRequests/");
+        Assert.Equal(["Directory Writers", "Groups Administrator", "Identity Governance Administrator", "Privileged Role Administrator", "User Administrator"], Strings(role["anyOf"]));
+        Assert.Equal(["provider (Privileged Role Administrator only for a role-assignable group)"], Strings(role["reasons"]));
+    }
+
     [Fact]
     public void TheGroupPolicyOnboardingCondition_ListsTheSameAlternatives()
     {

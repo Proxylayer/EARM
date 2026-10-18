@@ -42,7 +42,6 @@
     "nullable": {},
     "permissions": {
       "application": ["EntitlementManagement.ReadWrite.All", "Group.ReadWrite.All"],
-      "delegated": ["EntitlementManagement.ReadWrite.All", "Group.Read.All"],
       "roles": [],
       "rolesAllOf": [["Identity Governance Administrator"], ["Groups Administrator", "Intune Administrator", "User Administrator", "Privileged Role Administrator"]],
       "notes": "Learn (entitlementmanagement-post-resourcerequests, entitlement-management-delegate, groups-concept): EntitlementManagement.ReadWrite.All is the least privileged permission (application callers also need Group.ReadWrite.All). The caller must be a catalog owner or Identity Governance Administrator AND an owner of the group or hold a role that changes its members. A role-assignable group can only be added by a Global Administrator or Privileged Role Administrator (or an owner of the group); an application then needs RoleManagement.ReadWrite.Directory instead of Group.ReadWrite.All. Without them Graph answers 403 (CatalogResourceAccessDenied). rolesAllOf: the roles are needed together (a catalog owner role AND a role that changes the group); the permission manifest narrows the second part to Privileged Role Administrator for a role-assignable template group and drops it for any other template group."

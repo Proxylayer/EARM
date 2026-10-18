@@ -139,8 +139,8 @@ public sealed class RunScopesTests
         var whatIf = await ComputeAsync("authentication-methods.entra.json", "authentication-methods.parameters.json", RunVerb.WhatIf);
         var delete = await ComputeAsync("authentication-methods.entra.json", "authentication-methods.parameters.json", RunVerb.Delete);
 
-        Assert.Equal(["Organization.Read.All", "Policy.ReadWrite.AuthenticationMethod", "User.Read"], create.GraphScopes);
-        Assert.Equal(["Organization.Read.All", "Policy.Read.AuthenticationMethod", "User.Read"], whatIf.GraphScopes);
+        Assert.Equal(["Policy.ReadWrite.AuthenticationMethod", "User.Read"], create.GraphScopes);
+        Assert.Equal(["Policy.Read.AuthenticationMethod", "User.Read"], whatIf.GraphScopes);
         Assert.Contains("Policy.ReadWrite.AuthenticationMethod", delete.GraphScopes);
         Assert.Contains("/providers/Microsoft.Entra/authenticationMethodConfigurations/fido2", create.Scopes.Single(s => s.Name == "Policy.ReadWrite.AuthenticationMethod").Resources);
     }
@@ -160,15 +160,15 @@ public sealed class RunScopesTests
 
     [Theory]
     [MemberData(nameof(Samples))]
-    public async Task EveryVerbButValidate_IncludesThePreflightReadAndTheSignInScope(string template, string? parameters)
+    public async Task EveryVerbButValidate_IncludesTheSignInScope_WhichCoversThePreflightRead(string template, string? parameters)
     {
         foreach (var verb in new[] { RunVerb.WhatIf, RunVerb.Create, RunVerb.Delete })
         {
             var scopes = await ComputeAsync(template, parameters, verb);
 
-            Assert.Contains(PermissionManifest.Preflight, scopes.GraphScopes);
             Assert.Contains(RunScopes.SignIn, scopes.GraphScopes);
-            Assert.Contains("preflight: GET /organization", scopes.Scopes.Single(s => s.Name == PermissionManifest.Preflight).Reasons);
+            Assert.Contains("sign-in: the signed-in user's profile (GET /me) and the preflight (GET /organization)", scopes.Scopes.Single(s => s.Name == RunScopes.SignIn).Reasons);
+            Assert.DoesNotContain(scopes.Scopes, s => s.Reasons.Any(r => r.StartsWith("preflight", StringComparison.Ordinal)));
             Assert.Equal(verb, scopes.Verb);
         }
     }
@@ -221,7 +221,6 @@ public sealed class RunScopesTests
             "Group.ReadWrite.All",
             "GroupMember.ReadWrite.All",
             "LicenseAssignment.ReadWrite.All",
-            "Organization.Read.All",
             "Policy.Read.All",
             "Policy.ReadWrite.ConditionalAccess",
             "RoleManagement.ReadWrite.Directory",
@@ -245,7 +244,6 @@ public sealed class RunScopesTests
             "Group.Read.All",
             "GroupMember.Read.All",
             "LicenseAssignment.Read.All",
-            "Organization.Read.All",
             "Policy.Read.All",
             "Policy.Read.ConditionalAccess",
             "RoleManagement.Read.Directory",
@@ -260,7 +258,7 @@ public sealed class RunScopesTests
         var scopes = await OrdersAsync(RunVerb.WhatIf);
 
         Assert.DoesNotContain(scopes.GraphScopes, s => s.StartsWith("AppRoleAssignment.", StringComparison.OrdinalIgnoreCase));
-        Assert.Contains(scopes.Scopes.Single(s => s.Name == "Application.Read.All").Reasons, r => r.Contains("AppRoleAssignment.Read.All is not a scope", StringComparison.Ordinal));
+        Assert.Contains(scopes.Scopes.Single(s => s.Name == "Application.Read.All").Reasons, r => r.Contains("(read of AppRoleAssignment.ReadWrite.All)", StringComparison.Ordinal));
     }
 
     [Fact]

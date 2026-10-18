@@ -14,6 +14,7 @@ using EArm.Engine.Execution;
 using EArm.Engine.KeyVault;
 using EArm.Engine.Permissions;
 using EArm.Engine.Planning;
+using EArm.Engine.Planning.Nested;
 using EArm.Engine.Providers;
 using EArm.Graph;
 using EArm.Graph.Auth;
@@ -107,7 +108,9 @@ internal sealed class PlannedDeployment : IDisposable
 
         // The delegated scopes of this run, computed offline from the loaded template before the services (and their token provider) exist. Null when the
         // template does not expand offline: the validation below then reports why.
-        var runScopes = TemplateRunScopes.Compute(document, verb, name);
+        // One reader for the whole run, so an https linked template is downloaded once, not by each of the expansion, the validation and the plan.
+        var linkedTemplates = LinkedTemplateDownloads.ForRun();
+        var runScopes = TemplateRunScopes.Compute(document, verb, name, linkedTemplates);
 
         ILoggerFactory? loggerFactory = GlobalOptions.CreateLoggerFactory(invocation.LogLevel);
         EngineServices? services = null;
@@ -118,7 +121,7 @@ internal sealed class PlannedDeployment : IDisposable
                 return (null, createExit);
             }
 
-            var (exit, preflight, plan) = await PlanCoreAsync(invocation, services!, document, name, catalog, verb, mode, planMode, stdout, stderr, cancellationToken).ConfigureAwait(false);
+            var (exit, preflight, plan) = await PlanCoreAsync(invocation, services!, document, name, catalog, linkedTemplates, verb, mode, planMode, stdout, stderr, cancellationToken).ConfigureAwait(false);
             if (exit is { } failed)
             {
                 return (null, failed);
@@ -148,6 +151,7 @@ internal sealed class PlannedDeployment : IDisposable
         TemplateDocument document,
         string name,
         ResourceTypeCatalog catalog,
+        LinkedTemplateReader linkedTemplates,
         RunVerb verb,
         DeploymentMode mode,
         PlanMode planMode,
@@ -159,7 +163,7 @@ internal sealed class PlannedDeployment : IDisposable
         //    PlanAsync repeats the validation with the real mode.
         try
         {
-            services.CreatePlanner(new PlannerOptions { DeploymentName = name, Catalog = catalog }).Validate(document, PlanMode.WhatIf);
+            services.CreatePlanner(new PlannerOptions { DeploymentName = name, Catalog = catalog, LinkedTemplates = linkedTemplates }).Validate(document, PlanMode.WhatIf);
         }
         catch (ValidationFailedException ex)
         {
@@ -169,7 +173,7 @@ internal sealed class PlannedDeployment : IDisposable
         // A user sign-in never falls back to .default: without the run's scopes (the template did not expand offline) it stops here, before any sign-in.
         if (services.UsesDelegatedSignIn && !services.HasRunScopes)
         {
-            var expansion = OfflineTemplateExpansion.Run(document, catalog, LinkedTemplateDownloads.Reader, name);
+            var expansion = OfflineTemplateExpansion.Run(document, catalog, linkedTemplates, name);
             return (FailValidation(invocation, expansion.Errors, stdout, stderr, ExitCodes.ValidationFailed), null, null);
         }
 
@@ -182,7 +186,7 @@ internal sealed class PlannedDeployment : IDisposable
         catch (Exception ex) when (ex is GraphTransportException or GraphException)
         {
             // A missing delegated consent (non-interactive run, declined prompt, scp check) has its own code; nothing has been written.
-            string code = ConsentRequiredException.FindIn(ex) is null ? "PreflightFailed" : "ConsentRequired";
+            string code = ConsentRequiredException.FindIn(ex) is null ? CliDiagnosticCodes.PreflightFailed : CliDiagnosticCodes.ConsentRequired;
             return (VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.AuthOrPreflight, code, "Preflight failed: " + SecretScrubber.Scrub(ex.Message)), null, null);
         }
 
@@ -218,6 +222,7 @@ internal sealed class PlannedDeployment : IDisposable
             AllowCaEnforce = invocation.AllowCaEnforce,
             OnSoftDeletedConflict = invocation.OnSoftDeletedConflict,
             Catalog = catalog,
+            LinkedTemplates = linkedTemplates,
         });
 
         try
@@ -231,7 +236,7 @@ internal sealed class PlannedDeployment : IDisposable
         }
         catch (UnknownProviderException ex)
         {
-            return (VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.Failure, "UnknownProvider", ex.Message), null, null);
+            return (VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.Failure, CliDiagnosticCodes.UnknownProvider, ex.Message), null, null);
         }
     }
 

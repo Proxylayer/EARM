@@ -46,7 +46,6 @@
     "nullable": {},
     "permissions": {
       "application": ["EntitlementManagement.ReadWrite.All"],
-      "delegated": ["EntitlementManagement.ReadWrite.All"],
       "roles": ["Identity Governance Administrator"],
       "notes": "Learn (accesspackage-post-resourcerolescopes, accesspackage-delete-resourcerolescopes, accesspackagecatalog-list-resourceroles): EntitlementManagement.ReadWrite.All is the least privileged permission. Least privileged role: access package manager of the catalog, or Identity Governance Administrator. Eligible group roles need Microsoft Entra ID Governance and a group onboarded in PIM for Groups. Deleting a role scope removes the role from the people assigned (Graph does not refuse it)."
     }

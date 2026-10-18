@@ -20,10 +20,15 @@ namespace EArm.Engine.Permissions;
 /// </summary>
 public static class PermissionManifest
 {
-    /// <summary>Read permission that <see cref="Preflight"/> needs on every run (<c>GET /organization?$select=id</c>).</summary>
+    /// <summary>
+    /// The application permission the preflight's <c>GET /organization</c> needs on every app-only run. A signed-in user reads it with <c>User.Read</c>
+    /// (Learn: organization-get), so delegated runs request this admin-consent scope only for <c>tenant()</c>.
+    /// </summary>
     public const string Preflight = "Organization.Read.All";
 
     internal const string OwnedBy = "Application.ReadWrite.OwnedBy";
+
+    private const string AppRoleAssignmentWrite = "AppRoleAssignment.ReadWrite.All";
 
     /// <summary>The reason of a languageVersion 2.0 <c>"existing": true</c> resource's read permissions (a lookup: a write grant of the family folds it away).</summary>
     private const string ExistingReason = "lookup: existing resource (\"existing\": true, read only)";
@@ -150,11 +155,11 @@ public static class PermissionManifest
                 graph.Add(ForMode(permission, mode), resource, "provider");
             }
 
-            var catalogGroup = PermissionRoles.IsCatalogResource(instance.Type) ? PermissionRoles.CatalogResourceGroupKind(instance, instances) : PermissionRoles.GroupKind.NotApplicable;
-            if (mode == PermissionMode.App && catalogGroup is PermissionRoles.GroupKind.RoleAssignable or PermissionRoles.GroupKind.Unknown)
+            var targetGroup = PermissionRoles.TargetGroupKind(instance, instances);
+            if (mode == PermissionMode.App && PermissionRoles.IsCatalogResource(instance.Type) && targetGroup is PermissionRoles.GroupKind.RoleAssignable or PermissionRoles.GroupKind.Unknown)
             {
                 // Learn (entitlementmanagement-post-resourcerequests, groups-concept): adding a role-assignable group needs RoleManagement.ReadWrite.Directory.
-                graph.Add("RoleManagement.ReadWrite.Directory", resource, catalogGroup == PermissionRoles.GroupKind.RoleAssignable
+                graph.Add("RoleManagement.ReadWrite.Directory", resource, targetGroup == PermissionRoles.GroupKind.RoleAssignable
                     ? "provider: the group is role-assignable"
                     : "provider: when the group is role-assignable");
             }
@@ -204,7 +209,7 @@ public static class PermissionManifest
 
             if (mode == PermissionMode.Delegated)
             {
-                PermissionRoles.AddRoles(instance, resource, roles, catalogGroup);
+                PermissionRoles.AddRoles(instance, resource, roles, targetGroup);
             }
 
             if (instance.Type.EndsWith("/roleAssignments", StringComparison.OrdinalIgnoreCase) || instance.Type.EndsWith("/roleEligibilityScheduleRequests", StringComparison.OrdinalIgnoreCase)
@@ -306,10 +311,15 @@ public static class PermissionManifest
             : permission;
     }
 
-    /// <summary>The read-level counterpart of a write permission (<c>X.ReadWrite.All</c> → <c>X.Read.All</c>), or the permission itself.</summary>
+    /// <summary>
+    /// The read-level counterpart of a write permission (<c>X.ReadWrite.All</c> → <c>X.Read.All</c>), or the permission itself. Two write permissions
+    /// have no such counterpart and read with <c>Application.Read.All</c>: <c>Application.ReadWrite.OwnedBy</c>, and
+    /// <c>AppRoleAssignment.ReadWrite.All</c> (there is no <c>AppRoleAssignment.Read.All</c>; Learn: serviceprincipal-list-approleassignedto lists
+    /// <c>Application.Read.All</c> as the least privileged permission, delegated and application).
+    /// </summary>
     public static string ReadVariant(string permission)
     {
-        if (permission.Equals(OwnedBy, StringComparison.OrdinalIgnoreCase))
+        if (permission.Equals(OwnedBy, StringComparison.OrdinalIgnoreCase) || permission.Equals(AppRoleAssignmentWrite, StringComparison.OrdinalIgnoreCase))
         {
             return "Application.Read.All";
         }

@@ -43,7 +43,6 @@
     "nullable": {},
     "permissions": {
       "application": ["EntitlementManagement.ReadWrite.All"],
-      "delegated": ["EntitlementManagement.ReadWrite.All"],
       "roles": ["Identity Governance Administrator"],
       "notes": "Learn (entitlementmanagement-post-accesspackages, accesspackage-update, accesspackage-delete): EntitlementManagement.ReadWrite.All is the least privileged permission for writes, EntitlementManagement.Read.All for reads. Least privileged role: access package manager of the catalog (or catalog owner), or Identity Governance Administrator. A package with assignments cannot be deleted."
     }

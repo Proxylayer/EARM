@@ -126,7 +126,9 @@ Your own app registration is an **optional override**, only for these cases; pas
 Unattended runs (CI, scheduled jobs) do not sign in as a user at all: use a service principal, workload identity or managed identity (`--auth default`, the
 `AZURE_*` variables), which keeps requesting `.default` and uses the application permissions an administrator granted it.
 
-**Scopes.** A plain `login` requests the base set `User.Read` and `Organization.Read.All`. To consent ahead of time what later runs will request:
+**Scopes.** A plain `login` requests the base set `User.Read` alone: the one Graph scope a user without an admin role can consent to, which also
+covers the preflight's `GET /organization`. Scopes that need admin consent are requested only when a template needs them. To consent ahead of time
+what later runs will request:
 
 | Option | Meaning |
 |---|---|
@@ -160,7 +162,8 @@ With `-f <template>` (and `-p`, `--verb` as for `login`, default `create`), it a
 ### Consent
 
 **Scopes per verb.** A run signed in as a user requests exactly the delegated scopes of its verb, computed offline from the template (`earm permissions -f <template>
---verb <verb>` lists them, with the reason for each). Every online verb adds `Organization.Read.All` (the preflight reads `/organization`) and `User.Read`.
+--verb <verb>` lists them, with the reason for each). Every online verb adds `User.Read` (sign-in; it also covers the preflight's
+`GET /organization`); `Organization.Read.All` is requested only by a template that calls `tenant()`.
 
 | Verb | Delegated scopes requested |
 |---|---|
@@ -356,9 +359,11 @@ is gone; identity is resolved from the live tenant on every run ([engine.md](eng
 - **Exit code 4** (state locked) is never returned; no other code changed.
 - **Complete mode no longer deletes.** A pipeline that relied on it to remove what the template dropped now gets a report (`orphans[]`, "Not declared in the
   template") and must remove those objects itself.
-- **Objects that were bound only through the state must be findable by key.** Applications and groups need a `uniqueName` equal to the template `name`
-  (EARM sets it on the objects it creates; an object adopted from outside without one is not found and would be created again: set its `uniqueName` in Graph
-  first, or, for an application, declare its `appId` so it is found by that and given the name). Display-name-keyed types (Conditional Access policies, named locations, administrative units, custom role definitions, authentication strengths) are
+- **Objects that were bound only through the state must be findable by key.** Applications and groups are found by a `uniqueName` equal to the template
+  `name` (EARM sets it on the objects it creates). An object adopted from outside without one has two fallbacks: an application whose `appId` is declared is
+  found by that and given the name; a group is adopted by its declared `displayName` when exactly one group without a `uniqueName` has it (a
+  `GroupAdoptedByDisplayName` warning; several such groups are `AmbiguousMatch`). An application without a declared `appId` is not found and would be created
+  again: set its `uniqueName` in Graph first, or declare its `appId`. Display-name-keyed types (Conditional Access policies, named locations, administrative units, custom role definitions, authentication strengths) are
   found by `displayName`: one renamed in the portal is no longer found, and the next run creates a second one. Run `what-if` first and check every `+ Create`.
 - **Legacy password credentials.** A credential is now found by its `displayName` `<name>#<rotationTag>`; one created by a state-file version is named
   `<name>` with no tag. It is still matched by its base name and reported with `RotationTagNotStamped`, and it is **not rotated by a changed `rotationTag`**
@@ -388,7 +393,7 @@ above already allow. `deployment delete` needs the same permissions as managing 
 
 `--verb whatif|create|delete` prints instead the delegated scopes one run of that verb requests for a signed-in user (implies `--mode delegated`;
 `--mode app` with `--verb` exits 1): what-if gets only read scopes, create the write scopes, delete write for the declared types and reads for edges
-and lookups; every set includes `Organization.Read.All` (preflight) and `User.Read` (sign-in), and reports whether the run needs a Key Vault token.
+and lookups; every set includes `User.Read` (sign-in and preflight; `Organization.Read.All` only for `tenant()`), and reports whether the run needs a Key Vault token.
 See [permissions.md](permissions.md#delegated-scopes-per-run).
 
 ## `schema`

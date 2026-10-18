@@ -341,7 +341,6 @@
     "nullable": {},
     "permissions": {
       "application": ["RoleManagementPolicy.ReadWrite.Directory", "RoleManagementPolicy.ReadWrite.AzureADGroup", "Directory.Read.All"],
-      "delegated": ["RoleManagementPolicy.ReadWrite.Directory", "RoleManagementPolicy.ReadWrite.AzureADGroup", "Directory.Read.All"],
       "roles": ["Privileged Role Administrator"],
       "conditional": {
         "onboarding": { "application": ["PrivilegedEligibilitySchedule.ReadWrite.AzureADGroup"], "roles": ["Privileged Role Administrator", "Identity Governance Administrator", "Groups Administrator", "User Administrator", "Directory Writers"] }

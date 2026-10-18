@@ -29,6 +29,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   Entra role.
 - `earm permissions`: PIM for Groups requests (and a group policy that onboards its group) list User Administrator and Directory
   Writers as alternatives besides Privileged Role Administrator, Identity Governance Administrator and Groups Administrator.
+- `earm permissions`: a PIM for Groups request whose `groupId` references a template group narrows those alternatives by the group's
+  kind, as catalog resources do: only Privileged Role Administrator for a role-assignable group, the other four for any other group.
+  An existing group (or `group`) keeps all five.
+- The type schema overlays no longer carry the per-type `permissions.delegated` lists. They were never read (delegated scopes come
+  from the providers' conditional rules), so they could only drift from what a run requests.
+- A plain `earm auth login` requests only `User.Read` (the base set no longer includes `Organization.Read.All`, which needs admin consent),
+  so a user without an admin role can sign in. Signed-in runs no longer request `Organization.Read.All` for the preflight either: `User.Read`
+  reads `GET /organization` (id, display name, verified domains). A template that calls `tenant()` still requests it, for `countryCode`.
+- `what-if`, `create` and `deployment delete` download an https linked template (or linked parameter file) once per run; the offline
+  expansion before sign-in, the validation and the plan used to download it again each.
 - Access package resource role scopes no longer count the package's delivered assignments on every read (one call per role scope in
   every what-if and create): the count is read only when a delete is planned (`deployment delete` and its preview, the delete half of a
   replacement), through the new `IDeleteWarningSource.DescribeDeleteRiskAsync` and `TemplateDeleter.FindDeclaredObjectsAsync`.
@@ -49,6 +59,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- `earm permissions` no longer lists the nonexistent `AppRoleAssignment.Read.All` for a `reference(id, apiVersion)` lookup of an app
+  role assignment: it lists `Application.Read.All`, the permission that reads app role assignments.
 - A request that times out (or is otherwise cancelled without Ctrl+C) no longer aborts the whole `what-if`: the resource whose read
   timed out is an error row and the rest of the what-if completes. The same holds for an existing-resource lookup (`reference(id,
   apiVersion)` stays a placeholder and is reported as unresolved), the orphan report (that type is not listed, with a warning), the

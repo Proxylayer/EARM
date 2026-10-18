@@ -7,7 +7,6 @@ using System.Reflection;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using EArm.Cli;
-using EArm.Cli.Commands;
 using EArm.Core.Diagnostics;
 using EArm.Engine;
 using Xunit;
@@ -411,7 +410,7 @@ public sealed class DocsConsistencyTests
     private static IReadOnlyDictionary<string, string> CodeConstants()
     {
         var codes = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var type in new[] { typeof(DiagnosticCodes), typeof(EngineDiagnosticCodes) })
+        foreach (var type in new[] { typeof(DiagnosticCodes), typeof(EngineDiagnosticCodes), typeof(CliDiagnosticCodes) })
         {
             foreach (var field in type.GetFields(BindingFlags.Public | BindingFlags.Static | BindingFlags.FlattenHierarchy).Where(f => f.IsLiteral && f.FieldType == typeof(string)))
             {
@@ -439,11 +438,7 @@ public sealed class DocsConsistencyTests
     [Fact]
     public void EveryCodeInTheDiagnosticsTables_IsAKnownCode()
     {
-        // The CLI-level codes are literals of the command line (PlannedDeployment, EngineServices, DeploymentRunner, DeleteCommand), not constants.
-        var known = new HashSet<string>(CodeConstants().Keys, StringComparer.Ordinal)
-        {
-            ValidateCommand.InvalidArgumentCode, ParameterFileDownloader.DownloadFailedCode, AuthCommand.AuthenticationFailedCode, "PreflightFailed", "ConsentRequired", "UnknownProvider", "NotConfirmed", "SecureOutputsFileInvalid",
-        };
+        var known = new HashSet<string>(CodeConstants().Keys, StringComparer.Ordinal);
         var documented = new Regex(@"^\|\s*`([A-Z][A-Za-z0-9]+)`\s*\|", RegexOptions.Multiline | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(2))
             .Matches(DiagnosticsDoc)
             .Select(m => m.Groups[1].Value)
@@ -460,7 +455,7 @@ public sealed class DocsConsistencyTests
     public void DiagnosticCodeConstants_AreUnique_AndNamedAfterTheirValue()
     {
         var seen = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var type in new[] { typeof(DiagnosticCodes), typeof(EngineDiagnosticCodes) })
+        foreach (var type in new[] { typeof(DiagnosticCodes), typeof(EngineDiagnosticCodes), typeof(CliDiagnosticCodes) })
         {
             foreach (var field in type.GetFields(BindingFlags.Public | BindingFlags.Static).Where(f => f.IsLiteral && f.FieldType == typeof(string)))
             {

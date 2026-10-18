@@ -9,7 +9,7 @@ namespace EArm.Cli.Commands;
 
 /// <summary>
 /// The consents <c>earm auth login</c> obtains: one Microsoft Graph scope set (the sign-in) and optionally the Key Vault consent (a second interactive
-/// request as the same account). Graph = the base set (<see cref="GraphCloud.SignInScopes"/>: <c>User.Read</c>, <c>Organization.Read.All</c>) plus
+/// request as the same account). Graph = the base set (<see cref="GraphCloud.SignInScopes"/>: <c>User.Read</c>) plus
 /// <c>--scopes</c> plus the scopes of <c>-f &lt;template&gt;</c> (union). Key Vault = <see cref="GraphCloud.KeyVaultConsentScopes"/> when the template
 /// resolves Key Vault references or <c>--scopes</c> names a Key Vault scope.
 /// </summary>

@@ -354,7 +354,6 @@
     "nullable": {},
     "permissions": {
       "application": ["Policy.ReadWrite.AuthenticationMethod"],
-      "delegated": ["Policy.ReadWrite.AuthenticationMethod"],
       "notes": "Learn (fido2authenticationmethodconfiguration-get/-update/-delete and the other method pages): Policy.ReadWrite.AuthenticationMethod is the least privileged permission for update and delete (delegated and application); reads need Policy.Read.AuthenticationMethod. Delegated callers need the Authentication Policy Administrator role (Global Reader suffices for reads).",
       "roles": ["Authentication Policy Administrator"]
     }

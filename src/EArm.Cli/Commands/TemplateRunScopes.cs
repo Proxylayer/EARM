@@ -9,6 +9,7 @@ using EArm.Core.Diagnostics;
 using EArm.Core.Loading;
 using EArm.Core.Types;
 using EArm.Engine.Permissions;
+using EArm.Engine.Planning.Nested;
 using EArm.Providers;
 
 namespace EArm.Cli.Commands;
@@ -80,10 +81,14 @@ internal static class TemplateRunScopes
     }
 
     /// <summary>The scopes of an already loaded template (the online verbs: parameters bound, Key Vault references not resolved yet); null when it does not expand offline.</summary>
-    public static RunScopeSet? Compute(TemplateDocument document, RunVerb verb, string? deploymentName = null)
+    /// <param name="document">The loaded template.</param>
+    /// <param name="verb">The verb of the run.</param>
+    /// <param name="deploymentName">The deployment name <c>deployment()</c> reports.</param>
+    /// <param name="linkedTemplates">The run's reader of linked templates (<see cref="LinkedTemplateDownloads.ForRun()"/>); null downloads afresh.</param>
+    public static RunScopeSet? Compute(TemplateDocument document, RunVerb verb, string? deploymentName = null, LinkedTemplateReader? linkedTemplates = null)
     {
         ArgumentNullException.ThrowIfNull(document);
-        var expansion = OfflineTemplateExpansion.Run(document, ResourceTypeCatalog.Default, LinkedTemplateDownloads.Reader, deploymentName);
+        var expansion = OfflineTemplateExpansion.Run(document, ResourceTypeCatalog.Default, linkedTemplates ?? LinkedTemplateDownloads.Reader, deploymentName);
         return expansion.Succeeded ? Compute(expansion, verb) : null;
     }
 
