@@ -2,7 +2,7 @@
   "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
   "contentVersion": "1.0.0.0",
   "metadata": {
-    "description": "Tenant policies: a Microsoft 365 group expiration policy limited to the groups that opt in (managedGroupTypes Selected) with one team joining it through its groupLifecyclePolicies edge. Every policy here is tenant-wide; read docs/providers.md before deploying it to a tenant people use."
+    "description": "Tenant policies: a Microsoft 365 group expiration policy limited to the groups that opt in (managedGroupTypes Selected) with one team joining it through its groupLifecyclePolicies edge; a token lifetime policy, a claims mapping policy and a custom app management policy assigned to a portal application and its service principal; the tenant default app management policy; the default cross-tenant access configuration and one partner configuration. The expiration policy, the default app management policy and the cross-tenant defaults are tenant-wide; read docs/providers.md before deploying them to a tenant people use."
   },
   "parameters": {
     "groupLifetimeInDays": { "type": "int", "defaultValue": 180, "metadata": { "description": "Days until a governed Microsoft 365 group expires unless renewed." } },

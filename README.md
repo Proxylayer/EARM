@@ -36,7 +36,7 @@ needed in Azure operated by 21Vianet or in tenants that block the Microsoft app)
 
 Implemented (a working pre-release, see [Limitations](#limitations-v1) for what is deferred):
 
-- **26 resource types**: `applications`, `applications/federatedIdentityCredentials`, `applications/passwordCredentials`, `servicePrincipals`,
+- **33 resource types**: `applications`, `applications/federatedIdentityCredentials`, `applications/passwordCredentials`, `servicePrincipals`,
   `groups`, `users`, `appRoleAssignments`, `oauth2PermissionGrants`, `roleAssignments`, `roleDefinitions`, `administrativeUnits`,
   `conditionalAccess/policies`, `conditionalAccess/namedLocations`, `conditionalAccess/authenticationStrengths`,
   `conditionalAccess/authenticationContextClassReferences`, `authenticationMethodConfigurations` (the authentication methods policy's tenant
@@ -49,7 +49,10 @@ Implemented (a working pre-release, see [Limitations](#limitations-v1) for what 
   declared rules managed, never created or deleted), and entitlement management (access packages, [docs/access-packages.md](docs/access-packages.md)):
   `entitlementManagement/catalogs`, `entitlementManagement/catalogResources` (a group added to a catalog), `entitlementManagement/accessPackages`,
   `entitlementManagement/resourceRoleScopes` (the group role a package grants: Member, Owner, Eligible Member or Eligible Owner) and
-  `entitlementManagement/accessPackages/assignmentPolicies` (who may request, approval stages, expiration) (all under `Microsoft.Entra/`).
+  `entitlementManagement/accessPackages/assignmentPolicies` (who may request, approval stages, expiration), and the tenant policies
+  `groupLifecyclePolicies` (group expiration), `policies/tokenLifetimePolicies`, `policies/claimsMappingPolicies`, `policies/appManagementPolicies`,
+  `policies/defaultAppManagementPolicy`, `policies/crossTenantAccessPolicy` (the default configuration) and
+  `policies/crossTenantAccessPolicy/partners` (all under `Microsoft.Entra/`).
 - The verbs `deployment validate | what-if | create | delete`, `permissions`, `schema print | install` and `auth login | logout | status`.
 - Tests: about 7,100 unit and in-process tests (EArm.Tests, EArm.Providers.Tests, EArm.Graph.Tests; a full `test.ps1` run, build included, takes about 2-3 minutes), against fakes of Graph (an HTTP handler over an in-memory directory)
   and of the sign-in, with about 95 % line and 89 % branch coverage ([tests/COVERAGE.md](tests/COVERAGE.md); how they are organised and reviewed: [docs/testing.md](docs/testing.md)).
@@ -197,6 +200,9 @@ declared resource **in the live tenant by a key derived from its type and `name`
 | `applications/passwordCredentials` | `displayName` `<name>#<rotationTag>` under the parent application (matched by `<name>`) |
 | `conditionalAccess/authenticationContextClassReferences` | its id (`c1`..`c99`) = the `name` |
 | `authenticationMethodConfigurations` | the method id (`fido2`, `temporaryAccessPass`, `sms`...) = the `name`; a tenant singleton that always exists (never created; delete resets or keeps it) |
+| `groupLifecyclePolicies`, `policies/defaultAppManagementPolicy`, `policies/crossTenantAccessPolicy` | `default` = the `name`; one per tenant (the expiration policy is found by listing its collection; the two `policies/…` singletons always exist and are never created) |
+| `policies/tokenLifetimePolicies`, `policies/claimsMappingPolicies`, `policies/appManagementPolicies` | `displayName` = the `name` (matched over the whole collection; duplicates are `AmbiguousMatch`) |
+| `policies/crossTenantAccessPolicy/partners` | the partner's `tenantId` = the `name` |
 | `roleAssignments`, `roleEligibilityScheduleRequests`, `roleAssignmentScheduleRequests`, `privilegedAccess/groupEligibilityScheduleRequests`, `privilegedAccess/groupAssignmentScheduleRequests`, `appRoleAssignments`, `oauth2PermissionGrants` | their tuple (principal, role or resource or group, scope / access / consent type); the `guid(...)` `name` is only a label |
 | `roleManagementPolicies` | the policy assignment of (`scopeType`, `scopeId`, `roleDefinitionId`): a directory role, or a group's member / owner access; the `guid(...)` `name` is only a label; never created (a missing policy is `PimPolicyNotAvailable`) |
 | `conditionalAccess/policies`, `conditionalAccess/namedLocations`, `administrativeUnits`, custom `roleDefinitions`, custom `conditionalAccess/authenticationStrengths`, `entitlementManagement/catalogs`, `entitlementManagement/accessPackages` | `displayName` = the `name` |

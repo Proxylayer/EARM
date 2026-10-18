@@ -35,6 +35,10 @@ declarations (`user.memberOf` naming a group whose `members` names the user) are
 | App role assignment | none | `appRoleAssignments: [{ resourceId \| resourceAppId, appRole \| appRoleId }]` on users, groups, service principals | `Microsoft.Entra/appRoleAssignments` | `POST /servicePrincipals/{r}/appRoleAssignedTo`, `DELETE …/appRoleAssignedTo/{id}` |
 | Directory role assignment | none | `directoryRoles: [{ role \| roleDefinitionId, directoryScopeId \| administrativeUnit }]` on users, **role-assignable** groups, service principals | `Microsoft.Entra/roleAssignments` | `POST /roleManagement/directory/roleAssignments`, `DELETE …/{id}` |
 | License (action-backed, not an edge) | none | `assignedLicenses: [{ skuId \| skuPartNumber, disabledPlans }]` on users (direct assignments only; `usageLocation` required) and groups (group-based licensing) | none | `POST /users\|groups/{id}/assignLicense { addLicenses, removeLicenses }` |
+| Group lifecycle (expiration) policy | none | `groupLifecyclePolicies: [policyId]` on Microsoft 365 groups; the policy's `managedGroupTypes` must be `Selected` | none | `POST /groupLifecyclePolicies/{p}/addGroup { groupId }` (read: `GET /groups/{g}/groupLifecyclePolicies`) |
+| Token lifetime policy | none | `tokenLifetimePolicies: [policyId]` on applications and service principals (Graph allows one) | none | `POST /{applications\|servicePrincipals}/{id}/tokenLifetimePolicies/$ref` |
+| Claims mapping policy | none | `claimsMappingPolicies: [policyId]` on service principals | none | `POST /servicePrincipals/{id}/claimsMappingPolicies/$ref` |
+| App management policy | none | `appManagementPolicies: [policyId]` on applications and service principals (Graph allows one) | none | `POST /{applications\|servicePrincipals}/{id}/appManagementPolicies/$ref` |
 
 Live group members are read with `GET /groups/{g}/members?$select=id` **and** `GET /groups/{g}/members/microsoft.graph.servicePrincipal?$select=id`:
 v1.0 `/members` leaves service principal members out (observed on a real tenant; beta, the type cast and `$expand=members` list them), so without
@@ -43,6 +47,13 @@ the second read a service principal member would be planned as an add on every r
 Live group owners are read the same way, with `GET /groups/{g}/owners` **and** `GET /groups/{g}/owners/microsoft.graph.servicePrincipal`: Learn
 (group-list-owners) says v1.0 `/owners` of a group does not list service principal owners. Application and service principal owners are read with one
 `GET …/owners`. Device and organizational contact members of a group need no extra read: v1.0 `/members` lists them.
+
+The four policy edges are principal-side and **ensure-only** like the others: a policy that is no longer declared stays assigned (or the group stays
+in the lifecycle policy); there is no target-side property, and no standalone resource. They are read from the principal
+(`GET /{applications|servicePrincipals}/{id}/{navigation}?$select=id`, `GET /groups/{id}/groupLifecyclePolicies`). Invalid items (`EdgeValidationFailed`):
+a principal that already holds another token lifetime or app management policy, or declares two (Graph allows one, and EARM never removes the
+other); a group lifecycle policy whose `managedGroupTypes` is not `Selected` (the template's declared value counts when the policy is part of the
+deployment); a group whose literal `groupTypes` lacks `Unified` (only Microsoft 365 groups expire).
 
 ### Entry shapes
 
@@ -54,7 +65,9 @@ Live group owners are read the same way, with `GET /groups/{g}/owners` **and** `
 "appRoleAssignments":  [{ "resourceAppId": "[wellKnownApp('MicrosoftGraph')]", "appRole": "User.Read.All" }],
 "directoryRoles":      [{ "role": "Global Reader", "directoryScopeId": "/" },
                          { "role": "User Administrator", "administrativeUnit": "[reference('Orders AU').id]" }],
-"assignedLicenses":    [{ "skuPartNumber": "ENTERPRISEPREMIUM", "disabledPlans": [] }]
+"assignedLicenses":    [{ "skuPartNumber": "ENTERPRISEPREMIUM", "disabledPlans": [] }],
+"tokenLifetimePolicies":  ["[reference('Portal access tokens (2h)').id]"],
+"groupLifecyclePolicies": ["[reference(resourceId('Microsoft.Entra/groupLifecyclePolicies', 'default')).id]"]
 ```
 
 - **Ids.** `members`, `owners`, `memberOf`, `ownerOf`, `administrativeUnits` and `manager` take Graph object ids. A target in the template
