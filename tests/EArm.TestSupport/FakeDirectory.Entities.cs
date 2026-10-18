@@ -129,7 +129,7 @@ public sealed partial class FakeDirectory
                     }
                 }
 
-                Patch(entity, body, collectionPath, hint);
+                Patch(entity, PrepareKeyCredentialsPatch(collectionPath, body, hint), collectionPath, hint);
                 return (HttpStatusCode.NoContent, null);
 
             case "PUT":

@@ -1,0 +1,64 @@
+{
+  "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "A daemon application that authenticates with a certificate and registers the directory extensions an HR sync writes to users and groups. Deploy with: earm deployment create -f samples/app-certificates-extensions.entra.json -p @samples/app-certificates-extensions.parameters.json"
+  },
+  "parameters": {
+    "env":                { "type": "string", "allowedValues": ["dev", "prod"], "metadata": { "description": "Environment; part of every name." } },
+    "signingCertificate": { "type": "string", "metadata": { "description": "The PUBLIC certificate the daemon signs its client assertions with: base64 DER (a .cer file through Convert.ToBase64String) or PEM. Never the private key or a PFX. Replace it to roll the certificate." } }
+  },
+  "variables": {
+    "appName": "[format('contoso-{0}-hr-sync', parameters('env'))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Entra/applications",
+      "apiVersion": "2026-10-01-preview",
+      "name": "[variables('appName')]",
+      "properties": {
+        "displayName": "[format('Contoso HR sync ({0})', parameters('env'))]",
+        "signInAudience": "AzureADMyOrg"
+      },
+      "resources": [
+        {
+          "type": "keyCredentials",
+          "apiVersion": "2026-10-01-preview",
+          "name": "ci-signing",
+          "comments": "Found among the application's certificates by its displayName; a new certificate replaces this one in one PATCH and every other certificate of the application is kept.",
+          "properties": {
+            "key": "[parameters('signingCertificate')]",
+            "usage": "Verify",
+            "endDateTime": "2027-10-01T00:00:00Z"
+          }
+        },
+        {
+          "type": "extensionProperties",
+          "apiVersion": "2026-10-01-preview",
+          "name": "costCenter",
+          "comments": "Stored by Graph as extension_<appId without dashes>_costCenter; every property is immutable (a change deletes and recreates the extension, losing its values).",
+          "properties": {
+            "dataType": "String",
+            "targetObjects": ["User", "Group"]
+          }
+        },
+        {
+          "type": "extensionProperties",
+          "apiVersion": "2026-10-01-preview",
+          "name": "badgeNumbers",
+          "properties": {
+            "dataType": "String",
+            "targetObjects": ["User"],
+            "isMultiValued": true
+          }
+        }
+      ]
+    }
+  ],
+  "outputs": {
+    "appId":                { "type": "string", "value": "[reference(variables('appName')).appId]" },
+    "signingThumbprint":    { "type": "string", "value": "[reference(resourceId('Microsoft.Entra/applications/keyCredentials', variables('appName'), 'ci-signing')).thumbprint]" },
+    "costCenterAttribute":  { "type": "string", "value": "[reference(resourceId('Microsoft.Entra/applications/extensionProperties', variables('appName'), 'costCenter')).name]" },
+    "badgeNumbersAttribute": { "type": "string", "value": "[reference(resourceId('Microsoft.Entra/applications/extensionProperties', variables('appName'), 'badgeNumbers')).name]" }
+  }
+}

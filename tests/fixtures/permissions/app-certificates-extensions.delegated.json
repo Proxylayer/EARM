@@ -1,0 +1,54 @@
+{
+  "template": "samples/app-certificates-extensions.entra.json",
+  "mode": "delegated",
+  "resourceCount": 4,
+  "permissions": [
+    {
+      "name": "Application.ReadWrite.All",
+      "kind": "graphDelegated",
+      "resources": [
+        "/providers/Microsoft.Entra/applications/contoso-dev-hr-sync",
+        "/providers/Microsoft.Entra/applications/contoso-dev-hr-sync/extensionProperties/badgeNumbers",
+        "/providers/Microsoft.Entra/applications/contoso-dev-hr-sync/extensionProperties/costCenter",
+        "/providers/Microsoft.Entra/applications/contoso-dev-hr-sync/keyCredentials/ci-signing"
+      ],
+      "reasons": [
+        "provider"
+      ]
+    }
+  ],
+  "entraRoles": [
+    {
+      "anyOf": [
+        "Application Administrator",
+        "Application Developer",
+        "Cloud Application Administrator"
+      ],
+      "resources": [
+        "/providers/Microsoft.Entra/applications/contoso-dev-hr-sync",
+        "/providers/Microsoft.Entra/applications/contoso-dev-hr-sync/keyCredentials/ci-signing"
+      ],
+      "reasons": [
+        "provider"
+      ]
+    },
+    {
+      "anyOf": [
+        "Application Administrator",
+        "Cloud Application Administrator",
+        "Directory Writers"
+      ],
+      "resources": [
+        "/providers/Microsoft.Entra/applications/contoso-dev-hr-sync/extensionProperties/badgeNumbers",
+        "/providers/Microsoft.Entra/applications/contoso-dev-hr-sync/extensionProperties/costCenter"
+      ],
+      "reasons": [
+        "provider"
+      ]
+    }
+  ],
+  "notes": [
+    "Delegated scopes must be present on the token that earm auth login obtains (the app registration of --client-id needs them as delegated permissions); the signed-in user must additionally hold at least one role of every 'Entra roles' group (the roles are alternatives).",
+    "Edge permissions are listed for every relationship property the template declares (including an empty array, which removes edges). Key Vault access is an Azure RBAC / access-policy requirement of the signed-in identity, not a Graph permission."
+  ]
+}

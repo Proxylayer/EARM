@@ -28,6 +28,7 @@ public sealed class PermissionsGoldenTests
             ("orders-api", "orders-api"),
             ("orders-api.flat", "orders-api"),
             ("app-with-sp-and-secret", "app-with-sp-and-secret"),
+            ("app-certificates-extensions", "app-certificates-extensions"),
             ("tenant-security", "tenant-security"),
             ("authentication-methods", "authentication-methods"),
             ("pim-eligibility", "pim-eligibility"),

@@ -28,6 +28,8 @@ public sealed class DiscoveryTests
     [InlineData("Microsoft.Entra/groups", typeof(GroupsProvider))]
     [InlineData("Microsoft.Entra/applications/federatedIdentityCredentials", typeof(FederatedIdentityCredentialsProvider))]
     [InlineData("Microsoft.Entra/applications/passwordCredentials", typeof(PasswordCredentialsProvider))]
+    [InlineData("Microsoft.Entra/applications/keyCredentials", typeof(KeyCredentialsProvider))]
+    [InlineData("Microsoft.Entra/applications/extensionProperties", typeof(ExtensionPropertiesProvider))]
     [InlineData("Microsoft.Entra/users", typeof(UsersProvider))]
     [InlineData("Microsoft.Entra/conditionalAccess/namedLocations", typeof(NamedLocationsProvider))]
     [InlineData("Microsoft.Entra/conditionalAccess/policies", typeof(ConditionalAccessPoliciesProvider))]

@@ -305,6 +305,32 @@ $specs['applications.passwordCredentials'] = [ordered]@{
     }
 }
 
+# --- applications/keyCredentials ----------------------------------------------------------------------------------
+$specs['applications.keyCredentials'] = [ordered]@{
+    NamePattern = '^[A-Za-z0-9][A-Za-z0-9 ._=,()@-]{0,89}$'
+    Description = 'A certificate credential (public X.509 certificate) of an application. The child name is the credential''s displayName (1-90 characters), its stateless key; the certificate''s SHA-1 thumbprint decides whether the live credential is the declared one. Written with PATCH /applications/{id} of the whole keyCredentials collection (Graph has no single-certificate add without proof of possession): the credentials EARM does not manage are always sent back unchanged. Private keys are never handled.'
+    Props       = [ordered]@{
+        displayName   = Str 'Set from the resource name; declaring it is only allowed when it equals the name.' -Max 90
+        key           = Str 'Required: the public certificate, base64 DER (Convert.ToBase64String of a .cer file) or a PEM CERTIFICATE block. A private key or a PFX is refused. A securestring parameter (for example a Key Vault reference in the parameter file) is accepted; its thumbprint is then masked in what-if.' -Min 1
+        type          = Str 'Credential type; only AsymmetricX509Cert (a public certificate) is supported. Defaults to AsymmetricX509Cert.' -Enum 'AsymmetricX509Cert'
+        usage         = Str 'Purpose of the key. Defaults to Verify (application authentication with a certificate). Sign is refused at plan time: Graph pairs it with X509CertAndPassword, which carries the private key.' -Enum 'Verify', 'Sign'
+        startDateTime = Str 'Start of validity (ISO 8601, UTC); Graph defaults it from the certificate. Compared only when declared.'
+        endDateTime   = Str 'Expiry (ISO 8601, UTC); Graph defaults it from the certificate. Compared only when declared.'
+    }
+}
+
+# --- applications/extensionProperties -----------------------------------------------------------------------------
+$specs['applications.extensionProperties'] = [ordered]@{
+    NamePattern = '^[A-Za-z][A-Za-z0-9_]*$'
+    Description = 'A directory extension definition registered on an application. The child name is the short extension name; Graph stores it as extension_<appId without dashes>_<name> (reference(...).name). Every property is immutable: a change deletes and recreates the extension (confirmation required), and a delete makes the values stored on every target object unreachable.'
+    Props       = [ordered]@{
+        name          = Str 'Set from the resource name (the short name, without the extension_<appId>_ prefix); declaring it is only allowed when it equals the name.'
+        dataType      = Str 'Required: the type of the values (Binary up to 256 bytes, Boolean, DateTime in ISO 8601, Integer 32-bit, LargeInteger 64-bit, String up to 256 characters). Immutable.' -Enum 'Binary', 'Boolean', 'DateTime', 'Integer', 'LargeInteger', 'String'
+        targetObjects = StrArr 'Required: the directory objects that can hold a value (PascalCase). Immutable.' -Enum 'User', 'Group', 'AdministrativeUnit', 'Application', 'Device', 'Organization' -Unique -Min 1
+        isMultiValued = Bool 'Whether the extension holds a collection of dataType values. Defaults to false (create only). Immutable.'
+    }
+}
+
 # --- servicePrincipals ---------------------------------------------------------------------------------------------
 $specs['servicePrincipals'] = [ordered]@{
     NamePattern = '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'

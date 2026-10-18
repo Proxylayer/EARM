@@ -1,0 +1,22 @@
+Permissions required by samples/app-certificates-extensions.entra.json (mode: delegated, 4 resource(s))
+
+Microsoft Graph delegated permissions
+  Application.ReadWrite.All
+      /providers/Microsoft.Entra/applications/contoso-dev-hr-sync
+      /providers/Microsoft.Entra/applications/contoso-dev-hr-sync/extensionProperties/badgeNumbers
+      /providers/Microsoft.Entra/applications/contoso-dev-hr-sync/extensionProperties/costCenter
+      /providers/Microsoft.Entra/applications/contoso-dev-hr-sync/keyCredentials/ci-signing
+      (provider)
+
+Entra roles (the signed-in user needs at least one role of each group)
+  Application Administrator | Application Developer | Cloud Application Administrator
+      /providers/Microsoft.Entra/applications/contoso-dev-hr-sync
+      /providers/Microsoft.Entra/applications/contoso-dev-hr-sync/keyCredentials/ci-signing
+      (provider)
+  Application Administrator | Cloud Application Administrator | Directory Writers
+      /providers/Microsoft.Entra/applications/contoso-dev-hr-sync/extensionProperties/badgeNumbers
+      /providers/Microsoft.Entra/applications/contoso-dev-hr-sync/extensionProperties/costCenter
+      (provider)
+
+note: Delegated scopes must be present on the token that earm auth login obtains (the app registration of --client-id needs them as delegated permissions); the signed-in user must additionally hold at least one role of every 'Entra roles' group (the roles are alternatives).
+note: Edge permissions are listed for every relationship property the template declares (including an empty array, which removes edges). Key Vault access is an Azure RBAC / access-policy requirement of the signed-in identity, not a Graph permission.

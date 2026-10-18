@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/applications.extensionProperties.json",
+  "title": "Microsoft.Entra/applications/extensionProperties",
+  "description": "A directory extension definition registered on an application. The child name is the short extension name; Graph stores it as extension_<appId without dashes>_<name> (reference(...).name). Every property is immutable: a change deletes and recreates the extension (confirmation required), and a delete makes the values stored on every target object unreachable.",
+  "type": "object",
+  "properties": {
+    "name": {
+      "description": "Set from the resource name (the short name, without the extension_<appId>_ prefix); declaring it is only allowed when it equals the name.",
+      "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+    },
+    "dataType": {
+      "description": "Required: the type of the values (Binary up to 256 bytes, Boolean, DateTime in ISO 8601, Integer 32-bit, LargeInteger 64-bit, String up to 256 characters). Immutable.",
+      "anyOf": [
+        { "type": "string", "enum": [ "Binary", "Boolean", "DateTime", "Integer", "LargeInteger", "String" ] },
+        { "$ref": "#/$defs/expression" }
+      ]
+    },
+    "targetObjects": {
+      "description": "Required: the directory objects that can hold a value (PascalCase). Immutable.",
+      "anyOf": [
+        {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              { "type": "string", "enum": [ "User", "Group", "AdministrativeUnit", "Application", "Device", "Organization" ] },
+              { "$ref": "#/$defs/expression" }
+            ]
+          },
+          "minItems": 1
+        },
+        { "$ref": "#/$defs/expression" }
+      ]
+    },
+    "isMultiValued": {
+      "description": "Whether the extension holds a collection of dataType values. Defaults to false (create only). Immutable.",
+      "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/expression" } ]
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "expression": { "type": "string", "pattern": "^\\[.*\\]$", "description": "A template expression, for example [parameters('env')]." }
+  },
+  "x-earm": {
+    "type": "Microsoft.Entra/applications/extensionProperties",
+    "parentType": "Microsoft.Entra/applications",
+    "graphPath": "/applications/{parentId}/extensionProperties",
+    "apiVersions": { "2026-10-01-preview": "v1.0", "2026-10-01-preview.beta": "beta" },
+    "nameMapsTo": "name",
+    "nameKind": "childName",
+    "namePattern": "^[A-Za-z][A-Za-z0-9_]*$",
+    "keyProperties": ["name"],
+    "requiredOnCreate": ["dataType", "targetObjects"],
+    "defaults": { "isMultiValued": false },
+    "immutable": ["*"],
+    "createOnly": [],
+    "secure": [],
+    "relationships": [],
+    "memberKey": {},
+    "stripOnRead": ["id", "appDisplayName", "deletedDateTime", "isSyncedFromOnPremises"],
+    "nullable": {},
+    "permissions": {
+      "application": ["Application.ReadWrite.OwnedBy", "Application.ReadWrite.All"],
+      "roles": ["Directory Writers", "Cloud Application Administrator", "Application Administrator"]
+    }
+  }
+}
