@@ -53,7 +53,6 @@
         "Directory Writers",
         "Groups Administrator",
         "Identity Governance Administrator",
-        "Privileged Role Administrator",
         "User Administrator"
       ],
       "resources": [
@@ -61,7 +60,7 @@
         "/providers/Microsoft.Entra/roleManagementPolicies/6615fd9c-5c4f-593a-acf5-c72e3a936d5d"
       ],
       "reasons": [
-        "condition: onboarding"
+        "condition: onboarding; the group is not role-assignable"
       ]
     },
     {

@@ -32,6 +32,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- `earm permissions` narrows the roles of a group PIM policy's `onboarding` by the group, as for the PIM for Groups requests: Privileged
+  Role Administrator for a role-assignable template group that `group` or `scopeId` references, Identity Governance Administrator,
+  Groups Administrator, User Administrator or Directory Writers for any other template group (all five when the group is not declared in
+  the template). The policy itself still needs Privileged Role Administrator.
 - The what-if of an access package assignment policy shows a changed approval stage as the changed properties inside that stage
   (`requestApprovalSettings.stages[0].durationBeforeAutomaticDenial: "P14D" => "P7D"`) instead of the whole stage removed and added:
   stages are matched by position (overlay `memberKey` `$index`), as for the approval stages of a role management policy.

@@ -237,6 +237,57 @@ public sealed class PermissionManifestRoleCombinationTests
         Assert.Equal(["provider (Privileged Role Administrator only for a role-assignable group)"], Strings(role["reasons"]));
     }
 
+    private static string GroupPolicy(string groupProperty, string group)
+    {
+        return Resource("Microsoft.Entra/roleManagementPolicies", "[guid('policy')]", "{ \"" + groupProperty + "\": \"" + group + "\", "
+            + (groupProperty == "scopeId" ? "\"scopeType\": \"Group\", \"roleDefinitionId\": \"member\", " : "\"accessId\": \"member\", ")
+            + "\"onboarding\": { \"temporaryEligiblePrincipalId\": \"" + GroupId + "\" }, "
+            + "\"rules\": [ { \"id\": \"Expiration_EndUser_Assignment\", \"isExpirationRequired\": true, \"maximumDuration\": \"PT4H\" } ] }");
+    }
+
+    private static List<JsonObject> PolicyRoles(CliResult result)
+    {
+        return Roles(result).Where(r => Strings(r["resources"]).Any(s => s.Contains("roleManagementPolicies/", StringComparison.Ordinal))).ToList();
+    }
+
+    [Theory]
+    [InlineData("group")]
+    [InlineData("scopeId")]
+    public async Task AGroupPolicyOnboardingARoleAssignableTemplateGroup_NeedsOnlyPrivilegedRoleAdministrator(string groupProperty)
+    {
+        var result = await ArrayTemplateAsync(nameof(AGroupPolicyOnboardingARoleAssignableTemplateGroup_NeedsOnlyPrivilegedRoleAdministrator) + groupProperty,
+            string.Join(", ", Group("ra", "true"), GroupPolicy(groupProperty, "[reference('ra').id]")), "--mode", "delegated");
+
+        // The policy's own requirement and its onboarding are the same set, so they share one entry.
+        var role = Assert.Single(PolicyRoles(result));
+        Assert.Equal(["Privileged Role Administrator"], Strings(role["anyOf"]));
+        Assert.Contains("condition: onboarding; the group is role-assignable", Strings(role["reasons"]));
+    }
+
+    [Theory]
+    [InlineData("group", "")]
+    [InlineData("scopeId", "false")]
+    public async Task AGroupPolicyOnboardingAnOrdinaryTemplateGroup_DropsPrivilegedRoleAdministratorFromTheOnboardingAlternatives(string groupProperty, string assignable)
+    {
+        var result = await ArrayTemplateAsync(nameof(AGroupPolicyOnboardingAnOrdinaryTemplateGroup_DropsPrivilegedRoleAdministratorFromTheOnboardingAlternatives) + groupProperty,
+            string.Join(", ", Group("plain", assignable), GroupPolicy(groupProperty, "[reference('plain').id]")), "--mode", "delegated");
+
+        var onboarding = PolicyRoles(result).Single(r => Strings(r["reasons"]).Any(s => s.StartsWith("condition: onboarding", StringComparison.Ordinal)));
+        Assert.Equal(["Directory Writers", "Groups Administrator", "Identity Governance Administrator", "User Administrator"], Strings(onboarding["anyOf"]));
+        Assert.Equal(["condition: onboarding; the group is not role-assignable"], Strings(onboarding["reasons"]));
+        Assert.Contains(PolicyRoles(result), r => Strings(r["anyOf"]).SequenceEqual(["Privileged Role Administrator"]));
+    }
+
+    [Fact]
+    public async Task AGroupPolicyOnboardingAnExistingGroup_KeepsEveryOnboardingAlternative()
+    {
+        var result = await ArrayTemplateAsync(nameof(AGroupPolicyOnboardingAnExistingGroup_KeepsEveryOnboardingAlternative),
+            GroupPolicy("group", "pim-existing-group"), "--mode", "delegated");
+
+        var onboarding = PolicyRoles(result).Single(r => Strings(r["reasons"]).Contains("condition: onboarding"));
+        Assert.Equal(["Directory Writers", "Groups Administrator", "Identity Governance Administrator", "Privileged Role Administrator", "User Administrator"], Strings(onboarding["anyOf"]));
+    }
+
     [Fact]
     public void TheGroupPolicyOnboardingCondition_ListsTheSameAlternatives()
     {

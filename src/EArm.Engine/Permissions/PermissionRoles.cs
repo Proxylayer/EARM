@@ -27,10 +27,13 @@ internal static class PermissionRoles
     internal static void AddRoles(ResourceInstance instance, string resource, PermissionAccumulator roles, GroupKind targetGroup)
     {
         var overlay = instance.Definition.Permissions;
+
+        // A group PIM policy: the group kind narrows only the roles of its onboarding (a PIM for Groups eligibility); the policy itself needs Privileged Role Administrator.
+        bool policy = IsRoleManagementPolicy(instance.Type);
         if (overlay.Roles.Count > 0)
         {
             // A PIM for Groups request: only Privileged Role Administrator may manage a role-assignable group, and the other roles any other group.
-            if (targetGroup == GroupKind.NotApplicable)
+            if (targetGroup == GroupKind.NotApplicable || policy)
             {
                 roles.AddGroupSet(overlay.Roles, resource, "provider");
             }
@@ -64,10 +67,17 @@ internal static class PermissionRoles
                 continue;
             }
 
-            var names = roleArray.Select(n => n?.GetValue<string>()).OfType<string>().ToArray();
-            if (names.Length > 0)
+            IReadOnlyList<string> names = roleArray.Select(n => n?.GetValue<string>()).OfType<string>().ToArray();
+            string reason = "condition: " + entry.Key;
+            if (policy && string.Equals(entry.Key, "onboarding", StringComparison.OrdinalIgnoreCase) && targetGroup is GroupKind.RoleAssignable or GroupKind.Regular)
             {
-                roles.AddGroupSet(names, resource, "condition: " + entry.Key);
+                names = NarrowForGroup(names, targetGroup);
+                reason += targetGroup == GroupKind.RoleAssignable ? "; the group is role-assignable" : "; the group is not role-assignable";
+            }
+
+            if (names.Count > 0)
+            {
+                roles.AddGroupSet(names, resource, reason);
             }
         }
     }
@@ -131,22 +141,37 @@ internal static class PermissionRoles
             || type.EndsWith("/privilegedAccess/groupAssignmentScheduleRequests", StringComparison.OrdinalIgnoreCase);
     }
 
+    private static bool IsRoleManagementPolicy(string type)
+    {
+        return type.EndsWith("/roleManagementPolicies", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>The properties that name the group, in order of preference; empty for a type that targets no group.</summary>
+    private static string[] GroupProperties(string type)
+    {
+        return IsCatalogResource(type) ? ["originId"]
+            : IsGroupPimRequest(type) ? ["groupId"]
+            : IsRoleManagementPolicy(type) ? ["group", "scopeId"]
+            : [];
+    }
+
     /// <summary>
-    /// Whether the group a catalog resource adds (its <c>originId</c>) or a PIM for Groups request targets (its <c>groupId</c>) is role-assignable, as
-    /// far as the template says: a group of the template that the property references with a literal <c>isAssignableToRole</c> (absent counts as false);
-    /// <see cref="GroupKind.Unknown"/> for an existing group (including a PIM request's <c>group</c> uniqueName), a computed flag, or a property that
-    /// references no template group; <see cref="GroupKind.NotApplicable"/> for every other type.
+    /// Whether the group a catalog resource adds (its <c>originId</c>), a PIM for Groups request targets (its <c>groupId</c>) or a group PIM policy governs
+    /// (its <c>group</c> or <c>scopeId</c>) is role-assignable, as far as the template says: a group of the template that the property references with a
+    /// literal <c>isAssignableToRole</c> (absent counts as false); <see cref="GroupKind.Unknown"/> for an existing group (including a <c>group</c>
+    /// uniqueName), a computed flag, or a property that references no template group (a directory role policy); <see cref="GroupKind.NotApplicable"/> for
+    /// every other type.
     /// </summary>
     internal static GroupKind TargetGroupKind(ResourceInstance instance, IReadOnlyList<ResourceInstance> instances)
     {
-        string? property = IsCatalogResource(instance.Type) ? "originId" : IsGroupPimRequest(instance.Type) ? "groupId" : null;
-        if (property is null)
+        var properties = GroupProperties(instance.Type);
+        if (properties.Length == 0)
         {
             return GroupKind.NotApplicable;
         }
 
         var originPath = instance.Declaration.Path.Append("properties");
-        if (instance.Declaration.Properties is JsonObject declared && JsonObjects.FindKey(declared, property) is { } key)
+        if (instance.Declaration.Properties is JsonObject declared && properties.Select(p => JsonObjects.FindKey(declared, p)).FirstOrDefault(k => k is not null) is { } key)
         {
             originPath = originPath.Append(key);
         }
