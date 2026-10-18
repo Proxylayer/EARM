@@ -87,7 +87,7 @@ Entra roles (the signed-in user needs at least one role of each group)
       (provider)
   Directory Writers | Groups Administrator | Identity Governance Administrator | Privileged Role Administrator | User Administrator
       /providers/Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests/3d0dacff-5b4b-5e4f-976d-92145919a68f
-      (provider)
+      (provider (Privileged Role Administrator only for a role-assignable group))
   Groups Administrator
       /providers/Microsoft.Entra/groups/pa-emergency-access
       /providers/Microsoft.Entra/groups/pa-tier0-admins

@@ -32,9 +32,9 @@ Microsoft Graph delegated permissions
       (provider)
 
 Entra roles (the signed-in user needs at least one role of each group)
-  Directory Writers | Groups Administrator | Identity Governance Administrator | Privileged Role Administrator | User Administrator
+  Directory Writers | Groups Administrator | Identity Governance Administrator | User Administrator
       /providers/Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests/460c2c78-3d8e-570a-86a5-9f60311f3d74
-      (provider)
+      (provider: the group is not role-assignable)
   Groups Administrator
       /providers/Microsoft.Entra/groups/pim-ops-responders
       /providers/Microsoft.Entra/groups/pim-privileged-admins

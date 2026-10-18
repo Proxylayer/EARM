@@ -150,11 +150,11 @@ public static class PermissionManifest
                 graph.Add(ForMode(permission, mode), resource, "provider");
             }
 
-            var catalogGroup = PermissionRoles.IsCatalogResource(instance.Type) ? PermissionRoles.CatalogResourceGroupKind(instance, instances) : PermissionRoles.GroupKind.NotApplicable;
-            if (mode == PermissionMode.App && catalogGroup is PermissionRoles.GroupKind.RoleAssignable or PermissionRoles.GroupKind.Unknown)
+            var targetGroup = PermissionRoles.TargetGroupKind(instance, instances);
+            if (mode == PermissionMode.App && PermissionRoles.IsCatalogResource(instance.Type) && targetGroup is PermissionRoles.GroupKind.RoleAssignable or PermissionRoles.GroupKind.Unknown)
             {
                 // Learn (entitlementmanagement-post-resourcerequests, groups-concept): adding a role-assignable group needs RoleManagement.ReadWrite.Directory.
-                graph.Add("RoleManagement.ReadWrite.Directory", resource, catalogGroup == PermissionRoles.GroupKind.RoleAssignable
+                graph.Add("RoleManagement.ReadWrite.Directory", resource, targetGroup == PermissionRoles.GroupKind.RoleAssignable
                     ? "provider: the group is role-assignable"
                     : "provider: when the group is role-assignable");
             }
@@ -204,7 +204,7 @@ public static class PermissionManifest
 
             if (mode == PermissionMode.Delegated)
             {
-                PermissionRoles.AddRoles(instance, resource, roles, catalogGroup);
+                PermissionRoles.AddRoles(instance, resource, roles, targetGroup);
             }
 
             if (instance.Type.EndsWith("/roleAssignments", StringComparison.OrdinalIgnoreCase) || instance.Type.EndsWith("/roleEligibilityScheduleRequests", StringComparison.OrdinalIgnoreCase)

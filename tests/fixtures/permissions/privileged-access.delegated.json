@@ -234,7 +234,7 @@
         "/providers/Microsoft.Entra/privilegedAccess/groupEligibilityScheduleRequests/3d0dacff-5b4b-5e4f-976d-92145919a68f"
       ],
       "reasons": [
-        "provider"
+        "provider (Privileged Role Administrator only for a role-assignable group)"
       ]
     },
     {
