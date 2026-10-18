@@ -128,6 +128,11 @@ load ──► validate ──► expand ──► graph ──► [per batch: r
   reason "it depends on *type 'name'*, which failed" at
   the start of its batch, before symbolic names are resolved: it is never attempted, its name is never
   re-evaluated (a symbolic dependent keeps its symbolic id in the result) and it never counts as a failure.
+- **End-of-run retry**: an `Ignore` row a provider marks `ResourceChange.RetryAtEndOfRun` (it waits for later work of the same run, such as a
+  group PIM policy whose group a schedule request of the run onboards) is recorded `Ignored` without its reasons, and read and planned again after
+  the last batch, when the run did not stop early (log event 2088). While the provider still defers it, the read is repeated on the replication
+  schedule (1, 2, 4 s, then every 5 s, up to 90 s); a resource still deferred then stays `Ignored` and its reasons are reported. Resources applied
+  earlier that depend on it are not applied again.
 - A `create` that comes back "already exists" (`GraphException.IsAlreadyExists`) is idempotent success: the
   object is re-read by key and taken over (identity is the key: there is no created / adopted distinction).
 - A `create` that comes back "already exists" also applies the declared properties **in the same run** (one extra PATCH where the provider supports it and the difference can be patched in place; otherwise an `ImmutablePropertyChanged` warning says the object differs and a rerun or the what-if shows how). An existing object the provider refuses to manage (its plan has an error, such as a permanent PIM assignment where a time-bound one is declared) is **not** adopted: the resource fails with the provider's code and reason and the Graph id of the object found. A provider that finds such an object itself and refuses it is reported with its refusal, never as "created but did not complete".

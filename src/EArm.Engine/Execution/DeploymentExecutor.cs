@@ -70,6 +70,9 @@ public sealed partial class DeploymentExecutor
         private readonly ConcurrentDictionary<ResourceIdentifier, byte> _createdThisRun = new();
         private readonly ConcurrentDictionary<string, ResourceInstance> _graphClaims = new(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<ResourceInstance, string> _skipped = [];
+
+        /// <summary>The resources a provider deferred to the end of the run (<see cref="ResourceChange.RetryAtEndOfRun"/>), with their batch; each is retried once.</summary>
+        private readonly ConcurrentDictionary<ResourceInstance, int> _endOfRunRetries = new();
         private readonly RunDiagnostics _diagnostics = new();
         private readonly GraphCallRetry _retry;
         private readonly ResourceCreator _creator;

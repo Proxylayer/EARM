@@ -3,6 +3,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using EArm.Engine.Planning;
+using EArm.Engine.Providers;
 using EArm.Graph;
 
 namespace EArm.Engine.Execution;
@@ -102,7 +103,37 @@ public sealed partial class DeploymentExecutor
                 }
             }
 
+            if (!stop)
+            {
+                await RunEndOfRunRetriesAsync(parallel, cancellationToken).ConfigureAwait(false);
+            }
+
             return stop;
+        }
+
+        /// <summary>
+        /// The resources a provider deferred until the rest of the run had happened (<see cref="ResourceChange.RetryAtEndOfRun"/>): each is read, planned and
+        /// applied once more, in parallel, after the last batch. A second deferral is final: the resource stays <see cref="OperationStatus.Ignored"/> and its
+        /// reasons (why it waits) are reported. Not run when the deployment stopped at a batch boundary.
+        /// </summary>
+        private async Task RunEndOfRunRetriesAsync(ParallelOptions parallel, CancellationToken cancellationToken)
+        {
+            var retries = _plan.Batches.SelectMany(b => b.Instances).Where(_endOfRunRetries.ContainsKey).ToList();
+            if (retries.Count == 0)
+            {
+                return;
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            EngineLog.RetryingDeferred(Logger, retries.Count);
+            try
+            {
+                await Parallel.ForEachAsync(retries, parallel, (instance, ct) => new ValueTask(ApplyOneAsync(instance, _endOfRunRetries[instance], ct))).ConfigureAwait(false);
+            }
+            finally
+            {
+                _diagnostics.Flush(retries);
+            }
         }
     }
 }
