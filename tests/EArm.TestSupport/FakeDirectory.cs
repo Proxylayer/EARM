@@ -80,6 +80,8 @@ public sealed partial class FakeDirectory
         ["/servicePrincipals"] = "#microsoft.graph.servicePrincipal",
         ["/applications"] = "#microsoft.graph.application",
         ["/directory/administrativeUnits"] = "#microsoft.graph.administrativeUnit",
+        ["/devices"] = "#microsoft.graph.device",
+        ["/contacts"] = "#microsoft.graph.orgContact",
     };
 
     private static readonly Dictionary<string, string> CollectionByODataType = ODataTypeByCollection.ToDictionary(p => p.Value, p => p.Key, StringComparer.OrdinalIgnoreCase);

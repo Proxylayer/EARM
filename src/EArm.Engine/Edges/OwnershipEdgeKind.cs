@@ -12,12 +12,14 @@ namespace EArm.Engine.Edges;
 /// Ownership: target side <c>owners</c> on applications, service principals and groups
 /// (authoritative set), principal side <c>ownerOf</c> on users and service principals. The target's Graph
 /// collection comes from the template resource when the target is declared in it, else from
-/// <c>GET /directoryObjects/{id}?$select=id</c> (<c>@odata.type</c>). Live reads: <c>GET /{collection}/{t}/owners</c>
+/// <c>GET /directoryObjects/{id}?$select=id</c> (<c>@odata.type</c>). Live reads: <c>GET /{collection}/{t}/owners</c> (plus <c>/owners/microsoft.graph.servicePrincipal</c> for a group)
 /// for the target, <c>GET /{users|servicePrincipals}/{p}/ownedObjects</c> for the principal. Writes:
 /// <c>POST /{collection}/{t}/owners/$ref</c>, <c>DELETE /{collection}/{t}/owners/{p}/$ref</c>.
 /// </summary>
 public sealed class OwnershipEdgeKind : IEdgeKindHandler
 {
+    private const string ServicePrincipalCast = "microsoft.graph.servicePrincipal";
+
     private static readonly HashSet<string> OwnableCollections = new(StringComparer.Ordinal) { "applications", "servicePrincipals", "groups" };
 
     public EdgeKind Kind => EdgeKind.Ownership;
@@ -94,10 +96,45 @@ public sealed class OwnershipEdgeKind : IEdgeKindHandler
         IReadOnlyDictionary<string, JsonObject?>? edges = null;
         if (includeEdges)
         {
-            edges = await EdgeReads.ReadIdsAsync(context, "/" + collection + "/" + GraphPath.Segment(targetId) + "/owners", api, cancellationToken).ConfigureAwait(false);
+            edges = await ReadOwnersAsync(collection, targetId, api, context, cancellationToken).ConfigureAwait(false);
         }
 
         return new EdgeTargetState(true, false, collection, edges);
+    }
+
+    /// <summary>
+    /// The live owners of a target. v1.0 <c>GET /groups/{g}/owners</c> leaves service principal owners out (Learn, group-list-owners: "service principals are
+    /// not listed as group owners due to the staged rollout of service principals to the Microsoft Graph v1.0 endpoint"), so for a group they are read through
+    /// the type cast <c>/groups/{g}/owners/microsoft.graph.servicePrincipal</c> and merged in, as for group members. Application and service principal owners
+    /// carry no such note and are read whole.
+    /// </summary>
+    private static async Task<IReadOnlyDictionary<string, JsonObject?>> ReadOwnersAsync(string collection, string targetId, GraphApi api, EdgeGraphContext context, CancellationToken cancellationToken)
+    {
+        string path = "/" + collection + "/" + GraphPath.Segment(targetId) + "/owners";
+        var owners = await EdgeReads.ReadIdsAsync(context, path, api, cancellationToken).ConfigureAwait(false);
+        if (!string.Equals(collection, "groups", StringComparison.Ordinal))
+        {
+            return owners;
+        }
+
+        foreach (var (id, extra) in await EdgeReads.ReadIdsAsync(context, path + "/" + ServicePrincipalCast, api, cancellationToken).ConfigureAwait(false))
+        {
+            if (owners.ContainsKey(id))
+            {
+                continue;
+            }
+
+            // A type-cast listing may leave the element type implicit; the cast says what it is.
+            var typed = extra ?? new JsonObject();
+            if (JsonObjects.GetString(typed, "@odata.type") is null)
+            {
+                typed["@odata.type"] = "#" + ServicePrincipalCast;
+            }
+
+            owners[id] = typed;
+        }
+
+        return owners;
     }
 
     public async Task<EdgePrincipalState> ReadPrincipalAsync(string principalId, string principalType, GraphApi api, EdgeGraphContext context, CancellationToken cancellationToken)

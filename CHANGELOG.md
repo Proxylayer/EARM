@@ -57,6 +57,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   properties, so an application that appeared after the plan's read no longer gets the default `signInAudience: AzureADMyOrg` merged
   into it. A real create still ends with `AzureADMyOrg` (Graph's documented default; EARM PATCHes it right after the create should
   Graph have applied another value).
+- Group `owners`: a service principal owner is now read through `GET /groups/{id}/owners/microsoft.graph.servicePrincipal`, because v1.0
+  `GET /groups/{id}/owners` does not list service principal owners (Learn). A declared service principal owner was planned as an add on
+  every run, and an undeclared one was never pruned. Device and organizational contact members need no such read: v1.0 lists them.
 - applications/passwordCredentials: the `PasswordCredentialOrphaned` message no longer says EARM "did not record" the extra credentials
   (EARM keeps no state); it names the credentials that were not there when the run read the application.
 - A request that times out (or is otherwise cancelled without Ctrl+C) no longer aborts the whole `what-if`: the resource whose read
