@@ -127,5 +127,17 @@
     "parameters": {},
     "expectedText": "pim-policies-incremental.expected.txt",
     "expectedJson": "pim-policies-incremental.expected.json"
+  },
+  {
+    "name": "tenant-policies-incremental",
+    "deploymentName": "tenant-policies-incremental",
+    "mode": "Incremental",
+    "resultFormat": "FullResourcePayloads",
+    "tenantId": "11111111-1111-1111-1111-111111111111",
+    "template": "tenant-policies-incremental.entra.json",
+    "seed": "tenant-policies-incremental.seed.json",
+    "parameters": {},
+    "expectedText": "tenant-policies-incremental.expected.txt",
+    "expectedJson": "tenant-policies-incremental.expected.json"
   }
 ]

@@ -1,0 +1,7 @@
+[
+  { "collection": "/groupLifecyclePolicies", "entity": {
+      "id": "6a1b2c3d-0000-4000-8000-00000000a001", "groupLifetimeInDays": 180, "managedGroupTypes": "All", "alternateNotificationEmails": "ops@contoso.com" } },
+  { "collection": "/policies/tokenLifetimePolicies", "entity": {
+      "id": "6a1b2c3d-0000-4000-8000-00000000a002", "displayName": "Web sessions", "isOrganizationDefault": false,
+      "definition": [ "{\"TokenLifetimePolicy\":{\"Version\":1,\"AccessTokenLifetime\":\"01:00:00\"}}" ] } }
+]

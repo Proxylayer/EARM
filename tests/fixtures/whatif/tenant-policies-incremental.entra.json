@@ -1,0 +1,42 @@
+{
+  "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "resources": [
+    {
+      "type": "Microsoft.Entra/groupLifecyclePolicies",
+      "apiVersion": "2026-10-01-preview",
+      "name": "default",
+      "properties": { "groupLifetimeInDays": 365, "managedGroupTypes": "Selected", "alternateNotificationEmails": "ops@contoso.com" }
+    },
+    {
+      "type": "Microsoft.Entra/policies/tokenLifetimePolicies",
+      "apiVersion": "2026-10-01-preview",
+      "name": "Web sessions",
+      "properties": { "definition": [ { "TokenLifetimePolicy": { "Version": 1, "AccessTokenLifetime": "02:00:00" } } ] }
+    },
+    {
+      "type": "Microsoft.Entra/policies/claimsMappingPolicies",
+      "apiVersion": "2026-10-01-preview",
+      "name": "Employee id",
+      "properties": { "definition": [ { "ClaimsMappingPolicy": { "Version": 1, "IncludeBasicClaimSet": "true", "ClaimsSchema": [ { "Source": "user", "ID": "employeeid", "JwtClaimType": "employeeid" } ] } } ] }
+    },
+    {
+      "type": "Microsoft.Entra/policies/defaultAppManagementPolicy",
+      "apiVersion": "2026-10-01-preview",
+      "name": "default",
+      "properties": { "isEnabled": true }
+    },
+    {
+      "type": "Microsoft.Entra/policies/crossTenantAccessPolicy",
+      "apiVersion": "2026-10-01-preview",
+      "name": "default",
+      "properties": { "inboundTrust": { "isMfaAccepted": false } }
+    },
+    {
+      "type": "Microsoft.Entra/policies/crossTenantAccessPolicy/partners",
+      "apiVersion": "2026-10-01-preview",
+      "name": "2f0a1f3e-5b6c-4d7e-8f90-a1b2c3d4e5f6",
+      "properties": { "inboundTrust": { "isMfaAccepted": true, "isCompliantDeviceAccepted": false, "isHybridAzureADJoinedDeviceAccepted": false } }
+    }
+  ]
+}
