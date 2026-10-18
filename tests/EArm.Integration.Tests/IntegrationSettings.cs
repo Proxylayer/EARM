@@ -41,6 +41,24 @@ internal enum Needs
     /// scopes and assignment policies (the tenant needs Microsoft Entra ID P2 or ID Governance; the signed-in identity needs Identity Governance Administrator).
     /// </summary>
     AccessPackages = 64,
+
+    /// <summary>
+    /// The tenant default app management policy may be changed (<c>EARM_IT_ALLOW_APP_MANAGEMENT=1</c>): only its description, under a snapshot / restore
+    /// guard (<see cref="TenantPolicyRestoreGuard"/>); prefixed custom app management policies are created and deleted.
+    /// </summary>
+    AppManagement = 128,
+
+    /// <summary>
+    /// The tenant's cross-tenant access settings may be changed (<c>EARM_IT_ALLOW_CROSS_TENANT=1</c>): one inbound trust toggle of the default configuration
+    /// under a snapshot / restore guard, and a partner configuration for <c>EARM_IT_PARTNER_TENANT</c> when that tenant has none yet.
+    /// </summary>
+    CrossTenant = 256,
+
+    /// <summary>
+    /// The tenant's group expiration policy may be written (<c>EARM_IT_ALLOW_GROUP_LIFECYCLE=1</c>): a Selected policy is created (and deleted) only when the
+    /// tenant has none; an existing policy is only read.
+    /// </summary>
+    GroupLifecycle = 512,
 }
 
 /// <summary>
@@ -58,6 +76,10 @@ internal sealed record IntegrationSettings
     public const string AllowAuthMethodsVariable = "EARM_IT_ALLOW_AUTH_METHODS";
     public const string AllowPimPoliciesVariable = "EARM_IT_ALLOW_PIM_POLICIES";
     public const string AllowAccessPackagesVariable = "EARM_IT_ALLOW_ACCESS_PACKAGES";
+    public const string AllowAppManagementVariable = "EARM_IT_ALLOW_APP_MANAGEMENT";
+    public const string AllowCrossTenantVariable = "EARM_IT_ALLOW_CROSS_TENANT";
+    public const string AllowGroupLifecycleVariable = "EARM_IT_ALLOW_GROUP_LIFECYCLE";
+    public const string PartnerTenantVariable = "EARM_IT_PARTNER_TENANT";
     public const string SweepVariable = "EARM_IT_SWEEP";
     public const string InteractiveVariable = "EARM_IT_INTERACTIVE";
 
@@ -97,6 +119,18 @@ internal sealed record IntegrationSettings
     /// <summary><c>EARM_IT_ALLOW_ACCESS_PACKAGES=1</c>: writes of prefixed entitlement management objects (catalogs, packages, policies).</summary>
     public bool AllowAccessPackages { get; init; }
 
+    /// <summary><c>EARM_IT_ALLOW_APP_MANAGEMENT=1</c>: snapshot-guarded description change of the tenant default app management policy, prefixed custom policies.</summary>
+    public bool AllowAppManagement { get; init; }
+
+    /// <summary><c>EARM_IT_ALLOW_CROSS_TENANT=1</c>: snapshot-guarded inbound trust toggle of the default cross-tenant configuration, a partner configuration.</summary>
+    public bool AllowCrossTenant { get; init; }
+
+    /// <summary><c>EARM_IT_ALLOW_GROUP_LIFECYCLE=1</c>: a Selected group expiration policy, only in a tenant that has none.</summary>
+    public bool AllowGroupLifecycle { get; init; }
+
+    /// <summary><c>EARM_IT_PARTNER_TENANT</c>: the tenant id of a real other tenant for the partner configuration scenario, or null.</summary>
+    public string? PartnerTenant { get; init; }
+
     /// <summary><c>EARM_IT_SWEEP=1</c>: the manual cleanup test may run.</summary>
     public bool SweepRequested { get; init; }
 
@@ -118,7 +152,10 @@ internal sealed record IntegrationSettings
             && (!needs.HasFlag(Needs.Pim) || AllowPim)
             && (!needs.HasFlag(Needs.AuthMethods) || AllowAuthMethods)
             && (!needs.HasFlag(Needs.PimPolicies) || AllowPimPolicies)
-            && (!needs.HasFlag(Needs.AccessPackages) || AllowAccessPackages);
+            && (!needs.HasFlag(Needs.AccessPackages) || AllowAccessPackages)
+            && (!needs.HasFlag(Needs.AppManagement) || AllowAppManagement)
+            && (!needs.HasFlag(Needs.CrossTenant) || AllowCrossTenant)
+            && (!needs.HasFlag(Needs.GroupLifecycle) || AllowGroupLifecycle);
     }
 
     public static IntegrationSettings FromEnvironment()
@@ -149,6 +186,10 @@ internal sealed record IntegrationSettings
             AllowAuthMethods = IsOn(AllowAuthMethodsVariable),
             AllowPimPolicies = IsOn(AllowPimPoliciesVariable),
             AllowAccessPackages = IsOn(AllowAccessPackagesVariable),
+            AllowAppManagement = IsOn(AllowAppManagementVariable),
+            AllowCrossTenant = IsOn(AllowCrossTenantVariable),
+            AllowGroupLifecycle = IsOn(AllowGroupLifecycleVariable),
+            PartnerTenant = Read(PartnerTenantVariable),
             SweepRequested = IsOn(SweepVariable),
             InteractiveConsent = IsOn(InteractiveVariable),
         };
