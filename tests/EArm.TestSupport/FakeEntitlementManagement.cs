@@ -367,7 +367,7 @@ public sealed partial class FakeEntitlementManagement
         policy["accessPackageId"] = packageId;
         policy["createdDateTime"] = "2026-10-16T00:00:00Z";
         policy["automaticRequestSettings"] ??= null;
-        policy["reviewSettings"] ??= null;
+        FillReviewSettings(policy, hint);
         if (policy["requestApprovalSettings"] is JsonObject approval)
         {
             approval["isApprovalRequiredForUpdate"] ??= false;

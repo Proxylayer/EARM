@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Access reviews of access package assignments: an assignment policy's `reviewSettings` now has a typed schema (`isEnabled`,
+  `expirationBehavior`, `isRecommendationEnabled`, `isReviewerJustificationRequired`, `isSelfReview`, `schedule` with `startDateTime`,
+  `expiration` and `recurrence`, `primaryReviewers`, `fallbackReviewers`). Graph's filled-in review members and a `startDateTime` written back
+  with milliseconds are not drift; reviewers compare as sets, and a reviewer without an id (`requestorManager`, the sponsors) matches by its
+  type. `InvalidAccessPackageReviewSettings` (offline, and at plan time for computed values) checks reviewers when a review is enabled and not
+  a self-review, the schedule, the ISO 8601 duration of each review and the recurrence shape. A licence refusal of an enabled review is
+  `GovernanceLicenseRequired`. The access-packages sample reviews every access group's package quarterly.
 - Access packages over applications and SharePoint Online sites: `entitlementManagement/catalogResources` accepts `originSystem`
   `AadApplication` (`originId` = the service principal's object id) and `SharePointOnline` (`originId` = the site URL, matched
   case-insensitively and without a trailing slash), and `entitlementManagement/resourceRoleScopes` grants an app role (by display name or

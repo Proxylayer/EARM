@@ -65,6 +65,7 @@ public sealed class TemplateValidator : ITemplateValidator
         new PimScheduleRequestChecker(document, diagnostics, RoleAssignmentScheduleRules.ResourceType, DiagnosticCodes.InvalidRoleAssignmentScheduleRequest, RoleAssignmentScheduleRules.Check).Run();
         new PimScheduleRequestChecker(document, diagnostics, GroupAssignmentScheduleRules.ResourceType, DiagnosticCodes.InvalidGroupAssignmentScheduleRequest, GroupAssignmentScheduleRules.Check).Run();
         new PimScheduleRequestChecker(document, diagnostics, RoleManagementPolicyRules.ResourceType, DiagnosticCodes.InvalidRoleManagementPolicy, RoleManagementPolicyRules.Check).Run();
+        new PimScheduleRequestChecker(document, diagnostics, AccessPackageReviewRules.ResourceType, DiagnosticCodes.InvalidAccessPackageReviewSettings, AccessPackageReviewRules.Check).Run();
 
         var semanticPaths = new HashSet<(string? Source, JsonPath Path)>();
         foreach (var diagnostic in diagnostics)

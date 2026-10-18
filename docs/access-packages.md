@@ -25,7 +25,8 @@ Each subscription has three access groups (`PG <Subscription> Privileged Access`
 and **standing** membership of the read-only group, through one access package per group, approved by the subscription's approver group. The
 membership granted by a package must not outlive the group's eligibility expiry, so the policy's `expiration.duration` is no longer than the group's
 PIM policy `Expiration_Admin_Eligibility` maximum. The approver group gets its own package, whose policy (approval by `PG Tenant Approvers`, a short
-expiration) is written in the template too. Directory role groups get the same shape, approved by `PG Tenant Approvers`.
+expiration) is written in the template too. Every access group's package is reviewed quarterly by the approver group (`PG Tenant Approvers` as the
+fallback reviewers). Directory role groups get the same shape, approved by `PG Tenant Approvers`.
 
 **Every package carries its assignment policy in the template.** People decide the approval settings (who approves, how many stages, how long access
 lasts), but the decision is declared next to the package, so it is reviewed in the what-if and repaired when it drifts; a package without a policy
@@ -231,7 +232,7 @@ Graph's, passed through as declared ([assignment policy](https://learn.microsoft
 (`{ "type": "afterDuration", "duration": "P180D" }`, [expiration pattern](https://learn.microsoft.com/en-us/graph/api/resources/expirationpattern?view=graph-rest-1.0)),
 `requestorSettings`, `requestApprovalSettings` (`isApprovalRequiredForAdd`, `isRequestorJustificationRequired`, `stages` of
 [approval stages](https://learn.microsoft.com/en-us/graph/api/resources/accesspackageapprovalstage?view=graph-rest-1.0) with `primaryApprovers` /
-`fallbackPrimaryApprovers` / `escalationApprovers`), `reviewSettings` (optional access reviews), `automaticRequestSettings`, `questions`,
+`fallbackPrimaryApprovers` / `escalationApprovers`), `reviewSettings` ([Access reviews](#access-reviews)), `automaticRequestSettings`, `questions`,
 `notificationSettings`. Approvers and targets are subject sets; a group is
 `{ "@odata.type": "#microsoft.graph.groupMembers", "groupId": "[reference('approvers').id]" }`
 ([groupMembers](https://learn.microsoft.com/en-us/graph/api/resources/groupmembers?view=graph-rest-1.0)).
@@ -243,11 +244,61 @@ Graph's, passed through as declared ([assignment policy](https://learn.microsoft
 - **Update**: Graph only offers `PUT`, a full replace that requires every property
   ([update](https://learn.microsoft.com/en-us/graph/api/accesspackageassignmentpolicy-update?view=graph-rest-1.0)). EARM builds the PUT from the live
   policy (re-read with `$expand=questions` right before the PUT) with the declared values merged in: nested objects merge, a declared array replaces
-  the live one (its objects merged with the live entry at the same position, or with the same `groupId` / `userId` for subject sets). Undeclared
+  the live one (its objects merged with the live entry at the same position, or with the same `groupId` / `userId` for subject sets, or the same
+  `@odata.type` and `managerLevel` for a subject set without an id such as `requestorManager`). Undeclared
   settings therefore keep their live values, as in a PATCH.
 - **Delete**: `DELETE …/assignmentPolicies/{id}`; Graph refuses while the policy has assignments (also those of users deleted in the last 30 days,
   [troubleshoot](https://learn.microsoft.com/en-us/entra/id-governance/entitlement-management-troubleshoot)): `AccessPackageAssignmentsExist`.
 
+#### Access reviews
+
+`reviewSettings` ([accessPackageAssignmentReviewSettings](https://learn.microsoft.com/en-us/graph/api/resources/accesspackageassignmentreviewsettings?view=graph-rest-1.0))
+makes the assignments of the policy reviewed on a schedule. A quarterly review by the approver group, with a fallback group, open 14 days, removing
+access nobody reviewed:
+
+```json
+"reviewSettings": {
+  "isEnabled": true,
+  "expirationBehavior": "removeAccess",
+  "isRecommendationEnabled": true,
+  "isReviewerJustificationRequired": true,
+  "isSelfReview": false,
+  "schedule": {
+    "startDateTime": "2026-11-01T00:00:00Z",
+    "expiration": { "type": "afterDuration", "duration": "P14D" },
+    "recurrence": { "pattern": { "type": "absoluteMonthly", "interval": 3 }, "range": { "type": "noEnd" } }
+  },
+  "primaryReviewers": [ { "@odata.type": "#microsoft.graph.groupMembers", "groupId": "[reference('approvers').id]" } ],
+  "fallbackReviewers": [ { "@odata.type": "#microsoft.graph.groupMembers", "groupId": "[reference('tenantApprovers').id]" } ]
+}
+```
+
+- **Shape**: `expirationBehavior` is `keepAccess`, `removeAccess` or `acceptAccessRecommendation`; `schedule` is an
+  [entitlementManagementSchedule](https://learn.microsoft.com/en-us/graph/api/resources/entitlementmanagementschedule?view=graph-rest-1.0) whose
+  `recurrence` is a [patternedRecurrence](https://learn.microsoft.com/en-us/graph/api/resources/patternedrecurrence?view=graph-rest-1.0) (quarterly:
+  `absoluteMonthly` with `interval: 3`, as in Learn's [create policy](https://learn.microsoft.com/en-us/graph/api/entitlementmanagement-post-assignmentpolicies?view=graph-rest-1.0)
+  example 2). Reviewers are subject sets: `groupMembers`, `singleUser`, `requestorManager` (`managerLevel`), `targetUserSponsors`, `internalSponsors`,
+  `externalSponsors`.
+- **Validation** (`InvalidAccessPackageReviewSettings`, offline for literal values and at plan time for computed ones): an enabled review that is not a
+  self-review needs `primaryReviewers` and a `schedule` with `startDateTime`; a `groupMembers` reviewer needs `groupId`, a `singleUser` reviewer
+  `userId`; `expiration.duration` must be a positive ISO 8601 duration (`P14D`) and is required for `afterDuration` (`endDateTime` for
+  `afterDateTime`); the recurrence needs a pattern type, `daysOfWeek` for weekly and relative patterns, `month` 1-12 for yearly patterns, `dayOfMonth`
+  for an absolute yearly pattern, an `endDate` for an `endDate` range and `numberOfOccurrences` of at least 1 for a `numbered` range. The schema checks
+  the enumerations and the integer ranges.
+- **Compare**: only the declared members. Graph answers with every member filled in (the booleans, empty reviewer lists, `month: 0`,
+  `dayOfMonth: 0`, `daysOfWeek: []`, `firstDayOfWeek`, `index`, `numberOfOccurrences: 0`, a reviewer's `description`) and may write `startDateTime`
+  back with milliseconds: none of that is drift (the same instant is the same value). Reviewers compare as sets: order does not matter, a reviewer
+  without an id (`requestorManager`) matches by its type and `managerLevel`, and an extra live reviewer is drift.
+- **Update**: the merged PUT above; undeclared review members keep their live values, a declared reviewer list replaces the live one.
+- **Licence**: access reviews need **Microsoft Entra ID Governance** for the member users who review or are reviewed; Microsoft Entra ID P2 still covers
+  the review capabilities it already had, and sponsors as reviewers need ID Governance
+  ([licensing fundamentals](https://learn.microsoft.com/en-us/entra/id-governance/licensing-fundamentals), "Access reviews"). No permission beyond
+  `EntitlementManagement.ReadWrite.All` and no role beyond the policy's (access package manager, catalog owner or Identity Governance Administrator) is
+  documented for `reviewSettings` (Learn: create policy, permissions). A create or update with an enabled review that Graph refuses (400 / 403) with
+  `NoGovernanceSku` or a message about a licence or SKU is reported as **`GovernanceLicenseRequired`**; the error code is undocumented, so the match is
+  on the code or message, and the what-if does not predict it.
+- **Review instances and decisions** (the access reviews Microsoft Entra runs from the policy, and the decisions reviewers make) are not exposed: they are the reviews'
+  runtime results, created by Microsoft Entra on the schedule, not desired state; read them in the portal or with Graph.
 ## Lifecycle
 
 | Step | What EARM does |
@@ -290,7 +341,7 @@ Learn: every entitlement management API page lists `EntitlementManagement.ReadWr
 `EntitlementManagement.Read.All` for reads; the role matrix is in [delegate](https://learn.microsoft.com/en-us/entra/id-governance/entitlement-management-delegate).
 The scopes come from the overlays, so `earm permissions`, `earm auth login` and the per-run scope set (`RunScopes`) pick them up with no special
 case. A signed-in user needs the Entra role **active** (PIM: activate it and sign in again). Entitlement management needs Microsoft Entra ID P2 or
-ID Governance; eligible group roles need ID Governance.
+ID Governance; eligible group roles need ID Governance, and so do access reviews of the assignments (P2 still covers the review capabilities it had, see [Access reviews](#access-reviews)).
 
 ## Not covered
 

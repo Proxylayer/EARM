@@ -258,8 +258,251 @@
       ]
     },
     "reviewSettings": {
-      "description": "accessPackageAssignmentReviewSettings (optional access reviews).",
-      "anyOf": [ { "type": [ "object", "null" ] }, { "$ref": "#/$defs/expression" } ]
+      "description": "accessPackageAssignmentReviewSettings: recurring access reviews of the assignments made through the policy. Only declared members are compared; reviewers are compared as sets.",
+      "anyOf": [
+        {
+          "type": [ "object", "null" ],
+          "properties": {
+            "isEnabled": {
+              "description": "Whether the assignments of the policy are reviewed.",
+              "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/expression" } ]
+            },
+            "expirationBehavior": {
+              "description": "What happens to an assignment nobody reviewed: keepAccess, removeAccess or acceptAccessRecommendation.",
+              "anyOf": [
+                { "type": "string", "enum": [ "keepAccess", "removeAccess", "acceptAccessRecommendation" ] },
+                { "$ref": "#/$defs/expression" }
+              ]
+            },
+            "isRecommendationEnabled": {
+              "description": "Whether reviewers see recommendations (Graph default true).",
+              "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/expression" } ]
+            },
+            "isReviewerJustificationRequired": {
+              "description": "Whether a reviewer must justify an approval (Graph default true).",
+              "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/expression" } ]
+            },
+            "isSelfReview": {
+              "description": "Whether the assignees review their own access (then no reviewers are needed).",
+              "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/expression" } ]
+            },
+            "schedule": {
+              "description": "entitlementManagementSchedule: when the first review starts, how long each review lasts, how often it recurs.",
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "startDateTime": {
+                      "description": "When the first review starts (ISO 8601, UTC), for example 2026-11-01T00:00:00Z.",
+                      "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                    },
+                    "expiration": {
+                      "description": "expirationPattern: how long each review stays open.",
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "type": {
+                              "description": "afterDuration (with duration), afterDateTime, noExpiration or notSpecified.",
+                              "anyOf": [
+                                { "type": "string", "enum": [ "notSpecified", "noExpiration", "afterDateTime", "afterDuration" ] },
+                                { "$ref": "#/$defs/expression" }
+                              ]
+                            },
+                            "duration": {
+                              "description": "afterDuration: an ISO 8601 duration, for example P14D.",
+                              "anyOf": [ { "type": [ "string", "null" ] }, { "$ref": "#/$defs/expression" } ]
+                            },
+                            "endDateTime": {
+                              "description": "afterDateTime: when the review ends (ISO 8601).",
+                              "anyOf": [ { "type": [ "string", "null" ] }, { "$ref": "#/$defs/expression" } ]
+                            }
+                          }
+                        },
+                        { "$ref": "#/$defs/expression" }
+                      ]
+                    },
+                    "recurrence": {
+                      "description": "patternedRecurrence: how often the review recurs.",
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "pattern": {
+                              "description": "recurrencePattern, for example { \"type\": \"absoluteMonthly\", \"interval\": 3 } for quarterly.",
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "type": {
+                                      "description": "daily, weekly, absoluteMonthly, relativeMonthly, absoluteYearly or relativeYearly.",
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "enum": [ "daily", "weekly", "absoluteMonthly", "relativeMonthly", "absoluteYearly", "relativeYearly" ]
+                                        },
+                                        { "$ref": "#/$defs/expression" }
+                                      ]
+                                    },
+                                    "interval": {
+                                      "description": "The number of units (days, weeks, months, years) between occurrences; at least 1.",
+                                      "anyOf": [ { "type": "integer", "minimum": 1 }, { "$ref": "#/$defs/expression" } ]
+                                    },
+                                    "month": {
+                                      "description": "absoluteYearly / relativeYearly: the month (1-12); Graph returns 0 otherwise.",
+                                      "anyOf": [ { "type": "integer", "minimum": 0, "maximum": 12 }, { "$ref": "#/$defs/expression" } ]
+                                    },
+                                    "dayOfMonth": {
+                                      "description": "absoluteMonthly / absoluteYearly: the day of the month (1-31); Graph returns 0 otherwise.",
+                                      "anyOf": [ { "type": "integer", "minimum": 0, "maximum": 31 }, { "$ref": "#/$defs/expression" } ]
+                                    },
+                                    "daysOfWeek": {
+                                      "description": "weekly / relativeMonthly / relativeYearly: the days of the week.",
+                                      "anyOf": [
+                                        {
+                                          "type": [ "array", "null" ],
+                                          "items": {
+                                            "anyOf": [
+                                              {
+                                                "type": "string",
+                                                "enum": [ "sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday" ]
+                                              },
+                                              { "$ref": "#/$defs/expression" }
+                                            ]
+                                          }
+                                        },
+                                        { "$ref": "#/$defs/expression" }
+                                      ]
+                                    },
+                                    "firstDayOfWeek": {
+                                      "description": "weekly: the first day of the week.",
+                                      "anyOf": [
+                                        {
+                                          "type": [ "string", "null" ],
+                                          "enum": [ "sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", null ]
+                                        },
+                                        { "$ref": "#/$defs/expression" }
+                                      ]
+                                    },
+                                    "index": {
+                                      "description": "relativeMonthly / relativeYearly: which instance of daysOfWeek.",
+                                      "anyOf": [
+                                        { "type": [ "string", "null" ], "enum": [ "first", "second", "third", "fourth", "last", null ] },
+                                        { "$ref": "#/$defs/expression" }
+                                      ]
+                                    }
+                                  }
+                                },
+                                { "$ref": "#/$defs/expression" }
+                              ]
+                            },
+                            "range": {
+                              "description": "recurrenceRange: noEnd, endDate (with endDate) or numbered (with numberOfOccurrences).",
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "type": {
+                                      "description": "noEnd, endDate or numbered.",
+                                      "anyOf": [ { "type": "string", "enum": [ "noEnd", "endDate", "numbered" ] }, { "$ref": "#/$defs/expression" } ]
+                                    },
+                                    "startDate": {
+                                      "description": "The first date (yyyy-MM-dd).",
+                                      "anyOf": [ { "type": [ "string", "null" ] }, { "$ref": "#/$defs/expression" } ]
+                                    },
+                                    "endDate": {
+                                      "description": "endDate: the last date (yyyy-MM-dd).",
+                                      "anyOf": [ { "type": [ "string", "null" ] }, { "$ref": "#/$defs/expression" } ]
+                                    },
+                                    "numberOfOccurrences": {
+                                      "description": "numbered: how many reviews; Graph returns 0 otherwise.",
+                                      "anyOf": [ { "type": "integer", "minimum": 0 }, { "$ref": "#/$defs/expression" } ]
+                                    },
+                                    "recurrenceTimeZone": {
+                                      "description": "The time zone of the dates.",
+                                      "anyOf": [ { "type": [ "string", "null" ] }, { "$ref": "#/$defs/expression" } ]
+                                    }
+                                  }
+                                },
+                                { "$ref": "#/$defs/expression" }
+                              ]
+                            }
+                          }
+                        },
+                        { "$ref": "#/$defs/expression" }
+                      ]
+                    }
+                  }
+                },
+                { "$ref": "#/$defs/expression" }
+              ]
+            },
+            "primaryReviewers": {
+              "description": "The reviewers (required when isEnabled and not isSelfReview), compared as a set.",
+              "anyOf": [
+                {
+                  "type": [ "array", "null" ],
+                  "items": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "@odata.type": {
+                            "description": "The subject set type: #microsoft.graph.groupMembers, #microsoft.graph.singleUser, #microsoft.graph.requestorManager, #microsoft.graph.internalSponsors, #microsoft.graph.externalSponsors, #microsoft.graph.targetUserSponsors, #microsoft.graph.connectedOrganizationMembers ...",
+                            "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                          },
+                          "groupId": {
+                            "description": "groupMembers: the group's object id.",
+                            "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                          },
+                          "userId": {
+                            "description": "singleUser: the user's object id.",
+                            "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                          }
+                        }
+                      },
+                      { "$ref": "#/$defs/expression" }
+                    ]
+                  }
+                },
+                { "$ref": "#/$defs/expression" }
+              ]
+            },
+            "fallbackReviewers": {
+              "description": "Who reviews when the primary reviewers cannot (for example a requestorManager without a manager), compared as a set.",
+              "anyOf": [
+                {
+                  "type": [ "array", "null" ],
+                  "items": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "@odata.type": {
+                            "description": "The subject set type: #microsoft.graph.groupMembers, #microsoft.graph.singleUser, #microsoft.graph.requestorManager, #microsoft.graph.internalSponsors, #microsoft.graph.externalSponsors, #microsoft.graph.targetUserSponsors, #microsoft.graph.connectedOrganizationMembers ...",
+                            "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                          },
+                          "groupId": {
+                            "description": "groupMembers: the group's object id.",
+                            "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                          },
+                          "userId": {
+                            "description": "singleUser: the user's object id.",
+                            "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                          }
+                        }
+                      },
+                      { "$ref": "#/$defs/expression" }
+                    ]
+                  }
+                },
+                { "$ref": "#/$defs/expression" }
+              ]
+            }
+          }
+        },
+        { "$ref": "#/$defs/expression" }
+      ]
     },
     "automaticRequestSettings": {
       "description": "accessPackageAutomaticRequestSettings (auto-assignment policies only).",

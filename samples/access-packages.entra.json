@@ -2,7 +2,7 @@
   "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
   "contentVersion": "1.0.0.0",
   "metadata": {
-    "description": "Access packages (entitlement management) for one subscription: a privileged, an operational and a read-only access group (role-assignable) plus the subscription's approver group, one catalog holding the four groups, one access package per access group granting eligible membership (PIM for Groups) of the privileged and operational groups and standing membership of the read-only group, each with an assignment policy that lets every member user request access, requires approval by the approver group and expires the assignment no later than the group's eligibility. The approver group gets its own package and policy too: people decide who approves membership of the approvers, and the decision is written here (approval by the tenant approver group, assignments that expire after 90 days). Eligible roles need the groups onboarded in PIM for Groups first (set grantEligibleMembership to false to grant standing membership until then). Adding the role-assignable groups to the catalog needs a Global Administrator or Privileged Role Administrator; see docs/access-packages.md."
+    "description": "Access packages (entitlement management) for one subscription: a privileged, an operational and a read-only access group (role-assignable) plus the subscription's approver group, one catalog holding the four groups, one access package per access group granting eligible membership (PIM for Groups) of the privileged and operational groups and standing membership of the read-only group, each with an assignment policy that lets every member user request access, requires approval by the approver group, expires the assignment no later than the group's eligibility and has the approver group review the assignments every quarter (PG Tenant Approvers as the fallback reviewers; access nobody reviews is removed). The approver group gets its own package and policy too: people decide who approves membership of the approvers, and the decision is written here (approval by the tenant approver group, assignments that expire after 90 days). Eligible roles need the groups onboarded in PIM for Groups first (set grantEligibleMembership to false to grant standing membership until then). Adding the role-assignable groups to the catalog needs a Global Administrator or Privileged Role Administrator; see docs/access-packages.md."
   },
   "parameters": {
     "subscriptionName": { "type": "string", "defaultValue": "Development", "metadata": { "description": "The subscription's display name, used in the group, catalog and package names." } },
@@ -13,7 +13,8 @@
     "readOnlyDuration": { "type": "string", "defaultValue": "P365D", "metadata": { "description": "Assignment duration of the read-only package." } },
     "approvalTimeout": { "type": "string", "defaultValue": "P14D", "metadata": { "description": "How long a request waits for the approvers before it is denied." } },
     "approversApproverGroup": { "type": "string", "defaultValue": "pg-tenant-approvers", "metadata": { "description": "uniqueName of the group that approves membership of the subscription's approver group (PG Tenant Approvers)." } },
-    "approverMembershipDuration": { "type": "string", "defaultValue": "P90D", "metadata": { "description": "How long membership of the approver group lasts before it must be requested again." } }
+    "approverMembershipDuration": { "type": "string", "defaultValue": "P90D", "metadata": { "description": "How long membership of the approver group lasts before it must be requested again." } },
+    "reviewStart": { "type": "string", "defaultValue": "2026-11-01T00:00:00Z", "metadata": { "description": "When the first quarterly access review of the access packages starts (ISO 8601, UTC)." } }
   },
   "variables": {
     "eligibleRole": "[if(parameters('grantEligibleMembership'), 'Eligible Member', 'Member')]",
@@ -151,6 +152,24 @@
                 { "@odata.type": "#microsoft.graph.groupMembers", "groupId": "[reference(variables('approversName')).id]" }
               ]
             }
+          ]
+        },
+        "reviewSettings": {
+          "isEnabled": true,
+          "expirationBehavior": "removeAccess",
+          "isRecommendationEnabled": true,
+          "isReviewerJustificationRequired": true,
+          "isSelfReview": false,
+          "schedule": {
+            "startDateTime": "[parameters('reviewStart')]",
+            "expiration": { "type": "afterDuration", "duration": "P14D" },
+            "recurrence": { "pattern": { "type": "absoluteMonthly", "interval": 3 }, "range": { "type": "noEnd" } }
+          },
+          "primaryReviewers": [
+            { "@odata.type": "#microsoft.graph.groupMembers", "groupId": "[reference(variables('approversName')).id]" }
+          ],
+          "fallbackReviewers": [
+            { "@odata.type": "#microsoft.graph.groupMembers", "groupId": "[reference(parameters('approversApproverGroup')).id]" }
           ]
         }
       }

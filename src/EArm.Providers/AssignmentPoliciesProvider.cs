@@ -6,9 +6,13 @@ using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 using EArm.Core;
+using EArm.Core.Diagnostics;
+using EArm.Core.Secrets;
 using EArm.Core.Types;
+using EArm.Core.Validation;
 using EArm.Engine;
 using EArm.Engine.Providers;
+using EArm.Expressions.Values;
 using EArm.Graph;
 using GraphApi = EArm.Graph.GraphApi;
 
@@ -91,8 +95,29 @@ public sealed class AssignmentPoliciesProvider : ProviderBase, IOrphanCandidateS
             existing = existing with { Properties = projected };
         }
 
-        return base.Plan(desired, existing, options);
+        var planned = base.Plan(desired, existing, options);
+        if (planned.Type is not (ChangeType.Create or ChangeType.Modify) || desired.Properties is not { } evaluated
+            || AccessPackageReviewRules.Check(evaluated, IsOpaque) is not { Count: > 0 } findings)
+        {
+            return planned;
+        }
+
+        // The review rules the offline validator applies to literal values, now on the evaluated ones (Learn: resources/accesspackageassignmentreviewsettings).
+        string message = $"{desired.Describe()}: {string.Join("; ", findings.Select(f => f.Message))}.";
+        return planned with { Reasons = [.. planned.Reasons, message], UnsupportedReason = message, UnsupportedCode = InvalidReviewSettings };
     }
+
+    /// <summary>A deploy-time-unknown or secret value cannot be judged at plan time.</summary>
+    private static bool IsOpaque(JsonNode? node)
+    {
+        return UnknownJson.IsUnknown(node) || SecretJson.IsSecret(node, out _);
+    }
+
+    /// <summary>The code of a policy whose <c>reviewSettings</c> break a rule of <see cref="AccessPackageReviewRules"/>.</summary>
+    public const string InvalidReviewSettings = DiagnosticCodes.InvalidAccessPackageReviewSettings;
+
+    /// <summary>The code when Graph refuses access reviews of the policy for want of a licence (Microsoft Entra ID Governance, or P2).</summary>
+    public const string GovernanceLicenseRequired = EngineDiagnosticCodes.GovernanceLicenseRequired;
 
     // ---- create ----
 
@@ -103,7 +128,16 @@ public sealed class AssignmentPoliciesProvider : ProviderBase, IOrphanCandidateS
         string packageId = await RequirePackageIdAsync(desired, graph, cancellationToken).ConfigureAwait(false);
         var body = BuildCreateBody(desired);
         body["accessPackage"] = new JsonObject { ["id"] = packageId };
-        var response = await graph.PostAsync(new GraphRequest(CollectionPath, desired.Api, hint: desired.RetryHint), body, cancellationToken).ConfigureAwait(false);
+        GraphResponse response;
+        try
+        {
+            response = await graph.PostAsync(new GraphRequest(CollectionPath, desired.Api, hint: desired.RetryHint), body, cancellationToken).ConfigureAwait(false);
+        }
+        catch (GraphException ex) when (IsReviewLicenseRefusal(ex, body))
+        {
+            throw ReviewLicenseRequired(desired, ex);
+        }
+
         var live = response.Body as JsonObject
             ?? throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{desired.Describe()}: Graph returned no object for the created assignment policy.", desired.Id);
         string id = JsonObjects.GetId(live)
@@ -126,7 +160,16 @@ public sealed class AssignmentPoliciesProvider : ProviderBase, IOrphanCandidateS
 
         var document = AssignmentPolicyShape.MergeForPut(current, BuildCreateBody(desired));
         document["accessPackage"] = new JsonObject { ["id"] = packageId };
-        var response = await graph.PutAsync(new GraphRequest(path, desired.Api, hint: desired.RetryHint), document, cancellationToken).ConfigureAwait(false);
+        GraphResponse response;
+        try
+        {
+            response = await graph.PutAsync(new GraphRequest(path, desired.Api, hint: desired.RetryHint), document, cancellationToken).ConfigureAwait(false);
+        }
+        catch (GraphException ex) when (IsReviewLicenseRefusal(ex, document))
+        {
+            throw ReviewLicenseRequired(desired, ex);
+        }
+
         var live = response.Body as JsonObject
             ?? await graph.GetAsync(new GraphRequest(path, desired.Api, hint: desired.RetryHint), cancellationToken).ConfigureAwait(false) as JsonObject
             ?? throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{desired.Describe()}: the assignment policy ({existing.GraphId}) vanished after the update.", desired.Id);
@@ -175,6 +218,28 @@ public sealed class AssignmentPoliciesProvider : ProviderBase, IOrphanCandidateS
     }
 
     // ---- helpers ----
+
+    /// <summary>
+    /// Graph's refusal of a policy with enabled access reviews for want of a licence: the error code is undocumented, so a 400 or 403 whose code is
+    /// <c>NoGovernanceSku</c> or whose message names a licence / SKU, sent with <c>reviewSettings.isEnabled: true</c>. Learn (licensing-fundamentals,
+    /// "Access reviews"): access reviews need Microsoft Entra ID Governance for the member users in scope; some capabilities still run with P2.
+    /// </summary>
+    internal static bool IsReviewLicenseRefusal(GraphException ex, JsonObject body)
+    {
+        bool reviewsEnabled = body["reviewSettings"] is JsonObject review && review["isEnabled"] is JsonValue enabled && enabled.TryGetValue(out bool on) && on;
+        return reviewsEnabled && ex.Status is HttpStatusCode.BadRequest or HttpStatusCode.Forbidden
+            && (ResourceRoleScopesProvider.IsNoGovernanceSku(ex)
+                || ex.GraphMessage.Contains("licens", StringComparison.OrdinalIgnoreCase) || ex.GraphMessage.Contains("SKU", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static ProviderException ReviewLicenseRequired(ResourceInstance desired, GraphException ex)
+    {
+        return new ProviderException(
+            GovernanceLicenseRequired,
+            $"{desired.Describe()}: Graph refused the policy's access reviews ({ex.Code}: {ex.GraphMessage}). Access reviews of access package assignments need Microsoft Entra ID Governance (or Microsoft Entra ID P2 for the reviews P2 already offered) for the member users who review or are reviewed (Learn: licensing-fundamentals); sponsors as reviewers need ID Governance. Assign the licence, or set reviewSettings.isEnabled to false.",
+            desired.Id,
+            ex);
+    }
 
     private static async Task<IReadOnlyList<JsonObject>> ListPoliciesAsync(IGraphClient graph, string packageId, GraphApi api, CancellationToken cancellationToken)
     {

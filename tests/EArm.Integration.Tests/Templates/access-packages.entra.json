@@ -2,12 +2,13 @@
   "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
   "contentVersion": "1.0.0.0",
   "metadata": {
-    "description": "Entitlement management round trip: a prefixed access group and approver group (security groups that are not role-assignable, so Identity Governance Administrator plus Groups Administrator suffices), a catalog holding both, an access package granting Member of the access group, and an assignment policy requiring approval by the approver group with an afterDuration expiration. Catalog resources and the role scope are GUID labels derived from the prefix."
+    "description": "Entitlement management round trip: a prefixed access group and approver group (security groups that are not role-assignable, so Identity Governance Administrator plus Groups Administrator suffices), a catalog holding both, an access package granting Member of the access group, and an assignment policy requiring approval by the approver group with an afterDuration expiration and a quarterly access review by the approver group. Catalog resources and the role scope are GUID labels derived from the prefix."
   },
   "parameters": {
     "prefix": { "type": "string" },
     "duration": { "type": "string", "defaultValue": "P30D" },
-    "packageDescription": { "type": "string", "defaultValue": "EARM integration test package" }
+    "packageDescription": { "type": "string", "defaultValue": "EARM integration test package" },
+    "reviewDuration": { "type": "string", "defaultValue": "P14D" }
   },
   "variables": {
     "group": "[format('{0}-apgrp', parameters('prefix'))]",
@@ -57,6 +58,18 @@
             { "durationBeforeAutomaticDenial": "P7D", "isApproverJustificationRequired": true,
               "primaryApprovers": [ { "@odata.type": "#microsoft.graph.groupMembers", "groupId": "[reference(variables('approvers')).id]" } ] }
           ]
+        },
+        "reviewSettings": {
+          "isEnabled": true,
+          "expirationBehavior": "keepAccess",
+          "isSelfReview": false,
+          "schedule": {
+            "startDateTime": "2030-01-01T00:00:00Z",
+            "expiration": { "type": "afterDuration", "duration": "[parameters('reviewDuration')]" },
+            "recurrence": { "pattern": { "type": "absoluteMonthly", "interval": 3 }, "range": { "type": "noEnd" } }
+          },
+          "primaryReviewers": [ { "@odata.type": "#microsoft.graph.groupMembers", "groupId": "[reference(variables('approvers')).id]" } ],
+          "fallbackReviewers": []
         }
       }
     }

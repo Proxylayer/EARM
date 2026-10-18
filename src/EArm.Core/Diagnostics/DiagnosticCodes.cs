@@ -57,6 +57,7 @@ public static class DiagnosticCodes
     public const string InvalidRoleAssignmentScheduleRequest = "InvalidRoleAssignmentScheduleRequest";
     public const string InvalidGroupAssignmentScheduleRequest = "InvalidGroupAssignmentScheduleRequest";
     public const string InvalidRoleManagementPolicy = "InvalidRoleManagementPolicy";
+    public const string InvalidAccessPackageReviewSettings = "InvalidAccessPackageReviewSettings";
     public const string InvalidCopy = "InvalidCopy";
 
     // ---- Parameters ----
