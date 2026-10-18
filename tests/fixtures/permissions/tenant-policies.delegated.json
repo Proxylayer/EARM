@@ -1,7 +1,7 @@
 {
   "template": "samples/tenant-policies.entra.json",
   "mode": "delegated",
-  "resourceCount": 8,
+  "resourceCount": 10,
   "permissions": [
     {
       "name": "Application.Read.All",
@@ -55,6 +55,8 @@
         "/providers/Microsoft.Entra/applications/contoso-portal",
         "/providers/Microsoft.Entra/policies/appManagementPolicies/Portal secrets (30 days)",
         "/providers/Microsoft.Entra/policies/claimsMappingPolicies/Portal employee id claim",
+        "/providers/Microsoft.Entra/policies/crossTenantAccessPolicy/default",
+        "/providers/Microsoft.Entra/policies/crossTenantAccessPolicy/partners/2f0a1f3e-5b6c-4d7e-8f90-a1b2c3d4e5f6",
         "/providers/Microsoft.Entra/policies/defaultAppManagementPolicy/default",
         "/providers/Microsoft.Entra/policies/tokenLifetimePolicies/Portal access tokens (2h)",
         "/providers/Microsoft.Entra/servicePrincipals/ref(/providers/Microsoft.Entra/applications/contoso-portal).appId"
@@ -77,6 +79,17 @@
       ],
       "reasons": [
         "edge: appManagementPolicies",
+        "provider"
+      ]
+    },
+    {
+      "name": "Policy.ReadWrite.CrossTenantAccess",
+      "kind": "graphDelegated",
+      "resources": [
+        "/providers/Microsoft.Entra/policies/crossTenantAccessPolicy/default",
+        "/providers/Microsoft.Entra/policies/crossTenantAccessPolicy/partners/2f0a1f3e-5b6c-4d7e-8f90-a1b2c3d4e5f6"
+      ],
+      "reasons": [
         "provider"
       ]
     }
@@ -137,6 +150,18 @@
       ],
       "reasons": [
         "edge: groupLifecyclePolicies",
+        "provider"
+      ]
+    },
+    {
+      "anyOf": [
+        "Security Administrator"
+      ],
+      "resources": [
+        "/providers/Microsoft.Entra/policies/crossTenantAccessPolicy/default",
+        "/providers/Microsoft.Entra/policies/crossTenantAccessPolicy/partners/2f0a1f3e-5b6c-4d7e-8f90-a1b2c3d4e5f6"
+      ],
+      "reasons": [
         "provider"
       ]
     }

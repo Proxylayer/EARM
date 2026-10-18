@@ -1,0 +1,506 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/policies.crossTenantAccessPolicy.partners.json",
+  "title": "Microsoft.Entra/policies/crossTenantAccessPolicy/partners",
+  "description": "A partner-specific cross-tenant access configuration (crossTenantAccessPolicyConfigurationPartner). The resource name is the partner's tenant id. A setting left null inherits the default configuration. Created with POST, updated with PATCH (declared setting objects sent whole, undeclared members kept), deleted with DELETE (refused by Graph while a user synchronization policy exists). isInMultiTenantOrganization is set by the multitenant organization.",
+  "type": "object",
+  "properties": {
+    "tenantId": {
+      "description": "Set from the resource name (the partner's tenant id); declaring it is only allowed when it equals the name.",
+      "anyOf": [
+        { "type": "string", "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$" },
+        { "$ref": "#/$defs/expression" }
+      ]
+    },
+    "isServiceProvider": {
+      "description": "Whether the partner is a cloud service provider for this tenant.",
+      "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/expression" } ]
+    },
+    "automaticUserConsentSettings": {
+      "description": "Automatic redemption of invitations (consent prompts suppressed).",
+      "anyOf": [
+        {
+          "type": [ "object", "null" ],
+          "properties": {
+            "inboundAllowed": {
+              "description": "Suppress the consent prompt for the partner's users in this tenant.",
+              "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/expression" } ]
+            },
+            "outboundAllowed": {
+              "description": "Suppress the consent prompt for this tenant's users in the partner tenant.",
+              "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/expression" } ]
+            }
+          }
+        },
+        { "$ref": "#/$defs/expression" }
+      ]
+    },
+    "b2bCollaborationInbound": {
+      "description": "B2B collaboration with users of the other tenant in this tenant. Undeclared members keep their live values.",
+      "anyOf": [
+        {
+          "type": [ "object", "null" ],
+          "properties": {
+            "usersAndGroups": {
+              "description": "The users and groups.",
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "accessType": {
+                      "description": "allowed or blocked.",
+                      "anyOf": [ { "type": "string", "enum": [ "allowed", "blocked", "unknownFutureValue" ] }, { "$ref": "#/$defs/expression" } ]
+                    },
+                    "targets": {
+                      "description": "The users, groups or applications the access type applies to; AllUsers / AllApplications for everyone.",
+                      "anyOf": [
+                        {
+                          "type": "array",
+                          "items": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "target": {
+                                    "description": "An object id or application id, or AllUsers / AllApplications / Office365.",
+                                    "anyOf": [ { "type": "string", "minLength": 1 }, { "$ref": "#/$defs/expression" } ]
+                                  },
+                                  "targetType": {
+                                    "description": "user, group or application.",
+                                    "anyOf": [
+                                      { "type": "string", "enum": [ "user", "group", "application", "unknownFutureValue" ] },
+                                      { "$ref": "#/$defs/expression" }
+                                    ]
+                                  }
+                                },
+                                "required": [ "target" ]
+                              },
+                              { "$ref": "#/$defs/expression" }
+                            ]
+                          }
+                        },
+                        { "$ref": "#/$defs/expression" }
+                      ]
+                    }
+                  }
+                },
+                { "$ref": "#/$defs/expression" }
+              ]
+            },
+            "applications": {
+              "description": "The applications.",
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "accessType": {
+                      "description": "allowed or blocked.",
+                      "anyOf": [ { "type": "string", "enum": [ "allowed", "blocked", "unknownFutureValue" ] }, { "$ref": "#/$defs/expression" } ]
+                    },
+                    "targets": {
+                      "description": "The users, groups or applications the access type applies to; AllUsers / AllApplications for everyone.",
+                      "anyOf": [
+                        {
+                          "type": "array",
+                          "items": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "target": {
+                                    "description": "An object id or application id, or AllUsers / AllApplications / Office365.",
+                                    "anyOf": [ { "type": "string", "minLength": 1 }, { "$ref": "#/$defs/expression" } ]
+                                  },
+                                  "targetType": {
+                                    "description": "user, group or application.",
+                                    "anyOf": [
+                                      { "type": "string", "enum": [ "user", "group", "application", "unknownFutureValue" ] },
+                                      { "$ref": "#/$defs/expression" }
+                                    ]
+                                  }
+                                },
+                                "required": [ "target" ]
+                              },
+                              { "$ref": "#/$defs/expression" }
+                            ]
+                          }
+                        },
+                        { "$ref": "#/$defs/expression" }
+                      ]
+                    }
+                  }
+                },
+                { "$ref": "#/$defs/expression" }
+              ]
+            }
+          }
+        },
+        { "$ref": "#/$defs/expression" }
+      ]
+    },
+    "b2bCollaborationOutbound": {
+      "description": "B2B collaboration of this tenant's users in the other tenant.",
+      "anyOf": [
+        {
+          "type": [ "object", "null" ],
+          "properties": {
+            "usersAndGroups": {
+              "description": "The users and groups.",
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "accessType": {
+                      "description": "allowed or blocked.",
+                      "anyOf": [ { "type": "string", "enum": [ "allowed", "blocked", "unknownFutureValue" ] }, { "$ref": "#/$defs/expression" } ]
+                    },
+                    "targets": {
+                      "description": "The users, groups or applications the access type applies to; AllUsers / AllApplications for everyone.",
+                      "anyOf": [
+                        {
+                          "type": "array",
+                          "items": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "target": {
+                                    "description": "An object id or application id, or AllUsers / AllApplications / Office365.",
+                                    "anyOf": [ { "type": "string", "minLength": 1 }, { "$ref": "#/$defs/expression" } ]
+                                  },
+                                  "targetType": {
+                                    "description": "user, group or application.",
+                                    "anyOf": [
+                                      { "type": "string", "enum": [ "user", "group", "application", "unknownFutureValue" ] },
+                                      { "$ref": "#/$defs/expression" }
+                                    ]
+                                  }
+                                },
+                                "required": [ "target" ]
+                              },
+                              { "$ref": "#/$defs/expression" }
+                            ]
+                          }
+                        },
+                        { "$ref": "#/$defs/expression" }
+                      ]
+                    }
+                  }
+                },
+                { "$ref": "#/$defs/expression" }
+              ]
+            },
+            "applications": {
+              "description": "The applications.",
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "accessType": {
+                      "description": "allowed or blocked.",
+                      "anyOf": [ { "type": "string", "enum": [ "allowed", "blocked", "unknownFutureValue" ] }, { "$ref": "#/$defs/expression" } ]
+                    },
+                    "targets": {
+                      "description": "The users, groups or applications the access type applies to; AllUsers / AllApplications for everyone.",
+                      "anyOf": [
+                        {
+                          "type": "array",
+                          "items": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "target": {
+                                    "description": "An object id or application id, or AllUsers / AllApplications / Office365.",
+                                    "anyOf": [ { "type": "string", "minLength": 1 }, { "$ref": "#/$defs/expression" } ]
+                                  },
+                                  "targetType": {
+                                    "description": "user, group or application.",
+                                    "anyOf": [
+                                      { "type": "string", "enum": [ "user", "group", "application", "unknownFutureValue" ] },
+                                      { "$ref": "#/$defs/expression" }
+                                    ]
+                                  }
+                                },
+                                "required": [ "target" ]
+                              },
+                              { "$ref": "#/$defs/expression" }
+                            ]
+                          }
+                        },
+                        { "$ref": "#/$defs/expression" }
+                      ]
+                    }
+                  }
+                },
+                { "$ref": "#/$defs/expression" }
+              ]
+            }
+          }
+        },
+        { "$ref": "#/$defs/expression" }
+      ]
+    },
+    "b2bDirectConnectInbound": {
+      "description": "B2B direct connect (Teams shared channels) inbound.",
+      "anyOf": [
+        {
+          "type": [ "object", "null" ],
+          "properties": {
+            "usersAndGroups": {
+              "description": "The users and groups.",
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "accessType": {
+                      "description": "allowed or blocked.",
+                      "anyOf": [ { "type": "string", "enum": [ "allowed", "blocked", "unknownFutureValue" ] }, { "$ref": "#/$defs/expression" } ]
+                    },
+                    "targets": {
+                      "description": "The users, groups or applications the access type applies to; AllUsers / AllApplications for everyone.",
+                      "anyOf": [
+                        {
+                          "type": "array",
+                          "items": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "target": {
+                                    "description": "An object id or application id, or AllUsers / AllApplications / Office365.",
+                                    "anyOf": [ { "type": "string", "minLength": 1 }, { "$ref": "#/$defs/expression" } ]
+                                  },
+                                  "targetType": {
+                                    "description": "user, group or application.",
+                                    "anyOf": [
+                                      { "type": "string", "enum": [ "user", "group", "application", "unknownFutureValue" ] },
+                                      { "$ref": "#/$defs/expression" }
+                                    ]
+                                  }
+                                },
+                                "required": [ "target" ]
+                              },
+                              { "$ref": "#/$defs/expression" }
+                            ]
+                          }
+                        },
+                        { "$ref": "#/$defs/expression" }
+                      ]
+                    }
+                  }
+                },
+                { "$ref": "#/$defs/expression" }
+              ]
+            },
+            "applications": {
+              "description": "The applications.",
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "accessType": {
+                      "description": "allowed or blocked.",
+                      "anyOf": [ { "type": "string", "enum": [ "allowed", "blocked", "unknownFutureValue" ] }, { "$ref": "#/$defs/expression" } ]
+                    },
+                    "targets": {
+                      "description": "The users, groups or applications the access type applies to; AllUsers / AllApplications for everyone.",
+                      "anyOf": [
+                        {
+                          "type": "array",
+                          "items": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "target": {
+                                    "description": "An object id or application id, or AllUsers / AllApplications / Office365.",
+                                    "anyOf": [ { "type": "string", "minLength": 1 }, { "$ref": "#/$defs/expression" } ]
+                                  },
+                                  "targetType": {
+                                    "description": "user, group or application.",
+                                    "anyOf": [
+                                      { "type": "string", "enum": [ "user", "group", "application", "unknownFutureValue" ] },
+                                      { "$ref": "#/$defs/expression" }
+                                    ]
+                                  }
+                                },
+                                "required": [ "target" ]
+                              },
+                              { "$ref": "#/$defs/expression" }
+                            ]
+                          }
+                        },
+                        { "$ref": "#/$defs/expression" }
+                      ]
+                    }
+                  }
+                },
+                { "$ref": "#/$defs/expression" }
+              ]
+            }
+          }
+        },
+        { "$ref": "#/$defs/expression" }
+      ]
+    },
+    "b2bDirectConnectOutbound": {
+      "description": "B2B direct connect outbound.",
+      "anyOf": [
+        {
+          "type": [ "object", "null" ],
+          "properties": {
+            "usersAndGroups": {
+              "description": "The users and groups.",
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "accessType": {
+                      "description": "allowed or blocked.",
+                      "anyOf": [ { "type": "string", "enum": [ "allowed", "blocked", "unknownFutureValue" ] }, { "$ref": "#/$defs/expression" } ]
+                    },
+                    "targets": {
+                      "description": "The users, groups or applications the access type applies to; AllUsers / AllApplications for everyone.",
+                      "anyOf": [
+                        {
+                          "type": "array",
+                          "items": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "target": {
+                                    "description": "An object id or application id, or AllUsers / AllApplications / Office365.",
+                                    "anyOf": [ { "type": "string", "minLength": 1 }, { "$ref": "#/$defs/expression" } ]
+                                  },
+                                  "targetType": {
+                                    "description": "user, group or application.",
+                                    "anyOf": [
+                                      { "type": "string", "enum": [ "user", "group", "application", "unknownFutureValue" ] },
+                                      { "$ref": "#/$defs/expression" }
+                                    ]
+                                  }
+                                },
+                                "required": [ "target" ]
+                              },
+                              { "$ref": "#/$defs/expression" }
+                            ]
+                          }
+                        },
+                        { "$ref": "#/$defs/expression" }
+                      ]
+                    }
+                  }
+                },
+                { "$ref": "#/$defs/expression" }
+              ]
+            },
+            "applications": {
+              "description": "The applications.",
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "accessType": {
+                      "description": "allowed or blocked.",
+                      "anyOf": [ { "type": "string", "enum": [ "allowed", "blocked", "unknownFutureValue" ] }, { "$ref": "#/$defs/expression" } ]
+                    },
+                    "targets": {
+                      "description": "The users, groups or applications the access type applies to; AllUsers / AllApplications for everyone.",
+                      "anyOf": [
+                        {
+                          "type": "array",
+                          "items": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "target": {
+                                    "description": "An object id or application id, or AllUsers / AllApplications / Office365.",
+                                    "anyOf": [ { "type": "string", "minLength": 1 }, { "$ref": "#/$defs/expression" } ]
+                                  },
+                                  "targetType": {
+                                    "description": "user, group or application.",
+                                    "anyOf": [
+                                      { "type": "string", "enum": [ "user", "group", "application", "unknownFutureValue" ] },
+                                      { "$ref": "#/$defs/expression" }
+                                    ]
+                                  }
+                                },
+                                "required": [ "target" ]
+                              },
+                              { "$ref": "#/$defs/expression" }
+                            ]
+                          }
+                        },
+                        { "$ref": "#/$defs/expression" }
+                      ]
+                    }
+                  }
+                },
+                { "$ref": "#/$defs/expression" }
+              ]
+            }
+          }
+        },
+        { "$ref": "#/$defs/expression" }
+      ]
+    },
+    "inboundTrust": {
+      "description": "Which claims of the other tenant Conditional Access trusts.",
+      "anyOf": [
+        {
+          "type": [ "object", "null" ],
+          "properties": {
+            "isMfaAccepted": {
+              "description": "Trust MFA performed in the other tenant.",
+              "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/expression" } ]
+            },
+            "isCompliantDeviceAccepted": {
+              "description": "Trust compliant device claims.",
+              "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/expression" } ]
+            },
+            "isHybridAzureADJoinedDeviceAccepted": {
+              "description": "Trust Microsoft Entra hybrid joined device claims.",
+              "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/expression" } ]
+            }
+          }
+        },
+        { "$ref": "#/$defs/expression" }
+      ]
+    },
+    "tenantRestrictions": {
+      "description": "Tenant restrictions (usersAndGroups, applications, devices).",
+      "anyOf": [ { "type": [ "object", "null" ] }, { "$ref": "#/$defs/expression" } ]
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "expression": { "type": "string", "pattern": "^\\[.*\\]$", "description": "A template expression, for example [parameters('env')]." }
+  },
+  "x-earm": {
+    "type": "Microsoft.Entra/policies/crossTenantAccessPolicy/partners",
+    "parentType": null,
+    "graphPath": "/policies/crossTenantAccessPolicy/partners",
+    "apiVersions": { "2026-10-01-preview": "v1.0", "2026-10-01-preview.beta": "beta" },
+    "nameMapsTo": "tenantId",
+    "nameKind": "id",
+    "namePattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+    "keyProperties": ["tenantId"],
+    "requiredOnCreate": [],
+    "defaults": {},
+    "immutable": ["tenantId"],
+    "createOnly": [],
+    "secure": [],
+    "relationships": [],
+    "memberKey": {},
+    "stripOnRead": ["id", "isInMultiTenantOrganization"],
+    "nullable": {},
+    "permissions": {
+      "application": ["Policy.ReadWrite.CrossTenantAccess", "Policy.Read.All"],
+      "notes": "Learn (crosstenantaccesspolicyconfigurationdefault-update, -resettosystemdefault, crosstenantaccesspolicy-post-partners, crosstenantaccesspolicyconfigurationpartner-update, -delete): Policy.ReadWrite.CrossTenantAccess is the least privileged write permission (delegated and application), with Security Administrator as the least privileged role (Teams Administrator also, excluding identity synchronization settings); reads need Policy.Read.All (Security Reader, Global Reader).",
+      "roles": ["Security Administrator"]
+    }
+  }
+}

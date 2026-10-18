@@ -56,6 +56,8 @@ public static class ApplyPhases
             "policies/claimsMappingPolicies" => 1,
             "policies/appManagementPolicies" => 1,
             "policies/defaultAppManagementPolicy" => 1,
+            "policies/crossTenantAccessPolicy" => 1,
+            "policies/crossTenantAccessPolicy/partners" => 1,
             _ => UnknownTypePhase,
         };
     }
@@ -102,6 +104,8 @@ public static class ApplyPhases
             "policies/claimsMappingPolicies" => 12,
             "policies/appManagementPolicies" => 12,
             "policies/defaultAppManagementPolicy" => 13,
+            "policies/crossTenantAccessPolicy" => 13,
+            "policies/crossTenantAccessPolicy/partners" => 12,
             _ => 4,
         };
     }
@@ -156,5 +160,7 @@ public static class ApplyPhases
         "policies/claimsMappingPolicies",
         "policies/appManagementPolicies",
         "policies/defaultAppManagementPolicy",
+        "policies/crossTenantAccessPolicy",
+        "policies/crossTenantAccessPolicy/partners",
     ];
 }

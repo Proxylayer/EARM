@@ -1,4 +1,4 @@
-Permissions required by samples/tenant-policies.entra.json (mode: delegated, 8 resource(s))
+Permissions required by samples/tenant-policies.entra.json (mode: delegated, 10 resource(s))
 
 Microsoft Graph delegated permissions
   Application.Read.All
@@ -19,6 +19,8 @@ Microsoft Graph delegated permissions
       /providers/Microsoft.Entra/applications/contoso-portal
       /providers/Microsoft.Entra/policies/appManagementPolicies/Portal secrets (30 days)
       /providers/Microsoft.Entra/policies/claimsMappingPolicies/Portal employee id claim
+      /providers/Microsoft.Entra/policies/crossTenantAccessPolicy/default
+      /providers/Microsoft.Entra/policies/crossTenantAccessPolicy/partners/2f0a1f3e-5b6c-4d7e-8f90-a1b2c3d4e5f6
       /providers/Microsoft.Entra/policies/defaultAppManagementPolicy/default
       /providers/Microsoft.Entra/policies/tokenLifetimePolicies/Portal access tokens (2h)
       /providers/Microsoft.Entra/servicePrincipals/ref(/providers/Microsoft.Entra/applications/contoso-portal).appId
@@ -30,6 +32,10 @@ Microsoft Graph delegated permissions
       /providers/Microsoft.Entra/policies/defaultAppManagementPolicy/default
       /providers/Microsoft.Entra/policies/tokenLifetimePolicies/Portal access tokens (2h)
       (edge: appManagementPolicies; provider)
+  Policy.ReadWrite.CrossTenantAccess
+      /providers/Microsoft.Entra/policies/crossTenantAccessPolicy/default
+      /providers/Microsoft.Entra/policies/crossTenantAccessPolicy/partners/2f0a1f3e-5b6c-4d7e-8f90-a1b2c3d4e5f6
+      (provider)
 
 Entra roles (the signed-in user needs at least one role of each group)
   Application Administrator | Application Developer | Cloud Application Administrator
@@ -50,6 +56,10 @@ Entra roles (the signed-in user needs at least one role of each group)
       /providers/Microsoft.Entra/groupLifecyclePolicies/default
       /providers/Microsoft.Entra/groups/team-sales-emea
       (edge: groupLifecyclePolicies; provider)
+  Security Administrator
+      /providers/Microsoft.Entra/policies/crossTenantAccessPolicy/default
+      /providers/Microsoft.Entra/policies/crossTenantAccessPolicy/partners/2f0a1f3e-5b6c-4d7e-8f90-a1b2c3d4e5f6
+      (provider)
 
 note: Delegated scopes must be present on the token that earm auth login obtains (the app registration of --client-id needs them as delegated permissions); the signed-in user must additionally hold at least one role of every 'Entra roles' group (the roles are alternatives).
 note: 1 resource(s) have a name that depends on another resource (for example a service principal named after reference(...).appId); their permissions are computed from the declaration and the references it contains.

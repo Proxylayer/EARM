@@ -103,7 +103,7 @@ public abstract class TenantPolicyProviderBase : ProviderBase
         await graph.PatchAsync(new GraphRequest(path, desired.Api, hint: desired.RetryHint), body, cancellationToken).ConfigureAwait(false);
         var live = await graph.GetAsync(new GraphRequest(path, desired.Api, hint: desired.RetryHint), cancellationToken).ConfigureAwait(false) as JsonObject
             ?? throw new ProviderException(EngineDiagnosticCodes.ResourceApplyFailed, $"{desired.Describe()}: the {Noun} ({existing.GraphId}) vanished after the update.", desired.Id);
-        return new AppliedResource(desired.Id, existing.GraphId, live, ResolveKey(desired));
+        return new AppliedResource(desired.Id, existing.GraphId, WithId(live, existing.GraphId), ResolveKey(desired));
     }
 
     /// <summary><c>DELETE {path}</c>; a 404 is "already gone".</summary>
@@ -118,6 +118,23 @@ public abstract class TenantPolicyProviderBase : ProviderBase
         {
             // Already gone (deleted outside EARM): nothing to do.
         }
+    }
+
+    /// <summary>
+    /// The live object with an <c>id</c>: the cross-tenant access configurations have none (the default is a singleton, a partner is keyed by
+    /// <c>tenantId</c>), while <see cref="ProviderBase.ToExisting"/> and <c>reference().id</c> need one, so <paramref name="id"/> stands in.
+    /// </summary>
+    protected static JsonObject WithId(JsonObject live, string id)
+    {
+        ArgumentNullException.ThrowIfNull(live);
+        if (JsonObjects.GetId(live) is not null)
+        {
+            return live;
+        }
+
+        var copy = (JsonObject)JsonValues.Clone(live)!;
+        copy["id"] = id;
+        return copy;
     }
 
     /// <summary>Removes the named properties (any casing) from a request body.</summary>

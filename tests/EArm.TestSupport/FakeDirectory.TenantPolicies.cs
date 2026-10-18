@@ -20,7 +20,8 @@ public sealed partial class FakeDirectory
         string[] segments = PolicySegments(path);
         return TryHandleGroupLifecyclePolicies(method, segments, query, body, hint, pageSize, out result)
             || TryHandlePolicyAssignments(method, segments, query, body, hint, pageSize, out result)
-            || TryHandleDefaultAppManagementPolicy(method, segments, body, hint, out result);
+            || TryHandleDefaultAppManagementPolicy(method, segments, body, hint, out result)
+            || TryHandleCrossTenantAccess(method, segments, query, body, hint, pageSize, out result);
     }
 
     /// <summary>The path segments after the API version, without query.</summary>

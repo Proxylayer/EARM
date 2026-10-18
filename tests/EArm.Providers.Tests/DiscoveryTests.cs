@@ -34,6 +34,8 @@ public sealed class DiscoveryTests
     [InlineData("Microsoft.Entra/conditionalAccess/authenticationContextClassReferences", typeof(AuthenticationContextClassReferencesProvider))]
     [InlineData("Microsoft.Entra/authenticationMethodConfigurations", typeof(AuthenticationMethodConfigurationsProvider))]
     [InlineData("Microsoft.Entra/groupLifecyclePolicies", typeof(GroupLifecyclePoliciesProvider))]
+    [InlineData("Microsoft.Entra/policies/crossTenantAccessPolicy/partners", typeof(CrossTenantAccessPartnersProvider))]
+    [InlineData("Microsoft.Entra/policies/crossTenantAccessPolicy", typeof(CrossTenantAccessPolicyProvider))]
     [InlineData("Microsoft.Entra/policies/defaultAppManagementPolicy", typeof(DefaultAppManagementPolicyProvider))]
     [InlineData("Microsoft.Entra/policies/appManagementPolicies", typeof(AppManagementPoliciesProvider))]
     [InlineData("Microsoft.Entra/policies/claimsMappingPolicies", typeof(ClaimsMappingPoliciesProvider))]

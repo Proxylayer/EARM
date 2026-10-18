@@ -7,7 +7,8 @@
   "parameters": {
     "groupLifetimeInDays": { "type": "int", "defaultValue": 180, "metadata": { "description": "Days until a governed Microsoft 365 group expires unless renewed." } },
     "expiryNotificationEmails": { "type": "string", "metadata": { "description": "Semicolon-separated addresses notified about groups without owners." } },
-    "accessTokenLifetime": { "type": "string", "defaultValue": "02:00:00", "metadata": { "description": "Access token lifetime of the portal (10 minutes to 1 day, hh:mm:ss)." } }
+    "accessTokenLifetime": { "type": "string", "defaultValue": "02:00:00", "metadata": { "description": "Access token lifetime of the portal (10 minutes to 1 day, hh:mm:ss)." } },
+    "partnerTenantId": { "type": "string", "metadata": { "description": "Tenant id of the partner organization whose MFA and compliant devices are trusted." } }
   },
   "resources": [
     {
@@ -102,6 +103,29 @@
           "passwordCredentials": [
             { "restrictionType": "passwordLifetime", "state": "enabled", "maxLifetime": "P30D", "restrictForAppsCreatedAfterDateTime": "2025-01-01T00:00:00Z" }
           ]
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Entra/policies/crossTenantAccessPolicy",
+      "apiVersion": "2026-10-01-preview",
+      "name": "default",
+      "properties": {
+        "b2bDirectConnectOutbound": {
+          "usersAndGroups": { "accessType": "blocked", "targets": [ { "target": "AllUsers", "targetType": "user" } ] }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Entra/policies/crossTenantAccessPolicy/partners",
+      "apiVersion": "2026-10-01-preview",
+      "name": "[parameters('partnerTenantId')]",
+      "properties": {
+        "inboundTrust": { "isMfaAccepted": true, "isCompliantDeviceAccepted": true, "isHybridAzureADJoinedDeviceAccepted": false },
+        "automaticUserConsentSettings": { "inboundAllowed": true, "outboundAllowed": true },
+        "b2bCollaborationInbound": {
+          "usersAndGroups": { "accessType": "allowed", "targets": [ { "target": "AllUsers", "targetType": "user" } ] },
+          "applications": { "accessType": "allowed", "targets": [ { "target": "AllApplications", "targetType": "application" } ] }
         }
       }
     }

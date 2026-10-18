@@ -65,7 +65,7 @@ public abstract class SingletonPolicyProviderBase : TenantPolicyProviderBase, ID
         ArgumentNullException.ThrowIfNull(graph);
         RequireSingletonName(ProviderSupport.SingleKey(key, KeyProperty));
         var live = await graph.GetAsync(new GraphRequest(CollectionPath, key.Api), cancellationToken).ConfigureAwait(false) as JsonObject;
-        return live is null ? null : ToExisting(live);
+        return live is null ? null : ToExisting(WithId(live, SingletonName));
     }
 
     // ---- plan ----

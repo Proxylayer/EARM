@@ -744,6 +744,55 @@ $specs['policies.defaultAppManagementPolicy'] = [ordered]@{
     }
 }
 
+# --- policies/crossTenantAccessPolicy (default) and policies/crossTenantAccessPolicy/partners ------------------------
+$crossTenantTargets = { param($d) Obj -d $d -Props (Props ([ordered]@{
+    accessType = Str 'allowed or blocked.' -Enum 'allowed', 'blocked', 'unknownFutureValue'
+    targets    = Arr -d 'The users, groups or applications the access type applies to; AllUsers / AllApplications for everyone.' -Items (Obj '' -Required 'target' -Props (Props ([ordered]@{
+        target     = Str 'An object id or application id, or AllUsers / AllApplications / Office365.' -Min 1
+        targetType = Str 'user, group or application.' -Enum 'user', 'group', 'application', 'unknownFutureValue'
+    })))
+})) }
+$b2bSetting = { param($d) Obj -d $d -Nullable -Props (Props ([ordered]@{
+    usersAndGroups = & $crossTenantTargets 'The users and groups.'
+    applications   = & $crossTenantTargets 'The applications.'
+})) }
+$crossTenantSettings = [ordered]@{
+    b2bCollaborationInbound  = & $b2bSetting 'B2B collaboration with users of the other tenant in this tenant. Undeclared members keep their live values.'
+    b2bCollaborationOutbound = & $b2bSetting 'B2B collaboration of this tenant''s users in the other tenant.'
+    b2bDirectConnectInbound  = & $b2bSetting 'B2B direct connect (Teams shared channels) inbound.'
+    b2bDirectConnectOutbound = & $b2bSetting 'B2B direct connect outbound.'
+    inboundTrust             = Obj -d 'Which claims of the other tenant Conditional Access trusts.' -Nullable -Props (Props ([ordered]@{
+        isMfaAccepted                       = Bool 'Trust MFA performed in the other tenant.'
+        isCompliantDeviceAccepted           = Bool 'Trust compliant device claims.'
+        isHybridAzureADJoinedDeviceAccepted = Bool 'Trust Microsoft Entra hybrid joined device claims.'
+    }))
+    tenantRestrictions       = FreeObj 'Tenant restrictions (usersAndGroups, applications, devices).' -Nullable
+    invitationRedemptionIdentityProviderConfiguration = FreeObj 'The identity providers guests redeem invitations with, in order.' -Nullable
+}
+
+$defaultSettings = [ordered]@{}
+foreach ($key in $crossTenantSettings.Keys) { $defaultSettings[$key] = $crossTenantSettings[$key] }
+$specs['policies.crossTenantAccessPolicy'] = [ordered]@{
+    NamePattern = '^(?i:default)$'
+    Description = 'The default cross-tenant access configuration (crossTenantAccessPolicyConfigurationDefault): the settings every partner without its own configuration inherits. A singleton named default: updated with PATCH (every declared setting object is sent whole, its undeclared members kept from the live object), never created; deployment delete resets it to the Microsoft service defaults (resetToSystemDefault). isServiceDefault and automaticUserConsentSettings are read-only here.'
+    Props       = $defaultSettings
+}
+
+$partnerSettings = [ordered]@{
+    tenantId          = Str 'Set from the resource name (the partner''s tenant id); declaring it is only allowed when it equals the name.' -Pattern $script:GuidPattern
+    isServiceProvider = Bool 'Whether the partner is a cloud service provider for this tenant.'
+    automaticUserConsentSettings = Obj -d 'Automatic redemption of invitations (consent prompts suppressed).' -Nullable -Props (Props ([ordered]@{
+        inboundAllowed  = Bool 'Suppress the consent prompt for the partner''s users in this tenant.'
+        outboundAllowed = Bool 'Suppress the consent prompt for this tenant''s users in the partner tenant.'
+    }))
+}
+foreach ($key in $crossTenantSettings.Keys) { if ($key -ne 'invitationRedemptionIdentityProviderConfiguration') { $partnerSettings[$key] = $crossTenantSettings[$key] } }
+$specs['policies.crossTenantAccessPolicy.partners'] = [ordered]@{
+    NamePattern = $script:GuidPattern
+    Description = 'A partner-specific cross-tenant access configuration (crossTenantAccessPolicyConfigurationPartner). The resource name is the partner''s tenant id. A setting left null inherits the default configuration. Created with POST, updated with PATCH (declared setting objects sent whole, undeclared members kept), deleted with DELETE (refused by Graph while a user synchronization policy exists). isInMultiTenantOrganization is set by the multitenant organization.'
+    Props       = $partnerSettings
+}
+
 # --- roleEligibilityScheduleRequests (PIM eligibility, ARM-styled) ------------------------------------------------
 $specs['roleEligibilityScheduleRequests'] = [ordered]@{
     NamePattern = $script:GuidPattern
