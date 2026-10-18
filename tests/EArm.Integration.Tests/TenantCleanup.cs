@@ -36,6 +36,7 @@ internal sealed partial class TenantCleanup
     private const string StrengthsPath = "/policies/authenticationStrengthPolicies";
     private const string ContextsPath = "/identity/conditionalAccess/authenticationContextClassReferences";
     private const string NamedLocationsPath = "/identity/conditionalAccess/namedLocations";
+    private const string AccessReviewsPath = "/identityGovernance/accessReviews/definitions";
 
     private readonly IGraphClient _graph;
     private readonly string _prefix;
@@ -46,6 +47,7 @@ internal sealed partial class TenantCleanup
 
     private readonly bool _includePim;
     private readonly bool _includeAccessPackages;
+    private readonly bool _includeAccessReviews;
 
     /// <param name="graph">The fixture's Graph client.</param>
     /// <param name="prefix">The run prefix; only objects whose name starts with it are touched.</param>
@@ -54,7 +56,8 @@ internal sealed partial class TenantCleanup
     /// PIM scopes only then.
     /// </param>
     /// <param name="includeAccessPackages">True (<c>EARM_IT_ALLOW_ACCESS_PACKAGES=1</c>): the prefixed entitlement management catalogs are removed with their contents before the groups (<see cref="AccessPackageCleanup"/>).</param>
-    public TenantCleanup(IGraphClient graph, string prefix, bool includePim = false, bool includeAccessPackages = false)
+    /// <param name="includeAccessReviews">True (<c>EARM_IT_ALLOW_ACCESS_REVIEWS=1</c>): the prefixed access review definitions are removed before the groups they review.</param>
+    public TenantCleanup(IGraphClient graph, string prefix, bool includePim = false, bool includeAccessPackages = false, bool includeAccessReviews = false)
     {
         ArgumentNullException.ThrowIfNull(graph);
         if (!IntegrationSettings.IsValidPrefix(prefix))
@@ -66,6 +69,7 @@ internal sealed partial class TenantCleanup
         _prefix = prefix;
         _includePim = includePim;
         _includeAccessPackages = includeAccessPackages;
+        _includeAccessReviews = includeAccessReviews;
     }
 
     /// <summary>What the sweep did, one line per action.</summary>
@@ -109,6 +113,15 @@ internal sealed partial class TenantCleanup
             foreach (string leftover in accessPackages.Leftovers)
             {
                 Leftover(leftover, null);
+            }
+        }
+
+        // Access reviews before groups: a definition's scope and reviewer queries name the group. The list has no displayName filter (Learn: contains on the scope only).
+        if (_includeAccessReviews)
+        {
+            foreach (var review in await ListOwnedAsync("access review", AccessReviewsPath, null, cancellationToken))
+            {
+                await DeleteOwnedAsync("access review", AccessReviewsPath, review, cancellationToken);
             }
         }
 

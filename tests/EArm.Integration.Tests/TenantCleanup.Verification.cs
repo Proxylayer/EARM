@@ -30,6 +30,11 @@ internal sealed partial class TenantCleanup
         Add("authentication strength", StrengthsPath, await ListOwnedStrengthsAsync(cancellationToken));
         Add("authentication context", ContextsPath, (await ListOwnedAsync("authentication context", ContextsPath, null, cancellationToken)).Where(c => IsAllocatableContextId(c.Text("id"))));
         Add("named location", NamedLocationsPath, await ListOwnedAsync("named location", NamedLocationsPath, null, cancellationToken));
+        if (_includeAccessReviews)
+        {
+            Add("access review", AccessReviewsPath, await ListOwnedAsync("access review", AccessReviewsPath, null, cancellationToken));
+        }
+
         Add("application", "/applications", await ListOwnedAsync("application", "/applications", "displayName", cancellationToken));
         Add("service principal", "/servicePrincipals", await ListOwnedAsync("service principal", "/servicePrincipals", "displayName", cancellationToken));
         Add("group", "/groups", await ListOwnedAsync("group", "/groups", "displayName", cancellationToken));

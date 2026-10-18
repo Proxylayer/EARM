@@ -339,6 +339,11 @@ public sealed partial class FakeDirectory
                     principalId => Collection("/servicePrincipals").FirstOrDefault(p => ValueEquals(GetString(p, "id"), principalId)));
             }
 
+            if (TryHandleAccessReviews(method, path, query, body, hint, pageSize, out var reviewResult))
+            {
+                return reviewResult;
+            }
+
             if (TryHandleTenantPolicies(method, path, query, body, hint, pageSize, out var policyResult))
             {
                 return policyResult;

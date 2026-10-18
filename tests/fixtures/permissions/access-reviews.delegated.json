@@ -1,0 +1,83 @@
+{
+  "template": "samples/access-reviews.entra.json",
+  "mode": "delegated",
+  "resourceCount": 6,
+  "permissions": [
+    {
+      "name": "AccessReview.ReadWrite.All",
+      "kind": "graphDelegated",
+      "resources": [
+        "/providers/Microsoft.Entra/accessReviews/definitions/Quarterly review of Sales EMEA Team Access assignments",
+        "/providers/Microsoft.Entra/accessReviews/definitions/Quarterly review of Team Sales EMEA members"
+      ],
+      "reasons": [
+        "provider"
+      ]
+    },
+    {
+      "name": "EntitlementManagement.ReadWrite.All",
+      "kind": "graphDelegated",
+      "resources": [
+        "/providers/Microsoft.Entra/entitlementManagement/accessPackages/Sales EMEA Team Access",
+        "/providers/Microsoft.Entra/entitlementManagement/catalogs/Team Access"
+      ],
+      "reasons": [
+        "provider"
+      ]
+    },
+    {
+      "name": "Group.ReadWrite.All",
+      "kind": "graphDelegated",
+      "resources": [
+        "/providers/Microsoft.Entra/groups/team-access-reviewers",
+        "/providers/Microsoft.Entra/groups/team-sales-emea"
+      ],
+      "reasons": [
+        "provider"
+      ]
+    }
+  ],
+  "entraRoles": [
+    {
+      "anyOf": [
+        "Groups Administrator"
+      ],
+      "resources": [
+        "/providers/Microsoft.Entra/groups/team-access-reviewers",
+        "/providers/Microsoft.Entra/groups/team-sales-emea"
+      ],
+      "reasons": [
+        "provider"
+      ]
+    },
+    {
+      "anyOf": [
+        "Identity Governance Administrator"
+      ],
+      "resources": [
+        "/providers/Microsoft.Entra/entitlementManagement/accessPackages/Sales EMEA Team Access",
+        "/providers/Microsoft.Entra/entitlementManagement/catalogs/Team Access"
+      ],
+      "reasons": [
+        "provider"
+      ]
+    },
+    {
+      "anyOf": [
+        "Identity Governance Administrator",
+        "User Administrator"
+      ],
+      "resources": [
+        "/providers/Microsoft.Entra/accessReviews/definitions/Quarterly review of Sales EMEA Team Access assignments",
+        "/providers/Microsoft.Entra/accessReviews/definitions/Quarterly review of Team Sales EMEA members"
+      ],
+      "reasons": [
+        "provider"
+      ]
+    }
+  ],
+  "notes": [
+    "Delegated scopes must be present on the token that earm auth login obtains (the app registration of --client-id needs them as delegated permissions); the signed-in user must additionally hold at least one role of every 'Entra roles' group (the roles are alternatives).",
+    "Edge permissions are listed for every relationship property the template declares (including an empty array, which removes edges). Key Vault access is an Azure RBAC / access-policy requirement of the signed-in identity, not a Graph permission."
+  ]
+}

@@ -135,6 +135,7 @@ public sealed class IntegrationFixture : IAsyncLifetime
         Assert.SkipUnless(!needs.HasFlag(Needs.AccessPackages) || Settings.AllowAccessPackages, $"{IntegrationSettings.AllowAccessPackagesVariable}=1 is required to write entitlement management objects (prefixed catalogs, access packages and policies; the tenant needs Microsoft Entra ID P2 or ID Governance and the signed-in identity Identity Governance Administrator, active).");
         Assert.SkipUnless(!needs.HasFlag(Needs.AppManagement) || Settings.AllowAppManagement, $"{IntegrationSettings.AllowAppManagementVariable}=1 is required to change the tenant default app management policy (its description only; snapshot first, restored at the end).");
         Assert.SkipUnless(!needs.HasFlag(Needs.CrossTenant) || Settings.AllowCrossTenant, $"{IntegrationSettings.AllowCrossTenantVariable}=1 is required to change the tenant's cross-tenant access settings (one inbound trust toggle, snapshot first and restored; a partner configuration for {IntegrationSettings.PartnerTenantVariable}).");
+        Assert.SkipUnless(!needs.HasFlag(Needs.AccessReviews) || Settings.AllowAccessReviews, $"{IntegrationSettings.AllowAccessReviewsVariable}=1 is required to write standalone access reviews (prefixed definitions of prefixed groups; the tenant needs Microsoft Entra ID Governance or P2 and the signed-in identity Identity Governance Administrator or User Administrator, active).");
         Assert.SkipUnless(!needs.HasFlag(Needs.GroupLifecycle) || Settings.AllowGroupLifecycle, $"{IntegrationSettings.AllowGroupLifecycleVariable}=1 is required to write the tenant's group expiration policy (created and deleted only when the tenant has none).");
         Assert.SkipUnless(
             !needs.HasFlag(Needs.SharePointSite) || (Settings.SharePointSiteUrl is not null && Settings.SharePointSiteRole is not null),
@@ -382,7 +383,7 @@ public sealed class IntegrationFixture : IAsyncLifetime
 
         // The prefix sweep removes everything the runs created (every test object carries the run prefix), also what a failed
         // 'deployment delete' left behind and everything tests created directly.
-        var cleanup = new TenantCleanup(_graph, Prefix, includePim: Settings.AllowPim, includeAccessPackages: Settings.AllowAccessPackages);
+        var cleanup = new TenantCleanup(_graph, Prefix, includePim: Settings.AllowPim, includeAccessPackages: Settings.AllowAccessPackages, includeAccessReviews: Settings.AllowAccessReviews);
         try
         {
             await cleanup.SweepAsync(_trackedPaths.ToArray(), cancellationToken);

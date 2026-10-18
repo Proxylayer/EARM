@@ -114,6 +114,7 @@ internal static class IntegrationScopes
         new("app-management.entra.json", Needs.AppManagement, With(("defaultDescription", "placeholder"))),
         new("cross-tenant.entra.json", Needs.CrossTenant, With(("partnerTenantId", PlaceholderGuid1), ("hybridJoinAccepted", "false"))),
         new("group-lifecycle.entra.json", Needs.GroupLifecycle, Empty()),
+        new("access-reviews.entra.json", Needs.AccessReviews, Empty()),
         new("access-packages-app.entra.json", Needs.AccessPackages, Empty()),
         new("access-packages-site.entra.json", Needs.AccessPackages | Needs.SharePointSite, With(("siteUrl", "https://contoso.sharepoint.com/sites/example"), ("siteRole", "Example Members"))),
     ];
@@ -175,6 +176,12 @@ internal static class IntegrationScopes
         if (settings.AllowGroupLifecycle)
         {
             names.Add("Directory.ReadWrite.All");
+        }
+
+        if (settings.AllowAccessReviews)
+        {
+            // The prefix sweep lists and deletes prefixed access review definitions (TenantCleanup).
+            names.Add("AccessReview.ReadWrite.All");
         }
 
         foreach (var template in Enabled(settings))

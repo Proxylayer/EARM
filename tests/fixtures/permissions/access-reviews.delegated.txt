@@ -1,0 +1,32 @@
+Permissions required by samples/access-reviews.entra.json (mode: delegated, 6 resource(s))
+
+Microsoft Graph delegated permissions
+  AccessReview.ReadWrite.All
+      /providers/Microsoft.Entra/accessReviews/definitions/Quarterly review of Sales EMEA Team Access assignments
+      /providers/Microsoft.Entra/accessReviews/definitions/Quarterly review of Team Sales EMEA members
+      (provider)
+  EntitlementManagement.ReadWrite.All
+      /providers/Microsoft.Entra/entitlementManagement/accessPackages/Sales EMEA Team Access
+      /providers/Microsoft.Entra/entitlementManagement/catalogs/Team Access
+      (provider)
+  Group.ReadWrite.All
+      /providers/Microsoft.Entra/groups/team-access-reviewers
+      /providers/Microsoft.Entra/groups/team-sales-emea
+      (provider)
+
+Entra roles (the signed-in user needs at least one role of each group)
+  Groups Administrator
+      /providers/Microsoft.Entra/groups/team-access-reviewers
+      /providers/Microsoft.Entra/groups/team-sales-emea
+      (provider)
+  Identity Governance Administrator
+      /providers/Microsoft.Entra/entitlementManagement/accessPackages/Sales EMEA Team Access
+      /providers/Microsoft.Entra/entitlementManagement/catalogs/Team Access
+      (provider)
+  Identity Governance Administrator | User Administrator
+      /providers/Microsoft.Entra/accessReviews/definitions/Quarterly review of Sales EMEA Team Access assignments
+      /providers/Microsoft.Entra/accessReviews/definitions/Quarterly review of Team Sales EMEA members
+      (provider)
+
+note: Delegated scopes must be present on the token that earm auth login obtains (the app registration of --client-id needs them as delegated permissions); the signed-in user must additionally hold at least one role of every 'Entra roles' group (the roles are alternatives).
+note: Edge permissions are listed for every relationship property the template declares (including an empty array, which removes edges). Key Vault access is an Azure RBAC / access-policy requirement of the signed-in identity, not a Graph permission.

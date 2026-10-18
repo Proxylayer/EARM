@@ -39,6 +39,7 @@ public sealed class PermissionsGoldenTests
             ("privileged-access", "privileged-access"),
             ("access-packages", "access-packages"),
             ("access-packages-apps-sites", "access-packages-apps-sites"),
+            ("access-reviews", "access-reviews"),
         ];
         foreach (var (sample, parameters) in samples)
         {

@@ -111,6 +111,7 @@ Four kinds of tests live here:
 | `EARM_IT_ALLOW_CROSS_TENANT` | `=1` | Required for the cross-tenant part of `TenantPolicyScenarioTests`: one `inboundTrust.isHybridAzureADJoinedDeviceAccepted` toggle of the **tenant-wide** default cross-tenant access configuration, snapshotted and restored like the app management policy, and a partner configuration for `EARM_IT_PARTNER_TENANT` (skipped when that variable is unset or the partner already has a configuration, which is never touched). Adds `Policy.ReadWrite.CrossTenantAccess`. |
 | `EARM_IT_PARTNER_TENANT` | with `ALLOW_CROSS_TENANT` | The tenant id of a real other tenant for the partner configuration scenario. |
 | `EARM_IT_ALLOW_GROUP_LIFECYCLE` | `=1` | Required for the group expiration part of `TenantPolicyScenarioTests`. The tenant has one group expiration policy: the test creates a `Selected` policy (and a prefixed Microsoft 365 group in it) only when the tenant has **none**, and deletes it again; an existing policy is only compared by a what-if. Adds `Directory.ReadWrite.All`. |
+| `EARM_IT_ALLOW_ACCESS_REVIEWS` | `=1` | Required for `AccessReviewScenarioTests`: a prefixed standalone access review (`Microsoft.Entra/accessReviews/definitions`) of a prefixed group's members, reviewed by a second prefixed group, created, changed and deleted; nothing tenant-wide. The tenant needs Microsoft Entra ID Governance or P2 and the signed-in identity an **active** Identity Governance Administrator or User Administrator. The prefix sweep removes prefixed definitions before the groups. Adds `AccessReview.ReadWrite.All`. |
 | `EARM_IT_SP_SITE_URL`, `EARM_IT_SP_SITE_ROLE` | a site URL; one of its group names (`Team Members`) | Required (with `EARM_IT_ALLOW_ACCESS_PACKAGES`) for the SharePoint Online site test of `AccessPackageResourceKindScenarioTests`: the existing site is added to a prefixed catalog, its group granted by a package, then removed; the site is never changed. Run it signed in as a user who is a SharePoint Administrator or an administrator of the site (Graph lists sites in a catalog only to delegated callers). |
 | `EARM_IT_SWEEP` | `=1` | Enables `It_Cleanup_ManualSweepOfTheConfiguredPrefix` (see Manual cleanup). |
 | `EARM_IT_INTERACTIVE` | `=1` | A person is at the machine: a user sign-in that lacks consent for the run's scopes may open ONE browser consent prompt at the start. Off: the run skips with the `earm auth login --scopes ...` command. Never set it in CI. |
@@ -127,6 +128,7 @@ $env:EARM_IT_ALLOW_PIM = '1'       # optional: needs Entra ID P2 / ID Governance
 $env:EARM_IT_ALLOW_AUTH_METHODS = '1'   # optional: tenant-wide policy, snapshot + restore
 $env:EARM_IT_ALLOW_PIM_POLICIES = '1'   # optional, with ALLOW_PIM: tenant-wide PIM policies, snapshot + restore
 $env:EARM_IT_ALLOW_ACCESS_PACKAGES = '1'  # optional: prefixed catalogs, access packages and policies (ID Governance)
+$env:EARM_IT_ALLOW_ACCESS_REVIEWS = '1'   # optional: a prefixed standalone access review (ID Governance)
 
 pwsh -File build.ps1 -Target EArm.Integration.Tests                                   # compile only
 pwsh -File test.ps1 -Target EArm.Integration.Tests                                    # everything that is enabled
@@ -163,6 +165,7 @@ and run sequentially: they share the sign-in and the cleanup guard, and the in-p
 | `It_AuthMethods_SafeToggleRoundTripUnderTheRestoreGuard` | `ALLOW_AUTH_METHODS` |
 | `It_PimPolicy_DirectoryRolePolicyModifyRerunNoChangeKeptOnDeleteAndRestored` | `ALLOW_PIM`, `ALLOW_PIM_POLICIES` |
 | `It_PimPolicy_GroupPolicyWithSameRunEligibilityConvergesInTwoRunsAndIsKeptOnDelete` | `DOMAIN`, `ALLOW_PIM`, `ALLOW_PIM_POLICIES` |
+| `It_AccessReviews_DefinitionRoundTrip_MergedPut_AndImmutableScope` | `ALLOW_ACCESS_REVIEWS` |
 | `It_Cleanup_SweepRemovesTrackedGroupWithThePrefix` | - |
 | `It_Cleanup_ManualSweepOfTheConfiguredPrefix` | `SWEEP=1` |
 | `It_Probe_A` ... `It_Probe_H` (15 probes) | A, B1, B2, B3, D, F1-F4, G: -; B4: `DOMAIN`; C, E1, E2: `ALLOW_CA`; H: `DOMAIN`, `ALLOW_ROLES` |

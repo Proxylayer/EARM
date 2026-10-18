@@ -1,0 +1,63 @@
+{
+  "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "A prefixed standalone access review of a prefixed group's members, reviewed by the members of a second prefixed group. scopeGroup picks which group is reviewed (a change is refused: scope is immutable); the start date is sent as a timestamp, which Graph serves back date-only."
+  },
+  "parameters": {
+    "prefix": { "type": "string" },
+    "scopeGroup": { "type": "string", "defaultValue": "team", "allowedValues": [ "team", "reviewers" ] },
+    "instanceDurationInDays": { "type": "int", "defaultValue": 14 },
+    "startDate": { "type": "string", "defaultValue": "2030-01-07T00:00:00Z" }
+  },
+  "variables": {
+    "teamName": "[format('{0}-arv-team', parameters('prefix'))]",
+    "reviewersName": "[format('{0}-arv-reviewers', parameters('prefix'))]",
+    "scopeGroupName": "[format('{0}-arv-{1}', parameters('prefix'), parameters('scopeGroup'))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01-preview", "name": "[variables('teamName')]",
+      "properties": { "displayName": "[variables('teamName')]", "mailEnabled": false, "mailNickname": "[variables('teamName')]", "securityEnabled": true }
+    },
+    {
+      "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01-preview", "name": "[variables('reviewersName')]",
+      "properties": { "displayName": "[variables('reviewersName')]", "mailEnabled": false, "mailNickname": "[variables('reviewersName')]", "securityEnabled": true }
+    },
+    {
+      "type": "Microsoft.Entra/accessReviews/definitions", "apiVersion": "2026-10-01-preview",
+      "name": "[format('{0}-arv-members', parameters('prefix'))]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Entra/groups', variables('teamName'))]"
+      ],
+      "properties": {
+        "descriptionForAdmins": "EARM integration test review; safe to delete.",
+        "descriptionForReviewers": "EARM integration test review; no action needed.",
+        "scope": {
+          "@odata.type": "#microsoft.graph.accessReviewQueryScope",
+          "query": "[format('/groups/{0}/transitiveMembers', reference(resourceId('Microsoft.Entra/groups', variables('scopeGroupName'))).id)]",
+          "queryType": "MicrosoftGraph"
+        },
+        "reviewers": [
+          { "query": "[format('/groups/{0}/transitiveMembers', reference(resourceId('Microsoft.Entra/groups', variables('reviewersName'))).id)]", "queryType": "MicrosoftGraph" }
+        ],
+        "settings": {
+          "mailNotificationsEnabled": false,
+          "reminderNotificationsEnabled": false,
+          "justificationRequiredOnApproval": true,
+          "defaultDecisionEnabled": false,
+          "instanceDurationInDays": "[parameters('instanceDurationInDays')]",
+          "autoApplyDecisionsEnabled": false,
+          "recommendationsEnabled": false,
+          "recurrence": {
+            "pattern": { "type": "absoluteMonthly", "interval": 3 },
+            "range": { "type": "noEnd", "startDate": "[parameters('startDate')]" }
+          }
+        }
+      }
+    }
+  ],
+  "outputs": {
+    "reviewId": { "type": "string", "value": "[reference(resourceId('Microsoft.Entra/accessReviews/definitions', format('{0}-arv-members', parameters('prefix')))).id]" }
+  }
+}

@@ -66,6 +66,12 @@ internal enum Needs
     /// a catalog only to delegated callers, so the run must be a user sign-in (SharePoint Administrator or site administrator).
     /// </summary>
     SharePointSite = 1024,
+
+    /// <summary>
+    /// Standalone access reviews may be written (<c>EARM_IT_ALLOW_ACCESS_REVIEWS=1</c>): prefixed access review definitions of prefixed groups, created and
+    /// deleted (the tenant needs Microsoft Entra ID Governance or P2; the signed-in identity Identity Governance Administrator or User Administrator).
+    /// </summary>
+    AccessReviews = 2048,
 }
 
 /// <summary>
@@ -86,6 +92,7 @@ internal sealed record IntegrationSettings
     public const string AllowAppManagementVariable = "EARM_IT_ALLOW_APP_MANAGEMENT";
     public const string AllowCrossTenantVariable = "EARM_IT_ALLOW_CROSS_TENANT";
     public const string AllowGroupLifecycleVariable = "EARM_IT_ALLOW_GROUP_LIFECYCLE";
+    public const string AllowAccessReviewsVariable = "EARM_IT_ALLOW_ACCESS_REVIEWS";
     public const string PartnerTenantVariable = "EARM_IT_PARTNER_TENANT";
     public const string SharePointSiteUrlVariable = "EARM_IT_SP_SITE_URL";
     public const string SharePointSiteRoleVariable = "EARM_IT_SP_SITE_ROLE";
@@ -137,6 +144,9 @@ internal sealed record IntegrationSettings
     /// <summary><c>EARM_IT_ALLOW_GROUP_LIFECYCLE=1</c>: a Selected group expiration policy, only in a tenant that has none.</summary>
     public bool AllowGroupLifecycle { get; init; }
 
+    /// <summary><c>EARM_IT_ALLOW_ACCESS_REVIEWS=1</c>: prefixed standalone access review definitions (ID Governance).</summary>
+    public bool AllowAccessReviews { get; init; }
+
     /// <summary><c>EARM_IT_PARTNER_TENANT</c>: the tenant id of a real other tenant for the partner configuration scenario, or null.</summary>
     public string? PartnerTenant { get; init; }
 
@@ -171,6 +181,7 @@ internal sealed record IntegrationSettings
             && (!needs.HasFlag(Needs.AppManagement) || AllowAppManagement)
             && (!needs.HasFlag(Needs.CrossTenant) || AllowCrossTenant)
             && (!needs.HasFlag(Needs.GroupLifecycle) || AllowGroupLifecycle)
+            && (!needs.HasFlag(Needs.AccessReviews) || AllowAccessReviews)
             && (!needs.HasFlag(Needs.SharePointSite) || (SharePointSiteUrl is not null && SharePointSiteRole is not null));
     }
 
@@ -205,6 +216,7 @@ internal sealed record IntegrationSettings
             AllowAppManagement = IsOn(AllowAppManagementVariable),
             AllowCrossTenant = IsOn(AllowCrossTenantVariable),
             AllowGroupLifecycle = IsOn(AllowGroupLifecycleVariable),
+            AllowAccessReviews = IsOn(AllowAccessReviewsVariable),
             PartnerTenant = Read(PartnerTenantVariable),
             SharePointSiteUrl = Read(SharePointSiteUrlVariable),
             SharePointSiteRole = Read(SharePointSiteRoleVariable),
