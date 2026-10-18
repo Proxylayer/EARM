@@ -65,15 +65,6 @@ public static class RunScopes
     /// </summary>
     public const string SignIn = "User.Read";
 
-    /// <summary>
-    /// Read variants that do not exist as Graph scopes, and the scope that reads the same data. <c>AppRoleAssignment.Read.All</c> is not a
-    /// permission: app role assignments are read with <c>Application.Read.All</c> (Learn: serviceprincipal-list-approleassignedto).
-    /// </summary>
-    private static readonly Dictionary<string, string> ReadSubstitutes = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ["AppRoleAssignment.Read.All"] = "Application.Read.All",
-    };
-
     /// <summary>Validates and expands <paramref name="document"/> offline, then computes the run's scopes.</summary>
     /// <exception cref="InvalidOperationException">The template has validation or expansion errors (run <see cref="OfflineTemplateExpansion"/> to get them).</exception>
     public static RunScopeSet Compute(TemplateDocument document, ProviderRegistry registry, RunVerb verb, ResourceTypeCatalog? catalog = null)
@@ -132,12 +123,6 @@ public static class RunScopes
 
         public void Add(string name, IEnumerable<string> resources, IEnumerable<string> reasons)
         {
-            if (ReadSubstitutes.TryGetValue(name, out string? substitute))
-            {
-                reasons = reasons.Select(r => r + " (" + name + " is not a scope)").ToList();
-                name = substitute;
-            }
-
             if (!_items.TryGetValue(name, out var entry))
             {
                 entry = (new SortedSet<string>(StringComparer.Ordinal), new SortedSet<string>(StringComparer.Ordinal));

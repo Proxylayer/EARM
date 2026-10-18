@@ -67,7 +67,7 @@ delegated list above, then:
 
 | Verb | Scopes |
 |---|---|
-| `whatif` | every scope folded to its read variant (`X.ReadWrite.Y` → `X.Read.Y`; `AppRoleAssignment.Read.All` is not a scope, so `Application.Read.All` stands in) |
+| `whatif` | every scope folded to its read variant (`X.ReadWrite.Y` → `X.Read.Y`; `AppRoleAssignment.ReadWrite.All` and `Application.ReadWrite.OwnedBy` have no such read scope and fold to `Application.Read.All`) |
 | `create` | the delegated list as is |
 | `delete` | write for the permissions a declared type's provider asks for; edge and lookup permissions folded to reads (deleting an object removes its edges) |
 | `validate` | none (offline) |

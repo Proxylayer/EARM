@@ -25,6 +25,8 @@ public static class PermissionManifest
 
     internal const string OwnedBy = "Application.ReadWrite.OwnedBy";
 
+    private const string AppRoleAssignmentWrite = "AppRoleAssignment.ReadWrite.All";
+
     /// <summary>The reason of a languageVersion 2.0 <c>"existing": true</c> resource's read permissions (a lookup: a write grant of the family folds it away).</summary>
     private const string ExistingReason = "lookup: existing resource (\"existing\": true, read only)";
 
@@ -306,10 +308,15 @@ public static class PermissionManifest
             : permission;
     }
 
-    /// <summary>The read-level counterpart of a write permission (<c>X.ReadWrite.All</c> → <c>X.Read.All</c>), or the permission itself.</summary>
+    /// <summary>
+    /// The read-level counterpart of a write permission (<c>X.ReadWrite.All</c> → <c>X.Read.All</c>), or the permission itself. Two write permissions
+    /// have no such counterpart and read with <c>Application.Read.All</c>: <c>Application.ReadWrite.OwnedBy</c>, and
+    /// <c>AppRoleAssignment.ReadWrite.All</c> (there is no <c>AppRoleAssignment.Read.All</c>; Learn: serviceprincipal-list-approleassignedto lists
+    /// <c>Application.Read.All</c> as the least privileged permission, delegated and application).
+    /// </summary>
     public static string ReadVariant(string permission)
     {
-        if (permission.Equals(OwnedBy, StringComparison.OrdinalIgnoreCase))
+        if (permission.Equals(OwnedBy, StringComparison.OrdinalIgnoreCase) || permission.Equals(AppRoleAssignmentWrite, StringComparison.OrdinalIgnoreCase))
         {
             return "Application.Read.All";
         }

@@ -52,6 +52,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- `earm permissions` no longer lists the nonexistent `AppRoleAssignment.Read.All` for a `reference(id, apiVersion)` lookup of an app
+  role assignment: it lists `Application.Read.All`, the permission that reads app role assignments.
 - A request that times out (or is otherwise cancelled without Ctrl+C) no longer aborts the whole `what-if`: the resource whose read
   timed out is an error row and the rest of the what-if completes. The same holds for an existing-resource lookup (`reference(id,
   apiVersion)` stays a placeholder and is reported as unresolved), the orphan report (that type is not listed, with a warning), the

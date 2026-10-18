@@ -197,6 +197,27 @@ public sealed class PermissionManifestTests
         Assert.DoesNotContain(report.Permissions, p => p.Name.Contains("OwnedBy", StringComparison.Ordinal));
     }
 
+    [Theory]
+    [InlineData(PermissionMode.App)]
+    [InlineData(PermissionMode.Delegated)]
+    public void Build_ReferenceLookup_OfAnAppRoleAssignment_ReadsWithApplicationReadAll_NotANonexistentScope(PermissionMode mode)
+    {
+        var report = BuildEmpty(mode, ["[reference(resourceId('Microsoft.Entra/appRoleAssignments', '11111111-1111-1111-1111-111111111111'), '2026-10-01-preview').principalId]"]);
+
+        Assert.DoesNotContain(report.Permissions, p => p.Name.StartsWith("AppRoleAssignment.", StringComparison.Ordinal));
+        Assert.Contains(report.Permissions, p => p.Name == "Application.Read.All" && p.Reasons.Contains("lookup: existing resource"));
+    }
+
+    [Theory]
+    [InlineData("AppRoleAssignment.ReadWrite.All", "Application.Read.All")]
+    [InlineData("Application.ReadWrite.OwnedBy", "Application.Read.All")]
+    [InlineData("Group.ReadWrite.All", "Group.Read.All")]
+    [InlineData("Directory.Read.All", "Directory.Read.All")]
+    public void ReadVariant_MapsAWritePermissionToAScopeThatExists(string permission, string expected)
+    {
+        Assert.Equal(expected, PermissionManifest.ReadVariant(permission));
+    }
+
     [Fact]
     public void Build_NullArguments_AreRejected()
     {

@@ -260,7 +260,7 @@ public sealed class RunScopesTests
         var scopes = await OrdersAsync(RunVerb.WhatIf);
 
         Assert.DoesNotContain(scopes.GraphScopes, s => s.StartsWith("AppRoleAssignment.", StringComparison.OrdinalIgnoreCase));
-        Assert.Contains(scopes.Scopes.Single(s => s.Name == "Application.Read.All").Reasons, r => r.Contains("AppRoleAssignment.Read.All is not a scope", StringComparison.Ordinal));
+        Assert.Contains(scopes.Scopes.Single(s => s.Name == "Application.Read.All").Reasons, r => r.Contains("(read of AppRoleAssignment.ReadWrite.All)", StringComparison.Ordinal));
     }
 
     [Fact]
