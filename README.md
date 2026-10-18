@@ -36,7 +36,7 @@ needed in Azure operated by 21Vianet or in tenants that block the Microsoft app)
 
 Implemented (a working pre-release, see [Limitations](#limitations-v1) for what is deferred):
 
-- **35 resource types**: `applications`, `applications/federatedIdentityCredentials`, `applications/passwordCredentials`,
+- **36 resource types**: `applications`, `applications/federatedIdentityCredentials`, `applications/passwordCredentials`,
   `applications/keyCredentials` (certificates), `applications/extensionProperties` (directory extensions), `servicePrincipals`,
   `groups`, `users`, `appRoleAssignments`, `oauth2PermissionGrants`, `roleAssignments`, `roleDefinitions`, `administrativeUnits`,
   `conditionalAccess/policies`, `conditionalAccess/namedLocations`, `conditionalAccess/authenticationStrengths`,
@@ -50,7 +50,8 @@ Implemented (a working pre-release, see [Limitations](#limitations-v1) for what 
   declared rules managed, never created or deleted), and entitlement management (access packages, [docs/access-packages.md](docs/access-packages.md)):
   `entitlementManagement/catalogs`, `entitlementManagement/catalogResources` (a group, application or SharePoint Online site added to a catalog), `entitlementManagement/accessPackages`,
   `entitlementManagement/resourceRoleScopes` (the group role a package grants: Member, Owner, Eligible Member or Eligible Owner) and
-  `entitlementManagement/accessPackages/assignmentPolicies` (who may request, approval stages, expiration), and the tenant policies
+  `entitlementManagement/accessPackages/assignmentPolicies` (who may request, approval stages, expiration), `accessReviews/definitions`
+  (standalone access reviews of group members, access package assignments, application or role access), and the tenant policies
   `groupLifecyclePolicies` (group expiration), `policies/tokenLifetimePolicies`, `policies/claimsMappingPolicies`, `policies/appManagementPolicies`,
   `policies/defaultAppManagementPolicy`, `policies/crossTenantAccessPolicy` (the default configuration) and
   `policies/crossTenantAccessPolicy/partners` (all under `Microsoft.Entra/`).
@@ -206,6 +207,7 @@ declared resource **in the live tenant by a key derived from its type and `name`
 | `groupLifecyclePolicies`, `policies/defaultAppManagementPolicy`, `policies/crossTenantAccessPolicy` | `default` = the `name`; one per tenant (the expiration policy is found by listing its collection; the two `policies/…` singletons always exist and are never created) |
 | `policies/tokenLifetimePolicies`, `policies/claimsMappingPolicies`, `policies/appManagementPolicies` | `displayName` = the `name` (matched over the whole collection; duplicates are `AmbiguousMatch`) |
 | `policies/crossTenantAccessPolicy/partners` | the partner's `tenantId` = the `name` |
+| `accessReviews/definitions` | `displayName` = the `name` (matched over the whole collection; duplicates are `AmbiguousMatch`) |
 | `roleAssignments`, `roleEligibilityScheduleRequests`, `roleAssignmentScheduleRequests`, `privilegedAccess/groupEligibilityScheduleRequests`, `privilegedAccess/groupAssignmentScheduleRequests`, `appRoleAssignments`, `oauth2PermissionGrants` | their tuple (principal, role or resource or group, scope / access / consent type); the `guid(...)` `name` is only a label |
 | `roleManagementPolicies` | the policy assignment of (`scopeType`, `scopeId`, `roleDefinitionId`): a directory role, or a group's member / owner access; the `guid(...)` `name` is only a label; never created (a missing policy is `PimPolicyNotAvailable`) |
 | `conditionalAccess/policies`, `conditionalAccess/namedLocations`, `administrativeUnits`, custom `roleDefinitions`, custom `conditionalAccess/authenticationStrengths`, `entitlementManagement/catalogs`, `entitlementManagement/accessPackages` | `displayName` = the `name` |

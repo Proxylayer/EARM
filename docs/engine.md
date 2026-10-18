@@ -472,6 +472,7 @@ found = create.
 | `policies/defaultAppManagementPolicy`, `policies/crossTenantAccessPolicy` | the fixed path (`/policies/defaultAppManagementPolicy`, `/policies/crossTenantAccessPolicy/default`) | `default`; a tenant singleton: not found is an error, never a create |
 | `policies/tokenLifetimePolicies`, `policies/claimsMappingPolicies`, `policies/appManagementPolicies` | `displayName`, matched client-side over the whole collection (`AmbiguousMatch` on duplicates) | the display name |
 | `policies/crossTenantAccessPolicy/partners` | `tenantId` (`GET …/partners/{tenantId}`) | the partner's tenant id |
+| `accessReviews/definitions` | `displayName`, matched client-side over the whole collection (Learn documents `$filter` on this list only as `contains` on the scope query; `AmbiguousMatch` on duplicates) | the display name |
 | `roleAssignments` | (`roleDefinitionId`, `principalId`, `directoryScopeId`) | a label (`guid(...)`); not part of the identity |
 | `roleEligibilityScheduleRequests` | (`principalId`, `roleDefinitionId`, `directoryScopeId` or `appScopeId`), Direct eligibility schedules only | a label |
 | `roleAssignmentScheduleRequests` | (`principalId`, `roleDefinitionId`, `directoryScopeId` or `appScopeId`), Direct assignment schedules with `assignmentType` Assigned only (a permanent one is refused: `PimAssignmentConflict`) | a label |

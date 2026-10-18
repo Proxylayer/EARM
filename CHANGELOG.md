@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- `Microsoft.Entra/accessReviews/definitions`: standalone access reviews (Graph `accessReviewScheduleDefinition`) of group members, access
+  package assignments, application or role access. Keyed by `displayName` (the whole collection is matched client-side; duplicates are
+  `AmbiguousMatch`); only declared values are compared, and an update is a full `PUT` of the live definition with the declared values merged
+  in. `scope` and `instanceEnumerationScope` are immutable (a change is refused, never a replace), and a reviewer change is refused while the
+  reviewers are not all individual users, as Graph refuses it. Needs `AccessReview.ReadWrite.All` (`AccessReview.Read.All` for `what-if`).
+  New sample `samples/access-reviews.entra.json`; see docs/providers.md.
+
 ### Fixed
 
 - `Microsoft.Entra/entitlementManagement/resourceRoleScopes` declared in different access packages of one catalog that grant the same role

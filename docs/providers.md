@@ -854,6 +854,44 @@ Entra how-to configure-app-management-policies; resources/crosstenantaccesspolic
 -resettosystemdefault, crosstenantaccesspolicy-post-partners, crosstenantaccesspolicyconfigurationpartner-update / -delete. None of the tenant policy
 types has been run against a real tenant yet; `TenantPolicyScenarioTests` (gated, see tests/EArm.Integration.Tests/README.md) is written for that pass.
 
+### Worked example: access reviews (`AccessReviewDefinitionsProvider`)
+
+`Microsoft.Entra/accessReviews/definitions` manages standalone access reviews (accessReviewScheduleDefinition): the series that reviews a group's
+members, an access package's assignments, an application's users or a role's holders. It is a two-segment, top-level type like
+`conditionalAccess/policies` (`/providers/Microsoft.Entra/accessReviews/definitions/{displayName}`). The access reviews built into an access package
+assignment policy stay on that policy (`reviewSettings`); this type is for the reviews Graph keeps on their own.
+
+| Operation | Request |
+|---|---|
+| Read | `GET /identityGovernance/accessReviews/definitions` (every page), matched client-side and case-insensitively on `displayName`: Learn documents `$filter` on this list only as `contains` on `scope/microsoft.graph.accessReviewQueryScope/query`. More than one match is `AmbiguousMatch` |
+| Create | `POST /identityGovernance/accessReviews/definitions` (201, the object) |
+| Update | `GET …/{id}`, then a full-replace `PUT …/{id}` (204) of the live definition with the declared values merged in (`AccessReviewDefinitionShape.MergeForPut`: objects merge, a declared array replaces the live one, read-only members are dropped, only one of `fallbackReviewers` / its deprecated alias `backupReviewers` is sent) → `GET …/{id}`. Learn: the update applies to future instances only |
+| Delete | `DELETE …/{id}` (204; 404 = already gone). The instances and their decisions go with it (delete-risk note) |
+
+Comparison and refusals:
+
+- **Declared shape only.** The live definition is cut down to what the template declares before the shared diff (`AccessReviewDefinitionShape.ProjectLive`),
+  so the members Graph fills in (every recurrence field, a reviewer's `queryRoot: null`, undeclared settings) are not drift and an update keeps
+  them. Reviewer arrays compare as sets; a declared recurrence timestamp equals a live date of the same day.
+- **Immutable scope.** The update page accepts neither `scope` nor `instanceEnumerationScope` (overlay `immutable`); a change is refused with the
+  shared immutable-property message, never a replace, because a new review would lose the old one's instances and decisions.
+- **Reviewers.** Learn: `reviewers` "is only updatable if individual users are assigned as reviewers". A reviewer change is refused at plan time
+  while the live or the declared reviewers include anything but `/users/{id}` (a group, `./owners`, `./manager`); a deploy-time-unknown query is not judged.
+  `backupReviewers` and `fallbackReviewers` declared with different values are refused (Graph copies either into the other).
+- **Expressions.** Scope and reviewer queries are strings built with `format` / `concat` from `reference(...).id` of a group or access package in the
+  same template; the reference orders the review after its target (apply phase 6, after groups and access packages; deleted first). Documented query
+  forms (Learn: accessreviews-scope-concept): `/groups/{id}/transitiveMembers` (members, direct and nested), `/groups/{id}/members` (direct),
+  `/identityGovernance/entitlementManagement/accessPackageAssignments?$filter=(accessPackageId eq '{id}')` (assignments of a package; Learn's example
+  also filters on `assignmentPolicyId` and `catalogId`), `/roleManagement/directory/roleDefinitions/{id}` (a role's holders); reviewers `/users/{id}`,
+  `/groups/{id}/transitiveMembers`, `./owners`, `./manager` with `queryRoot: decisions`.
+- **Passed through.** `stageSettings` (multi-stage reviews) and `additionalNotificationRecipients` are sent as declared and compared like any
+  declared value; Graph updates only the stages' reviewers and fallback reviewers.
+- **Orphans.** Complete mode lists the whole collection.
+
+Sources (Graph v1.0 on Microsoft Learn): resources/accessreviewscheduledefinition, accessreviewset-list-definitions, accessreviewset-post-definitions,
+accessreviewscheduledefinition-update, accessreviewscheduledefinition-delete, resources/accessreviewschedulesettings, accessreviews-scope-concept.
+The type has not been run against a real tenant yet.
+
 ## Adding an edge kind
 
 Part B edge kinds (app role assignments, directory roles) live next to their standalone provider and
