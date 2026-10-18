@@ -1,3 +1,7 @@
+using System;
+using System.Collections.Concurrent;
+using System.Threading;
+using System.Threading.Tasks;
 using EArm.Engine.Planning.Nested;
 
 namespace EArm.Cli.Commands;
@@ -10,5 +14,38 @@ namespace EArm.Cli.Commands;
 /// </summary>
 internal static class LinkedTemplateDownloads
 {
-    public static LinkedTemplateReader Reader { get; } = new((uri, cancellationToken) => ParameterFileDownloader.Shared.DownloadAsync(uri, "linked file", cancellationToken));
+    /// <summary>Downloads every https link it is asked for (one offline expansion: <c>permissions</c>, <c>auth login -f</c>, <c>auth status -f</c>).</summary>
+    public static LinkedTemplateReader Reader { get; } = new(DownloadAsync);
+
+    /// <summary>
+    /// A reader for one deployment run: the run expands the template offline for its delegated scopes before sign-in, validates it and plans it, and
+    /// each step reads the same links; this reader downloads each https URL (query string included) once and serves the later reads from memory. A
+    /// failed download is not kept, so a later step tries again.
+    /// </summary>
+    public static LinkedTemplateReader ForRun()
+    {
+        return ForRun(DownloadAsync);
+    }
+
+    /// <summary><see cref="ForRun()"/> over <paramref name="download"/>.</summary>
+    internal static LinkedTemplateReader ForRun(Func<Uri, CancellationToken, Task<byte[]>> download)
+    {
+        ArgumentNullException.ThrowIfNull(download);
+        var downloaded = new ConcurrentDictionary<string, byte[]>(StringComparer.Ordinal);
+        return new LinkedTemplateReader(async (uri, cancellationToken) =>
+        {
+            if (downloaded.TryGetValue(uri.AbsoluteUri, out byte[]? content))
+            {
+                return content;
+            }
+
+            content = await download(uri, cancellationToken).ConfigureAwait(false);
+            return downloaded.GetOrAdd(uri.AbsoluteUri, content);
+        });
+    }
+
+    private static Task<byte[]> DownloadAsync(Uri uri, CancellationToken cancellationToken)
+    {
+        return ParameterFileDownloader.Shared.DownloadAsync(uri, "linked file", cancellationToken);
+    }
 }

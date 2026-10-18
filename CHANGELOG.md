@@ -37,6 +37,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - A plain `earm auth login` requests only `User.Read` (the base set no longer includes `Organization.Read.All`, which needs admin consent),
   so a user without an admin role can sign in. Signed-in runs no longer request `Organization.Read.All` for the preflight either: `User.Read`
   reads `GET /organization` (id, display name, verified domains). A template that calls `tenant()` still requests it, for `countryCode`.
+- `what-if`, `create` and `deployment delete` download an https linked template (or linked parameter file) once per run; the offline
+  expansion before sign-in, the validation and the plan used to download it again each.
 - Access package resource role scopes no longer count the package's delivered assignments on every read (one call per role scope in
   every what-if and create): the count is read only when a delete is planned (`deployment delete` and its preview, the delete half of a
   replacement), through the new `IDeleteWarningSource.DescribeDeleteRiskAsync` and `TemplateDeleter.FindDeclaredObjectsAsync`.
