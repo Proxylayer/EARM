@@ -60,6 +60,34 @@ internal static class Review1C
     /// <summary>The compiled CLI of the test output folder.</summary>
     public static string EarmDll => Path.Combine(AppContext.BaseDirectory, "earm.dll");
 
+    /// <summary>
+    /// The path of a copy of the CLI's <c>earm.runtimeconfig.json</c> with <see cref="EArm.Graph.Auth.GraphAuthFactory.ForbidPlatformCacheSwitch"/> on, written
+    /// next to <see cref="EarmDll"/>: <see cref="RunChild"/> starts every child with it, so a child can never delete the developer's
+    /// real token cache either.
+    /// </summary>
+    public static Lazy<string> GuardedRuntimeConfig { get; } = new(WriteGuardedRuntimeConfig, LazyThreadSafetyMode.ExecutionAndPublication);
+
+    private static string WriteGuardedRuntimeConfig()
+    {
+        string source = Path.Combine(AppContext.BaseDirectory, "earm.runtimeconfig.json");
+        var config = JsonNode.Parse(File.ReadAllText(source))!.AsObject();
+        var options = config["runtimeOptions"] as JsonObject ?? throw new InvalidOperationException(source + " has no runtimeOptions.");
+        if (options["configProperties"] is not JsonObject properties)
+        {
+            properties = [];
+            options["configProperties"] = properties;
+        }
+
+        properties[EArm.Graph.Auth.GraphAuthFactory.ForbidPlatformCacheSwitch] = true;
+
+        // Written to a private temporary file and moved into place, so a concurrent writer (same content) never exposes a half-written file.
+        string target = Path.Combine(AppContext.BaseDirectory, "earm.guarded.runtimeconfig.json");
+        string temporary = target + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        File.WriteAllText(temporary, config.ToJsonString());
+        File.Move(temporary, target, overwrite: true);
+        return target;
+    }
+
     /// <summary>The outcome of one run of the CLI in its own process, with the peak working set seen while it ran.</summary>
     public sealed record ChildResult(int ExitCode, string StandardOutput, string StandardError, long PeakWorkingSetBytes, TimeSpan Elapsed);
 
@@ -77,6 +105,11 @@ internal static class Review1C
             UseShellExecute = false,
             CreateNoWindow = true,
         };
+        // dotnet exec with the guarded runtimeconfig: the child runs the CLI's own earm.runtimeconfig.json otherwise, which lacks the test-only switch
+        // that keeps logout away from the real token cache (tests/Directory.Build.props sets it for the test executables only).
+        info.ArgumentList.Add("exec");
+        info.ArgumentList.Add("--runtimeconfig");
+        info.ArgumentList.Add(GuardedRuntimeConfig.Value);
         info.ArgumentList.Add(EarmDll);
         foreach (string arg in args)
         {
