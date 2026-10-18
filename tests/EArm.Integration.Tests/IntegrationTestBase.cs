@@ -46,14 +46,20 @@ public abstract class IntegrationTestBase
     /// waits between reads grow 1, 2, 4 s up to <paramref name="stepSeconds"/>: most values settle within a second or two, so a fixed step only added
     /// slack to a passing test; <paramref name="seconds"/> (the bound for a value that never settles) is unchanged.
     /// </summary>
-    protected static async Task<T> EventuallyAsync<T>(Func<Task<T>> read, Func<T, bool> done, int seconds = 45, int stepSeconds = 3)
+    protected static Task<T> EventuallyAsync<T>(Func<Task<T>> read, Func<T, bool> done, int seconds = 45, int stepSeconds = 3)
+    {
+        return EventuallyAsync(read, done, Ct, seconds, stepSeconds);
+    }
+
+    /// <summary>As <see cref="EventuallyAsync{T}(Func{Task{T}}, Func{T, bool}, int, int)"/>, waiting on <paramref name="cancellationToken"/> (the fixture teardown has no test context).</summary>
+    internal static async Task<T> EventuallyAsync<T>(Func<Task<T>> read, Func<T, bool> done, CancellationToken cancellationToken, int seconds = 45, int stepSeconds = 3)
     {
         var deadline = DateTime.UtcNow.AddSeconds(seconds);
         T value = await read();
         int step = 1;
         while (!done(value) && DateTime.UtcNow < deadline)
         {
-            await Task.Delay(TimeSpan.FromSeconds(step), Ct);
+            await Task.Delay(TimeSpan.FromSeconds(step), cancellationToken);
             value = await read();
             step = Math.Min(step * 2, Math.Max(1, stepSeconds));
         }
