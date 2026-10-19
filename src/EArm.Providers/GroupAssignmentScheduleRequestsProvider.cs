@@ -4,6 +4,7 @@ using EArm.Core.Types;
 using EArm.Core.Validation;
 using EArm.Engine;
 using EArm.Engine.Execution;
+using EArm.Engine.Planning;
 using EArm.Engine.Providers;
 
 namespace EArm.Providers;
@@ -94,8 +95,8 @@ public sealed class GroupAssignmentScheduleRequestsProvider : GroupScheduleReque
             : null;
     }
 
-    public IEnumerable<DeclarationConflict> DescribeConflicts(ResourceInstance instance, IReadOnlyList<ResourceInstance> declared)
+    public IEnumerable<DeclarationConflict> DescribeConflicts(ResourceInstance instance, IReadOnlyList<ResourceInstance> declared, DeploymentMode mode)
     {
-        return DeclarationConflicts.GroupAssignment(instance, declared);
+        return DeclarationConflicts.GroupAssignment(instance, declared, mode);
     }
 }

@@ -271,7 +271,7 @@ $specs['applications'] = [ordered]@{
         }))
         isFallbackPublicClient = Bool 'Treat the application as a public client when no redirect URI matches.' -Nullable
         keyCredentials         = Arr -d 'Certificates and keys (passthrough; only diffed when declared).' -Items (FreeObj '')
-        owners                 = EdgeIds 'Ownership edge, target side: the full desired set of owner object ids (reference(...).id). Owners not listed are removed.'
+        owners                 = EdgeIds 'Ownership edge, target side: the full desired set of owner object ids (reference(...).id). Owners not listed are removed. An empty array declares nothing in Incremental mode (the live entries are kept) and removes every entry in Complete mode.'
         tokenLifetimePolicies  = EdgeIds 'Token lifetime policy edge, principal side (ensure-only): the object id of the token lifetime policy assigned to the application (Graph allows one).'
         appManagementPolicies  = EdgeIds 'App management policy edge, principal side (ensure-only): the object id of the app management policy assigned to the application (Graph allows one).'
     }
@@ -355,7 +355,7 @@ $specs['servicePrincipals'] = [ordered]@{
         samlSingleSignOnSettings   = Obj -d 'SAML single sign-on settings.' -Nullable -Props (Props ([ordered]@{
             relayState = Str 'Relay state of the SAML response.' -Nullable
         }))
-        owners                     = EdgeIds 'Ownership edge, target side: the full desired set of owner object ids.'
+        owners                     = EdgeIds 'Ownership edge, target side: the full desired set of owner object ids. Owners not listed are removed. An empty array declares nothing in Incremental mode (the live entries are kept) and removes every entry in Complete mode.'
         memberOf                   = EdgeIds 'Group membership edge, principal side: group object ids this principal must belong to (never dynamic groups).'
         ownerOf                    = EdgeIds 'Ownership edge, principal side: object ids of applications, service principals or groups this principal must own.'
         appRoleAssignments         = EdgeAppRoleAssignments
@@ -382,8 +382,8 @@ $specs['groups'] = [ordered]@{
         visibility                    = Str 'Public, Private or HiddenMembership. Public and Private can be changed later; HiddenMembership can only be set at creation and never changed.' -Nullable -Enum 'Public', 'Private', 'HiddenMembership'
         membershipRule                = Str 'Dynamic membership rule (requires groupTypes to contain DynamicMembership; Entra ID P1).' -Nullable
         membershipRuleProcessingState = Str 'On (default for dynamic groups) or Paused.' -Enum 'On', 'Paused'
-        members                       = EdgeIds 'Group membership edge, target side: the full desired set of member object ids (users, service principals, groups). Not allowed on dynamic groups; members not listed are removed.'
-        owners                        = StrArr 'Ownership edge, target side: the full desired set of owner object ids (users, service principals). Authoritative: missing owners are added, live owners not listed are removed; absent leaves the owners untouched. An empty array is refused (Graph does not remove the last user owner of a group).' -Unique -Min 1
+        members                       = EdgeIds 'Group membership edge, target side: the full desired set of member object ids (users, service principals, groups). Not allowed on dynamic groups; members not listed are removed. An empty array declares nothing in Incremental mode (the live entries are kept) and removes every entry in Complete mode.'
+        owners                        = EdgeIds 'Ownership edge, target side: the full desired set of owner object ids (users, service principals). Authoritative: missing owners are added, live owners not listed are removed; absent leaves the owners untouched. An empty array declares nothing in Incremental mode (the live owners are kept); in Complete mode it is refused (Graph does not remove the last user owner of a group).'
         memberOf                      = EdgeIds 'Nested group membership edge, principal side: group object ids this group must be a member of.'
         administrativeUnits           = EdgeIds 'Administrative unit membership edge, principal side: administrative unit object ids.'
         groupLifecyclePolicies        = EdgeIds 'Group lifecycle (expiration) policy edge, principal side (ensure-only): the object id of the tenant''s group lifecycle policy, whose managedGroupTypes must be Selected. Microsoft 365 groups only.'
@@ -618,7 +618,7 @@ $specs['administrativeUnits'] = [ordered]@{
         membershipRule                = Str 'Dynamic membership rule (requires membershipType: Dynamic).' -Nullable
         membershipRuleProcessingState = Str 'On (default for dynamic units) or Paused.' -Enum 'On', 'Paused'
         isMemberManagementRestricted  = Bool 'Restricted management unit; immutable after create. Assign scoped roles before adding members.' -Nullable
-        members                       = EdgeIds 'Administrative unit membership edge, target side: the full desired set of member object ids (users, groups, devices). Not allowed on dynamic units; members not listed are removed.'
+        members                       = EdgeIds 'Administrative unit membership edge, target side: the full desired set of member object ids (users, groups, devices). Not allowed on dynamic units; members not listed are removed. An empty array declares nothing in Incremental mode (the live entries are kept) and removes every entry in Complete mode.'
     }
 }
 

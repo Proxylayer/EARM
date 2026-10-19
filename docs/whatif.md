@@ -172,6 +172,9 @@ Rules:
 - **Removals that depend on deploy-time values**: when an authoritative list (`members`, `owners`) still holds a placeholder, the live
   entries it does not otherwise list are shown as `- [n]: "<objectId>" (removed at deployment unless a deploy-time entry resolves to it)` and
   the row is marked `?`; they count as edge removals. See [edges.md](edges.md#authoritative-owners).
+- **Empty authoritative lists**: in Incremental mode (the default) `members: []` / `owners: []` declares nothing, so the row has no
+  delta for it and nothing is removed; an `EmptyEdgeListIgnored` info diagnostic says the list was ignored. In Complete mode each live
+  entry is a `- [n]` removal (a group's `owners: []` is an unsupported row instead). See [edges.md](edges.md#empty-lists).
 - **Edge deltas** appear under the declaring resource as `properties.<property>` array deltas with
   `+ [n]: "<objectId>"` / `- [n]: "<objectId>"` children (`manager` is a scalar delta). A `NoChange` object with edge
   deltas is a `Modify` row.

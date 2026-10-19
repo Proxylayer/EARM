@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using EArm.Core.Diagnostics;
 using EArm.Core.Json;
+using EArm.Engine.Planning;
 
 namespace EArm.Engine.Providers;
 
@@ -21,5 +22,6 @@ public sealed record DeclarationConflict(string Code, string Message, JsonPath P
 public interface IDeclarationConflictSource
 {
     /// <summary>The conflicts of <paramref name="instance"/> with the other instances of <paramref name="declared"/> (every expanded instance, itself included).</summary>
-    IEnumerable<DeclarationConflict> DescribeConflicts(ResourceInstance instance, IReadOnlyList<ResourceInstance> declared);
+    /// <param name="mode">The deployment mode: in Incremental mode an empty authoritative list (<c>members: []</c>) declares nothing, so it cannot conflict.</param>
+    IEnumerable<DeclarationConflict> DescribeConflicts(ResourceInstance instance, IReadOnlyList<ResourceInstance> declared, DeploymentMode mode);
 }

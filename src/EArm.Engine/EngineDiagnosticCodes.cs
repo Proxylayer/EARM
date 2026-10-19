@@ -80,6 +80,12 @@ public static class EngineDiagnosticCodes
     /// <summary>The edge pass did not run because an earlier batch failed (fail-fast).</summary>
     public const string EdgePassSkipped = "EdgePassSkipped";
 
+    /// <summary>
+    /// Info: an authoritative target-side list (<c>members</c>, <c>owners</c>) evaluates to an empty array in Incremental mode, so it declares nothing and
+    /// the live entries are kept. Only Complete mode empties the set.
+    /// </summary>
+    public const string EmptyEdgeListIgnored = "EmptyEdgeListIgnored";
+
     /// <summary>Applying the template removes the signed-in principal from an object's owners.</summary>
     public const string SignedInPrincipalRemoved = "SignedInPrincipalRemoved";
 

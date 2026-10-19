@@ -378,8 +378,8 @@ public sealed class EdgePassTests
         string groupId = host.IdOf("/groups", "uniqueName", "test-group");
         host.Fake.Failures.Add("DELETE", $"/members/{carolId}/$ref", r => new GraphException(HttpStatusCode.NotFound, "Request_ResourceNotFound", "Resource not found.", r.Hint));
 
-        // The target side is authoritative: an empty members list removes carol, and the 404 counts as removed.
-        var run = await host.CreateAsync(host.Resources(Group(string.Empty)));
+        // The target side is authoritative: in Complete mode an empty members list removes carol, and the 404 counts as removed.
+        var run = await host.CreateAsync(host.Resources(Group(string.Empty)), DeploymentMode.Complete);
 
         Check.Succeeded(run);
         Assert.Single(run.Writes, w => w.Method == "DELETE" && w.Path == $"/groups/{groupId}/members/{carolId}/$ref");

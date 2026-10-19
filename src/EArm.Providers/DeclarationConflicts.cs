@@ -7,6 +7,7 @@ using EArm.Core;
 using EArm.Core.Json;
 using EArm.Core.Validation;
 using EArm.Engine;
+using EArm.Engine.Planning;
 using EArm.Engine.Providers;
 
 namespace EArm.Providers;
@@ -96,7 +97,7 @@ internal static class DeclarationConflicts
 
     // ---- privilegedAccess/groupAssignmentScheduleRequests ----
 
-    public static IEnumerable<DeclarationConflict> GroupAssignment(ResourceInstance instance, IReadOnlyList<ResourceInstance> declared)
+    public static IEnumerable<DeclarationConflict> GroupAssignment(ResourceInstance instance, IReadOnlyList<ResourceInstance> declared, DeploymentMode mode)
     {
         ArgumentNullException.ThrowIfNull(instance);
         ArgumentNullException.ThrowIfNull(declared);
@@ -117,7 +118,7 @@ internal static class DeclarationConflicts
 
             foreach (var (applies, list, access) in new[] { (member, "members", GroupEligibilityScheduleRules.Member), (owner, "owners", GroupEligibilityScheduleRules.Owner) })
             {
-                bool declaresList = JsonObjects.TryGetIgnoreCase(groupProperties, list, out var value) ? IsDeclared(value) : PropertyCopyBlock.Declares(groupProperties, list);
+                bool declaresList = JsonObjects.TryGetIgnoreCase(groupProperties, list, out var value) ? IsDeclared(value, mode) : PropertyCopyBlock.Declares(groupProperties, list);
                 if (applies && declaresList)
                 {
                     yield return new DeclarationConflict(
@@ -300,10 +301,16 @@ internal static class DeclarationConflicts
 
     // ---- JSON ----
 
-    /// <summary>True for a declared value, an empty array included (an empty members list is authoritative too: it removes everything; an empty owners list on a group is refused by the groups provider).</summary>
-    private static bool IsDeclared(JsonNode? node)
+    /// <summary>
+    /// True for a declared value. A literal empty array counts only in Complete mode, where an empty members list is authoritative too and removes
+    /// everything (an empty owners list on a group is refused there by the groups provider); in Incremental mode it declares nothing. An expression
+    /// (not evaluated yet) always counts.
+    /// </summary>
+    private static bool IsDeclared(JsonNode? node, DeploymentMode mode)
     {
-        return node is not null && !(node is JsonValue value && value.GetValueKind() == System.Text.Json.JsonValueKind.Null);
+        return node is not null
+            && !(node is JsonValue value && value.GetValueKind() == System.Text.Json.JsonValueKind.Null)
+            && !(node is JsonArray { Count: 0 } && mode == DeploymentMode.Incremental);
     }
 
     internal static JsonPath PropertiesPath(ResourceInstance instance)

@@ -165,7 +165,7 @@ public sealed class DeploymentPlanner
         ThrowIfErrors(diagnostics);
 
         // 5a. Template-level conflicts no single row can see (IDeclarationConflictSource), before any Graph call.
-        AddDeclarationConflicts(document, instances, diagnostics);
+        AddDeclarationConflicts(document, instances, mode, diagnostics);
         ThrowIfErrors(diagnostics);
         EngineLog.GraphBuilt(_logger, graph.Edges.Count, graph.Batches.Count);
         foreach (var batch in graph.Batches)
@@ -260,7 +260,7 @@ public sealed class DeploymentPlanner
     }
 
     /// <summary>The conflicts the providers that implement <see cref="IDeclarationConflictSource"/> find among the expanded instances, as errors (or warnings, by the conflict's severity).</summary>
-    private void AddDeclarationConflicts(TemplateDocument document, IReadOnlyList<ResourceInstance> instances, List<Diagnostic> diagnostics)
+    private void AddDeclarationConflicts(TemplateDocument document, IReadOnlyList<ResourceInstance> instances, DeploymentMode mode, List<Diagnostic> diagnostics)
     {
         foreach (var instance in instances)
         {
@@ -269,7 +269,7 @@ public sealed class DeploymentPlanner
                 continue;
             }
 
-            foreach (var conflict in source.DescribeConflicts(instance, instances))
+            foreach (var conflict in source.DescribeConflicts(instance, instances, mode))
             {
                 // A conflict found in a nested template points into that template (its file, or its place in the parent's file).
                 bool warning = conflict.Severity == DiagnosticSeverity.Warning;

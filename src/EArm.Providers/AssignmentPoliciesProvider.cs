@@ -11,6 +11,7 @@ using EArm.Core.Secrets;
 using EArm.Core.Types;
 using EArm.Core.Validation;
 using EArm.Engine;
+using EArm.Engine.Planning;
 using EArm.Engine.Providers;
 using EArm.Expressions.Values;
 using EArm.Graph;
@@ -48,7 +49,7 @@ public sealed class AssignmentPoliciesProvider : ProviderBase, IOrphanCandidateS
     }
 
     /// <summary>A warning when the policy's assignments outlive the PIM for Groups eligibility maximum of a group the package grants eligibly (<see cref="AccessPackageExpirationCheck"/>).</summary>
-    public IEnumerable<DeclarationConflict> DescribeConflicts(ResourceInstance instance, IReadOnlyList<ResourceInstance> declared)
+    public IEnumerable<DeclarationConflict> DescribeConflicts(ResourceInstance instance, IReadOnlyList<ResourceInstance> declared, DeploymentMode mode)
     {
         return AccessPackageExpirationCheck.Describe(instance, declared);
     }

@@ -115,6 +115,14 @@ internal sealed class EdgeDeclarationCollector
                 continue;
             }
 
+            if (array.Count == 0 && spec.IsAuthoritativeSet && _plan.Mode == DeploymentMode.Incremental)
+            {
+                // Incremental mode: an empty authoritative list declares nothing (no adds, no removals). Only Complete mode empties the set.
+                property.IsDeclared = false;
+                _diagnostics.Add(Diagnostic.Info(EngineDiagnosticCodes.EmptyEdgeListIgnored, $"{instance.Describe()}: properties.{spec.Property} is an empty array, which declares nothing in Incremental mode: no entry is added or removed. An empty list removes every entry only in Complete mode.", instance.Declaration.Path.Append("properties").Append(spec.Property)));
+                continue;
+            }
+
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             for (int i = 0; i < array.Count; i++)
             {

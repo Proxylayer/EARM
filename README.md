@@ -232,14 +232,15 @@ Full key table and details: [docs/engine.md](docs/engine.md#identity-without-sta
 ## Modes
 
 - **Incremental** (default): creates and updates the declared resources; nothing else is touched. A resource removed from the template is simply no
-  longer managed: the object stays in the tenant.
+  longer managed: the object stays in the tenant. An empty `members` / `owners` list (`[]`) declares nothing: no member or owner is removed.
 - **Complete**: the same writes, plus a read-only **orphan report**: the live objects of the types the template declares that no declared resource
   matches are listed ("Not declared in the template (reported only; never deleted)", `orphans[]` in JSON). Complete mode **never deletes**, which is
   where EARM deliberately differs from ARM. The listing is bounded: only the types the template declares; the whole (small) collection for Conditional
   Access policies, named locations, custom authentication strengths, custom role definitions, administrative units and authentication contexts; the
   credentials and service principals of the declared applications; the assignments, PIM eligibilities and time-bound PIM assignments and the grants of the
   declared principals (PIM for Groups: of the declared target groups). Applications, groups and users are tenant-wide and never listed; authentication
-  method configurations and PIM policies always exist, so they have no orphans.
+  method configurations and PIM policies always exist, so they have no orphans. An empty `members` / `owners` list removes every member or owner
+  (a group's `owners: []` is refused: Graph keeps the last user owner of a group).
 
 To remove objects, run **`earm deployment delete -f <template>`**: it deletes the objects the template declares (found by key, reverse dependency order,
 after a confirmation that lists them). To remove an object a template no longer declares, put it back in a template (a scratch template that declares
@@ -253,7 +254,8 @@ are never deleted or replaced (`ProtectedObject`). Details: [docs/cli.md](docs/c
 > you change an assignment, and remove the old access yourself. Details: [docs/engine.md](docs/engine.md#retained-assignments).
 
 **Relationships**: target-side lists (`members`, `owners`) are authoritative and remove what they do not list (never while an entry is still a
-deploy-time value; a group's `owners` cannot be an empty list, since Graph keeps its last user owner); principal-side lists (`memberOf`,
+deploy-time value; an empty list removes nothing in Incremental mode and everything in Complete mode, where a group's `owners: []` is refused
+since Graph keeps its last user owner); principal-side lists (`memberOf`,
 `appRoleAssignments`, `directoryRoles`, `ownerOf`, `administrativeUnits`) are **ensure-only**: they add, and never remove an entry you drop
 ([docs/edges.md](docs/edges.md)).
 

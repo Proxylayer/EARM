@@ -143,7 +143,8 @@ with `PimAssignmentConflict`:
 
 - a `roleAssignmentScheduleRequests` whose principal, role and scope are also declared by a `roleAssignments` resource or a `directoryRoles` entry;
 - a `privilegedAccess/groupAssignmentScheduleRequests` on a group of the template that declares `members` (for `accessId: member`) or `owners` (for
-  `owner`), even an empty `members` list: the authoritative list would remove the PIM member (an empty `owners` list on a group is refused anyway);
+  `owner`), even an empty `members` list in Complete mode: the authoritative list would remove the PIM member (in Incremental mode a literal `[]`
+  declares nothing and is no conflict; an empty `owners` list on a group is refused in Complete mode anyway);
 - a group active assignment whose principal lists the group in `memberOf` / `ownerOf` (re-added permanently when the schedule ends).
 
 A permanent assignment already live under a time-bound type's tuple is refused too, never converted or removed (`deployment delete` keeps it,

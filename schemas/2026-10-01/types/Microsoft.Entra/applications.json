@@ -432,7 +432,7 @@
       ]
     },
     "owners": {
-      "description": "Ownership edge, target side: the full desired set of owner object ids (reference(...).id). Owners not listed are removed.",
+      "description": "Ownership edge, target side: the full desired set of owner object ids (reference(...).id). Owners not listed are removed. An empty array declares nothing in Incremental mode (the live entries are kept) and removes every entry in Complete mode.",
       "anyOf": [
         { "type": "array", "items": { "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] } },
         { "$ref": "#/$defs/expression" }

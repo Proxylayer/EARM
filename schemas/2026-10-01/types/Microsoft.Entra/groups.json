@@ -56,16 +56,16 @@
       "anyOf": [ { "type": "string", "enum": [ "On", "Paused" ] }, { "$ref": "#/$defs/expression" } ]
     },
     "members": {
-      "description": "Group membership edge, target side: the full desired set of member object ids (users, service principals, groups). Not allowed on dynamic groups; members not listed are removed.",
+      "description": "Group membership edge, target side: the full desired set of member object ids (users, service principals, groups). Not allowed on dynamic groups; members not listed are removed. An empty array declares nothing in Incremental mode (the live entries are kept) and removes every entry in Complete mode.",
       "anyOf": [
         { "type": "array", "items": { "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] } },
         { "$ref": "#/$defs/expression" }
       ]
     },
     "owners": {
-      "description": "Ownership edge, target side: the full desired set of owner object ids (users, service principals). Authoritative: missing owners are added, live owners not listed are removed; absent leaves the owners untouched. An empty array is refused (Graph does not remove the last user owner of a group).",
+      "description": "Ownership edge, target side: the full desired set of owner object ids (users, service principals). Authoritative: missing owners are added, live owners not listed are removed; absent leaves the owners untouched. An empty array declares nothing in Incremental mode (the live owners are kept); in Complete mode it is refused (Graph does not remove the last user owner of a group).",
       "anyOf": [
-        { "type": "array", "items": { "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] }, "minItems": 1 },
+        { "type": "array", "items": { "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] } },
         { "$ref": "#/$defs/expression" }
       ]
     },

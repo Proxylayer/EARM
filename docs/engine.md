@@ -386,8 +386,11 @@ mutual declarations (`user.memberOf` ↔ `group.members`) are never cycles.
 2. **Authoritative sets** (target side: `groups.members`, `owners`, `administrativeUnits.members`): desired set =
    the declared ids ∪ the ids of template principals whose principal-side property names this target (those
    declarations are *governed* by the set). Live set = `GET /{collection}/{t}/{members|owners}?$select=id`.
-   Adds = desired − live; removes = live − desired (replace semantics). A declared empty array removes
-   everything. A dynamic group / AU target is a validation error for the target row and every governed row.
+   Adds = desired − live; removes = live − desired (replace semantics). A declared empty array depends on the
+   deployment mode (`DeploymentPlan.Mode`, the same in what-if and create): in **Complete** mode it removes everything; in
+   **Incremental** mode the collector drops it as if it were absent (`EdgePropertyPlan.IsDeclared = false`, no set is built, no
+   add and no removal) and reports an `EmptyEdgeListIgnored` info. Only target-side lists are affected (principal-side lists are
+   ensure-only either way); a non-empty list is authoritative in both modes ([edges.md](edges.md#empty-lists)). A dynamic group / AU target is a validation error for the target row and every governed row.
    **A set is never pruned when a declared resource that could contribute to it did not apply** (it failed, or
    was skipped under `--continue-on-error`, or has an error row in the what-if) and its declaration names a principal-side property of the set's kind (`memberOf`, `ownerOf`, `administrativeUnits`):
    that resource's declarations are unknown, so removing "everything not declared" would remove its live memberships and ownerships. The adds still happen; a warning (`EdgePassSkipped`,
@@ -398,8 +401,9 @@ mutual declarations (`user.memberOf` ↔ `group.members`) are never cycles.
    change and is never silent); the deployment's edge pass re-evaluates with real ids and decides then. At deployment time a
    placeholder left in the set's array, or in any principal-side declaration of the set's kind (it may name this target), leaves
    the set unpruned with an `EdgePassSkipped` warning ("was not pruned … is not resolved"); the placeholder is also an error of
-   its own row. A group's `owners: []` never reaches this step: the groups provider refuses it at plan time (Graph does not
-   remove the last user owner of a group; [edges.md](edges.md#authoritative-owners)).
+   its own row. A group's `owners: []` never reaches this step: in Incremental mode the collector ignores it, and in Complete
+   mode the groups provider refuses it at plan time (`PlanOptions.Mode`; Graph does not remove the last user owner of a group;
+   [edges.md](edges.md#authoritative-owners)).
 3. **Principal side, not governed** (`memberOf`, `ownerOf`, `administrativeUnits` naming a target the template
    does not declare authoritatively, for example a pre-existing group via `reference(resourceId(...), apiVersion)`):
    existence is read from the principal (`GET /{users|servicePrincipals|groups}/{p}/memberOf`, filtered by

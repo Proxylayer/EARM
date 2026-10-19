@@ -31,7 +31,7 @@
       "anyOf": [ { "type": [ "boolean", "null" ] }, { "$ref": "#/$defs/expression" } ]
     },
     "members": {
-      "description": "Administrative unit membership edge, target side: the full desired set of member object ids (users, groups, devices). Not allowed on dynamic units; members not listed are removed.",
+      "description": "Administrative unit membership edge, target side: the full desired set of member object ids (users, groups, devices). Not allowed on dynamic units; members not listed are removed. An empty array declares nothing in Incremental mode (the live entries are kept) and removes every entry in Complete mode.",
       "anyOf": [
         { "type": "array", "items": { "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] } },
         { "$ref": "#/$defs/expression" }

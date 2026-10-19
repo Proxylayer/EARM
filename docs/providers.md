@@ -685,7 +685,7 @@ declarations' own expressions in each instance's context; see [access-packages.m
 - a `roleAssignmentScheduleRequests` and a `roleAssignments` resource, or an entry of the principal's `directoryRoles`, name the same principal, role and
   scope: Graph holds one assignment for both, so one type makes it time-bound and the other permanent (and re-creates it when it expires);
 - a `privilegedAccess/groupAssignmentScheduleRequests` targets a group of the template that declares `members` (for `accessId: member`) or `owners` (for
-  `owner`), even an empty list (`members: []`; an empty `owners` list on a group is refused anyway). A PIM active member is a real member (it appears in `/groups/{id}/members`), so the authoritative list would remove it
+  `owner`), even an empty list in Complete mode (`members: []`; in Incremental mode a literal `[]` declares nothing and is no conflict; an empty `owners` list on a group is refused in Complete mode anyway). A PIM active member is a real member (it appears in `/groups/{id}/members`), so the authoritative list would remove it
   in the edge pass. Listing the principal in `members` instead would make the membership permanent, so the conflict is refused outright rather than
   allowed when the principal is listed; drop the list or use `groupEligibilityScheduleRequests` (eligibility never touches the members);
 - the principal of a `groupAssignmentScheduleRequests` lists the target group in `memberOf` / `ownerOf` (ensure-only: re-added permanently when the
@@ -942,10 +942,11 @@ What the engine's edge pass expects from a part B handler (worked example: `Edge
   `visibility: Private`; a dynamic group, `securityEnabled: false` or another visibility is an unsupported row. (The page also says such a group "cannot have an owner",
   yet its own example creates one with `owners@odata.bind`; EARM does not forbid owners.)
 - **Owners at create**: declared `owners` (object ids, at most 20) are bound in the group upsert body as `owners@odata.bind`; the edge pass remains authoritative.
-- **Owners are authoritative; an empty list is refused**: a declared `owners` list is the full set (missing owners added, unlisted live owners removed,
-  adds before removes); absent leaves the owners untouched. `owners: []` makes the row unsupported in `Plan` (`DeclaresEmptyOwners`), because Graph does
-  not remove the last user owner of a group (Learn: group-delete-owners) and an empty authoritative list would fail half-way. Applications and service
-  principals keep accepting an empty list. See [edges.md](edges.md#authoritative-owners).
+- **Owners are authoritative; an empty list is refused in Complete mode**: a declared `owners` list is the full set (missing owners added, unlisted live
+  owners removed, adds before removes); absent leaves the owners untouched. In Incremental mode `owners: []` declares nothing (the edge pass ignores it).
+  In Complete mode (`PlanOptions.Mode`) it makes the row unsupported in `Plan` (`DeclaresEmptyOwners`), because Graph does not remove the last user owner
+  of a group (Learn: group-delete-owners) and an empty authoritative list would fail half-way. Applications and service principals accept an empty list
+  (it removes every owner in Complete mode). See [edges.md](edges.md#authoritative-owners).
 - **Group owners are read twice**: the ownership edge kind reads `GET /groups/{id}/owners` **and** `GET /groups/{id}/owners/microsoft.graph.servicePrincipal`
   and merges them, because v1.0 `/owners` of a group does not list service principal owners (Learn: group-list-owners). Without the type cast a declared
   service principal owner was planned as an add on every run and an undeclared one was never pruned. Application and service principal owners need no

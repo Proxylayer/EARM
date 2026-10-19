@@ -16,8 +16,8 @@ namespace EArm.Providers.Tests;
 
 /// <summary>
 /// A group's <c>owners</c> list is the authoritative set of its owners: missing owners are added before live owners not listed are removed, an empty list
-/// is refused (Graph does not remove the last user owner of a group), an absent list leaves the owners alone, and a set that still holds a deploy-time
-/// placeholder is never pruned from its resolved part alone.
+/// is refused in Complete mode (Graph does not remove the last user owner of a group), an absent list leaves the owners alone, and a set that still holds
+/// a deploy-time placeholder is never pruned from its resolved part alone.
 /// </summary>
 public sealed class GroupOwnersAuthoritativeSetTests
 {
@@ -81,57 +81,42 @@ public sealed class GroupOwnersAuthoritativeSetTests
             return this;
         }
 
-        public Task<Run> WhatIfAsync(string resources, string? parameters = null)
+        public Task<Run> WhatIfAsync(string resources, string? parameters = null, DeploymentMode mode = DeploymentMode.Incremental)
         {
-            return Host.WhatIfAsync(Host.Resources(resources, parameters: parameters));
+            return Host.WhatIfAsync(Host.Resources(resources, parameters: parameters), mode);
         }
 
-        public Task<Run> CreateAsync(string resources, string? parameters = null, bool continueOnError = false)
+        public Task<Run> CreateAsync(string resources, string? parameters = null, bool continueOnError = false, DeploymentMode mode = DeploymentMode.Incremental)
         {
-            return Host.CreateAsync(Host.Resources(resources, parameters: parameters), continueOnError: continueOnError);
+            return Host.CreateAsync(Host.Resources(resources, parameters: parameters), mode, continueOnError: continueOnError);
         }
     }
 
-    // ---- an empty owners list is refused ----
+    // ---- an empty owners list is refused in Complete mode ----
 
+    /// <summary>The schema cannot depend on the deployment mode, and an empty list is valid in Incremental mode (it declares nothing): no minItems.</summary>
     [Fact]
-    public void AnEmptyLiteralOwnersList_OnAGroup_IsASchemaViolation()
+    public void AnEmptyLiteralOwnersList_OnAGroup_IsNoSchemaViolation()
     {
         var host = new ProviderHost();
 
         var diagnostics = new TemplateValidator(host.Catalog).Validate(host.Resources(Ops("[]")));
 
-        Assert.Contains(diagnostics, d => d.Code == "SchemaViolation" && d.Message.Contains("minItems", StringComparison.Ordinal) && d.ToString().Contains("properties.owners", StringComparison.Ordinal));
+        Assert.DoesNotContain(diagnostics, d => d.Code == "SchemaViolation" && d.ToString().Contains("properties.owners", StringComparison.Ordinal));
     }
 
-    /// <summary>The literal never reaches the groups provider: the template is refused as a whole by the schema (minItems) in what-if and create alike.</summary>
-    [Fact]
-    public async Task AnEmptyLiteralOwnersList_OnAGroup_IsRefusedBeforeAnyGraphWrite_InWhatIfAndCreate()
-    {
-        var t = new Tenant();
-        await t.WithOwnersAsync(t.AliceId);
-        int before = t.Host.Fake.Requests.Count;
-
-        var whatIf = await Assert.ThrowsAsync<ValidationFailedException>(() => t.WhatIfAsync(Ops("[]")));
-        var create = await Assert.ThrowsAsync<ValidationFailedException>(() => t.CreateAsync(Ops("[]")));
-
-        Assert.Contains(whatIf.Diagnostics, d => d.Code == "SchemaViolation");
-        Assert.Contains(create.Diagnostics, d => d.Code == "SchemaViolation");
-        Assert.DoesNotContain(t.Host.Fake.Requests.Skip(before), r => r.IsWrite);
-        Assert.Equal([t.AliceId], t.Owners);
-    }
-
-    /// <summary>An expression the schema cannot see through reaches the groups provider, which makes the row unsupported at plan time.</summary>
+    /// <summary>A literal, a parameter defaulting to an empty array and an expression evaluating to one all reach the groups provider, which makes the row unsupported at plan time in Complete mode.</summary>
     [Theory]
+    [InlineData("[]", null)]
     [InlineData("\"[parameters('owners')]\"", "\"owners\": { \"type\": \"array\", \"defaultValue\": [] }")]
     [InlineData("\"[json('[]')]\"", null)]
-    public async Task AnOwnersExpressionThatEvaluatesToEmpty_OnAnExistingGroup_IsUnsupported_AndPlansNoEdgeWrite(string owners, string? parameters)
+    public async Task AnEmptyOwnersList_OnAnExistingGroup_InCompleteMode_IsUnsupported_AndPlansNoEdgeWrite(string owners, string? parameters)
     {
         var t = new Tenant();
         await t.WithOwnersAsync(t.AliceId);
 
-        var whatIf = await t.WhatIfAsync(Ops(owners), parameters);
-        var create = await t.CreateAsync(Ops(owners), parameters);
+        var whatIf = await t.WhatIfAsync(Ops(owners), parameters, DeploymentMode.Complete);
+        var create = await t.CreateAsync(Ops(owners), parameters, mode: DeploymentMode.Complete);
 
         var row = whatIf.Change(GroupName);
         Assert.True(row.HasError);
@@ -148,13 +133,13 @@ public sealed class GroupOwnersAuthoritativeSetTests
     }
 
     [Fact]
-    public async Task AnOwnersParameterDefaultingToEmpty_OnANewGroup_IsUnsupported_AndCreatesNothing()
+    public async Task AnOwnersParameterDefaultingToEmpty_OnANewGroup_InCompleteMode_IsUnsupported_AndCreatesNothing()
     {
         var t = new Tenant();
         const string parameters = "\"owners\": { \"type\": \"array\", \"defaultValue\": [] }";
 
-        var whatIf = await t.WhatIfAsync(Ops("\"[parameters('owners')]\""), parameters);
-        var create = await t.CreateAsync(Ops("\"[parameters('owners')]\""), parameters);
+        var whatIf = await t.WhatIfAsync(Ops("\"[parameters('owners')]\""), parameters, DeploymentMode.Complete);
+        var create = await t.CreateAsync(Ops("\"[parameters('owners')]\""), parameters, mode: DeploymentMode.Complete);
 
         Assert.Contains(LastOwnerHint, whatIf.Change(GroupName).UnsupportedReason, StringComparison.Ordinal);
         Assert.False(create.Succeeded);
@@ -164,15 +149,15 @@ public sealed class GroupOwnersAuthoritativeSetTests
     }
 
     [Fact]
-    public async Task AnEmptyOwnersList_OnAnApplication_IsStillAllowed_AndRemovesEveryOwner()
+    public async Task AnEmptyOwnersList_OnAnApplication_InCompleteMode_IsAllowed_AndRemovesEveryOwner()
     {
         var t = new Tenant();
         string Template(string owners) => Templates.Resource("Microsoft.Entra/applications", "owned-app", "{ \"displayName\": \"Owned App\", \"owners\": " + owners + " }");
         Check.Succeeded(await t.CreateAsync(Template(List(t.AliceId, t.BobId))));
         string appId = t.Host.IdOf("/applications", "uniqueName", "owned-app");
 
-        var whatIf = await t.WhatIfAsync(Template("[]"));
-        var run = await t.CreateAsync(Template("[]"));
+        var whatIf = await t.WhatIfAsync(Template("[]"), mode: DeploymentMode.Complete);
+        var run = await t.CreateAsync(Template("[]"), mode: DeploymentMode.Complete);
 
         Assert.False(whatIf.Change("owned-app").HasError);
         Assert.Equal(2, OwnersDelta(whatIf.Change("owned-app")).Children!.Count(c => c.Kind == PropertyChangeType.Delete));
@@ -182,7 +167,7 @@ public sealed class GroupOwnersAuthoritativeSetTests
     }
 
     [Fact]
-    public async Task AnEmptyOwnersList_OnAServicePrincipal_IsStillAllowed_AndRemovesEveryOwner()
+    public async Task AnEmptyOwnersList_OnAServicePrincipal_InCompleteMode_IsAllowed_AndRemovesEveryOwner()
     {
         var t = new Tenant();
         const string app = "{ \"type\": \"Microsoft.Entra/applications\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"sp-app\", \"properties\": { \"displayName\": \"SP App\" } }";
@@ -191,7 +176,7 @@ public sealed class GroupOwnersAuthoritativeSetTests
         string spId = t.Host.Directory.Objects("/servicePrincipals").Single()["id"]!.GetValue<string>();
         Assert.Equal([t.AliceId], t.Host.Directory.References($"/servicePrincipals/{spId}/owners"));
 
-        var run = await t.CreateAsync(Template("[]"));
+        var run = await t.CreateAsync(Template("[]"), mode: DeploymentMode.Complete);
 
         Check.Succeeded(run);
         Assert.Single(EdgeWrites(run), w => w.Method == "DELETE" && w.Path == $"/servicePrincipals/{spId}/owners/{t.AliceId}/$ref");

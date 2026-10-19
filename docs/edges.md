@@ -10,7 +10,7 @@ catalog and the rules an author needs. The permissions each kind needs are in [p
 
 | Side | Properties | Semantics |
 |---|---|---|
-| **Target** (the object that has the members) | `members` on groups and administrative units, `owners` on applications, service principals and groups | The declared array is the **full desired set** for that target (ARM desired state): missing edges are added, **live edges that are not listed are removed**. An empty array removes everything, except `owners: []` on a group, which is refused ([below](#authoritative-owners)). Absent = untouched. Nothing is removed while an entry of the set is still a deploy-time placeholder. |
+| **Target** (the object that has the members) | `members` on groups and administrative units, `owners` on applications, service principals and groups | The declared array is the **full desired set** for that target (ARM desired state): missing edges are added, **live edges that are not listed are removed**. An **empty array** depends on the mode ([below](#empty-lists)): in **Incremental** mode (the default) it declares nothing, so nothing is added or removed; in **Complete** mode it removes everything, except `owners: []` on a group, which is refused ([below](#authoritative-owners)). Absent = untouched. Nothing is removed while an entry of the set is still a deploy-time placeholder. |
 | **Principal** (the object that is a member or holds the assignment) | `memberOf`, `ownerOf`, `administrativeUnits`, `manager`, `appRoleAssignments`, `directoryRoles` | **Ensure-only**: each declared edge is added when it is missing; **nothing is ever removed** from the principal's side. An edge that is no longer declared stays (unless a target-side set prunes it, below). The one explicit removal is `manager: null`. Absent = untouched. |
 
 Both sides may be mixed freely: the edge pass computes *desired = target-side sets ∪ principal-side declarations ∪ standalone
@@ -28,11 +28,12 @@ or service principals, compared by object id) are the full set of owners. Missin
 are not listed are removed (`DELETE …/owners/{id}/$ref`), so replacing one owner with another never leaves the object without an owner in
 between. Leaving `owners` out keeps the live owners untouched; the principal-side `ownerOf` only ever adds.
 
-- **Group: an empty list is refused.** `owners: []` on a group (a literal, or an expression such as a parameter that defaults to `[]`) makes its
-  row unsupported in `what-if` and `create`, before anything is written, and the schema says `minItems: 1`. Learn
-  ([group-delete-owners](https://learn.microsoft.com/en-us/graph/api/group-delete-owners?view=graph-rest-1.0)): once owners are assigned to a
-  group, Graph does not remove the last user owner, so an empty list could only fail half-way. Leave `owners` out to keep the live owners.
-  Applications and service principals carry no such note, so an empty `owners` there still removes every owner.
+- **Empty list.** In Incremental mode (the default) `owners: []` declares nothing, on every type: the live owners are kept
+  ([Empty lists](#empty-lists)). In **Complete** mode it is authoritative, and on a **group it is refused**: `owners: []` (a literal, or an
+  expression such as a parameter that defaults to `[]`) makes the group's row unsupported in `what-if` and `create`, before anything is written.
+  Learn ([group-delete-owners](https://learn.microsoft.com/en-us/graph/api/group-delete-owners?view=graph-rest-1.0)): once owners are assigned
+  to a group, Graph does not remove the last user owner, so an empty list could only fail half-way. The schema cannot depend on the mode, so it
+  accepts `[]`. Applications and service principals carry no such note, so in Complete mode an empty `owners` there removes every owner.
 - **Deploy-time owners.** While an entry of the list is a placeholder (`(deploy-time)`, for example the id of a user created in the same run),
   the full set is not known, so no removal is decided from it. The `what-if` lists every live owner that is not otherwise declared as a
   removal flagged `?` with the note "removed at deployment unless a deploy-time entry resolves to it"; the deployment's edge pass decides once
@@ -44,6 +45,20 @@ between. Leaving `owners` out keeps the live owners untouched; the principal-sid
   user owners) fails as `EdgeApplyFailed` with Graph's message; the other edges of the pass are still applied.
 - **Permissions.** Adding and removing group owners need the same `Group.ReadWrite.All` (application or delegated), which the groups type
   already requires; nothing changes in `deployment permissions`.
+
+### Empty lists
+
+An authoritative list that evaluates to an empty array (a literal `[]`, or an expression such as a parameter that defaults to `[]`) means
+different things per deployment mode (`--mode`):
+
+| Mode | `members: []` (groups, administrative units), `owners: []` (applications, service principals) | `owners: []` on a group |
+|---|---|---|
+| **Incremental** (default) | Declares nothing: no add, **no removal**, the live entries are kept. The what-if shows no delta for it; an `EmptyEdgeListIgnored` info says the list was ignored. | The same: declares nothing. |
+| **Complete** | Authoritative: every live entry is removed (a `-` child per entry in the what-if). | Refused: the row is unsupported in `what-if` and `create` before anything is written ([below](#authoritative-owners)). |
+
+A **non-empty** list is authoritative in both modes (missing entries are added, live entries not listed are removed). In Incremental mode an
+empty list is ignored as a whole, as if the property were absent: a principal-side `memberOf` / `ownerOf` / `administrativeUnits` naming the
+same target then only adds, as for any target without an authoritative list. Use Complete mode to empty a set on purpose.
 
 `reference()` calls inside edge arrays are evaluated in the edge pass and **do not** add object-pass dependencies, so mutual
 declarations (`user.memberOf` naming a group whose `members` names the user) are never cycles.

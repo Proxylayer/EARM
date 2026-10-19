@@ -423,7 +423,7 @@ public sealed class PermissionsCommandTests
         var app = await CliRunner.RunAsync("permissions", "-f", template, "-o", "json");
         var delegated = await CliRunner.RunAsync("permissions", "-f", template, "-o", "json", "--mode", "delegated");
 
-        // An empty array still acts (it removes edges), so the edge permission is required.
+        // An empty array still acts in Complete mode (it removes edges), so the edge permission is required.
         Assert.Contains("GroupMember.ReadWrite.All", Names(app));
         Assert.Contains("edge: members", Strings(Entry(app, "GroupMember.ReadWrite.All")["reasons"]));
         Assert.Equal(["Groups Administrator"], RoleGroups(delegated));

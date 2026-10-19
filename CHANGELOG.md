@@ -17,11 +17,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
-- **Breaking:** `owners: []` on a `Microsoft.Entra/groups` resource is refused: the row is unsupported in `what-if` and `create` before anything
-  is written, and the schema requires at least one entry. The declared `owners` list is authoritative (missing owners are added, live owners not
-  listed are removed), so an empty one asked for every owner to be removed, which Graph refuses for the last user owner of a group
-  (group-delete-owners) and which therefore failed half-way. Leave `owners` out to keep the live owners untouched. Applications and service
-  principals still accept an empty list.
+- **Breaking:** an empty authoritative list (`members: []` on groups and administrative units, `owners: []` on groups, applications and service
+  principals; a literal or an expression evaluating to `[]`) **declares nothing in Incremental mode** (the default): no member or owner is added or
+  removed, and an `EmptyEdgeListIgnored` info says the list was ignored. It used to remove every live entry. In **Complete** mode an empty list is
+  still authoritative and removes every entry. A non-empty list is authoritative in both modes. A literal `members: []` beside a PIM for Groups
+  active assignment is no `PimAssignmentConflict` in Incremental mode any more. See docs/edges.md#empty-lists.
+- **Breaking:** `owners: []` on a `Microsoft.Entra/groups` resource is refused in Complete mode: the row is unsupported in `what-if` and `create`
+  before anything is written. There the declared `owners` list is authoritative, so an empty one asks for every owner to be removed, which Graph
+  refuses for the last user owner of a group (group-delete-owners) and which therefore failed half-way. In Incremental mode it declares nothing
+  (above), so the schema accepts `[]`. Leave `owners` out to keep the live owners untouched. Applications and service principals accept an empty
+  list in both modes.
 - An authoritative `members` or `owners` list is no longer pruned from a partial desired set. While an entry is still a deploy-time value,
   `what-if` shows each live entry it does not otherwise list as a removal flagged `?` ("removed at deployment unless a deploy-time entry
   resolves to it"), counted as an edge removal, instead of a certain one; `create` decides once every entry has resolved. At deployment time

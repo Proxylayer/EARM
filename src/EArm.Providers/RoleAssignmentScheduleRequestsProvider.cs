@@ -4,6 +4,7 @@ using EArm.Core.Types;
 using EArm.Core.Validation;
 using EArm.Engine;
 using EArm.Engine.Execution;
+using EArm.Engine.Planning;
 using EArm.Engine.Providers;
 
 namespace EArm.Providers;
@@ -98,7 +99,7 @@ public sealed class RoleAssignmentScheduleRequestsProvider : RoleScheduleRequest
             : null;
     }
 
-    public IEnumerable<DeclarationConflict> DescribeConflicts(ResourceInstance instance, IReadOnlyList<ResourceInstance> declared)
+    public IEnumerable<DeclarationConflict> DescribeConflicts(ResourceInstance instance, IReadOnlyList<ResourceInstance> declared, DeploymentMode mode)
     {
         return DeclarationConflicts.RoleAssignment(instance, declared);
     }

@@ -227,7 +227,8 @@ public sealed class Review3H_ExecutorSafetyTests
         await AddMemberAsync(host, IdOf(group), IdOf(stranger));
         var document = Templates.Resources(GroupDoc("g", ", \"members\": []"));
 
-        var (_, result) = await ExecuteAsync(host, document, execute: new ExecuteOptions { ContinueOnError = true });
+        // An empty list is authoritative only in Complete mode (in Incremental mode it declares nothing).
+        var (_, result) = await ExecuteAsync(host, document, DeploymentMode.Complete, execute: new ExecuteOptions { ContinueOnError = true });
 
         Assert.True(result.Succeeded, string.Join("\n", result.Operations.Select(o => o.Error)));
         Assert.DoesNotContain(IdOf(stranger), MembersOf(host, IdOf(group)), StringComparer.OrdinalIgnoreCase);
