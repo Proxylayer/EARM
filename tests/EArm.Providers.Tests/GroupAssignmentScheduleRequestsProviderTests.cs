@@ -83,9 +83,9 @@ public sealed class GroupAssignmentScheduleRequestsProviderTests
         return write;
     }
 
-    private static async Task<EArm.Core.Diagnostics.Diagnostic> Conflict(ProviderHost host, string resources)
+    private static async Task<EArm.Core.Diagnostics.Diagnostic> Conflict(ProviderHost host, string resources, DeploymentMode mode = DeploymentMode.Incremental, string? parameters = null)
     {
-        var error = await Assert.ThrowsAsync<ValidationFailedException>(() => host.WhatIfAsync(host.Resources(resources)));
+        var error = await Assert.ThrowsAsync<ValidationFailedException>(() => host.WhatIfAsync(host.Resources(resources, parameters: parameters), mode));
         var conflict = Assert.Single(error.Errors);
         Assert.Equal(EngineDiagnosticCodes.PimAssignmentConflict, conflict.Code);
         Assert.Empty(host.Fake.Writes);
@@ -270,6 +270,37 @@ public sealed class GroupAssignmentScheduleRequestsProviderTests
 
         Assert.Contains("authoritative members list", conflict.Message, StringComparison.Ordinal);
         Assert.Contains("edge pass would remove it", conflict.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>A literal empty members list declares nothing in Incremental mode (it prunes nothing), so it does not conflict; in Complete mode it empties the set and does.</summary>
+    [Fact]
+    public async Task AnActiveMembership_InAGroupWithALiteralEmptyMembersList_IsNoConflictInIncrementalMode_ButIsInCompleteMode()
+    {
+        var (host, _, alice) = Setup();
+        string resources = DirectoryTemplates.Join(OpsGroup("\"members\": []"), Active("{ \"groupId\": \"[reference('pim-ops').id]\", \"principalId\": \"" + alice + "\", \"accessId\": \"member\"" + Until2030 + " }"));
+
+        var incremental = await host.WhatIfAsync(host.Resources(resources));
+        var complete = await Conflict(host, resources, DeploymentMode.Complete);
+
+        Assert.Equal(ChangeType.Create, incremental.Change(Name).Type);
+        Assert.DoesNotContain(incremental.Plan.Diagnostics, d => d.Code == EngineDiagnosticCodes.PimAssignmentConflict);
+        Assert.Contains("authoritative members list", complete.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>An expression is not evaluated when the conflicts are checked, so one that evaluates to an empty array still counts as declared in either mode.</summary>
+    [Theory]
+    [InlineData("\"[json('[]')]\"", null, DeploymentMode.Incremental)]
+    [InlineData("\"[json('[]')]\"", null, DeploymentMode.Complete)]
+    [InlineData("\"[parameters('list')]\"", "\"list\": { \"type\": \"array\", \"defaultValue\": [] }", DeploymentMode.Incremental)]
+    [InlineData("\"[parameters('list')]\"", "\"list\": { \"type\": \"array\", \"defaultValue\": [] }", DeploymentMode.Complete)]
+    public async Task AnActiveMembership_InAGroupWhoseMembersExpressionIsEmpty_IsAConflictInEitherMode(string members, string? parameters, DeploymentMode mode)
+    {
+        var (host, _, alice) = Setup();
+        string resources = DirectoryTemplates.Join(OpsGroup("\"members\": " + members), Active("{ \"groupId\": \"[reference('pim-ops').id]\", \"principalId\": \"" + alice + "\", \"accessId\": \"member\"" + Until2030 + " }"));
+
+        var conflict = await Conflict(host, resources, mode, parameters);
+
+        Assert.Contains("authoritative members list", conflict.Message, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -103,6 +103,7 @@ public sealed class GroupOwnersAuthoritativeSetTests
         var diagnostics = new TemplateValidator(host.Catalog).Validate(host.Resources(Ops("[]")));
 
         Assert.DoesNotContain(diagnostics, d => d.Code == "SchemaViolation" && d.ToString().Contains("properties.owners", StringComparison.Ordinal));
+        Assert.DoesNotContain(diagnostics, d => d.Severity == EArm.Core.Diagnostics.DiagnosticSeverity.Error);
     }
 
     /// <summary>A literal, a parameter defaulting to an empty array and an expression evaluating to one all reach the groups provider, which makes the row unsupported at plan time in Complete mode.</summary>
@@ -128,7 +129,7 @@ public sealed class GroupOwnersAuthoritativeSetTests
         var op = create.Op(GroupName);
         Assert.Equal(OperationStatus.Failed, op.Status);
         Assert.Contains(LastOwnerHint, op.Error, StringComparison.Ordinal);
-        Assert.Empty(EdgeWrites(create));
+        Check.NoWrites(create);
         Assert.Equal([t.AliceId], t.Owners);
     }
 
