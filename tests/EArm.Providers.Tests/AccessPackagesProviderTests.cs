@@ -294,9 +294,12 @@ public sealed class AccessPackagesProviderTests
         var row = whatIf.Change(Guid(3));
         Assert.Equal(EngineDiagnosticCodes.PimGroupNotOnboarded, row.UnsupportedCode);
         Assert.Contains("no schedule request of this deployment onboards it", row.UnsupportedReason, StringComparison.Ordinal);
+        Assert.Contains("nor a group PIM policy that opts in to onboarding", row.UnsupportedReason, StringComparison.Ordinal);
+        Assert.Contains("Microsoft.Entra/roleManagementPolicies for the group with properties.onboarding.temporaryEligiblePrincipalId", row.UnsupportedReason, StringComparison.Ordinal);
 
         var run = await t.Host.CreateAsync(document);
         Assert.Equal(EngineDiagnosticCodes.PimGroupNotOnboarded, run.Op(Guid(3)).ErrorCode);
+        Assert.Contains("properties.onboarding.temporaryEligiblePrincipalId", run.Op(Guid(3)).Error, StringComparison.Ordinal);
         Check.NoWrites(run);
     }
 
