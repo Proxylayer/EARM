@@ -77,6 +77,33 @@ internal static class RoleManagementPolicyApplyOrder
         }
     }
 
+    /// <summary>
+    /// True when <paramref name="policy"/> is a group policy that opts in to onboarding (a non-null <c>properties.onboarding</c>) and names one of
+    /// <paramref name="groups"/> (referenced by <c>group</c> or <c>scopeId</c>, or a literal <c>group</c> naming its uniqueName) or the object id
+    /// <paramref name="groupId"/> (a literal <c>scopeId</c> or <c>group</c>): creating that policy onboards the group in PIM for Groups.
+    /// </summary>
+    public static bool OnboardsGroup(ResourceInstance policy, IReadOnlySet<ResourceInstance> groups, string? groupId, IReadOnlyList<ResourceInstance> declared)
+    {
+        ArgumentNullException.ThrowIfNull(policy);
+        ArgumentNullException.ThrowIfNull(groups);
+        ArgumentNullException.ThrowIfNull(declared);
+        if (policy.IsIgnored || policy.Declaration.Properties is not JsonObject properties
+            || JsonObjects.FindKey(properties, RoleManagementPolicyRules.OnboardingProperty) is not { } onboardingKey
+            || JsonObjects.IsAbsent(properties[onboardingKey])
+            || RoleManagementPolicyRules.ScopeKind(properties, IsExpression) != RoleManagementPolicyRules.GroupScope)
+        {
+            return false;
+        }
+
+        if (groups.Count > 0 && PolicyGroups(policy, properties, DeclarationConflicts.PropertiesPath(policy), declared).Overlaps(groups))
+        {
+            return true;
+        }
+
+        string? literal = groupId is null ? null : GroupLiteralOf(groupId);
+        return literal is not null && (literal == GroupLiteral(properties, "scopeId") || literal == GroupLiteral(properties, "group"));
+    }
+
     /// <summary>A role spelling where a built-in role name and its template id are the same role.</summary>
     private static string? RoleOf(ResourceInstance instance, JsonObject properties)
     {
@@ -123,9 +150,13 @@ internal static class RoleManagementPolicyApplyOrder
     /// <summary>A literal group spelling (an object id normalised, a uniqueName lower case), or <c>null</c>.</summary>
     private static string? GroupLiteral(JsonObject properties, string name)
     {
-        return DeclarationConflicts.Literal(properties, name) is { } text
-            ? RoleAssignmentsRules.IsGuid(text) ? RoleAssignmentsRules.NormalizeId(text) : text.ToLowerInvariant()
-            : null;
+        return DeclarationConflicts.Literal(properties, name) is { } text ? GroupLiteralOf(text) : null;
+    }
+
+    /// <summary>A group spelling normalised: an object id in its canonical form, anything else (a uniqueName) lower case.</summary>
+    private static string GroupLiteralOf(string text)
+    {
+        return RoleAssignmentsRules.IsGuid(text) ? RoleAssignmentsRules.NormalizeId(text) : text.ToLowerInvariant();
     }
 
     private static bool IsExpression(JsonNode? node)

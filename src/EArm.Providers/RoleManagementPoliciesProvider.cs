@@ -37,7 +37,8 @@ namespace EArm.Providers;
 /// rules explicitly. Complete mode lists no orphans.</item>
 /// </list>
 /// Order: a policy is applied before the schedule requests of the same role or group the template declares (<see cref="IApplyOrderSource"/>), so they are
-/// judged by the declared rules.
+/// judged by the declared rules; a group policy that opts in to onboarding is also applied before the access package role scopes that grant an eligible role
+/// of its group (<see cref="AccessPackageApplyOrder.OnboardingPolicies"/>), so the catalog offers the role by then.
 /// </summary>
 [EntraProvider(ResourceType)]
 public sealed partial class RoleManagementPoliciesProvider : ProviderBase, IDeleteRefusalSource, IOrphanCandidateSource, IApplyOrderSource
@@ -118,7 +119,7 @@ public sealed partial class RoleManagementPoliciesProvider : ProviderBase, IDele
 
     // ---- order ----
 
-    /// <summary>The schedule requests of the same role or group the template declares are applied after the policy (<see cref="RoleManagementPolicyApplyOrder"/>).</summary>
+    /// <summary>The schedule requests of the same role or group the template declares are applied after the policy (<see cref="RoleManagementPolicyApplyOrder"/>), and so are the eligible role scopes of the group a policy that opts in to onboarding onboards.</summary>
     public IEnumerable<ResourceInstance> AppliesBefore(ResourceInstance instance, IReadOnlyList<ResourceInstance> declared)
     {
         ArgumentNullException.ThrowIfNull(instance);
@@ -130,7 +131,10 @@ public sealed partial class RoleManagementPoliciesProvider : ProviderBase, IDele
             _onboardedThisRun.AddOrUpdate(instance, requests);
         }
 
-        return requests;
+        // A policy that opts in to onboarding onboards its group when it is created: the access package role scopes that grant an eligible role of that
+        // group are applied after it, so the catalog offers the role by then (AccessPackageApplyOrder.OnboardingPolicies).
+        var roleScopes = AccessPackageApplyOrder.EligibleRoleScopesOnboardedBy(instance, declared);
+        return roleScopes.Count == 0 ? requests : [.. requests, .. roleScopes];
     }
 
     // ---- prepare (sugar + live validation) ----

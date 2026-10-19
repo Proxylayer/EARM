@@ -121,6 +121,10 @@ default policy allows to be made eligible (a disabled user created for this purp
 `PrivilegedEligibilitySchedule.ReadWrite.AzureADGroup` and a role that may write the group's eligibilities ([permissions.md](permissions.md)); the
 manifest adds them only for policies that opt in.
 
+An access package role scope that grants **Eligible Member** or **Eligible Owner** of the same group counts such a policy as a same-run onboarding,
+like a schedule request: it is applied after the policy and waits for the catalog to offer the eligible role, so a fresh group needs one run
+([access-packages.md](access-packages.md#can-a-package-grant-eligible-pim-for-groups-membership)).
+
 Why a property of the policy resource rather than a deployment setting: ARM keeps a resource's behaviour in its own `properties` (the template says
 what happens to that resource, and nothing outside the template changes it), the onboarding concerns exactly one group, and naming the principal
 belongs next to the group it onboards. A deployment-wide switch would hide a privileged write (an eligibility) behind a command-line flag and apply it

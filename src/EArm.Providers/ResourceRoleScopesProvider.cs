@@ -29,8 +29,9 @@ namespace EArm.Providers;
 /// undocumented, so it is never built) → <c>POST …/accessPackages/{id}/resourceRoleScopes</c> (Learn: accesspackage-post-resourcerolescopes).</item>
 /// <item><b>Delete</b>: <c>DELETE …/accessPackages/{id}/resourceRoleScopes/{id}</c> (Graph does not refuse it while the package has assignments).</item>
 /// </list>
-/// An eligible role of a group PIM for Groups has not onboarded is <see cref="NotOnboarded"/>: deferred to the next run when a schedule request of the
-/// same deployment onboards the group (as <see cref="RoleManagementPoliciesProvider"/> defers a group policy), an error otherwise.
+/// An eligible role of a group PIM for Groups has not onboarded is <see cref="NotOnboarded"/>: when a schedule request of the same deployment, or a group PIM
+/// policy of it that opts in to onboarding (<c>properties.onboarding</c>), onboards the group, the role scope is applied after it and waits for the catalog
+/// to offer the role (deferred to the next run if it never does); an error otherwise.
 /// </summary>
 [EntraProvider(ResourceType)]
 public sealed class ResourceRoleScopesProvider : ProviderBase, IApplyOrderSource, IDeleteWarningSource
@@ -61,7 +62,7 @@ public sealed class ResourceRoleScopesProvider : ProviderBase, IApplyOrderSource
 
     private const string PackageNameProperty = "accessPackageDisplayName";
 
-    /// <summary>The role scopes whose group a schedule request of the same deployment onboards (found by <see cref="AppliesBefore"/>).</summary>
+    /// <summary>The role scopes whose group a schedule request or an onboarding group PIM policy of the same deployment onboards (found by <see cref="AppliesBefore"/>).</summary>
     private readonly ConditionalWeakTable<ResourceInstance, object> _onboardedThisRun = new();
 
     /// <summary>The role scopes <see cref="PrepareAsync"/> found to name an eligible role the catalog does not offer yet.</summary>
@@ -74,7 +75,7 @@ public sealed class ResourceRoleScopesProvider : ProviderBase, IApplyOrderSource
 
     /// <param name="definition">The catalog definition of the type.</param>
     /// <param name="catalog">The catalog.</param>
-    /// <param name="settle">How long an eligible grant waits for the catalog to offer the role after a same-run request onboarded the group; <see cref="ReplicationWait.Default"/> when null.</param>
+    /// <param name="settle">How long an eligible grant waits for the catalog to offer the role after a same-run request or policy onboarded the group; <see cref="ReplicationWait.Default"/> when null.</param>
     public ResourceRoleScopesProvider(ResourceTypeDefinition definition, ResourceTypeCatalog? catalog, ReplicationWait? settle)
         : base(definition, catalog)
     {
@@ -86,7 +87,7 @@ public sealed class ResourceRoleScopesProvider : ProviderBase, IApplyOrderSource
         Settle = settle ?? ReplicationWait.Default;
     }
 
-    /// <summary>How long an eligible grant waits (every <see cref="ReplicationWait.Interval"/>, up to <see cref="ReplicationWait.Window"/>) for the catalog to offer the role once a same-run request onboarded the group.</summary>
+    /// <summary>How long an eligible grant waits (every <see cref="ReplicationWait.Interval"/>, up to <see cref="ReplicationWait.Window"/>) for the catalog to offer the role once a same-run request or policy onboarded the group.</summary>
     public ReplicationWait Settle { get; init; }
 
     /// <summary>The package's role scope list can miss a new role scope for a moment.</summary>
@@ -113,7 +114,7 @@ public sealed class ResourceRoleScopesProvider : ProviderBase, IApplyOrderSource
 
     // ---- order ----
 
-    /// <summary>The assignment policies of the same package are applied after the role scope; a same-run PIM request for the group is remembered for <see cref="Plan"/>.</summary>
+    /// <summary>The assignment policies of the same package are applied after the role scope; a same-run PIM request or onboarding PIM policy for the group is remembered for <see cref="Plan"/>.</summary>
     public IEnumerable<ResourceInstance> AppliesBefore(ResourceInstance instance, IReadOnlyList<ResourceInstance> declared)
     {
         ArgumentNullException.ThrowIfNull(instance);
@@ -161,7 +162,7 @@ public sealed class ResourceRoleScopesProvider : ProviderBase, IApplyOrderSource
             return;
         }
 
-        // Applying, after the same-run request that onboards the group (the role scope is ordered after it, and a dependency created in this run is what
+        // Applying, after the same-run request or policy that onboards the group (the role scope is ordered after it, and a dependency created in this run is what
         // gives it the replication hint; a what-if never has one): the catalog offers the role once PIM has processed the request.
         if (_onboardedThisRun.TryGetValue(desired, out _) && desired.RetryHint == RetryHint.ExpectReplicationLag
             && await WaitForRoleAsync(graph, catalogId, resourceId, role, AccessPackageResourceOrigin.Group, desired.Api, cancellationToken).ConfigureAwait(false) is not null)
@@ -208,11 +209,11 @@ public sealed class ResourceRoleScopesProvider : ProviderBase, IApplyOrderSource
 
         if (_onboardedThisRun.TryGetValue(desired, out _) && options.PlanMode == PlanMode.WhatIf)
         {
-            // A what-if: the request has not run yet. The create applies the role scope after it and waits for the catalog to offer the role.
+            // A what-if: the request or policy has not run yet. The create applies the role scope after it and waits for the catalog to offer the role.
             var planned = base.Plan(desired, existing, options);
             return planned with
             {
-                Reasons = [.. planned.Reasons, $"{notOnboarded} yet; a schedule request of this deployment onboards it, and the role scope is created after that request (EARM waits up to {Settle.Window.TotalSeconds:0} s for the catalog to offer the role)"],
+                Reasons = [.. planned.Reasons, $"{notOnboarded} yet; a schedule request or an onboarding PIM policy of this deployment onboards it, and the role scope is created after that (EARM waits up to {Settle.Window.TotalSeconds:0} s for the catalog to offer the role)"],
             };
         }
 
@@ -221,7 +222,7 @@ public sealed class ResourceRoleScopesProvider : ProviderBase, IApplyOrderSource
             // Applying, and the wait timed out: deferred to the next run (the fallback).
             string warning = ProviderWarnings.Format(
                 NotOnboarded,
-                $"{notOnboarded} yet, {Settle.Window.TotalSeconds:0} s after the schedule request of this deployment that onboards it. The role scope is created by the next run (deploy again once this one succeeded).");
+                $"{notOnboarded} yet, {Settle.Window.TotalSeconds:0} s after the schedule request or PIM policy of this deployment that onboards it. The role scope is created by the next run (deploy again once this one succeeded).");
             return new ResourceChange
             {
                 Id = desired.Id,
@@ -233,7 +234,7 @@ public sealed class ResourceRoleScopesProvider : ProviderBase, IApplyOrderSource
             };
         }
 
-        string message = $"{desired.Describe()}: {notOnboarded}, and no schedule request of this deployment onboards it. A catalog offers Eligible Member and Eligible Owner only for a group managed by PIM for Groups, which onboards a group on its first eligibility or assignment request (Learn: entitlement-management-access-package-eligible, privilegedidentitymanagement-for-groups-api-overview); declare a privilegedAccess/groupEligibilityScheduleRequests (or groupAssignmentScheduleRequests) for the group in the same template, or onboard it in the portal, then deploy again.";
+        string message = $"{desired.Describe()}: {notOnboarded}, and no schedule request of this deployment onboards it, nor a group PIM policy that opts in to onboarding. A catalog offers Eligible Member and Eligible Owner only for a group managed by PIM for Groups, which onboards a group on its first eligibility or assignment request (Learn: entitlement-management-access-package-eligible, privilegedidentitymanagement-for-groups-api-overview); declare a privilegedAccess/groupEligibilityScheduleRequests (or groupAssignmentScheduleRequests) for the group in the same template, or a Microsoft.Entra/roleManagementPolicies for the group with properties.onboarding.temporaryEligiblePrincipalId, or onboard it in the portal, then deploy again.";
         return new ResourceChange
         {
             Id = desired.Id,
@@ -331,8 +332,8 @@ public sealed class ResourceRoleScopesProvider : ProviderBase, IApplyOrderSource
             if (eligible)
             {
                 string when = _onboardedThisRun.TryGetValue(desired, out _)
-                    ? $"A schedule request of this deployment onboards the group, but the role was still not offered {Settle.Window.TotalSeconds:0} s later; deploy again."
-                    : "Onboard the group first (a privilegedAccess/groupEligibilityScheduleRequests or groupAssignmentScheduleRequests for it, or the portal), then deploy again.";
+                    ? $"A schedule request or PIM policy of this deployment onboards the group, but the role was still not offered {Settle.Window.TotalSeconds:0} s later; deploy again."
+                    : "Onboard the group first (a privilegedAccess/groupEligibilityScheduleRequests or groupAssignmentScheduleRequests for it, a roleManagementPolicies for it with properties.onboarding, or the portal), then deploy again.";
                 throw new ProviderException(NotOnboarded, $"{desired.Describe()}: catalog {catalogId} offers no '{role}' role for group {groupId} (offered: {offered}): PIM for Groups has not onboarded the group. {when}", desired.Id);
             }
 

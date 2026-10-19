@@ -72,12 +72,43 @@ internal static class AccessPackageApplyOrder
     }
 
     /// <summary>
-    /// True when the template declares a PIM for Groups schedule request (eligibility or time-bound assignment) for the group <paramref name="roleScope"/>
-    /// grants a role of: that request onboards the group in PIM for Groups when it runs (Learn: privilegedidentitymanagement-for-groups-api-overview).
+    /// True when the template declares something that onboards the group <paramref name="roleScope"/> grants a role of in PIM for Groups when it runs
+    /// (<see cref="OnboardingSources"/>): a schedule request (eligibility or time-bound assignment; Learn: privilegedidentitymanagement-for-groups-api-overview)
+    /// or a group PIM policy that opts in to onboarding (<c>properties.onboarding</c>).
     /// </summary>
     public static bool GroupOnboardedThisRun(ResourceInstance roleScope, IReadOnlyList<ResourceInstance> declared)
     {
-        return OnboardingRequests(roleScope, declared).Count > 0;
+        return OnboardingSources(roleScope, declared).Count > 0;
+    }
+
+    /// <summary>
+    /// The declarations that onboard the group <paramref name="roleScope"/> grants a role of: the PIM for Groups schedule requests for it
+    /// (<see cref="OnboardingRequests"/>) and the group PIM policies for it that opt in to onboarding (<see cref="OnboardingPolicies"/>).
+    /// </summary>
+    public static IReadOnlyList<ResourceInstance> OnboardingSources(ResourceInstance roleScope, IReadOnlyList<ResourceInstance> declared)
+    {
+        return [.. OnboardingRequests(roleScope, declared), .. OnboardingPolicies(roleScope, declared)];
+    }
+
+    /// <summary>
+    /// The declared <c>roleManagementPolicies</c> of the group <paramref name="roleScope"/> grants a role of that opt in to onboarding
+    /// (<c>properties.onboarding.temporaryEligiblePrincipalId</c>): creating such a policy onboards the group in PIM for Groups
+    /// (<see cref="RoleManagementPolicyApplyOrder.OnboardsGroup"/>).
+    /// </summary>
+    public static IReadOnlyList<ResourceInstance> OnboardingPolicies(ResourceInstance roleScope, IReadOnlyList<ResourceInstance> declared)
+    {
+        ArgumentNullException.ThrowIfNull(roleScope);
+        ArgumentNullException.ThrowIfNull(declared);
+        if (roleScope.Declaration.Properties is not JsonObject properties)
+        {
+            return [];
+        }
+
+        var groups = Referenced(roleScope, properties, "resourceOriginId", declared, GroupsType);
+        string? literal = DeclarationConflicts.Literal(properties, "resourceOriginId")?.Trim();
+        return declared.Where(r => !ReferenceEquals(r, roleScope)
+            && ResourceIdentifier.TypeEquals(r.Type, RoleManagementPoliciesProvider.ResourceType)
+            && RoleManagementPolicyApplyOrder.OnboardsGroup(r, groups, literal, declared)).ToList();
     }
 
     /// <summary>The declared PIM for Groups schedule requests (eligibility or time-bound assignment) for the group <paramref name="roleScope"/> grants a role of.</summary>
@@ -107,18 +138,19 @@ internal static class AccessPackageApplyOrder
     }
 
     /// <summary>
-    /// The declared role scopes that grant an eligible role (<c>Eligible Member</c> / <c>Eligible Owner</c>, or a computed role) of the group the PIM for
-    /// Groups schedule request <paramref name="request"/> onboards: they are applied after it, so the catalog offers the eligible role by then.
+    /// The declared role scopes that grant an eligible role (<c>Eligible Member</c> / <c>Eligible Owner</c>, or a computed role) of the group
+    /// <paramref name="source"/> onboards (a PIM for Groups schedule request, or a group PIM policy that opts in to onboarding; <see cref="OnboardingSources"/>):
+    /// they are applied after it, so the catalog offers the eligible role by then.
     /// </summary>
-    public static IReadOnlyList<ResourceInstance> EligibleRoleScopesOnboardedBy(ResourceInstance request, IReadOnlyList<ResourceInstance> declared)
+    public static IReadOnlyList<ResourceInstance> EligibleRoleScopesOnboardedBy(ResourceInstance source, IReadOnlyList<ResourceInstance> declared)
     {
-        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(declared);
         return declared.Where(r => !r.IsIgnored
             && ResourceIdentifier.TypeEquals(r.Type, ResourceRoleScopesProvider.ResourceType)
             && r.Declaration.Properties is JsonObject scope
             && (JsonObjects.FindKey(scope, "role") is not { } roleKey || DeclarationConflicts.Literal(scope, roleKey) is not { } role || ResourceRoleScopesProvider.IsEligibleRole(role))
-            && OnboardingRequests(r, declared).Contains(request)).ToList();
+            && OnboardingSources(r, declared).Contains(source)).ToList();
     }
     /// <summary>The declared resources of <paramref name="type"/> the value <paramref name="name"/> of <paramref name="instance"/> references.</summary>
     private static HashSet<ResourceInstance> Referenced(ResourceInstance instance, JsonObject properties, string name, IReadOnlyList<ResourceInstance> declared, string type)

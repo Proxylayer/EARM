@@ -41,6 +41,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   the composite id `<roleId>_<scopeId>` of the catalog's role and scope, so the same grant has the same id in every package of the catalog;
   the "two declarations, one object" check now scopes a role scope by its access package. Two declarations of the same grant in one package
   are still a duplicate. The check also tells resource types apart, so objects of different types never count as one.
+- A `Microsoft.Entra/entitlementManagement/resourceRoleScopes` that grants `Eligible Member` or `Eligible Owner` of a group onboarded to PIM
+  for Groups in the same run by a group `Microsoft.Entra/roleManagementPolicies` with `properties.onboarding.temporaryEligiblePrincipalId` is
+  no longer the error `PimGroupNotOnboarded` on the first run. Such a policy now counts as a same-run onboarding, like a group schedule
+  request: the role scope is applied after it, the what-if shows a Create that waits for the onboarding, and the create waits (every 5 s, up
+  to 90 s) for the catalog to offer the eligible role. See docs/access-packages.md#can-a-package-grant-eligible-pim-for-groups-membership.
 
 ## [0.3.0] - 2026-10-17
 

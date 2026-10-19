@@ -205,15 +205,23 @@ The caveats:
   assignment in an access package" ([assign eligibility through access packages](https://learn.microsoft.com/en-us/entra/id-governance/entitlement-management-access-package-eligible)),
   and a group cannot be onboarded explicitly: PIM onboards it on its first eligibility or assignment schedule request, or in the portal
   ([PIM for Groups API overview](https://learn.microsoft.com/en-us/graph/api/resources/privilegedidentitymanagement-for-groups-api-overview); see
-  [pim.md](pim.md#group-onboarding)). EARM does not onboard groups by itself. Before onboarding the catalog offers only Member and Owner:
-  - **A same-run request onboards the group: one run.** When a `privilegedAccess/groupEligibilityScheduleRequests` or `groupAssignmentScheduleRequests`
-    of the **same deployment** names the group (the same declared group referenced, or the same literal id), the role scope is **ordered after that
-    request** (the group schedule request providers declare it through `IApplyOrderSource`), and when it is applied it **waits** for the catalog to offer
-    the eligible role, reading the catalog's roles every 5 s for up to 90 s (the replication wait; real tenants list a group's PIM policy 1-2 s after
-    its first eligibility). The what-if shows the role scope as a Create that waits for the onboarding.
+  [pim.md](pim.md#group-onboarding)). EARM onboards a group only when a declaration of the template does. Before onboarding the catalog offers only
+  Member and Owner:
+  - **A same-run declaration onboards the group: one run.** Two declarations of the **same deployment** onboard the group when they name it (the same
+    declared group referenced, or the same literal id; the group a `roleManagementPolicies` names by `group` or `scopeId`):
+    - a `privilegedAccess/groupEligibilityScheduleRequests` or `groupAssignmentScheduleRequests` for the group;
+    - a group `Microsoft.Entra/roleManagementPolicies` (`scopeType` `Group`, or `group` / `accessId`) that opts in to onboarding with
+      `properties.onboarding.temporaryEligiblePrincipalId` ([pim.md](pim.md#group-onboarding)); its create onboards the group with a temporary
+      eligibility. Either access (`member` or `owner`) onboards the whole group, so it covers Eligible Member and Eligible Owner alike.
+
+    The role scope is **ordered after that declaration** (the group schedule request and role management policy providers declare it through
+    `IApplyOrderSource`; the policies are phase 4 and the role scopes phase 6 anyway), and when it is applied it **waits** for the catalog to offer the
+    eligible role, reading the catalog's roles every 5 s for up to 90 s (the replication wait; real tenants list a group's PIM policy 1-2 s after its
+    first eligibility). The what-if shows the role scope as a Create that waits for the onboarding; a group only known at deployment (`?` in the
+    what-if) is matched by the declarations, the same way.
   - **Fallback:** when the role is still not offered after the wait, the row is deferred (an Ignore row with a `PimGroupNotOnboarded` warning) and the
     **next run** creates the role scope.
-  - **No request onboards the group:** the row is the error **`PimGroupNotOnboarded`** (in the style of the PIM policies' `PimPolicyNotAvailable`).
+  - **Nothing onboards the group:** the row is the error **`PimGroupNotOnboarded`** (in the style of the PIM policies' `PimPolicyNotAvailable`).
     The check runs while planning when the package and the catalog resource already exist; otherwise the create reports it.
   The beta `privilegedAccess` register API is not used (it stops returning data on 28 October 2026).
 - The group's PIM policy caps the eligibility (`Expiration_Admin_Eligibility`): if the package's assignment outlives it, PIM removes the eligibility
