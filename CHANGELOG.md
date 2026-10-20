@@ -36,6 +36,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- A `Microsoft.Entra/accessReviews/definitions` is no longer refused on its second run with "Immutable property properties.scope … differs from
+  the live object", and its reviewers no longer show as changed. Graph stores scope and reviewer queries rewritten (`/groups/{id}/transitiveMembers`
+  comes back as `/v1.0/groups/{id}/transitiveMembers/microsoft.graph.user`, `/groups/{id}/owners` as `/v1.0/groups/{id}/owners`); access review
+  queries are now compared by strict equivalence: a leading `/v1.0` is ignored, and a `/microsoft.graph.user` cast directly after `/members` or
+  `/transitiveMembers` equals its absence. `/beta`, a different cast and a different `$filter` are still differences, and the declared text is
+  still what is sent to Graph. See docs/providers.md (access reviews).
 - `Microsoft.Entra/entitlementManagement/resourceRoleScopes` declared in different access packages of one catalog that grant the same role
   of the same group (or app, or site) are no longer reported as `DuplicateGraphObject` by `what-if` and `create`. Graph gives a role scope
   the composite id `<roleId>_<scopeId>` of the catalog's role and scope, so the same grant has the same id in every package of the catalog;

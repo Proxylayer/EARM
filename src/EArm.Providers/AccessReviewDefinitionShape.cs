@@ -13,7 +13,8 @@ namespace EArm.Providers;
 /// <list type="bullet">
 /// <item><see cref="ProjectLive"/>: the live definition cut down to the shape the template declares, so Graph's filled-in members (every recurrence
 /// field, a reviewer's <c>queryRoot: null</c>, the settings the template leaves out) are not drift. Arrays of objects keep every live entry (an extra
-/// live reviewer is drift); each entry is cut down to the declared entry with the same <c>query</c>, else the one at the same position.</item>
+/// live reviewer is drift); each entry is cut down to the declared entry with the same <c>query</c>, else the one at the same position. A live <c>query</c> Graph stored rewritten
+/// (<see cref="AccessReviewQuery"/>: a <c>/v1.0</c> prefix, a members query's <c>/microsoft.graph.user</c> cast) projects with the rewrite undone.</item>
 /// <item><see cref="MergeForPut"/>: the full document for Graph's replace-only <c>PUT</c>: the live definition without its read-only members, the
 /// declared values merged in (objects merge, a declared array replaces the live one).</item>
 /// <item><see cref="Problems"/> and <see cref="ReviewerChangeRefusal"/>: what Graph refuses, found before a request is sent.</item>
@@ -27,6 +28,9 @@ internal static partial class AccessReviewDefinitionShape
 
     /// <summary>The deprecated alias of <see cref="FallbackReviewersProperty"/>: Graph copies either into the other.</summary>
     public const string BackupReviewersProperty = "backupReviewers";
+
+    /// <summary>The query member of a scope or a reviewer; compared by <see cref="AccessReviewQuery.AreEquivalent"/>, not literally.</summary>
+    private const string QueryProperty = "query";
 
     /// <summary>The members Graph assigns; never sent in a body (Learn: resources/accessreviewscheduledefinition, "Read-only").</summary>
     public static readonly IReadOnlyList<string> ReadOnlyProperties = ["createdBy", "createdDateTime", "lastModifiedDateTime", "status", "instances"];
@@ -43,7 +47,9 @@ internal static partial class AccessReviewDefinitionShape
                 {
                     if (JsonObjects.FindKey(liveObject, name) is { } liveKey)
                     {
-                        projected[liveKey] = ProjectLive(value, liveObject[liveKey]);
+                        projected[liveKey] = string.Equals(name, QueryProperty, StringComparison.OrdinalIgnoreCase) && QueryInDeclaredForm(value, liveObject[liveKey]) is { } query
+                            ? JsonValue.Create(query)
+                            : ProjectLive(value, liveObject[liveKey]);
                     }
                 }
 
@@ -195,7 +201,7 @@ internal static partial class AccessReviewDefinitionShape
         return desired?.DeepClone();
     }
 
-    /// <summary>The live entry a declared array entry matches: the same <c>query</c> (case-insensitive), else the same position; -1 when none.</summary>
+    /// <summary>The live entry a declared array entry matches: the same <c>query</c> (<see cref="AccessReviewQuery.AreEquivalent"/>), else the same position; -1 when none.</summary>
     private static int Match(JsonNode? element, int position, JsonArray live, HashSet<int> used)
     {
         if (element is not JsonObject declared)
@@ -203,11 +209,12 @@ internal static partial class AccessReviewDefinitionShape
             return -1;
         }
 
-        if (JsonObjects.GetString(declared, "query") is { } query && !UnknownJson.IsUnknown(declared["query"]))
+        if (JsonObjects.GetString(declared, QueryProperty) is { } query && !UnknownJson.IsUnknown(declared[QueryProperty]))
         {
             for (int i = 0; i < live.Count; i++)
             {
-                if (!used.Contains(i) && live[i] is JsonObject candidate && string.Equals(JsonObjects.GetString(candidate, "query"), query, StringComparison.OrdinalIgnoreCase))
+                if (!used.Contains(i) && live[i] is JsonObject candidate && JsonObjects.GetString(candidate, QueryProperty) is { } candidateQuery
+                    && AccessReviewQuery.AreEquivalent(query, candidateQuery))
                 {
                     return i;
                 }
@@ -215,6 +222,19 @@ internal static partial class AccessReviewDefinitionShape
         }
 
         return position < live.Count && !used.Contains(position) && live[position] is JsonObject ? position : -1;
+    }
+
+    /// <summary>
+    /// The live query text with Graph's rewrites undone to the declared form (<see cref="AccessReviewQuery.InDeclaredForm"/>), so the rewrite is no
+    /// drift; <c>null</c> (project as any value) when either side is not a string, the declared query is deploy-time-unknown, or the two are not equivalent.
+    /// </summary>
+    private static string? QueryInDeclaredForm(JsonNode? desired, JsonNode? live)
+    {
+        return desired is JsonValue && !UnknownJson.IsUnknown(desired) && JsonValues.TryGetString(desired, out var left)
+            && live is JsonValue && JsonValues.TryGetString(live, out var right)
+            && AccessReviewQuery.AreEquivalent(left, right)
+            ? AccessReviewQuery.InDeclaredForm(left, right)
+            : null;
     }
 
     /// <summary>A declared timestamp (with a time part) and a live date-only value that name the same day, or two equal date strings.</summary>

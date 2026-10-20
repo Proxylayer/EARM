@@ -873,6 +873,16 @@ Comparison and refusals:
 - **Declared shape only.** The live definition is cut down to what the template declares before the shared diff (`AccessReviewDefinitionShape.ProjectLive`),
   so the members Graph fills in (every recurrence field, a reviewer's `queryRoot: null`, undeclared settings) are not drift and an update keeps
   them. Reviewer arrays compare as sets; a declared recurrence timestamp equals a live date of the same day.
+- **Queries Graph rewrites.** Graph stores some scope and reviewer queries rewritten and serves them back that way: it prefixes `/v1.0`
+  (`/groups/{id}/owners` comes back as `/v1.0/groups/{id}/owners`) and appends the user type cast to a members query
+  (`/groups/{id}/transitiveMembers` comes back as `/v1.0/groups/{id}/transitiveMembers/microsoft.graph.user`). Every `query` member (the scope,
+  `instanceEnumerationScope`, the reviewers, `fallbackReviewers` / `backupReviewers`) is therefore compared by strict equivalence
+  (`AccessReviewQuery`), not literally: (1) a leading `/v1.0` segment is ignored on either side, `/beta` is not (a different API stays a
+  difference); (2) a trailing `/microsoft.graph.user` equals its absence only directly after a `/members` or `/transitiveMembers` segment and only
+  when the other side has no type cast there (`/microsoft.graph.group` against none, or against `/microsoft.graph.user`, is a difference);
+  (3) everything else compares case-insensitively and exactly, and rules 1-2 apply to the path only, never to a `?$filter=...` query string
+  (an access package assignments scope still needs the same filter). An equivalent live query is compared in the declared form (Graph's rewrite undone, its text otherwise kept), so the what-if
+  shows no change and the immutable-scope check does not fire. This is comparison only: create and update send the declared text unchanged.
 - **Immutable scope.** The update page accepts neither `scope` nor `instanceEnumerationScope` (overlay `immutable`); a change is refused with the
   shared immutable-property message, never a replace, because a new review would lose the old one's instances and decisions.
 - **Reviewers.** Learn: `reviewers` "is only updatable if individual users are assigned as reviewers". A reviewer change is refused at plan time
