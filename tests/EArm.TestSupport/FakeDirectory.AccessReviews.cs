@@ -20,6 +20,9 @@ namespace EArm.TestSupport;
 /// <item>PUT (204) is a full replace: <c>scope</c> is required and, like <c>instanceEnumerationScope</c>, cannot change; <c>reviewers</c> change only while
 /// the stored and the new reviewers are all <c>/users/{id}</c>; read-only members and two different reviewer aliases are refused. No PATCH.</item>
 /// <item>DELETE (204); a missing id is a 404.</item>
+/// <item>With <see cref="AccessReviewQueriesRewritten"/>, the scope, instance enumeration scope and reviewer queries are stored the way the real tenant
+/// stores them: an absolute query gets a <c>/v1.0</c> prefix, and a path ending in <c>/members</c> or <c>/transitiveMembers</c> the
+/// <c>/microsoft.graph.user</c> cast (<c>/groups/{id}/transitiveMembers</c> is served back as <c>/v1.0/groups/{id}/transitiveMembers/microsoft.graph.user</c>).</item>
 /// </list>
 /// </summary>
 public sealed partial class FakeDirectory
@@ -33,6 +36,38 @@ public sealed partial class FakeDirectory
 
     /// <summary>The signed-in principal Graph records as <c>createdBy</c> on a new definition.</summary>
     public string AccessReviewCreatorId { get; set; } = "99999999-0000-0000-0000-000000000001";
+
+    /// <summary>Whether a POST / PUT stores the queries in Graph's rewritten form (see the type); off by default (stored as sent).</summary>
+    public bool AccessReviewQueriesRewritten { get; set; }
+
+    /// <summary>
+    /// <paramref name="query"/> as the real tenant stores it: a leading <c>/v1.0</c> on an absolute, unversioned query, and the
+    /// <c>/microsoft.graph.user</c> cast after a trailing <c>/members</c> or <c>/transitiveMembers</c> path segment. Relative queries
+    /// (<c>./owners</c>) and the <c>?</c> query string are left alone; an already rewritten query is unchanged.
+    /// </summary>
+    public static string RewriteAccessReviewQuery(string query)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        if (!query.StartsWith('/'))
+        {
+            return query;
+        }
+
+        if (!query.StartsWith("/v1.0/", StringComparison.OrdinalIgnoreCase) && !query.StartsWith("/beta/", StringComparison.OrdinalIgnoreCase))
+        {
+            query = "/v1.0" + query;
+        }
+
+        int mark = query.IndexOf('?', StringComparison.Ordinal);
+        string path = mark < 0 ? query : query[..mark];
+        string rest = mark < 0 ? string.Empty : query[mark..];
+        if (path.EndsWith("/members", StringComparison.OrdinalIgnoreCase) || path.EndsWith("/transitiveMembers", StringComparison.OrdinalIgnoreCase))
+        {
+            path += "/microsoft.graph.user";
+        }
+
+        return path + rest;
+    }
 
     private bool TryHandleAccessReviews(string method, string path, IReadOnlyDictionary<string, string>? query, JsonNode? body, RetryHint hint, int pageSize, out (HttpStatusCode Status, JsonNode? Body) result)
     {
@@ -149,7 +184,7 @@ public sealed partial class FakeDirectory
         }
 
         RefuseDifferentReviewerAliases(payload, hint);
-        var created = NormalizeAccessReview((JsonObject)payload.DeepClone());
+        var created = NormalizeAccessReview((JsonObject)payload.DeepClone(), AccessReviewQueriesRewritten);
         string now = Clock.GetUtcNow().ToString("yyyy-MM-ddTHH:mm:ss.fffZ", CultureInfo.InvariantCulture);
         created.Insert(0, "id", Guid.NewGuid().ToString("D"));
         created["status"] = "NotStarted";
@@ -179,7 +214,7 @@ public sealed partial class FakeDirectory
             throw BadRequest("The property 'scope' is required: PUT replaces the whole definition.", hint);
         }
 
-        var replacement = NormalizeAccessReview((JsonObject)payload.DeepClone());
+        var replacement = NormalizeAccessReview((JsonObject)payload.DeepClone(), AccessReviewQueriesRewritten);
         if (!JsonNode.DeepEquals(replacement["scope"], stored["scope"]))
         {
             throw BadRequest("The scope of an access review cannot be updated.", hint);
@@ -242,7 +277,7 @@ public sealed partial class FakeDirectory
     }
 
     /// <summary>What Graph fills into a definition it stores (see the type).</summary>
-    private static JsonObject NormalizeAccessReview(JsonObject definition)
+    private static JsonObject NormalizeAccessReview(JsonObject definition, bool rewriteQueries)
     {
         if (definition["scope"] is JsonObject scope && scope["@odata.type"] is null)
         {
@@ -261,6 +296,19 @@ public sealed partial class FakeDirectory
         FillQueryRoots(definition["reviewers"]);
         FillQueryRoots(definition["fallbackReviewers"]);
         FillQueryRoots(definition["backupReviewers"]);
+        if (rewriteQueries)
+        {
+            RewriteQueries(definition["scope"]);
+            RewriteQueries(definition["instanceEnumerationScope"]);
+            foreach (string reviewers in new[] { "reviewers", "fallbackReviewers", "backupReviewers" })
+            {
+                foreach (var entry in definition[reviewers] is JsonArray array ? array : [])
+                {
+                    RewriteQueries(entry);
+                }
+            }
+        }
+
         definition["stageSettings"] ??= new JsonArray();
         definition["additionalNotificationRecipients"] ??= new JsonArray();
 
@@ -316,6 +364,14 @@ public sealed partial class FakeDirectory
         }
 
         return definition;
+    }
+
+    private static void RewriteQueries(JsonNode? holder)
+    {
+        if (holder is JsonObject entry && GetString(entry, "query") is { } query)
+        {
+            entry["query"] = RewriteAccessReviewQuery(query);
+        }
     }
 
     private static void FillQueryRoots(JsonNode? reviewers)

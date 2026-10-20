@@ -283,4 +283,142 @@ public sealed class AccessReviewDefinitionShapeTests
         Assert.NotNull(AccessReviewDefinitionShape.ReviewerChangeRefusal(new JsonObject { ["reviewers"] = new JsonArray(Reviewer("./owners")) }, self));
         Assert.NotNull(AccessReviewDefinitionShape.ReviewerChangeRefusal(new JsonObject { ["reviewers"] = new JsonArray() }, new JsonObject { ["reviewers"] = new JsonArray(Reviewer("./owners")) }));
     }
+
+    // ---- queries Graph stores rewritten (a /v1.0 prefix, a members query's /microsoft.graph.user cast) ----
+
+    private const string GroupA = "6f1c3c48-1111-4a4a-9c9c-00000000000a";
+    private const string GroupB = "6f1c3c48-1111-4a4a-9c9c-00000000000b";
+
+    private static JsonObject LiveReviewer(string query)
+    {
+        return new JsonObject { ["query"] = query, ["queryType"] = "MicrosoftGraph", ["queryRoot"] = null };
+    }
+
+    [Fact]
+    public void ProjectLive_TheRewrittenScopeAndReviewers_ProjectEqualToTheDeclaredOnes()
+    {
+        var desired = new JsonObject
+        {
+            ["scope"] = Reviewer("/groups/" + GroupA + "/transitiveMembers"),
+            ["reviewers"] = new JsonArray(Reviewer("/groups/" + GroupB + "/owners"), Reviewer("/groups/" + GroupB + "/members")),
+        };
+        var liveScope = LiveReviewer("/v1.0/groups/" + GroupA + "/transitiveMembers/microsoft.graph.user");
+        liveScope.Insert(0, "@odata.type", "#microsoft.graph.accessReviewQueryScope");
+        var live = new JsonObject
+        {
+            ["scope"] = liveScope,
+            ["reviewers"] = new JsonArray(LiveReviewer("/v1.0/groups/" + GroupB + "/owners"), LiveReviewer("/v1.0/groups/" + GroupB + "/members/microsoft.graph.user")),
+        };
+
+        var projected = AccessReviewDefinitionShape.ProjectLive(desired, live);
+
+        Assert.True(JsonDiff.AreEquivalent(desired, projected), projected!.ToJsonString());
+
+        // The live object keeps Graph's text.
+        Assert.Equal("/v1.0/groups/" + GroupA + "/transitiveMembers/microsoft.graph.user", live["scope"]!["query"]!.GetValue<string>());
+    }
+
+    [Theory]
+    [InlineData("instanceEnumerationScope")]
+    [InlineData("fallbackReviewers")]
+    [InlineData("backupReviewers")]
+    public void ProjectLive_TheOtherQueryMembers_ProjectWithTheRewriteUndone(string property)
+    {
+        bool isArray = property != "instanceEnumerationScope";
+        string declaredQuery = isArray ? "/groups/" + GroupA + "/transitiveMembers" : "/groups/" + GroupA + "/owners";
+        string liveQuery = isArray ? "/v1.0/groups/" + GroupA + "/transitiveMembers/microsoft.graph.user" : "/v1.0/groups/" + GroupA + "/owners";
+        var desired = new JsonObject { [property] = isArray ? new JsonArray(Reviewer(declaredQuery)) : Reviewer(declaredQuery) };
+        var live = new JsonObject { [property] = isArray ? new JsonArray(LiveReviewer(liveQuery)) : LiveReviewer(liveQuery) };
+
+        var projected = AccessReviewDefinitionShape.ProjectLive(desired, live);
+
+        Assert.True(JsonDiff.AreEquivalent(desired, projected), projected!.ToJsonString());
+    }
+
+    [Fact]
+    public void ProjectLive_PairsEquivalentReviewerQueries_RegardlessOfOrder()
+    {
+        var desired = new JsonArray(Reviewer("/groups/" + GroupA + "/owners"), Reviewer("/groups/" + GroupB + "/transitiveMembers"), Reviewer("/users/u"));
+        var live = new JsonArray(
+            LiveReviewer("/v1.0/users/u"),
+            LiveReviewer("/v1.0/groups/" + GroupB + "/transitiveMembers/microsoft.graph.user"),
+            LiveReviewer("/v1.0/groups/" + GroupA + "/owners"));
+
+        var projected = AccessReviewDefinitionShape.ProjectLive(desired, live);
+
+        Assert.True(JsonDiff.AreEquivalent(desired, projected), projected!.ToJsonString());
+    }
+
+    [Fact]
+    public void ProjectLive_AnInequivalentLiveQuery_KeepsTheLiveText_AndIsDrift()
+    {
+        foreach (string liveQuery in new[] { "/beta/groups/" + GroupA + "/owners", "/v1.0/groups/" + GroupB + "/owners", "/v1.0/groups/" + GroupA + "/owners/microsoft.graph.user" })
+        {
+            var desired = new JsonObject { ["scope"] = Reviewer("/groups/" + GroupA + "/owners") };
+            var live = new JsonObject { ["scope"] = LiveReviewer(liveQuery) };
+
+            var projected = AccessReviewDefinitionShape.ProjectLive(desired, live);
+
+            Assert.Equal(liveQuery, projected!["scope"]!["query"]!.GetValue<string>());
+            Assert.False(JsonDiff.AreEquivalent(desired, projected), liveQuery);
+        }
+
+        // A members cast that is not the user cast is drift too.
+        var members = new JsonObject { ["scope"] = Reviewer("/groups/" + GroupA + "/members") };
+        var group = AccessReviewDefinitionShape.ProjectLive(members, new JsonObject { ["scope"] = LiveReviewer("/v1.0/groups/" + GroupA + "/members/microsoft.graph.group") });
+        Assert.Equal("/v1.0/groups/" + GroupA + "/members/microsoft.graph.group", group!["scope"]!["query"]!.GetValue<string>());
+        Assert.False(JsonDiff.AreEquivalent(members, group));
+    }
+
+    [Fact]
+    public void ProjectLive_AnUnknownDeclaredQuery_IsNotJudged_AndProjectsTheLiveText()
+    {
+        string liveQuery = "/v1.0/groups/" + GroupA + "/transitiveMembers/microsoft.graph.user";
+        var desired = new JsonObject { ["scope"] = new JsonObject { ["query"] = Unknown() }, ["reviewers"] = new JsonArray(new JsonObject { ["query"] = Unknown() }) };
+        var live = new JsonObject { ["scope"] = LiveReviewer(liveQuery), ["reviewers"] = new JsonArray(LiveReviewer("/v1.0/groups/" + GroupB + "/owners")) };
+
+        var projected = AccessReviewDefinitionShape.ProjectLive(desired, live);
+
+        Assert.Equal(liveQuery, projected!["scope"]!["query"]!.GetValue<string>());
+        Assert.Equal("/v1.0/groups/" + GroupB + "/owners", projected["reviewers"]![0]!["query"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public void ReviewerChangeRefusal_NothingForGraphsRewrittenOwnersQuery()
+    {
+        var desired = new JsonObject { ["reviewers"] = new JsonArray(Reviewer("/groups/" + GroupA + "/owners"), Reviewer("/groups/" + GroupB + "/transitiveMembers")) };
+        var live = new JsonObject { ["reviewers"] = new JsonArray(LiveReviewer("/v1.0/groups/" + GroupB + "/transitiveMembers/microsoft.graph.user"), LiveReviewer("/v1.0/groups/" + GroupA + "/owners")) };
+
+        Assert.Null(AccessReviewDefinitionShape.ReviewerChangeRefusal(desired, live));
+    }
+
+    [Fact]
+    public void ReviewerChangeRefusal_StillRefusesARealChangeOfNonIndividualReviewers()
+    {
+        var live = new JsonObject { ["reviewers"] = new JsonArray(LiveReviewer("/v1.0/groups/" + GroupA + "/owners")) };
+
+        var otherGroup = AccessReviewDefinitionShape.ReviewerChangeRefusal(new JsonObject { ["reviewers"] = new JsonArray(Reviewer("/groups/" + GroupB + "/owners")) }, live);
+        Assert.NotNull(otherGroup);
+        Assert.Contains("/groups/" + GroupB + "/owners", otherGroup, StringComparison.Ordinal);
+        Assert.Contains("/v1.0/groups/" + GroupA + "/owners", otherGroup, StringComparison.Ordinal);
+
+        var addedOwners = AccessReviewDefinitionShape.ReviewerChangeRefusal(new JsonObject { ["reviewers"] = new JsonArray(Reviewer("/groups/" + GroupA + "/owners"), Reviewer("./owners")) }, live);
+        Assert.NotNull(addedOwners);
+        Assert.Contains("./owners", addedOwners, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void MergeForPut_SendsTheDeclaredQueryText_NotGraphsRewrittenForm()
+    {
+        var liveScope = LiveReviewer("/v1.0/groups/" + GroupA + "/transitiveMembers/microsoft.graph.user");
+        liveScope.Insert(0, "@odata.type", "#microsoft.graph.accessReviewQueryScope");
+        var live = new JsonObject { ["id"] = "1", ["scope"] = liveScope, ["reviewers"] = new JsonArray(LiveReviewer("/v1.0/groups/" + GroupB + "/owners")) };
+        var desired = new JsonObject { ["scope"] = Reviewer("/groups/" + GroupA + "/transitiveMembers"), ["reviewers"] = new JsonArray(Reviewer("/groups/" + GroupB + "/owners")) };
+
+        var document = AccessReviewDefinitionShape.MergeForPut(live, desired);
+
+        Assert.Equal("/groups/" + GroupA + "/transitiveMembers", document["scope"]!["query"]!.GetValue<string>());
+        Assert.Equal("#microsoft.graph.accessReviewQueryScope", document["scope"]!["@odata.type"]!.GetValue<string>());
+        Assert.Equal("/groups/" + GroupB + "/owners", Assert.Single(document["reviewers"]!.AsArray())!["query"]!.GetValue<string>());
+    }
 }

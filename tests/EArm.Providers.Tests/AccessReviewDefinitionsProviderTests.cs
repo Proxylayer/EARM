@@ -417,6 +417,177 @@ public sealed class AccessReviewDefinitionsProviderTests
         Assert.Contains("scope", row.UnsupportedReason, StringComparison.Ordinal);
     }
 
+    // ---- queries Graph stores rewritten (a /v1.0 prefix, a members query's /microsoft.graph.user cast) ----
+
+    private const string Assignments = "/identityGovernance/entitlementManagement/accessPackageAssignments?$filter=(accessPackageId eq 'a')";
+
+    private static string Scope(string query)
+    {
+        return "{ \"query\": \"" + query + "\", \"queryType\": \"MicrosoftGraph\" }";
+    }
+
+    private static string Reviewers(params string[] queries)
+    {
+        return "[ " + string.Join(", ", queries.Select(q => "{ \"query\": \"" + q + "\", \"queryType\": \"MicrosoftGraph\" }")) + " ]";
+    }
+
+    /// <summary><see cref="LiveDefinition"/> with the scope and reviewer queries as the real tenant stores them.</summary>
+    private static JsonObject RewrittenLive(string scopeQuery, params string[] reviewerQueries)
+    {
+        var live = LiveDefinition(reviewersJson: Reviewers(reviewerQueries.Select(FakeDirectory.RewriteAccessReviewQuery).ToArray()));
+        live["scope"]!["query"] = FakeDirectory.RewriteAccessReviewQuery(scopeQuery);
+        return live;
+    }
+
+    [Fact]
+    public async Task Rewritten_ACreatedReview_RerunsAsNoChange_WithoutAnImmutableScopeError()
+    {
+        var host = new ProviderHost();
+        host.Directory.AccessReviewQueriesRewritten = true;
+        string owners = "/groups/" + OtherGroupId + "/owners";
+        string resource = Review(Reviewers(owners, "/groups/" + OtherGroupId + "/members") + ", \"fallbackReviewers\": " + Reviewers("/groups/" + GroupId + "/owners"));
+
+        var run = await host.CreateAsync(host.Resources(resource));
+
+        Check.Succeeded(run);
+        var post = Assert.Single(run.Writes).Body!.AsObject();
+        Assert.Equal("/groups/" + GroupId + "/transitiveMembers", post["scope"]!["query"]!.GetValue<string>());
+        Assert.Equal(owners, post["reviewers"]![0]!["query"]!.GetValue<string>());
+        var stored = host.Directory.FindById(host.IdOf(ReviewPath, "displayName", ReviewName))!;
+        Assert.Equal("/v1.0/groups/" + GroupId + "/transitiveMembers/microsoft.graph.user", stored["scope"]!["query"]!.GetValue<string>());
+        Assert.Equal("/v1.0" + owners, stored["reviewers"]![0]!["query"]!.GetValue<string>());
+        Assert.Equal("/v1.0/groups/" + OtherGroupId + "/members/microsoft.graph.user", stored["reviewers"]![1]!["query"]!.GetValue<string>());
+        Assert.Equal("/v1.0/groups/" + GroupId + "/owners", stored["fallbackReviewers"]![0]!["query"]!.GetValue<string>());
+
+        var whatIf = await host.WhatIfAsync(host.Resources(resource));
+        var row = Assert.Single(whatIf.Plan.Changes);
+        Assert.Equal(ChangeType.NoChange, row.Type);
+        Assert.False(row.HasError, row.UnsupportedReason);
+        Assert.Null(row.UnsupportedReason);
+
+        var rerun = await host.CreateAsync(host.Resources(resource));
+        Check.Succeeded(rerun);
+        Assert.All(rerun.Executed.Operations, o => Assert.Equal(ChangeType.NoChange, o.ChangeType));
+        Check.NoWrites(rerun);
+    }
+
+    [Theory]
+    [InlineData("/groups/" + GroupId + "/transitiveMembers", "/groups/" + OtherGroupId + "/owners")]
+    [InlineData("/groups/" + GroupId + "/members", "/groups/" + OtherGroupId + "/transitiveMembers")]
+    [InlineData("/v1.0/groups/" + GroupId + "/transitiveMembers", "/v1.0/groups/" + OtherGroupId + "/owners")]
+    [InlineData("/groups/" + GroupId + "/owners", "./owners")]
+    [InlineData(Assignments, "/groups/" + OtherGroupId + "/owners")]
+    public async Task Rewritten_ConfirmedScopeAndReviewers_AreNoChange(string scopeQuery, string reviewerQuery)
+    {
+        var host = new ProviderHost();
+        host.Directory.Add(ReviewPath, RewrittenLive(scopeQuery, reviewerQuery));
+        string resource = Review(Reviewers(reviewerQuery), scope: Scope(scopeQuery));
+
+        var whatIf = await host.WhatIfAsync(host.Resources(resource));
+
+        var row = Assert.Single(whatIf.Plan.Changes);
+        Assert.Equal(ChangeType.NoChange, row.Type);
+        Assert.False(row.HasError, row.UnsupportedReason);
+
+        var run = await host.CreateAsync(host.Resources(resource));
+        Check.Succeeded(run);
+        Check.NoWrites(run);
+    }
+
+    [Fact]
+    public async Task Rewritten_AConfirmedInstanceEnumerationScope_IsNoChange()
+    {
+        var host = new ProviderHost();
+        var live = RewrittenLive("/groups/" + GroupId + "/transitiveMembers", "/users/" + UserA);
+        live["instanceEnumerationScope"] = new JsonObject { ["query"] = "/v1.0/groups/" + OtherGroupId + "/members/microsoft.graph.user", ["queryType"] = "MicrosoftGraph" };
+        host.Directory.Add(ReviewPath, live);
+        string resource = Review(extra: ", \"instanceEnumerationScope\": " + Scope("/groups/" + OtherGroupId + "/members"));
+
+        var whatIf = await host.WhatIfAsync(host.Resources(resource));
+
+        var row = Assert.Single(whatIf.Plan.Changes);
+        Assert.Equal(ChangeType.NoChange, row.Type);
+        Assert.False(row.HasError, row.UnsupportedReason);
+    }
+
+    [Theory]
+    [InlineData("/groups/" + GroupId + "/transitiveMembers", "/groups/" + OtherGroupId + "/transitiveMembers")]
+    [InlineData("/groups/" + GroupId + "/transitiveMembers", "/beta/groups/" + GroupId + "/transitiveMembers")]
+    [InlineData("/groups/" + GroupId + "/transitiveMembers", "/groups/" + GroupId + "/transitiveMembers/microsoft.graph.group")]
+    [InlineData("/groups/" + GroupId + "/owners", "/groups/" + GroupId + "/owners/microsoft.graph.user")]
+    [InlineData(Assignments, "/identityGovernance/entitlementManagement/accessPackageAssignments?$filter=(accessPackageId eq 'b')")]
+    public async Task Rewritten_ARealScopeChange_IsStillRefusedAsImmutable(string liveScope, string declaredScope)
+    {
+        var host = new ProviderHost();
+        host.Directory.Add(ReviewPath, RewrittenLive(liveScope, "/users/" + UserA));
+        string resource = Review(scope: Scope(declaredScope));
+
+        var whatIf = await host.WhatIfAsync(host.Resources(resource));
+
+        var row = Assert.Single(whatIf.Plan.Changes);
+        Assert.Equal(ChangeType.Modify, row.Type);
+        Assert.True(row.HasError);
+        Assert.Contains("cannot be changed in place", row.UnsupportedReason, StringComparison.Ordinal);
+        Assert.Contains("scope", row.UnsupportedReason, StringComparison.Ordinal);
+
+        var run = await host.CreateAsync(host.Resources(resource));
+        Assert.DoesNotContain(run.Writes, w => w.Method is "DELETE" or "POST" or "PUT");
+        Assert.Single(host.Directory.Objects(ReviewPath));
+    }
+
+    [Fact]
+    public async Task Rewritten_ARealChangeOfNonIndividualReviewers_IsStillRefused()
+    {
+        string ownersA = "/groups/" + GroupId + "/owners";
+        foreach (string declared in new[] { Reviewers("/groups/" + OtherGroupId + "/owners"), Reviewers(ownersA, "./owners") })
+        {
+            var host = new ProviderHost();
+            host.Directory.Add(ReviewPath, RewrittenLive("/groups/" + GroupId + "/transitiveMembers", ownersA));
+
+            var whatIf = await host.WhatIfAsync(host.Resources(Review(declared)));
+
+            var row = Assert.Single(whatIf.Plan.Changes);
+            Assert.Equal(ChangeType.Modify, row.Type);
+            Assert.True(row.HasError, declared);
+            Assert.Contains("individual user", row.UnsupportedReason, StringComparison.Ordinal);
+
+            var run = await host.CreateAsync(host.Resources(Review(declared)));
+            Check.NoWrites(run);
+        }
+    }
+
+    [Fact]
+    public async Task Rewritten_AnUpdate_PutsTheTemplatesQueryText_AndTheRerunIsNoChange()
+    {
+        var host = new ProviderHost();
+        host.Directory.AccessReviewQueriesRewritten = true;
+        string owners = "/groups/" + OtherGroupId + "/owners";
+        var live = host.Directory.Add(ReviewPath, RewrittenLive("/groups/" + GroupId + "/transitiveMembers", owners));
+        string id = live["id"]!.GetValue<string>();
+        string changed = Settings.Replace("\"instanceDurationInDays\": 14", "\"instanceDurationInDays\": 7", StringComparison.Ordinal);
+        string resource = Review(Reviewers(owners), settings: changed);
+
+        var whatIf = await host.WhatIfAsync(host.Resources(resource));
+        var row = Assert.Single(whatIf.Plan.Changes);
+        Assert.Equal(ChangeType.Modify, row.Type);
+        Assert.False(row.HasError, row.UnsupportedReason);
+
+        var run = await host.CreateAsync(host.Resources(resource));
+
+        Check.Succeeded(run);
+        var put = Assert.Single(run.Writes);
+        Assert.Equal("PUT", put.Method);
+        Assert.Equal("/groups/" + GroupId + "/transitiveMembers", put.Body!["scope"]!["query"]!.GetValue<string>());
+        Assert.Equal(owners, Assert.Single(put.Body!["reviewers"]!.AsArray())!["query"]!.GetValue<string>());
+        var stored = host.Directory.FindById(id)!;
+        Assert.Equal(7, stored["settings"]!["instanceDurationInDays"]!.GetValue<int>());
+        Assert.Equal("/v1.0/groups/" + GroupId + "/transitiveMembers/microsoft.graph.user", stored["scope"]!["query"]!.GetValue<string>());
+
+        var rerun = await host.CreateAsync(host.Resources(resource));
+        Check.Succeeded(rerun);
+        Check.NoWrites(rerun);
+    }
+
     // ---- update ----
 
     [Fact]
@@ -597,6 +768,40 @@ public sealed class AccessReviewDefinitionsProviderTests
         // Each review is created after the objects its queries reference.
         var posts = run.Writes.Where(w => w.Method == "POST").Select(w => w.Path).ToList();
         Assert.True(posts.LastIndexOf("/groups") < posts.IndexOf(ReviewPath), string.Join(", ", posts));
+
+        var rerun = await host.CreateAsync(host.Parse(template, ("fallbackReviewerId", UserA)));
+        Assert.True(rerun.Succeeded, rerun.Errors);
+        Assert.DoesNotContain(rerun.Writes, w => w.Path.StartsWith(ReviewPath, StringComparison.OrdinalIgnoreCase));
+        Assert.All(rerun.Executed.Operations.Where(o => ResourceIdentifier.TypeEquals(o.Type, ReviewType)), o => Assert.Equal(ChangeType.NoChange, o.ChangeType));
+    }
+
+    [Fact]
+    public async Task TheSample_OnATenantThatStoresQueriesRewritten_RerunsAsNoChange()
+    {
+        var host = new ProviderHost();
+        host.Directory.AccessReviewQueriesRewritten = true;
+        string template = System.IO.File.ReadAllText(SamplePath("access-reviews.entra.json"));
+
+        var run = await host.CreateAsync(host.Parse(template, ("fallbackReviewerId", UserA)));
+
+        Assert.True(run.Succeeded, run.Errors);
+        string teamGroupId = host.IdOf("/groups", "uniqueName", "team-sales-emea");
+        var members = host.Directory.Find(ReviewPath, "displayName", "Quarterly review of Team Sales EMEA members")!;
+        var assignments = host.Directory.Find(ReviewPath, "displayName", "Quarterly review of Sales EMEA Team Access assignments")!;
+        Assert.Equal("/v1.0/groups/" + teamGroupId + "/transitiveMembers/microsoft.graph.user", members["scope"]!["query"]!.GetValue<string>());
+        Assert.StartsWith("/v1.0/identityGovernance/entitlementManagement/accessPackageAssignments?$filter=", assignments["scope"]!["query"]!.GetValue<string>(), StringComparison.Ordinal);
+
+        // What was sent is the template's text.
+        var posts = run.Writes.Where(w => w.Method == "POST" && w.Path == ReviewPath).ToList();
+        Assert.Equal(2, posts.Count);
+        Assert.Contains(posts, p => p.Body!["scope"]!["query"]!.GetValue<string>() == "/groups/" + teamGroupId + "/transitiveMembers");
+
+        var whatIf = await host.WhatIfAsync(host.Parse(template, ("fallbackReviewerId", UserA)));
+        Assert.All(whatIf.Plan.Changes.Where(c => ResourceIdentifier.TypeEquals(c.ResourceType, ReviewType)), c =>
+        {
+            Assert.Equal(ChangeType.NoChange, c.Type);
+            Assert.False(c.HasError, c.UnsupportedReason);
+        });
 
         var rerun = await host.CreateAsync(host.Parse(template, ("fallbackReviewerId", UserA)));
         Assert.True(rerun.Succeeded, rerun.Errors);
