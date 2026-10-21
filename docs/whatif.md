@@ -9,6 +9,10 @@ Nothing in a what-if is written to the tenant or to the local disk (EARM keeps n
 executor then applies (expansion, dependency graph and batches are computed once); the executor still re-reads each
 resource right before writing it (docs/engine.md, pipeline step 6), so a confirmed what-if cannot go stale.
 
+The reads of a what-if go through the same Graph client as a deployment, so they are paced within Microsoft's published throttling limits too
+(docs/engine.md, [Graph request scheduler](engine.md#graph-request-scheduler)): a what-if of a large template may wait before reading rather than be
+throttled, and a 429 pauses the area it came from.
+
 ## Pipeline
 
 ```

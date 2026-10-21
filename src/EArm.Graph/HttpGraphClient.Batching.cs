@@ -4,6 +4,7 @@ using System.Net;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
+using EArm.Graph.Throttling;
 
 namespace EArm.Graph;
 
@@ -18,6 +19,7 @@ public sealed partial class HttpGraphClient
         }
 
         var urls = new string[requests.Count];
+        var costs = new GraphRequestCost[requests.Count];
         for (var i = 0; i < requests.Count; i++)
         {
             if (requests[i].Path.Contains('?', StringComparison.Ordinal))
@@ -27,16 +29,19 @@ public sealed partial class HttpGraphClient
 
             urls[i] = GraphBatchWire.BuildBatchUrl(requests[i]);
             GraphUrl.ValidateBatchUrl(urls[i]);
+            costs[i] = GraphRequestClassifier.Classify(requests[i].Method, urls[i]);
         }
 
         var results = new BatchResponse?[requests.Count];
         var chunks = 0;
         var failedAt = requests.Count;
+        var failedCount = 0;
         Exception? envelopeFailure = null;
-        for (var offset = 0; offset < requests.Count; offset += MaxBatchSize)
+        var count = 0;
+        for (var offset = 0; offset < requests.Count; offset += count)
         {
             chunks++;
-            var count = Math.Min(MaxBatchSize, requests.Count - offset);
+            count = ChunkSize(costs, offset);
             var body = new JsonObject();
             var array = new JsonArray();
             var chunkIdempotent = true;
@@ -53,7 +58,8 @@ public sealed partial class HttpGraphClient
             JsonArray responses;
             try
             {
-                var response = await SendAsync("POST", batchRequest, body, cancellationToken).ConfigureAwait(false);
+                // The envelope is charged as its sub-requests (each to its own area and cost): it waits until all of them fit.
+                var response = await SendAsync("POST", batchRequest, body, cancellationToken, new ArraySegment<GraphRequestCost>(costs, offset, count)).ConfigureAwait(false);
                 if (response.Body is not JsonObject envelope || envelope["responses"] is not JsonArray parsed)
                 {
                     throw new GraphTransportException(GraphTransportFailure.InvalidResponse, "$batch returned no 'responses' array.");
@@ -67,6 +73,7 @@ public sealed partial class HttpGraphClient
                 // chunk (and, because the later chunks may depend on it, every chunk after it) per item instead of throwing. A failure
                 // of the very first chunk still throws: nothing has been reported yet, and the exception carries the precise outcome.
                 failedAt = offset;
+                failedCount = count;
                 envelopeFailure = ex;
                 break;
             }
@@ -75,6 +82,7 @@ public sealed partial class HttpGraphClient
                 // The caller cancelled between chunks (a write is never abandoned on the wire, so this chunk was not sent): the earlier chunks' results
                 // are kept and this chunk and every later one is reported as cancelled, instead of throwing their results away.
                 failedAt = offset;
+                failedCount = count;
                 envelopeFailure = ex;
                 break;
             }
@@ -93,6 +101,7 @@ public sealed partial class HttpGraphClient
                 }
 
                 var status = sub["status"] is JsonValue statusValue && statusValue.TryGetValue<int>(out var statusInt) ? statusInt : 0;
+                _scheduler.CompleteSubRequest(costs[index], ThrottleSignals.From(status, sub["headers"] as JsonObject, _time));
                 var subBody = sub["body"]?.DeepClone();
                 var request = requests[index];
                 var reportedId = request.Id ?? GraphBatchWire.WireId(index);
@@ -114,7 +123,7 @@ public sealed partial class HttpGraphClient
             {
                 results[i] = envelopeFailure is OperationCanceledException
                     ? GraphBatchWire.CancelledResponse(requests[i], GraphBatchWire.WireId(i), hint)
-                    : GraphBatchWire.EnvelopeFailureResponse(requests[i], GraphBatchWire.WireId(i), envelopeFailure, i < Math.Min(failedAt + MaxBatchSize, requests.Count), hint);
+                    : GraphBatchWire.EnvelopeFailureResponse(requests[i], GraphBatchWire.WireId(i), envelopeFailure, i < failedAt + failedCount, hint);
             }
         }
 
@@ -196,5 +205,28 @@ public sealed partial class HttpGraphClient
         }
 
         return final;
+    }
+
+    /// <summary>
+    /// The number of sub-requests of the envelope starting at <paramref name="offset"/>: up to <see cref="MaxBatchSize"/>, with at most one
+    /// Conditional Access request (Microsoft allows one per second per tenant, so two in one envelope would break the limit however the envelope is
+    /// paced). Chunks stay contiguous, so the wire ids keep mapping to positions. Every other budget fits a full envelope (at most 20 writes and
+    /// 20 × 5 resource units, against 3,000 writes and 3,500 units or more), so nothing else splits one.
+    /// </summary>
+    internal static int ChunkSize(IReadOnlyList<GraphRequestCost> costs, int offset)
+    {
+        var count = 0;
+        var conditionalAccess = 0;
+        while (offset + count < costs.Count && count < MaxBatchSize)
+        {
+            if (costs[offset + count].Area == GraphServiceArea.ConditionalAccess && ++conditionalAccess > 1)
+            {
+                break;
+            }
+
+            count++;
+        }
+
+        return count;
     }
 }

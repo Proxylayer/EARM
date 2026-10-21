@@ -11,6 +11,7 @@ using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 using EArm.Graph.Auth;
+using EArm.Graph.Throttling;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -19,7 +20,8 @@ namespace EArm.Graph;
 /// <summary>
 /// <see cref="IGraphClient"/> over <see cref="HttpClient"/>: real HTTP statuses, bearer tokens from an <see cref="IGraphTokenProvider"/>,
 /// error mapping, retries per <see cref="RetryPolicy"/>, <c>@odata.nextLink</c> pagination and <c>$batch</c> in chunks of 20 with
-/// individual retry of failed sub-requests.
+/// individual retry of failed sub-requests. Every attempt (each <c>$batch</c> sub-request included) is paced by a
+/// <see cref="GraphRequestScheduler"/> within Microsoft's published throttling limits.
 /// <para>
 /// Security: every URL the token is sent to (the request URL, each <c>@odata.nextLink</c>) must be <c>https</c> on exactly the cloud's Graph host
 /// (<see cref="GraphUrl.Check"/>); redirects are never followed (a 3xx is an error), so the Authorization header cannot reach another host;
@@ -39,6 +41,7 @@ public sealed partial class HttpGraphClient : IGraphClient
     private readonly SemaphoreSlim _gate;
     private readonly string _userAgent;
     private readonly TokenScopes _scopes;
+    private readonly GraphRequestScheduler _scheduler;
     private long _responsesStarted;
 
     public HttpGraphClient(HttpClient http, IGraphTokenProvider tokens, RetryPolicy retryPolicy, GraphOptions? options = null, ILogger? logger = null, TimeProvider? timeProvider = null)
@@ -55,7 +58,11 @@ public sealed partial class HttpGraphClient : IGraphClient
         _gate = new SemaphoreSlim(Math.Max(1, _options.MaxParallel));
         _userAgent = "EARM/" + _options.UserAgentVersion;
         _scopes = TokenScopeGuard.Resolve(_options.Scopes, _options.Cloud.GraphScopes, _options.Cloud, nameof(options));
+        _scheduler = new GraphRequestScheduler(_retryPolicy.Options, _retryPolicy.DelayProvider, _time, _logger, CountUsersAsync);
     }
+
+    /// <summary>The request scheduler that paces this client's requests within Microsoft's published throttling limits.</summary>
+    internal GraphRequestScheduler Scheduler => _scheduler;
 
     /// <summary>The cloud (Graph host) this client talks to.</summary>
     public GraphCloud Cloud => _options.Cloud;
@@ -115,14 +122,18 @@ public sealed partial class HttpGraphClient : IGraphClient
         await SendAsync("DELETE", request, null, cancellationToken).ConfigureAwait(false);
     }
 
-    private Task<GraphResponse> SendAsync(string method, GraphRequest request, JsonNode? body, CancellationToken cancellationToken)
+    private Task<GraphResponse> SendAsync(string method, GraphRequest request, JsonNode? body, CancellationToken cancellationToken, IReadOnlyList<GraphRequestCost>? batchCosts = null)
     {
         var uri = GraphUrl.Build(_options.Cloud, request);
-        return SendAsync(method, uri, request, body, cancellationToken);
+        return SendAsync(method, uri, request, body, cancellationToken, batchCosts);
     }
 
-    /// <summary>Runs one call under the retry policy. <paramref name="request"/> supplies the headers and the retry hint; <paramref name="uri"/> is already validated.</summary>
-    private async Task<GraphResponse> SendAsync(string method, Uri uri, GraphRequest request, JsonNode? body, CancellationToken cancellationToken)
+    /// <summary>
+    /// Runs one call under the retry policy. <paramref name="request"/> supplies the headers and the retry hint; <paramref name="uri"/> is already validated.
+    /// Every attempt goes through the request scheduler: charged as the request itself, or, for a <c>$batch</c> envelope, as its sub-requests
+    /// (<paramref name="batchCosts"/>). <paramref name="tierProbe"/> marks the tenant-size probe of the scheduler.
+    /// </summary>
+    private async Task<GraphResponse> SendAsync(string method, Uri uri, GraphRequest request, JsonNode? body, CancellationToken cancellationToken, IReadOnlyList<GraphRequestCost>? batchCosts = null, bool tierProbe = false)
     {
         method = method.ToUpperInvariant();
         if (body is not null && method is "GET" or "DELETE" or "HEAD")
@@ -149,11 +160,14 @@ public sealed partial class HttpGraphClient : IGraphClient
         var scope = _scopes;
         var write = IsWrite(method);
         var attempt = new AuthAttempt();
+        var call = batchCosts is null
+            ? new ScheduledCall([GraphRequestClassifier.Classify(method, uri.AbsolutePath + uri.Query)], isBatch: false, tierProbe)
+            : new ScheduledCall(batchCosts, isBatch: true);
 
         try
         {
             return await _retryPolicy.ExecuteAsync(
-                token => SendOnceAsync(method, uri, headers, payload, request.Hint, scope, write, attempt, token),
+                token => SendOnceAsync(method, uri, headers, payload, request.Hint, scope, write, attempt, call, token),
                 request.Hint,
                 token => RefreshTokenAsync(scope, attempt, token),
                 cancellationToken,
@@ -191,13 +205,17 @@ public sealed partial class HttpGraphClient : IGraphClient
         return !(method.Equals("GET", StringComparison.OrdinalIgnoreCase) || method.Equals("HEAD", StringComparison.OrdinalIgnoreCase) || method.Equals("OPTIONS", StringComparison.OrdinalIgnoreCase));
     }
 
-    private async Task<GraphResponse> SendOnceAsync(string method, Uri uri, IReadOnlyDictionary<string, string> headers, string? payload, RetryHint hint, TokenScopes scope, bool write, AuthAttempt attempt, CancellationToken cancellationToken)
+    private async Task<GraphResponse> SendOnceAsync(string method, Uri uri, IReadOnlyDictionary<string, string> headers, string? payload, RetryHint hint, TokenScopes scope, bool write, AuthAttempt attempt, ScheduledCall call, CancellationToken cancellationToken)
     {
         var clientRequestId = Guid.NewGuid().ToString();
         var logTarget = GraphUrl.RedactForLog(uri);
         var graphToken = await _tokens.GetTokenAsync(scope, cancellationToken).ConfigureAwait(false);
         attempt.TokenValue = graphToken.Value;
         attempt.Claims = null;
+
+        // The scheduler's wait comes before the parallelism gate, so a request waiting for its budget (or a paused area) holds no slot that a request
+        // to another area could use. Nothing has been sent while it waits: the caller's cancellation is honoured.
+        using var ticket = await _scheduler.AcquireAsync(call, cancellationToken).ConfigureAwait(false);
         var probe = new ConnectProbe();
         var responsesBefore = Volatile.Read(ref _responsesStarted);
 
@@ -258,6 +276,7 @@ public sealed partial class HttpGraphClient : IGraphClient
                     throw NetworkFailure(method, logTarget, stopwatch, clientRequestId, ex, write);
                 }
 
+                _scheduler.Complete(ticket, ThrottleSignals.From((int)response.StatusCode, response.Headers, _time));
                 if (response.StatusCode == HttpStatusCode.Unauthorized)
                 {
                     attempt.Claims = ParseClaimsChallenge(response.Headers);
@@ -293,6 +312,23 @@ public sealed partial class HttpGraphClient : IGraphClient
         {
             _gate.Release();
         }
+    }
+
+    /// <summary>
+    /// The scheduler's tenant-size probe: <c>GET /users/$count</c> (advanced query), one attempt. Throws when Graph refuses it (for example a delegated
+    /// run without <c>User.ReadBasic.All</c>) or answers something that is not a number; the scheduler then keeps the smallest tier.
+    /// </summary>
+    private async Task<long> CountUsersAsync(CancellationToken cancellationToken)
+    {
+        var request = new GraphRequest("/users/$count", advanced: true, hint: RetryHint.None);
+        var uri = GraphUrl.Build(_options.Cloud, request);
+        var response = await SendAsync("GET", uri, request, null, cancellationToken, batchCosts: null, tierProbe: true).ConfigureAwait(false);
+        if (response.Body is JsonValue value && value.TryGetValue<long>(out var users) && users >= 0)
+        {
+            return users;
+        }
+
+        throw new GraphTransportException(GraphTransportFailure.InvalidResponse, "GET /users/$count did not answer a number.");
     }
 
     private GraphTransportException TimeoutFailure(string method, string target, Stopwatch stopwatch, string clientRequestId, Exception? inner, bool ambiguous)

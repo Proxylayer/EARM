@@ -60,6 +60,24 @@ internal static partial class GraphLog
     [LoggerMessage(EventId = 1047, Level = LogLevel.Warning, Message = "The stored sign-in of {Account} uses the Microsoft Azure CLI app ({ClientId}), which is pre-authorized for a fixed set of Microsoft Graph permissions only and cannot consent to the delegated scopes EARM requests. Run 'earm auth login' again to switch to the default sign-in app, Microsoft Graph Command Line Tools ({DefaultClientId}).")]
     public static partial void LegacyClientRecord(ILogger logger, string? account, string clientId, string defaultClientId);
 
+    [LoggerMessage(EventId = 1060, Level = LogLevel.Debug, Message = "Graph request scheduler: a request to {Area} waits {DelayMs:F0} ms ({Reason})")]
+    public static partial void SchedulerDelay(ILogger logger, string area, double delayMs, string reason);
+
+    [LoggerMessage(EventId = 1061, Level = LogLevel.Information, Message = "Pacing Microsoft Graph requests to {Area} to stay within Microsoft's published limits: {Count} request(s) waited {TotalSeconds:F1} s in total since the last report")]
+    public static partial void SchedulerPacing(ILogger logger, string area, int count, double totalSeconds);
+
+    [LoggerMessage(EventId = 1062, Level = LogLevel.Information, Message = "Microsoft Graph throttled a request to {Area} (HTTP 429, throttle scope {Scope}); every request to that area waits {PauseSeconds:F1} s")]
+    public static partial void SchedulerPaused(ILogger logger, string area, string scope, double pauseSeconds);
+
+    [LoggerMessage(EventId = 1063, Level = LogLevel.Information, Message = "The tenant has {Users} users (tenant size {Tier}): the directory budget is {ResourceUnits} resource units per 10 s")]
+    public static partial void SchedulerTier(ILogger logger, long users, string tier, int resourceUnits);
+
+    [LoggerMessage(EventId = 1064, Level = LogLevel.Information, Message = "The tenant size could not be read ({Reason}); the directory budget stays at the smallest tier, {ResourceUnits} resource units per 10 s (reading GET /users/$count needs User.ReadBasic.All or more)")]
+    public static partial void SchedulerTierUnknown(ILogger logger, string reason, int resourceUnits);
+
+    [LoggerMessage(EventId = 1065, Level = LogLevel.Information, Message = "Microsoft Graph reports this app's directory usage at {Percentage} of its limit (throttle scope {Scope})")]
+    public static partial void SchedulerNearLimit(ILogger logger, double percentage, string scope);
+
     [LoggerMessage(EventId = 1050, Level = LogLevel.Debug, Message = "Acquired a token for {Scope} (expires {ExpiresOn:u}) from {Credential}")]
     public static partial void TokenAcquired(ILogger logger, string scope, DateTimeOffset expiresOn, string credential);
 }

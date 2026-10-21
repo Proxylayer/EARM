@@ -86,13 +86,17 @@ public sealed class HttpGraphClientResponseTests
         using var harness = new ClientHarness(new ScriptedHttpHandler(
             ScriptedResponse.Json(body, HttpStatusCode.BadRequest),
             ScriptedResponse.Json(body, HttpStatusCode.BadRequest),
-            ScriptedResponse.Json("{\"id\":\"p1\"}", HttpStatusCode.Created)));
+            ScriptedResponse.Json("{\"id\":\"p1\"}", HttpStatusCode.Created)),
+            time: new Review1BStepClock());
 
         var response = await harness.Client.PostAsync(new GraphRequest("/identity/conditionalAccess/policies").WithHint(RetryHint.ExpectReplicationLag), new JsonObject(), Ct);
 
         Assert.True(response.IsCreated);
         Assert.Equal(3, harness.Handler.Requests.Count);
-        Assert.Equal([TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5)], harness.Delays.Delays);
+
+        // The 5 s replication waits, and between them the request scheduler's Conditional Access pacing (one request per second): the clock of this
+        // test does not move with the recorded delays, so the second attempt's slot is 1 s and the third's 2 s after the first.
+        Assert.Equal([TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(2)], harness.Delays.Delays);
     }
 
     // The real tenant answer to a PIM for Groups request sent 1-6 s after the group was created (accepted about 15 s later).

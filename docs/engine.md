@@ -271,6 +271,51 @@ load ──► validate ──► expand ──► graph ──► [per batch: r
   `AsyncLocal`: call `SecretScrubber.Begin()` (or `Register`) at the top of the run, before the work that may format an error is started. A nested `Begin()` joins the outer registry instead of
   copying it, so what an inner scope (the deployment runner) registers is still masked by the program-level catch-all after the inner scope ends.
 
+### Graph request scheduler
+
+`HttpGraphClient` paces every Graph request, including each sub-request of a `$batch`, per Microsoft service so a run stays within Microsoft's
+**published** throttling limits ([Microsoft Graph throttling limits](https://learn.microsoft.com/en-us/graph/throttling-limits)) and waits before
+sending instead of collecting 429s (`EArm.Graph.Throttling.GraphRequestScheduler`). The budgets are the full published numbers and are fixed: there is
+no option or environment variable for them.
+
+| Area (`GraphServiceArea`) | Requests | Budget |
+|---|---|---|
+| Directory ("Identity and access service limits") | `users`, `groups` (members, owners), `applications` (federated identity credentials, `extensionProperties`, `addPassword`), `servicePrincipals` (`appRoleAssignments`, `appRoleAssignedTo`), `oauth2PermissionGrants`, `directory/deletedItems`, `directoryObjects`, `administrativeUnits`, `subscribedSkus`, `organization`, `me`, `devices`, `contacts`, `domains`, `directoryRoles`, `directoryRoleTemplates`, and the directory policies `policies/tokenLifetimePolicies`, `claimsMappingPolicies`, `appManagementPolicies`, `defaultAppManagementPolicy`, `crossTenantAccessPolicy`, `homeRealmDiscoveryPolicies`, `tokenIssuancePolicies`, `activityBasedTimeoutPolicies` | Resource units per app and tenant: **3,500 / 5,000 / 8,000 per 10 s** for a tenant of under 50 / 50 to 500 / more than 500 users; and **3,000 writes (POST, PATCH, PUT, DELETE) per 150 s** |
+| Conditional Access | `identity/conditionalAccess/policies`, `identity/conditionalAccess/namedLocations` | **1 request per second per tenant** (all apps together), sent one at a time |
+| Identity Governance, Role Management, Policies, Other | `identityGovernance/*` (entitlement management, access reviews, PIM for Groups), `roleManagement/*`, the other `policies/*` (role management, authentication methods, authentication strength policies), and everything else (`identity/conditionalAccess/authenticationContextClassReferences`, `groupLifecyclePolicies`, ...) | **None published**: no budget of EARM's own; only `Retry-After` and the pause below |
+
+`/v1.0` and `/beta` share the limits. Area and cost come from the request path alone (`GraphRequestClassifier`; key segments such as
+`applications(appId='...')`, trailing `$count`, `$ref` and `$value` and type casts are normalised).
+
+- **Resource units.** Each directory request is charged Microsoft's published cost before it is sent: 1 by default (a write costs 1 unit and 1
+  write), `GET applications` 2, `GET applications/{id}/extensionProperties` 2, `POST directoryObjects/getByIds` 5, `GET groups/{id}/members` 3,
+  `GET groups/{id}/transitiveMembers` 5, `GET users/{id}` (and `me`) `/memberOf`, `/ownedObjects`, `/transitiveMemberOf`, `/licenseDetails` 2,
+  `GET oauth2PermissionGrants` 2, `GET servicePrincipals/{id}/appRoleAssignments` 2, `GET subscribedSkus` 3, `GET users` 2 (a single `users/{id}` or
+  `applications/{id}` is charged like the collection: over-estimating is the safe side); then `$select` −1, `$expand` +1, `$top` below 20 −1, at least 1.
+  The response header `x-ms-resource-unit` (the units actually used) corrects the charge. `x-ms-throttle-limit-percentage` (sent above 80 % of the limit)
+  is only logged (event 1065, at most once a minute): the budget already is the full published limit, so it does not slow the run down.
+- **Token buckets.** Each budget is a token bucket that starts full and refills continuously. A request reserves its cost and waits until the bucket covers
+  it, so requests are sent in the order they reserved; a request cancelled while it waits gives its reservation back. The wait comes before the
+  `MaxParallel` gate, so a paced request holds no slot another area could use.
+- **Tenant size.** The directory budget starts at the smallest tier. The first time that tier would make a request wait, the scheduler reads the tenant size
+  once (`GET /users/$count` with `ConsistencyLevel: eventual`, one attempt; event 1063) and resizes the budget. A run that never reaches the smallest budget
+  never sends the probe, and behaves exactly as with the real tier. When the size cannot be read (a delegated run without `User.ReadBasic.All` gets a 403)
+  the smallest tier stays and event 1064 says so.
+- **429: pause the area.** A 429 from any area pauses **that whole area**: every request to it, queued or about to be sent, waits until the response's
+  `Retry-After` has elapsed (capped at `RetryOptions.MaxRetryAfter`, 120 s); without one (the Conditional Access API sends none) the retry policy's
+  throttle schedule applies (2 s doubling to 60 s, per area, reset by the next answer that is not a 429). Then the area resumes at the same rate. The request
+  that hit the 429 waits in the retry policy and is not paused a second time; retries still go through the scheduler, so they consume budget and respect
+  the pause. A directory 429 pauses the whole directory area even when `x-ms-throttle-scope` names only the read or the write quota (kept simple; both
+  quotas are paced anyway). Event 1062 logs each pause.
+- **`$batch`.** The envelope is charged as its sub-requests, each to its own area and cost, and is sent when all of them fit. An envelope carries at most one
+  Conditional Access sub-request (the chunk is cut before a second one); nothing else needs splitting, since 20 sub-requests cost at most 100 units and
+  20 writes. Each sub-response reconciles its own cost, and a sub-response 429 pauses its area, so the individual re-send of that sub-request first waits
+  out the `Retry-After`.
+- **Logging.** A wait is a debug line (event 1060); an information line per area sums the waits up at most every 30 s (event 1061).
+- **Shared budget.** The directory budget is per **app** and tenant. EARM signs in as Microsoft Graph Command Line Tools by default (docs/cli.md), so its
+  budget is shared with every Microsoft Graph PowerShell and CLI session of the tenant; the Conditional Access limit is shared by all apps of the tenant.
+  EARM only knows its own requests: a 429 caused by someone else is still handled by the pause and the retry policy.
+
 ### Graph batch item codes
 
 `HttpGraphClient.BatchAsync` (`$batch`, 20 sub-requests per envelope) returns one `BatchResponse` per sub-request; a failed one carries a `GraphException` in

@@ -329,12 +329,15 @@ public sealed class HttpGraphClientPagingAndBatchTests
             ScriptedResponse.Json("{\"responses\":[{\"id\":\"1\",\"status\":429,\"headers\":{\"Retry-After\":\"7\"},\"body\":{\"error\":{\"code\":\"TooManyRequests\",\"message\":\"slow down\"}}}]}"),
             ScriptedResponse.Error(HttpStatusCode.TooManyRequests, "TooManyRequests", "slow down").WithHeader("Retry-After", "7"),
             ScriptedResponse.NoContent());
-        using var harness = new ClientHarness(handler);
+        using var harness = new ClientHarness(handler, time: new Review1BStepClock());
 
         var results = await harness.Client.BatchAsync(Requests(1), GraphApi.V1, RetryHint.Default, Ct);
 
         Assert.True(results[0].Succeeded);
-        Assert.Equal([TimeSpan.FromSeconds(7)], harness.Delays.Delays);
+
+        // The sub-response's 429 pauses its area, so the individual re-send first waits out its Retry-After in the request scheduler; the re-send's
+        // own 429 is then waited out by the retry policy (the request that tripped a pause does not wait for it twice).
+        Assert.Equal([TimeSpan.FromSeconds(7), TimeSpan.FromSeconds(7)], harness.Delays.Delays);
     }
 
     [Fact]

@@ -123,6 +123,9 @@ public sealed class RetryPolicy
 
     public RetryOptions Options => _options;
 
+    /// <summary>The waits between attempts; the Graph client's request scheduler waits on the same provider, so tests fake both at once.</summary>
+    internal IDelayProvider DelayProvider => _delayProvider;
+
     /// <summary>
     /// Runs <paramref name="operation"/> until it succeeds or the table says stop. <paramref name="refreshAuthentication"/>
     /// is invoked once for a 401 before the single auth retry; when null, 401 is terminal. A call that is not
