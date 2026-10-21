@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-21
+
 ### Added
 
 - `Microsoft.Entra/accessReviews/definitions`: standalone access reviews (Graph `accessReviewScheduleDefinition`) of group members, access
@@ -26,6 +28,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- The tool package id is `Proxylayer.EARM` (was `earm`); the command is still `earm`. `deploy.ps1` uninstalls a global tool installed under
+  the former id before installing, since both provide the same command. The package carries its own README (`src/EArm.Cli/README.md`).
 - **Breaking:** an empty authoritative list (`members: []` on groups and administrative units, `owners: []` on groups, applications and service
   principals; a literal or an expression evaluating to `[]`) **declares nothing in Incremental mode** (the default): no member or owner is added or
   removed, and an `EmptyEdgeListIgnored` info says the list was ignored. It used to remove every live entry. In **Complete** mode an empty list is
