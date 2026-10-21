@@ -11,7 +11,7 @@
   <PropertyGroup>
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>earm</ToolCommandName>
-    <PackageId>earm</PackageId>
+    <PackageId>Proxylayer.EARM</PackageId>
     <Description>ARM-style JSON templates for Microsoft Entra ID, deployed through the Microsoft Graph API.</Description>
   </PropertyGroup>
 

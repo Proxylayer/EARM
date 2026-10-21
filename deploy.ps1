@@ -1,13 +1,14 @@
 #Requires -Version 7
 <#
 .SYNOPSIS
-    Packs the earm CLI as a .NET tool package and (re)installs it as a global tool from that package.
+    Packs the earm CLI as a .NET tool package (package id Proxylayer.EARM, command 'earm') and (re)installs it as a global tool from that package.
 .DESCRIPTION
-    1. dotnet pack src/EArm.Cli -> artifacts/nupkg (previous earm.*.nupkg files are removed first). Packed with ContinuousIntegrationBuild and
+    1. dotnet pack src/EArm.Cli -> artifacts/nupkg (previous Proxylayer.EARM.*.nupkg files are removed first). Packed with ContinuousIntegrationBuild and
        DeterministicSourcePaths so no absolute build path is embedded.
-    2. dotnet tool uninstall -g earm (failure ignored: not installed yet).
-    3. dotnet tool install -g earm --source artifacts/nupkg --ignore-failed-sources --version <packed version>. The local folder is the ONLY
-       source (not --add-source), so a squatted 'earm' package on nuget.org cannot be picked up (dependency confusion).
+    2. dotnet tool uninstall -g Proxylayer.EARM, then dotnet tool uninstall -g earm (the package's former id, which installs the same
+       'earm' command, so it has to go before the install; failures ignored: not installed).
+    3. dotnet tool install -g Proxylayer.EARM --source artifacts/nupkg --ignore-failed-sources --version <packed version>. The local folder is
+       the ONLY source (not --add-source), so a squatted package on nuget.org cannot be picked up (dependency confusion).
     4. Only after a successful install: dotnet tool uninstall -g entraarm (the tool's former name; failure ignored).
     A failed pack or install exits non-zero with the dotnet exit code.
     -Detailed shows full dotnet output; simple mode prints only errors plus one line per step.
@@ -32,11 +33,13 @@ $env:DOTNET_NOLOGO = '1'
 $repoRoot = $PSScriptRoot
 $cliProject = Join-Path $repoRoot 'src' 'EArm.Cli' 'EArm.Cli.csproj'
 $nupkgDir = Join-Path $repoRoot 'artifacts' 'nupkg'
-$packageId = 'earm'
+$packageId = 'Proxylayer.EARM'
+$formerPackageId = 'earm'
 $legacyPackageId = 'entraarm'
 
 New-Item -ItemType Directory -Force -Path $nupkgDir | Out-Null
 Get-ChildItem -LiteralPath $nupkgDir -Filter "$packageId.*.nupkg" -ErrorAction SilentlyContinue | Remove-Item -Force
+Get-ChildItem -LiteralPath $nupkgDir -Filter "$formerPackageId.*.nupkg" -ErrorAction SilentlyContinue | Remove-Item -Force  # former package id
 Get-ChildItem -LiteralPath $nupkgDir -Filter 'entraarm.*.nupkg' -ErrorAction SilentlyContinue | Remove-Item -Force  # former package name
 
 # ---- 1. Pack ------------------------------------------------------------------------------------------------
@@ -90,15 +93,18 @@ function Uninstall-GlobalTool {
     }
 }
 
-# ---- 2. Uninstall the previous 'earm' (same package id: required before a clean install) ---------------------
+# ---- 2. Uninstall the previous install (same package id, or the former id 'earm' with the same command) -----
 # The former name 'entraarm' is NOT touched yet: it is only removed after the new tool installed (step 4), so a failed install
 # never leaves the machine without any working tool.
 Write-Host "UNINSTALL  $packageId (previous global install, if any)"
 Uninstall-GlobalTool -ToolId $packageId
+# 'earm' was this package's id before Proxylayer.EARM; it installs the same 'earm' command, so the install below would fail while it is present.
+Write-Host "UNINSTALL  $formerPackageId (former package id, if any)"
+Uninstall-GlobalTool -ToolId $formerPackageId
 
 # ---- 3. Install from the local package ----------------------------------------------------------------------
 # --source (NOT --add-source): the package is resolved from the local folder ONLY. With --add-source nuget.org stays a source too, so a
-# squatted 'earm' package there (dependency confusion) could win over the freshly packed one. --ignore-failed-sources keeps an
+# squatted package of that id there (dependency confusion) could win over the freshly packed one. --ignore-failed-sources keeps an
 # unreachable source from failing the install.
 $installArgs = @('tool', 'install', '--global', $packageId, '--source', $nupkgDir, '--ignore-failed-sources', '--version', $version)
 if (-not $Detailed) {

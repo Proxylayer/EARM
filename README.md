@@ -154,14 +154,14 @@ admin consent: read [SECURITY.md](SECURITY.md#delegated-sign-in-and-shared-conse
 revoke) and [docs/permissions.md](docs/permissions.md#admin-consent). An `az login` session is **not** used, and the Azure CLI, Azure PowerShell and Visual Studio
 credentials are deliberately excluded from the chain. `EARM_CLOUD` selects a national cloud (`usgov`, `usgovdod`, `china`).
 
-From a checkout (builds, packs and installs the global tool `earm`):
+From a checkout (builds, packs and installs the global tool package `Proxylayer.EARM`, whose command is `earm`):
 
 ```powershell
-pwsh -File deploy.ps1                 # dotnet pack + dotnet tool install -g earm --source artifacts/nupkg (the local folder is the only source)
+pwsh -File deploy.ps1                 # dotnet pack + dotnet tool install -g Proxylayer.EARM --source artifacts/nupkg (the local folder is the only source)
 earm --version
 ```
 
-or from any feed that hosts the package: `dotnet tool install -g earm`. Offline verbs (`validate`, `permissions`, `schema`) need no
+or from any feed that hosts the package: `dotnet tool install -g Proxylayer.EARM`. Offline verbs (`validate`, `permissions`, `schema`) need no
 sign-in. `pwsh -File build.ps1` builds, `pwsh -File test.ps1` runs the tests.
 
 ## Cheat sheet
