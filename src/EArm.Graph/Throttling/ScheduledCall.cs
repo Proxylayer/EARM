@@ -15,12 +15,11 @@ internal sealed class ScheduledCall
 
     private readonly long[] _trippedPause = new long[AreaCount];
 
-    public ScheduledCall(IReadOnlyList<GraphRequestCost> costs, bool isBatch, bool isTierProbe = false)
+    public ScheduledCall(IReadOnlyList<GraphRequestCost> costs, bool isBatch)
     {
         ArgumentNullException.ThrowIfNull(costs);
         Costs = costs;
         IsBatch = isBatch;
-        IsTierProbe = isTierProbe;
         Areas = [.. costs.Select(static c => c.Area).Where(static a => a != GraphServiceArea.None).Distinct()];
         foreach (var cost in costs)
         {
@@ -40,9 +39,6 @@ internal sealed class ScheduledCall
 
     /// <summary>A <c>$batch</c> envelope: its own response headers say nothing about one sub-request's resource units.</summary>
     public bool IsBatch { get; }
-
-    /// <summary>The tenant-size probe: it never waits for the resource-unit budget nor triggers tier detection itself.</summary>
-    public bool IsTierProbe { get; }
 
     /// <summary>The distinct areas the call touches.</summary>
     public IReadOnlyList<GraphServiceArea> Areas { get; }

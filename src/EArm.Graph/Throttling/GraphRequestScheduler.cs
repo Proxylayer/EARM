@@ -20,8 +20,8 @@ namespace EArm.Graph.Throttling;
 /// <para>
 /// Each request waits exactly once for its budget (<see cref="TokenBucket.Reserve"/>), plus once more for each pause tripped while it was waiting,
 /// so the scheduler works with any <see cref="TimeProvider"/> and <see cref="IDelayProvider"/>, including a clock that tests never move.
-/// The tenant size is read the first time the smallest tier's directory budget would make a request wait (one <c>GET /users/$count</c>); until
-/// then every tier behaves the same. When it cannot be read the smallest tier stays.
+/// The tenant size is read once per client by <see cref="DetectTenantSizeAsync"/>, which the run calls right after its sign-in preflight (one
+/// <c>GET /users/$count</c>, scheduled like every other request); until then, and when it cannot be read, the smallest tier's budget applies.
 /// </para>
 /// </summary>
 internal sealed class GraphRequestScheduler
@@ -42,13 +42,12 @@ internal sealed class GraphRequestScheduler
     private readonly AreaPause[] _pauses = new AreaPause[AreaCount];
     private Task<TenantSizeTier>? _tierDetection;
     private TenantSizeTier _tier = TenantSizeTier.Small;
-    private bool _tierKnown;
 
     /// <param name="retry">The throttle schedule (<see cref="RetryOptions.ThrottleBaseDelay"/>, <see cref="RetryOptions.ThrottleMaxDelay"/>) and the <c>Retry-After</c> cap.</param>
     /// <param name="delay">Waits before sending.</param>
     /// <param name="time">The monotonic clock (<see cref="TimeProvider.GetTimestamp"/>).</param>
     /// <param name="logger">Diagnostics.</param>
-    /// <param name="countUsers">Reads the number of users of the tenant (the tenant-size probe); its request must be scheduled as a <see cref="ScheduledCall.IsTierProbe"/> call.</param>
+    /// <param name="countUsers">Reads the number of users of the tenant (the tenant-size probe), one attempt through this scheduler.</param>
     public GraphRequestScheduler(RetryOptions retry, IDelayProvider delay, TimeProvider time, ILogger logger, Func<CancellationToken, Task<long>> countUsers)
     {
         _retry = retry ?? throw new ArgumentNullException(nameof(retry));
@@ -96,11 +95,6 @@ internal sealed class GraphRequestScheduler
 
         try
         {
-            if (!call.IsTierProbe && NeedsTier(call.ResourceUnits))
-            {
-                await DetectTenantSizeAsync(cancellationToken).ConfigureAwait(false);
-            }
-
             var generations = new long[AreaCount];
             var wait = Reserve(call, generations, out var area, out var paused);
             try
@@ -224,7 +218,6 @@ internal sealed class GraphRequestScheduler
             lock (_lock)
             {
                 _tier = tier;
-                _tierKnown = true;
                 _units.Resize(DirectoryLimits.ResourceUnits(tier), DirectoryLimits.ResourceUnitPeriod, Now);
                 _log.Tier(users, tier);
             }
@@ -235,7 +228,6 @@ internal sealed class GraphRequestScheduler
         {
             lock (_lock)
             {
-                _tierKnown = true;
                 _log.TierUnknown(ex is GraphException graph ? ((int)graph.Status).ToString(System.Globalization.CultureInfo.InvariantCulture) + " " + graph.Code : ex.GetType().Name);
             }
 
@@ -245,20 +237,6 @@ internal sealed class GraphRequestScheduler
         {
             // Not a Graph answer: a defect. Every waiting request sees it instead of hanging on a detection that never completes.
             owner.TrySetException(ex);
-        }
-    }
-
-    /// <summary>Whether the tenant size must be read first: it is still unknown and the smallest tier's budget would make this request wait.</summary>
-    private bool NeedsTier(int resourceUnits)
-    {
-        if (resourceUnits <= 0)
-        {
-            return false;
-        }
-
-        lock (_lock)
-        {
-            return !_tierKnown && _units.WaitFor(resourceUnits, Now) > TimeSpan.Zero;
         }
     }
 
@@ -274,7 +252,7 @@ internal sealed class GraphRequestScheduler
             if (call.ResourceUnits > 0)
             {
                 var units = _units.Reserve(call.ResourceUnits, now);
-                Longer(ref wait, ref area, call.IsTierProbe ? TimeSpan.Zero : units, GraphServiceArea.Directory);
+                Longer(ref wait, ref area, units, GraphServiceArea.Directory);
             }
 
             if (call.Writes > 0)

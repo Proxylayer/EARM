@@ -34,13 +34,6 @@ internal sealed class TokenBucket
         return _tokens;
     }
 
-    /// <summary>How long a request of <paramref name="amount"/> tokens would wait at <paramref name="now"/>, without reserving anything.</summary>
-    public TimeSpan WaitFor(double amount, TimeSpan now)
-    {
-        Refill(now);
-        return Wait(_tokens - amount);
-    }
-
     /// <summary>Takes <paramref name="amount"/> tokens and returns how long to wait until they are covered (zero when they were available).</summary>
     public TimeSpan Reserve(double amount, TimeSpan now)
     {

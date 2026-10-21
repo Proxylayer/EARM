@@ -16,8 +16,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   New sample `samples/access-reviews.entra.json`; see docs/providers.md.
 - Graph request scheduler: every Graph request, each `$batch` sub-request included, is paced per Microsoft service within Microsoft's published
   throttling limits, so EARM waits before sending instead of collecting 429s. Directory requests are charged their published resource-unit cost
-  (reconciled with `x-ms-resource-unit`) against 3,500 / 5,000 / 8,000 units per 10 s by tenant size (read once with `GET /users/$count` when the
-  smallest budget would be reached; the smallest tier stays when it cannot be read) and 3,000 writes per 150 s; Conditional Access policies and named
+  (reconciled with `x-ms-resource-unit`) against 3,500 / 5,000 / 8,000 units per 10 s by tenant size (read once at the start of every run, right after the
+  preflight, with `GET /users/$count`; it needs the optional `User.ReadBasic.All`, which `earm permissions` mentions in a note, and the smallest tier
+  stays when it cannot be read) and 3,000 writes per 150 s; Conditional Access policies and named
   locations are sent one at a time, at most one per second. A 429 from any area pauses that whole area until `Retry-After` has elapsed (the throttle
   backoff without one), then it resumes at the same rate; a `$batch` sub-response 429 is waited out before the sub-request is re-sent. An envelope
   carries at most one Conditional Access sub-request. Areas without a published rate rely on `Retry-After`. The budgets are fixed. See

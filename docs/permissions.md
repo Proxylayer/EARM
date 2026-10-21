@@ -22,6 +22,12 @@ conditions with the offline context, and asks every resource provider what it ne
 4. **the preflight**: every online verb reads `GET /organization?$select=id,displayName,verifiedDomains,countryLetterCode` (`Organization.Read.All` in app mode; a signed-in user reads `id`, `displayName` and `verifiedDomains` with `User.Read`, Learn: organization-get; the same read feeds `tenant()`, whose `countryCode` needs `Organization.Read.All`, which a template that calls `tenant()` lists);
 5. **Key Vault parameter references** as an Azure requirement of the signed-in identity (not a Graph permission).
 
+**Optional: the tenant size.** Right after the preflight every online run reads `GET /users/$count` once to size the pacing of its Graph requests
+(engine.md, [Graph request scheduler](engine.md#graph-request-scheduler)). It needs `User.ReadBasic.All` (or a broader user or directory read such as
+`User.Read.All` or `Directory.Read.All`), which is **not** a required permission: it is not in the list above, a run signed in as a user does not request
+it, and the report mentions it in a note only. Without it the run keeps the smallest tenant's budget (3,500 resource units per 10 s), which can only make a
+large deployment slower.
+
 A languageVersion 2.0 `"existing": true` resource is only read: it needs the read variant of its type's permissions (reason `lookup: existing resource ("existing": true, read only)`, folded away when a write permission of the same family is listed), no edge permission and no Entra role.
 and the references it contains. Resources whose `condition` evaluates to `false` offline are left out, and a count is reported in the notes.
 

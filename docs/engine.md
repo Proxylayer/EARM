@@ -297,10 +297,13 @@ no option or environment variable for them.
 - **Token buckets.** Each budget is a token bucket that starts full and refills continuously. A request reserves its cost and waits until the bucket covers
   it, so requests are sent in the order they reserved; a request cancelled while it waits gives its reservation back. The wait comes before the
   `MaxParallel` gate, so a paced request holds no slot another area could use.
-- **Tenant size.** The directory budget starts at the smallest tier. The first time that tier would make a request wait, the scheduler reads the tenant size
-  once (`GET /users/$count` with `ConsistencyLevel: eventual`, one attempt; event 1063) and resizes the budget. A run that never reaches the smallest budget
-  never sends the probe, and behaves exactly as with the real tier. When the size cannot be read (a delegated run without `User.ReadBasic.All` gets a 403)
-  the smallest tier stays and event 1064 says so.
+- **Tenant size.** Every run that talks to Graph (`deployment what-if`, `create`, `delete`) reads the tenant size at the start, right after the sign-in
+  preflight: one `GET /users/$count` with `ConsistencyLevel: eventual`, a single attempt without retries, paced by the scheduler like every other request
+  (`HttpGraphClient.DetectTenantSizeAsync`, cached per client). The directory budget is then sized by it (event 1063). Reading the count needs
+  `User.ReadBasic.All` (or a broader user or directory read such as `User.Read.All` or `Directory.Read.All`); it is **optional**: `earm permissions`
+  mentions it in a note, never as a required permission, and a run signed in as a user does not request it. Without it (a 403), with an answer that is not
+  a number or when the request fails in transport, the run is not affected except that it keeps the smallest tenant's budget (3,500 units per 10 s), and
+  event 1064 says so once.
 - **429: pause the area.** A 429 from any area pauses **that whole area**: every request to it, queued or about to be sent, waits until the response's
   `Retry-After` has elapsed (capped at `RetryOptions.MaxRetryAfter`, 120 s); without one (the Conditional Access API sends none) the retry policy's
   throttle schedule applies (2 s doubling to 60 s, per area, reset by the next answer that is not a 429). Then the area resumes at the same rate. The request

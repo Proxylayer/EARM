@@ -64,6 +64,14 @@ public sealed partial class HttpGraphClient : IGraphClient
     /// <summary>The request scheduler that paces this client's requests within Microsoft's published throttling limits.</summary>
     internal GraphRequestScheduler Scheduler => _scheduler;
 
+    /// <summary>
+    /// Reads the tenant size once (one <c>GET /users/$count</c>, no retries, paced like every other request) and sizes the directory request budget by
+    /// it; later calls share the first result. Run right after the sign-in preflight. It never fails: when Graph refuses the read (for example a
+    /// delegated run without <c>User.ReadBasic.All</c>), answers something that is not a number or cannot be reached, the smallest tenant's budget stays
+    /// and that is logged. Only the caller's cancellation surfaces.
+    /// </summary>
+    public Task DetectTenantSizeAsync(CancellationToken cancellationToken) => _scheduler.DetectTenantSizeAsync(cancellationToken);
+
     /// <summary>The cloud (Graph host) this client talks to.</summary>
     public GraphCloud Cloud => _options.Cloud;
 
@@ -131,9 +139,9 @@ public sealed partial class HttpGraphClient : IGraphClient
     /// <summary>
     /// Runs one call under the retry policy. <paramref name="request"/> supplies the headers and the retry hint; <paramref name="uri"/> is already validated.
     /// Every attempt goes through the request scheduler: charged as the request itself, or, for a <c>$batch</c> envelope, as its sub-requests
-    /// (<paramref name="batchCosts"/>). <paramref name="tierProbe"/> marks the tenant-size probe of the scheduler.
+    /// (<paramref name="batchCosts"/>).
     /// </summary>
-    private async Task<GraphResponse> SendAsync(string method, Uri uri, GraphRequest request, JsonNode? body, CancellationToken cancellationToken, IReadOnlyList<GraphRequestCost>? batchCosts = null, bool tierProbe = false)
+    private async Task<GraphResponse> SendAsync(string method, Uri uri, GraphRequest request, JsonNode? body, CancellationToken cancellationToken, IReadOnlyList<GraphRequestCost>? batchCosts = null)
     {
         method = method.ToUpperInvariant();
         if (body is not null && method is "GET" or "DELETE" or "HEAD")
@@ -161,7 +169,7 @@ public sealed partial class HttpGraphClient : IGraphClient
         var write = IsWrite(method);
         var attempt = new AuthAttempt();
         var call = batchCosts is null
-            ? new ScheduledCall([GraphRequestClassifier.Classify(method, uri.AbsolutePath + uri.Query)], isBatch: false, tierProbe)
+            ? new ScheduledCall([GraphRequestClassifier.Classify(method, uri.AbsolutePath + uri.Query)], isBatch: false)
             : new ScheduledCall(batchCosts, isBatch: true);
 
         try
@@ -322,7 +330,7 @@ public sealed partial class HttpGraphClient : IGraphClient
     {
         var request = new GraphRequest("/users/$count", advanced: true, hint: RetryHint.None);
         var uri = GraphUrl.Build(_options.Cloud, request);
-        var response = await SendAsync("GET", uri, request, null, cancellationToken, batchCosts: null, tierProbe: true).ConfigureAwait(false);
+        var response = await SendAsync("GET", uri, request, null, cancellationToken).ConfigureAwait(false);
         if (response.Body is JsonValue value && value.TryGetValue<long>(out var users) && users >= 0)
         {
             return users;

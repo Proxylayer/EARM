@@ -191,6 +191,10 @@ internal sealed class PlannedDeployment : IDisposable
             return (VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.AuthOrPreflight, code, "Preflight failed: " + SecretScrubber.Scrub(ex.Message)), null, null);
         }
 
+        // 3b. Tenant size (one GET /users/$count): sizes the Graph request scheduler's directory budget for the rest of the run. It never fails the run;
+        //     an unreadable count keeps the smallest tenant's budget.
+        await services.Graph.DetectTenantSizeAsync(cancellationToken).ConfigureAwait(false);
+
         // 4. Key Vault parameter references, with a Key Vault token of the same identity.
         if (KeyVaultSecretResolver.HasPendingReferences(document))
         {

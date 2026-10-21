@@ -120,8 +120,9 @@ public sealed class DeploymentCommandTests
         Assert.Contains("The template declares no resources.", table.StandardOutput);
 
         Assert.Empty(sandbox.UnexpectedFiles());
-        // Per run: one GET /organization (the preflight; it also feeds tenant()); what-if never writes.
-        Assert.Equal(2, sandbox.RecordedCommands().Count);
+        // Per run: one GET /organization (the preflight; it also feeds tenant()) and one GET /users/$count (the tenant size); what-if never writes.
+        Assert.Equal(4, sandbox.RecordedCommands().Count);
+        Assert.Equal(2, sandbox.RecordedCommands().Count(c => c == "GET /v1.0/users/$count"));
         Assert.All(sandbox.RecordedCommands(), c => Assert.StartsWith("GET ", c, StringComparison.Ordinal));
     }
 

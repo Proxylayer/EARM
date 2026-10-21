@@ -37,6 +37,11 @@ public sealed record RecordedHttpRequest(string Method, Uri Uri, IReadOnlyDictio
 /// ] }
 /// </code>
 /// A rule without <c>status</c> answers 200 with its body, or 204 without one.
+/// <para>
+/// Every run reads the tenant size right after its preflight (<c>GET /users/$count</c>). A request for it that no rule answers (and every one while
+/// <see cref="Directory"/> is set) gets <see cref="UserCount"/> as Graph sends it, a plain-text number, so scripts need not mention it; a rule that
+/// matches it (for example a 403) still wins over the default.
+/// </para>
 /// </summary>
 public sealed class ScriptedGraphHandler : HttpMessageHandler
 {
@@ -69,6 +74,12 @@ public sealed class ScriptedGraphHandler : HttpMessageHandler
     private readonly object _gate = new();
     private readonly List<RecordedHttpRequest> _requests = [];
     private List<Rule> _rules = [];
+
+    /// <summary>The answer to <c>GET /users/$count</c> when no rule matches it; null removes the default (the request is then unscripted).</summary>
+    public long? UserCount { get; set; } = DefaultUserCount;
+
+    /// <summary>The default <see cref="UserCount"/>: a small tenant.</summary>
+    public const long DefaultUserCount = 10;
 
     /// <summary>When set, every request is answered by this in-memory directory (see <see cref="FakeDirectoryHttp"/>) instead of the script; requests are still recorded.</summary>
     public FakeDirectory? Directory { get; set; }
@@ -150,7 +161,7 @@ public sealed class ScriptedGraphHandler : HttpMessageHandler
         lock (_gate)
         {
             _requests.Add(recorded);
-            if (Directory is not null)
+            if (Directory is not null && !IsUserCount(recorded))
             {
                 var directoryResponse = FakeDirectoryHttp.Respond(Directory, recorded);
                 directoryResponse.RequestMessage = request;
@@ -166,6 +177,15 @@ public sealed class ScriptedGraphHandler : HttpMessageHandler
                     break;
                 }
             }
+        }
+
+        if (chosen is null && IsUserCount(recorded) && UserCount is { } users)
+        {
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                RequestMessage = request,
+                Content = new StringContent(users.ToString(System.Globalization.CultureInfo.InvariantCulture), new UTF8Encoding(false), "text/plain"),
+            };
         }
 
         if (chosen is null)
@@ -185,6 +205,11 @@ public sealed class ScriptedGraphHandler : HttpMessageHandler
         }
 
         return response;
+    }
+
+    private static bool IsUserCount(RecordedHttpRequest request)
+    {
+        return request.Method == "GET" && request.Uri.AbsolutePath.EndsWith("/users/$count", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>A Graph error document, for scripts built in code: <c>{ "error": { "code": ..., "message": ... } }</c>.</summary>
