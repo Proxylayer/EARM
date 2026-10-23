@@ -40,7 +40,8 @@ public sealed record RecordedHttpRequest(string Method, Uri Uri, IReadOnlyDictio
 /// <para>
 /// Every run reads the tenant size right after its preflight (<c>GET /users/$count</c>). A request for it that no rule answers (and every one while
 /// <see cref="Directory"/> is set) gets <see cref="UserCount"/> as Graph sends it, a plain-text number, so scripts need not mention it; a rule that
-/// matches it (for example a 403) still wins over the default.
+/// matches it (for example a 403) still wins over the default. Like Graph, the default answers <c>415 Request_BadRequest</c> when the request's
+/// <c>Accept</c> does not allow <c>text/plain</c> (no <c>Accept</c>, <c>text/*</c> and <c>*/*</c> do).
 /// </para>
 /// </summary>
 public sealed class ScriptedGraphHandler : HttpMessageHandler
@@ -181,6 +182,15 @@ public sealed class ScriptedGraphHandler : HttpMessageHandler
 
         if (chosen is null && IsUserCount(recorded) && UserCount is { } users)
         {
+            if (!AcceptsPlainText(recorded))
+            {
+                return new HttpResponseMessage(HttpStatusCode.UnsupportedMediaType)
+                {
+                    RequestMessage = request,
+                    Content = new StringContent(Error("Request_BadRequest", "The requested media type is not supported; $count is served only as text/plain."), new UTF8Encoding(false), "application/json"),
+                };
+            }
+
             return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 RequestMessage = request,
@@ -210,6 +220,26 @@ public sealed class ScriptedGraphHandler : HttpMessageHandler
     private static bool IsUserCount(RecordedHttpRequest request)
     {
         return request.Method == "GET" && request.Uri.AbsolutePath.EndsWith("/users/$count", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Whether the request's <c>Accept</c> allows <c>text/plain</c>: absent, <c>text/plain</c>, <c>text/*</c> or <c>*/*</c> (with any parameters).</summary>
+    private static bool AcceptsPlainText(RecordedHttpRequest request)
+    {
+        if (!request.Headers.TryGetValue("Accept", out var accept) || string.IsNullOrWhiteSpace(accept))
+        {
+            return true;
+        }
+
+        foreach (var range in accept.Split(','))
+        {
+            var mediaType = range.Split(';')[0].Trim();
+            if (mediaType.Equals("text/plain", StringComparison.OrdinalIgnoreCase) || mediaType is "text/*" or "*/*")
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>A Graph error document, for scripts built in code: <c>{ "error": { "code": ..., "message": ... } }</c>.</summary>

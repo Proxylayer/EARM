@@ -678,6 +678,7 @@ public sealed class GraphRequestSchedulerTests
         Assert.Contains(tier, logged.Message, StringComparison.Ordinal);
         Assert.Contains(budget.ToString(System.Globalization.CultureInfo.InvariantCulture), logged.Message, StringComparison.Ordinal);
         Assert.Empty(rig.Events(1064));
+        Assert.Empty(rig.Events(1066));
     }
 
     [Fact]
@@ -715,11 +716,19 @@ public sealed class GraphRequestSchedulerTests
         Assert.Single(rig.Events(1063));
     }
 
-    public static TheoryData<string> ProbeFailures => ["403", "transport", "cancelled"];
+    // The expected event: 1064 (with the permission the read needs) when Graph refuses the caller, 1066 (the reason only) for anything else.
+    public static TheoryData<string, int> ProbeFailures => new()
+    {
+        { "401", 1064 },
+        { "403", 1064 },
+        { "415", 1066 },
+        { "transport", 1066 },
+        { "cancelled", 1066 },
+    };
 
     [Theory]
     [MemberData(nameof(ProbeFailures))]
-    public async Task AnUnreadableTenantSizeKeepsTheSmallestBudgetAndIsLoggedOnce(string failure)
+    public async Task AnUnreadableTenantSizeKeepsTheSmallestBudgetAndIsLoggedOnce(string failure, int eventId)
     {
         var calls = 0;
         var rig = new SchedulerRig(countUsers: _ =>
@@ -727,7 +736,9 @@ public sealed class GraphRequestSchedulerTests
             Interlocked.Increment(ref calls);
             Exception error = failure switch
             {
+                "401" => new GraphException(System.Net.HttpStatusCode.Unauthorized, "InvalidAuthenticationToken", "Access token validation failure."),
                 "403" => new GraphException(System.Net.HttpStatusCode.Forbidden, "Authorization_RequestDenied", "Insufficient privileges to complete the operation."),
+                "415" => new GraphException(System.Net.HttpStatusCode.UnsupportedMediaType, "Request_BadRequest", "The requested media type is not supported."),
                 "transport" => new GraphTransportException(GraphTransportFailure.Network, "connection reset"),
                 _ => new OperationCanceledException(),
             };
@@ -738,11 +749,29 @@ public sealed class GraphRequestSchedulerTests
         Assert.Equal(TenantSizeTier.Small, await rig.Scheduler.DetectTenantSizeAsync(Ct));
 
         Assert.Equal(1, calls);
-        var logged = Assert.Single(rig.Events(1064));
+        var logged = Assert.Single(rig.Events(eventId));
+        Assert.Empty(rig.Events(eventId == 1064 ? 1066 : 1064));
         Assert.Contains("3500", logged.Message.Replace(",", string.Empty, StringComparison.Ordinal), StringComparison.Ordinal);
-        if (failure == "403")
+        if (eventId == 1064)
         {
-            Assert.Contains("403 Authorization_RequestDenied", logged.Message, StringComparison.Ordinal);
+            Assert.Contains("User.ReadBasic.All", logged.Message, StringComparison.Ordinal);
+        }
+        else
+        {
+            Assert.DoesNotContain("User.ReadBasic.All", logged.Message, StringComparison.Ordinal);
+        }
+
+        switch (failure)
+        {
+            case "401":
+                Assert.Contains("401 InvalidAuthenticationToken", logged.Message, StringComparison.Ordinal);
+                break;
+            case "403":
+                Assert.Contains("403 Authorization_RequestDenied", logged.Message, StringComparison.Ordinal);
+                break;
+            case "415":
+                Assert.Contains("415 Request_BadRequest", logged.Message, StringComparison.Ordinal);
+                break;
         }
 
         Assert.Empty(rig.Events(1063));
@@ -781,6 +810,7 @@ public sealed class GraphRequestSchedulerTests
         answer.SetResult(1_000);
         Assert.Equal(TenantSizeTier.Large, await rig.Scheduler.DetectTenantSizeAsync(Ct));
         Assert.Empty(rig.Events(1064));
+        Assert.Empty(rig.Events(1066));
     }
 
     [Fact]

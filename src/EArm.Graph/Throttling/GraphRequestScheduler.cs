@@ -1,4 +1,5 @@
 using System;
+using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -228,7 +229,10 @@ internal sealed class GraphRequestScheduler
         {
             lock (_lock)
             {
-                _log.TierUnknown(ex is GraphException graph ? ((int)graph.Status).ToString(System.Globalization.CultureInfo.InvariantCulture) + " " + graph.Code : ex.GetType().Name);
+                var graph = ex as GraphException;
+                _log.TierUnknown(
+                    graph is not null ? ((int)graph.Status).ToString(System.Globalization.CultureInfo.InvariantCulture) + " " + graph.Code : ex.GetType().Name,
+                    graph?.Status is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden);
             }
 
             owner.SetResult(TenantSizeTier.Small);

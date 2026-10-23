@@ -65,7 +65,7 @@ public sealed partial class HttpGraphClient : IGraphClient
     internal GraphRequestScheduler Scheduler => _scheduler;
 
     /// <summary>
-    /// Reads the tenant size once (one <c>GET /users/$count</c>, no retries, paced like every other request) and sizes the directory request budget by
+    /// Reads the tenant size once (one plain-text <c>GET /users/$count</c>, no retries, paced like every other request) and sizes the directory request budget by
     /// it; later calls share the first result. Run right after the sign-in preflight. It never fails: when Graph refuses the read (for example a
     /// delegated run without <c>User.ReadBasic.All</c>), answers something that is not a number or cannot be reached, the smallest tenant's budget stays
     /// and that is logged. Only the caller's cancellation surfaces.
@@ -323,12 +323,14 @@ public sealed partial class HttpGraphClient : IGraphClient
     }
 
     /// <summary>
-    /// The scheduler's tenant-size probe: <c>GET /users/$count</c> (advanced query), one attempt. Throws when Graph refuses it (for example a delegated
-    /// run without <c>User.ReadBasic.All</c>) or answers something that is not a number; the scheduler then keeps the smallest tier.
+    /// The scheduler's tenant-size probe: <c>GET /users/$count</c> (advanced query), one attempt. It asks for <c>Accept: text/plain</c> because Graph
+    /// serves <c>$count</c> only as plain text and answers 415 to the default <c>application/json</c>; the bare number parses as a JSON number.
+    /// Throws when Graph refuses it (for example a delegated run without <c>User.ReadBasic.All</c>) or answers something that is not a number; the
+    /// scheduler then keeps the smallest tier.
     /// </summary>
     private async Task<long> CountUsersAsync(CancellationToken cancellationToken)
     {
-        var request = new GraphRequest("/users/$count", advanced: true, hint: RetryHint.None);
+        var request = new GraphRequest("/users/$count", advanced: true, hint: RetryHint.None).WithHeader("Accept", "text/plain");
         var uri = GraphUrl.Build(_options.Cloud, request);
         var response = await SendAsync("GET", uri, request, null, cancellationToken).ConfigureAwait(false);
         if (response.Body is JsonValue value && value.TryGetValue<long>(out var users) && users >= 0)

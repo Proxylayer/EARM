@@ -75,6 +75,9 @@ internal static partial class GraphLog
     [LoggerMessage(EventId = 1064, Level = LogLevel.Information, Message = "The tenant size could not be read ({Reason}); the directory budget stays at the smallest tier, {ResourceUnits} resource units per 10 s (reading GET /users/$count needs User.ReadBasic.All or more)")]
     public static partial void SchedulerTierUnknown(ILogger logger, string reason, int resourceUnits);
 
+    [LoggerMessage(EventId = 1066, Level = LogLevel.Information, Message = "The tenant size could not be read ({Reason}); the directory budget stays at the smallest tier, {ResourceUnits} resource units per 10 s")]
+    public static partial void SchedulerTierUnread(ILogger logger, string reason, int resourceUnits);
+
     [LoggerMessage(EventId = 1065, Level = LogLevel.Information, Message = "Microsoft Graph reports this app's directory usage at {Percentage} of its limit (throttle scope {Scope})")]
     public static partial void SchedulerNearLimit(ILogger logger, double percentage, string scope);
 

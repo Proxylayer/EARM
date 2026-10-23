@@ -64,6 +64,9 @@ internal sealed class ScriptedResponse
 
     public string? Body { get; init; }
 
+    /// <summary>The media type of <see cref="Body"/> (default <c>application/json</c>).</summary>
+    public string ContentType { get; init; } = "application/json";
+
     public Dictionary<string, string> Headers { get; init; } = new(StringComparer.OrdinalIgnoreCase);
 
     public TimeSpan Delay { get; init; }
@@ -73,6 +76,12 @@ internal sealed class ScriptedResponse
     public static ScriptedResponse Json(string body, HttpStatusCode status = HttpStatusCode.OK)
     {
         return new ScriptedResponse { Status = status, Body = body };
+    }
+
+    /// <summary>A <c>text/plain</c> body, as Graph serves <c>$count</c>.</summary>
+    public static ScriptedResponse Text(string body, HttpStatusCode status = HttpStatusCode.OK)
+    {
+        return new ScriptedResponse { Status = status, Body = body, ContentType = "text/plain" };
     }
 
     public static ScriptedResponse NoContent()
@@ -205,7 +214,7 @@ internal sealed class ScriptedHttpHandler : HttpMessageHandler
             var response = new HttpResponseMessage(scripted.Status) { RequestMessage = request };
             if (scripted.Body is not null)
             {
-                response.Content = new StringContent(scripted.Body, new UTF8Encoding(false), "application/json");
+                response.Content = new StringContent(scripted.Body, new UTF8Encoding(false), scripted.ContentType);
             }
 
             foreach (var header in scripted.Headers)

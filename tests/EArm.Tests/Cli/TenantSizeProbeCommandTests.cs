@@ -43,6 +43,7 @@ public sealed class TenantSizeProbeCommandTests
         Assert.Equal(UserCount, commands[1]);
         var probe = sandbox.RecordedRequests()[1];
         Assert.Equal("eventual", probe.Headers["ConsistencyLevel"]);
+        Assert.Equal("text/plain", probe.Headers["Accept"]);
         Assert.StartsWith("Bearer ", probe.Headers["Authorization"], StringComparison.Ordinal);
     }
 
@@ -63,6 +64,7 @@ public sealed class TenantSizeProbeCommandTests
     public static TheoryData<string, string> UnreadableCounts => new()
     {
         { "403", CountRule(403, ScriptedGraphHandler.Error("Authorization_RequestDenied", "Insufficient privileges to complete the operation.")) },
+        { "415", CountRule(415, ScriptedGraphHandler.Error("Request_BadRequest", "The requested media type is not supported.")) },
         { "429", CountRule(429, ScriptedGraphHandler.Error("TooManyRequests", "slow down")) },
         { "503", CountRule(503, ScriptedGraphHandler.Error("ServiceUnavailable", "try later")) },
         { "non-numeric", CountRule(200, "{ \"value\": \"lots\" }") },
@@ -88,10 +90,15 @@ public sealed class TenantSizeProbeCommandTests
 
     // ---- the scripted handler's default answer ------------------------------------------------------------
 
-    private static async Task<(HttpStatusCode Status, string Body, string? MediaType)> GetAsync(ScriptedGraphHandler handler, string url, HttpMethod? method = null)
+    private static async Task<(HttpStatusCode Status, string Body, string? MediaType)> GetAsync(ScriptedGraphHandler handler, string url, HttpMethod? method = null, string? accept = null)
     {
         using var http = new HttpClient(handler, disposeHandler: false);
         using var request = new HttpRequestMessage(method ?? HttpMethod.Get, url);
+        if (accept is not null)
+        {
+            request.Headers.TryAddWithoutValidation("Accept", accept);
+        }
+
         using var response = await http.SendAsync(request, Ct);
         return (response.StatusCode, await response.Content.ReadAsStringAsync(Ct), response.Content.Headers.ContentType?.MediaType);
     }
@@ -110,6 +117,34 @@ public sealed class TenantSizeProbeCommandTests
         Assert.Equal((HttpStatusCode.OK, "1234", "text/plain"), large);
         Assert.Equal(10, ScriptedGraphHandler.DefaultUserCount);
         Assert.Equal(2, handler.Requests.Count);
+    }
+
+    // Graph serves $count only as plain text: an Accept that rules text/plain out (such as the default application/json) is refused with 415.
+    [Theory]
+    [InlineData("application/json", false)]
+    [InlineData("application/json;odata.metadata=minimal", false)]
+    [InlineData("text/plain", true)]
+    [InlineData("text/plain; charset=utf-8", true)]
+    [InlineData("application/json, text/plain", true)]
+    [InlineData("text/*", true)]
+    [InlineData("*/*", true)]
+    public async Task TheUserCountIsRefusedWith415WhenTheAcceptRulesPlainTextOut(string accept, bool answered)
+    {
+        using var handler = new ScriptedGraphHandler { UserCount = 1_234 };
+        handler.SetScript("{ \"responses\": [] }");
+
+        var (status, body, mediaType) = await GetAsync(handler, "https://graph.microsoft.com/v1.0/users/$count", accept: accept);
+
+        if (answered)
+        {
+            Assert.Equal((HttpStatusCode.OK, "1234", "text/plain"), (status, body, mediaType));
+        }
+        else
+        {
+            Assert.Equal(HttpStatusCode.UnsupportedMediaType, status);
+            Assert.Equal("application/json", mediaType);
+            Assert.Equal("Request_BadRequest", System.Text.Json.Nodes.JsonNode.Parse(body)!["error"]!["code"]!.GetValue<string>());
+        }
     }
 
     [Fact]
