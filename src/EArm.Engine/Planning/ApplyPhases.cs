@@ -15,7 +15,7 @@ public static class ApplyPhases
     /// <summary>
     /// 1: namedLocations, authenticationContextClassReferences, authenticationStrengths, authenticationMethodConfigurations, roleDefinitions, users,
     /// applications · 2: servicePrincipals, federatedIdentityCredentials, passwordCredentials, keyCredentials, extensionProperties · 3: groups ·
-    /// 4: administrativeUnits, roleManagementPolicies (also ordered before the PIM schedule requests they govern) · 5: roleAssignments, roleEligibilityScheduleRequests, roleAssignmentScheduleRequests, privilegedAccess/groupEligibilityScheduleRequests,
+    /// 4: administrativeUnits, roleManagementPolicies (also ordered before the PIM schedule requests they govern), azureRoleManagementPolicies · 5: roleAssignments, roleEligibilityScheduleRequests, roleAssignmentScheduleRequests, privilegedAccess/groupEligibilityScheduleRequests,
     /// privilegedAccess/groupAssignmentScheduleRequests, appRoleAssignments, oauth2PermissionGrants ·
     /// 6: conditionalAccess/policies. Entitlement management: catalogs 4, catalogResources and accessPackages 5, resourceRoleScopes and
     /// accessPackages/assignmentPolicies 6 (role scopes are also ordered after the catalog resources and before the policies they relate to).
@@ -41,6 +41,7 @@ public static class ApplyPhases
             "groups" => 3,
             "administrativeUnits" => 4,
             "roleManagementPolicies" => 4,
+            "azureRoleManagementPolicies" => 4,
             "roleAssignments" => 5,
             "roleEligibilityScheduleRequests" => 5,
             "privilegedAccess/groupEligibilityScheduleRequests" => 5,
@@ -67,7 +68,7 @@ public static class ApplyPhases
     }
 
     /// <summary>
-    /// Complete-mode delete order: CA policies → assignments/eligibilities/PIM active assignments/grants/PIM policies (kept, never deleted) → administrativeUnits → groups →
+    /// Complete-mode delete order: CA policies → assignments/eligibilities/PIM active assignments/grants/PIM policies and Azure PIM policies (kept, never deleted) → administrativeUnits → groups →
     /// passwordCredentials/federatedIdentityCredentials/keyCredentials/extensionProperties → servicePrincipals → applications → users → roleDefinitions
     /// → authenticationStrengths → authenticationContextClassReferences → namedLocations → authenticationMethodConfigurations (reset, never removed).
     /// Entitlement management: assignment policies and resource role scopes (1) → access packages (2) → catalog resources (3) → catalogs (4).
@@ -87,6 +88,7 @@ public static class ApplyPhases
             "appRoleAssignments" => 2,
             "oauth2PermissionGrants" => 2,
             "roleManagementPolicies" => 2,
+            "azureRoleManagementPolicies" => 2,
             "administrativeUnits" => 3,
             "groups" => 4,
             "applications/passwordCredentials" => 5,
@@ -152,6 +154,7 @@ public static class ApplyPhases
         "groups",
         "administrativeUnits",
         "roleManagementPolicies",
+        "azureRoleManagementPolicies",
         "roleAssignments",
         "roleEligibilityScheduleRequests",
         "privilegedAccess/groupEligibilityScheduleRequests",

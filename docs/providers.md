@@ -761,6 +761,42 @@ member-role lookup (probe PP7), and `FakeRoleManagementPolicies` models that whe
 
 A directory role without a policy (an unknown role id) is `PimPolicyNotAvailable` too. Complete mode lists no orphans (policies always exist).
 
+### Worked example: Azure PIM role management policies
+
+`Microsoft.Entra/azureRoleManagementPolicies` (`AzureRoleManagementPoliciesProvider`) is the Azure resource twin of `roleManagementPolicies`: the
+PIM role settings of an **Azure RBAC role at an Azure scope** (a subscription, a resource group, or a resource under one), managed through **Azure
+Resource Manager** as `Microsoft.Authorization/roleManagementPolicies` (api-version `2020-10-01`), not Graph. The declared rule shape is already ARM's,
+so nothing is mapped: the offline rule checks (`RoleManagementPolicyRuleChecks`), the normalisation (`RoleManagementPolicyRules.NormalizeRules`), the
+fill-from-live and the comparable view (`RoleManagementPolicyShape.FillFromLive` / `Comparable`) are shared with the Entra type, and the rule schema is
+the same (`$policyRules` in `tools/New-TypeSchemas.ps1`). The scope checks are `AzureRoleManagementPolicyRules` (management group scopes are refused
+offline: not probed yet); the ARM calls are `AzureRoleManagementPolicyLookup`.
+
+The policy is named by `scope` and `roleDefinitionId` (a GUID or any qualified role definition id, normalised to
+`/subscriptions/{subscription of the scope}/providers/Microsoft.Authorization/roleDefinitions/{guid}`) or the sugar `role`, a role name resolved when the
+deployment is planned. The `guid()` name is a label. The facts below come from the real-subscription probes (`AzurePimPolicyProbes`,
+`EARM_IT_ALLOW_AZURE_PIM_POLICIES=1`):
+
+| Operation | Azure Resource Manager | Why |
+|---|---|---|
+| Read | `GET {scope}/providers/Microsoft.Authorization/roleManagementPolicyAssignments?$filter=roleDefinitionId eq '{subscription-qualified id}'`, keeping only the assignment whose `properties.scope` equals the declared scope (case-insensitive); then `GET {policyId}` (rebuilt as `{scope}/providers/Microsoft.Authorization/roleManagementPolicies/{name}`, refused when the assignment names a policy elsewhere) for `properties.rules`. The policy's path is the Graph id | a bare GUID in the filter is refused (400 `InvalidARMRequest`); the list also returns policies inherited from parent scopes, which are never acted on; the policy name equalled the role GUID in the probes, but that is undocumented, so `policyId` is followed |
+| Role name | `GET {scope}/providers/Microsoft.Authorization/roleDefinitions?$filter=roleName eq '{name}'` (api-version `2022-04-01`), names re-matched ignoring case; exactly one match, else `RoleManagementPolicyInvalid` | the policy filter refuses `roleName` (400 `InvalidFilter`) |
+| Create | never: a missing policy is `PimPolicyNotAvailable` | a policy exists for every role at every scope, even one never used with PIM (Reader at a brand-new resource group: 17 rules, `properties.scope` the group itself); no policy means the scope does not exist (ARM's 404 on the list reads as "no policy") or the role is wrong |
+| Update | ONE `PATCH {policyId}` with `{ "properties": { "rules": [...] } }` carrying only the **changed** declared rules, each filled from its live rule (null members left out); the answer (the whole policy) is the re-read. When nothing differs at apply time, nothing is sent | a PATCH changes only the rules it carries (the others are untouched), but a rule sent with only some members **resets** the omitted ones (`isExpirationRequired` true → false), so every rule sent is complete; a PATCH of unchanged values still bumps `lastModifiedDateTime`, so NoChange is decided client-side |
+| Delete | never: kept as `NotDeletable` (`IDeleteRefusalSource`); Complete mode lists no orphans | a policy cannot be deleted; revert a setting by declaring the value to restore |
+
+Planning is the Entra type's: only the declared rule ids are managed, a declared id the live policy does not have is `RoleManagementPolicyInvalid`
+(listing the policy's ids), and the diff uses the `rules` member key `id`. No apply order is declared: EARM has no Azure eligibility or assignment
+requests yet. The probes saw about 250 reads and 200 writes per subscription window, far above a template's needs.
+
+**The Resource Manager client.** Provider methods receive only `IGraphClient`, so the provider takes an `ArmClient?` in its constructor
+(`(ResourceTypeDefinition, ResourceTypeCatalog, ArmClient)`, the first signature `ProviderDiscovery` tries). `EngineServices` builds the run's registry
+with `ProviderDiscovery.CreateRegistry(catalog, settle, ResourceManager)`; the offline registries (`validate`, `permissions`, the run scopes) pass none,
+where the provider still validates and reports its permissions but any Resource Manager call throws an `InvalidOperationException`. Implementing
+`IResourceManagerProvider` makes `RunScopes` request the separate Resource Manager token (and a delegated sign-in's `user_impersonation` consent).
+`RequiredPermissions` is empty (no Graph scope); `PermissionManifest` lists an `azureRbac` entry per declared policy:
+`Microsoft.Authorization/roleManagementPolicies/write` at the declared scope (Owner, User Access Administrator or Role Based Access Control
+Administrator; a what-if reads with `.../read`).
+
 ### Worked example: access packages
 
 Five providers cover entitlement management ([access-packages.md](access-packages.md) has the user view and the Learn citations). They share

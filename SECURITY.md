@@ -43,7 +43,7 @@ principal-side relationship (`memberOf`, a principal's `appRoleAssignments` / `d
 ### Privileged access and authentication methods
 
 The PIM types (`roleEligibilityScheduleRequests`, `roleAssignmentScheduleRequests`, `privilegedAccess/groupEligibilityScheduleRequests`,
-`privilegedAccess/groupAssignmentScheduleRequests`, `roleManagementPolicies`) and `authenticationMethodConfigurations` are **privilege-control surfaces**
+`privilegedAccess/groupAssignmentScheduleRequests`, `roleManagementPolicies`, `azureRoleManagementPolicies`) and `authenticationMethodConfigurations` are **privilege-control surfaces**
 ([docs/pim.md](docs/pim.md)):
 
 - **Escalation-capable permissions.** An identity with `RoleEligibilitySchedule.ReadWrite.Directory` or `RoleAssignmentSchedule.ReadWrite.Directory` can make
@@ -65,7 +65,7 @@ Hardening for these types:
 - Keep **emergency access** outside PIM, approvals and the authentication-method changes: permanent roles on a small group of break-glass accounts,
   excluded from Conditional Access and, ideally, protected by a restricted management administrative unit (the `privileged-access` sample does this).
   Do not make the identity that runs EARM an approver of the policies it deploys.
-- Review every `~ Modify` of a `roleManagementPolicies` rule (approval, enablement, expiration) and of an authentication method's `state`, targets and
+- Review every `~ Modify` of a `roleManagementPolicies` or `azureRoleManagementPolicies` rule (approval, enablement, expiration) and of an authentication method's `state`, targets and
   key restrictions in the what-if before `create`; keep Conditional Access policies report-only until their sign-in impact is known.
 - The tenant policy types are tenant-wide too. `Policy.ReadWrite.CrossTenantAccess` (`policies/crossTenantAccessPolicy`, `…/partners`) decides which
   external tenants' users get in and whose MFA and device claims Conditional Access trusts; `Policy.ReadWrite.ApplicationConfiguration` (token

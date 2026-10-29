@@ -539,6 +539,7 @@ found = create.
 | `privilegedAccess/groupEligibilityScheduleRequests` | (`groupId`, `principalId`, `accessId`), Direct eligibility schedules only | a label |
 | `privilegedAccess/groupAssignmentScheduleRequests` | (`groupId`, `principalId`, `accessId`), Direct assignment schedules with `assignmentType` assigned only (a permanent one is refused) | a label |
 | `roleManagementPolicies` | the policy assignment of (`scopeType`, `scopeId`, `roleDefinitionId`) (the policy id is the Graph id; a group's policy is re-identified when PIM onboards the group) | a label; never created |
+| `azureRoleManagementPolicies` | the Azure Resource Manager policy assignment of (`scope`, `roleDefinitionId`) whose `properties.scope` is exactly the declared scope (the policy's resource path is the Graph id) | a label; never created |
 | `appRoleAssignments` | (`principalId`, `resourceId`, `appRoleId`) | a label |
 | `entitlementManagement/catalogResources` | (`catalogId`, `originId`) | a label |
 | `entitlementManagement/resourceRoleScopes` | (`accessPackageId`, `resourceOriginId`, `role`) | a label |

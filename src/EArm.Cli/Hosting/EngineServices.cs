@@ -68,7 +68,8 @@ internal sealed class EngineServices : IDisposable
         Preflight = new GraphPreflight(_tokens, Graph, cloud, auth.Mode, loggerFactory.CreateLogger<GraphPreflight>(), graphScopes, preflightPrompter);
         KeyVault = new KeyVaultClient(_http, _tokens, RetryPolicy, cloud, options.Timeout, loggerFactory.CreateLogger<KeyVaultClient>(), time);
         ResourceManager = new ArmClient(_http, _tokens, RetryPolicy, cloud, options.Timeout, loggerFactory.CreateLogger<ArmClient>(), time);
-        Providers = ProviderDiscovery.CreateRegistry(ResourceTypeCatalog.Default, _replicationWait);
+        // The Resource Manager providers (IResourceManagerProvider) call ARM through the run's client; the offline registries (validate, permissions) have none.
+        Providers = ProviderDiscovery.CreateRegistry(ResourceTypeCatalog.Default, _replicationWait, ResourceManager);
         EdgeKinds = ProviderDiscovery.CreateEdgeKinds(ResourceTypeCatalog.Default);
     }
 

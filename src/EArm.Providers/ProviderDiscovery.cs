@@ -7,6 +7,7 @@ using EArm.Core.Types;
 using EArm.Engine.Edges;
 using EArm.Engine.Execution;
 using EArm.Engine.Providers;
+using EArm.Graph;
 
 namespace EArm.Providers;
 
@@ -40,6 +41,18 @@ public static class ProviderDiscovery
         return CreateRegistry(catalog, typeof(ProviderDiscovery).Assembly, settle);
     }
 
+    /// <summary>
+    /// The registry of an online run: as <see cref="CreateRegistry(ResourceTypeCatalog, ReplicationWait)"/>, and the providers whose calls go to Azure
+    /// Resource Manager (<see cref="IResourceManagerProvider"/>, a constructor taking an <see cref="ArmClient"/>) call it through
+    /// <paramref name="resourceManager"/>. The other overloads build the registry without one (offline: <c>validate</c>, <c>permissions</c>, the run scopes),
+    /// where such a provider still validates and plans offline but fails any Resource Manager call with an <see cref="InvalidOperationException"/>.
+    /// </summary>
+    public static ProviderRegistry CreateRegistry(ResourceTypeCatalog catalog, ReplicationWait settle, ArmClient resourceManager)
+    {
+        ArgumentNullException.ThrowIfNull(resourceManager);
+        return CreateRegistry(catalog, typeof(ProviderDiscovery).Assembly, settle, resourceManager);
+    }
+
     /// <summary>The registry of every attributed provider in <paramref name="assembly"/>, bound to <paramref name="catalog"/>.</summary>
     public static ProviderRegistry CreateRegistry(ResourceTypeCatalog catalog, Assembly assembly)
     {
@@ -48,6 +61,15 @@ public static class ProviderDiscovery
 
     /// <summary>The registry of every attributed provider in <paramref name="assembly"/>, bound to <paramref name="catalog"/>, settling on <paramref name="settle"/>.</summary>
     public static ProviderRegistry CreateRegistry(ResourceTypeCatalog catalog, Assembly assembly, ReplicationWait settle)
+    {
+        return CreateRegistry(catalog, assembly, settle, null);
+    }
+
+    /// <summary>
+    /// The registry of every attributed provider in <paramref name="assembly"/>, bound to <paramref name="catalog"/>, settling on <paramref name="settle"/>; the
+    /// Resource Manager providers get <paramref name="resourceManager"/> (<c>null</c> offline).
+    /// </summary>
+    public static ProviderRegistry CreateRegistry(ResourceTypeCatalog catalog, Assembly assembly, ReplicationWait settle, ArmClient? resourceManager)
     {
         ArgumentNullException.ThrowIfNull(catalog);
         ArgumentNullException.ThrowIfNull(assembly);
@@ -66,7 +88,7 @@ public static class ProviderDiscovery
             var definition = catalog.Find(binding.TypeName)
                 ?? throw new InvalidOperationException($"{binding.ProviderType.FullName} is attributed [EntraProvider(\"{binding.TypeName}\")] but the catalog defines no such type; add the type schema under schemas/{ResourceTypeCatalog.SchemaVersion}/types/ or fix the attribute.");
 
-            var provider = Instantiate(binding.ProviderType, definition, catalog, settle);
+            var provider = Instantiate(binding.ProviderType, definition, catalog, settle, resourceManager);
             if (!ResourceIdentifier.TypeEquals(provider.TypeName, definition.Type))
             {
                 throw new InvalidOperationException($"{binding.ProviderType.FullName} is attributed for '{binding.TypeName}' but reports TypeName '{provider.TypeName}'.");
@@ -217,15 +239,16 @@ public static class ProviderDiscovery
     // ---- construction ----
 
     /// <summary>
-    /// Constructs a provider through the first constructor found among
-    /// <c>(ResourceTypeDefinition, ResourceTypeCatalog, ReplicationWait)</c>, <c>(ResourceTypeDefinition, ResourceTypeCatalog)</c>,
-    /// <c>(ResourceTypeDefinition)</c>, <c>(ResourceTypeCatalog)</c> and <c>()</c>.
+    /// Constructs a provider through the first constructor found among <c>(ResourceTypeDefinition, ResourceTypeCatalog, ArmClient?)</c> (a Resource
+    /// Manager provider; the client is <c>null</c> offline), <c>(ResourceTypeDefinition, ResourceTypeCatalog, ReplicationWait)</c>,
+    /// <c>(ResourceTypeDefinition, ResourceTypeCatalog)</c>, <c>(ResourceTypeDefinition)</c>, <c>(ResourceTypeCatalog)</c> and <c>()</c>.
     /// </summary>
-    private static IResourceProvider Instantiate(Type providerType, ResourceTypeDefinition definition, ResourceTypeCatalog catalog, ReplicationWait settle)
+    private static IResourceProvider Instantiate(Type providerType, ResourceTypeDefinition definition, ResourceTypeCatalog catalog, ReplicationWait settle, ArmClient? resourceManager)
     {
         const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
-        (Type[] Signature, object[] Arguments)[] candidates =
+        (Type[] Signature, object?[] Arguments)[] candidates =
         [
+            ([typeof(ResourceTypeDefinition), typeof(ResourceTypeCatalog), typeof(ArmClient)], [definition, catalog, resourceManager]),
             ([typeof(ResourceTypeDefinition), typeof(ResourceTypeCatalog), typeof(ReplicationWait)], [definition, catalog, settle]),
             ([typeof(ResourceTypeDefinition), typeof(ResourceTypeCatalog)], [definition, catalog]),
             ([typeof(ResourceTypeDefinition)], [definition]),
@@ -251,6 +274,6 @@ public static class ProviderDiscovery
             }
         }
 
-        throw new InvalidOperationException($"{providerType.FullName} has no usable constructor; a provider needs (ResourceTypeDefinition, ResourceTypeCatalog, ReplicationWait), (ResourceTypeDefinition, ResourceTypeCatalog), (ResourceTypeDefinition), (ResourceTypeCatalog) or a parameterless constructor.");
+        throw new InvalidOperationException($"{providerType.FullName} has no usable constructor; a provider needs (ResourceTypeDefinition, ResourceTypeCatalog, ArmClient), (ResourceTypeDefinition, ResourceTypeCatalog, ReplicationWait), (ResourceTypeDefinition, ResourceTypeCatalog), (ResourceTypeDefinition), (ResourceTypeCatalog) or a parameterless constructor.");
     }
 }

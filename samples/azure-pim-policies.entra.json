@@ -1,0 +1,29 @@
+{
+  "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "PIM role settings of an Azure role at a resource group, written like ARM's Microsoft.Authorization/roleManagementPolicies and managed through Azure Resource Manager: Reader activations at the resource group last at most 4 hours and need a justification, and active assignments of Reader there expire after at most 90 days. The policy is named by its scope and role (the name Reader is resolved to its role definition when the deployment is planned); only the declared rule ids are managed, every other rule keeps its live value, and the changed rules are sent in one PATCH. The resource group must exist (every role has a policy at every existing scope). Needs an Azure RBAC role at the resource group that may write role management policies (Owner, User Access Administrator or Role Based Access Control Administrator; Reader is enough for a what-if) and the Azure Resource Manager consent of a delegated sign-in (earm auth login -f); no Graph permission. See docs/pim.md."
+  },
+  "parameters": {
+    "subscriptionId":    { "type": "string", "metadata": { "description": "Id (GUID) of the subscription that holds the resource group." } },
+    "resourceGroupName": { "type": "string", "metadata": { "description": "Name of the existing resource group whose Reader role settings are managed." } }
+  },
+  "variables": {
+    "scope": "[format('/subscriptions/{0}/resourceGroups/{1}', parameters('subscriptionId'), parameters('resourceGroupName'))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Entra/azureRoleManagementPolicies", "apiVersion": "2026-10-01-preview",
+      "name": "[guid('azure-pim-policy', variables('scope'), 'Reader')]",
+      "properties": {
+        "scope": "[variables('scope')]",
+        "role": "Reader",
+        "rules": [
+          { "id": "Expiration_EndUser_Assignment", "isExpirationRequired": true, "maximumDuration": "PT4H" },
+          { "id": "Enablement_EndUser_Assignment", "enabledRules": ["Justification"] },
+          { "id": "Expiration_Admin_Assignment", "isExpirationRequired": true, "maximumDuration": "P90D" }
+        ]
+      }
+    }
+  ]
+}

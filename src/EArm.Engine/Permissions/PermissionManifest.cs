@@ -5,6 +5,7 @@ using System.Text.Json.Nodes;
 using EArm.Core;
 using EArm.Core.Json;
 using EArm.Core.Types;
+using EArm.Core.Validation;
 using EArm.Engine.Providers;
 
 namespace EArm.Engine.Permissions;
@@ -131,6 +132,7 @@ public static class PermissionManifest
         bool ownerOfOnUsers = false;
         bool managerDeclared = false;
         bool users = false;
+        bool azureRoleManagementPolicies = false;
         foreach (var instance in instances.OrderBy(i => i.PlannedId.Id, StringComparer.Ordinal))
         {
             string resource = instance.PlannedId.Id;
@@ -240,6 +242,16 @@ public static class PermissionManifest
                 graph.Add(ForMode("Group.Read.All", mode), resource, "lookup: target group kind check (dynamic, on-premises synced)");
             }
 
+            if (ResourceIdentifier.TypeEquals(instance.Type, AzureRoleManagementPolicyRules.ResourceType))
+            {
+                // Written through Azure Resource Manager, not Graph: an Azure RBAC grant of the signed-in identity at the policy's scope.
+                azureRoleManagementPolicies = true;
+                azure.Add(
+                    $"Azure role management policy write ('Microsoft.Authorization/roleManagementPolicies/write': Owner, User Access Administrator or Role Based Access Control Administrator) at scope '{AzurePolicyScope(instance)}'",
+                    resource,
+                    "provider: PATCH {scope}/providers/Microsoft.Authorization/roleManagementPolicies/{policy} (whatif reads it: '.../read', for example Reader)");
+            }
+
             users |= instance.Type.EndsWith("/users", StringComparison.OrdinalIgnoreCase);
             managerDeclared |= instance.Definition.Relationships.Any(r => r.Kind == RelationshipKind.Manager && Declares(instance, r.Property));
         }
@@ -314,6 +326,11 @@ public static class PermissionManifest
         notes.Add(mode == PermissionMode.App
             ? "Optional, not listed above: User.ReadBasic.All (or a broader user or directory read such as User.Read.All or Directory.Read.All) lets every online run read the tenant size right after the preflight (GET /users/$count) and pace Graph requests with the tenant's directory budget; without it the run goes on with the smallest tenant's budget (3,500 resource units per 10 s), which only makes a large deployment slower."
             : "Optional, not listed above: User.ReadBasic.All (or a broader user or directory read such as User.Read.All or Directory.Read.All) lets every online run read the tenant size right after the preflight (GET /users/$count) and pace Graph requests with the tenant's directory budget. A run does not request it: the size is read only when the token already carries such a scope; otherwise the run goes on with the smallest tenant's budget (3,500 resource units per 10 s), which only makes a large deployment slower.");
+        if (azureRoleManagementPolicies)
+        {
+            notes.Add("Azure role management policies (Microsoft.Entra/azureRoleManagementPolicies) are read and written through Azure Resource Manager with its own token: the signed-in identity needs the Azure RBAC grant listed at each policy's scope (no Graph permission), and a delegated sign-in the one-time Resource Manager consent (earm auth login -f <template>).");
+        }
+
         notes.Add("Edge permissions are listed for every relationship property the template declares (including an empty array, which removes edges). Key Vault access is an Azure RBAC / access-policy requirement of the signed-in identity, not a Graph permission.");
         return new PermissionReport(template, mode, instances.Count, permissions, roleRequirements, notes);
     }
@@ -350,6 +367,15 @@ public static class PermissionManifest
         }
 
         return permission.Replace(".ReadWrite.", ".Read.", StringComparison.Ordinal);
+    }
+
+    /// <summary>The literal scope of an Azure role management policy, or a placeholder while it is only known at deployment.</summary>
+    private static string AzurePolicyScope(ResourceInstance instance)
+    {
+        var properties = instance.Properties ?? instance.Declaration.Properties as JsonObject;
+        return properties is not null && JsonObjects.GetString(properties, "scope") is { } scope && !ExpressionSyntax.IsExpression(scope)
+            ? AzureRoleManagementPolicyRules.NormalizeScope(scope) ?? scope
+            : "(the declared scope, known at deployment)";
     }
 
     private static bool IsApplicationOrServicePrincipal(string type)
