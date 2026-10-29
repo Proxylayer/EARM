@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-28
+
 ### Added
 
 - `Microsoft.Entra/azureRoleEligibilityScheduleRequests`: a PIM eligibility for an Azure RBAC role at a management group, subscription, resource
