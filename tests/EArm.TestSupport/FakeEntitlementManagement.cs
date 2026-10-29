@@ -236,9 +236,11 @@ public sealed partial class FakeEntitlementManagement
 
             if (state == "delivered")
             {
+                // Graph keeps one accessPackageResource per origin: the same group added to a second catalog is listed there under the same id.
+                string resourceId = _resources.Where(r => Same(Str(r, "originId"), originId)).Select(r => Str(r, "id")).FirstOrDefault() ?? NewId();
                 var added = new JsonObject
                 {
-                    ["id"] = NewId(), ["catalogId"] = catalogId, ["originId"] = originId, ["originSystem"] = originSystem,
+                    ["id"] = resourceId, ["catalogId"] = catalogId, ["originId"] = originId, ["originSystem"] = originSystem,
                     ["displayName"] = Str(origin, "displayName"), ["description"] = Str(origin, "description"),
                 };
                 _resources.Add(added);
@@ -251,8 +253,9 @@ public sealed partial class FakeEntitlementManagement
         else if (type == "adminRemove")
         {
             string id = Str(resource, "id") ?? throw FakeDirectory.BadRequest("resource.id is required", hint);
-            var existing = _resources.FirstOrDefault(r => Same(Str(r, "id"), id)) ?? throw FakeDirectory.NotFound("resource " + id, hint);
-            if (_roleScopes.Any(r => Same(Str(r["role"]?["resource"] as JsonObject, "id"), id)))
+            var existing = _resources.FirstOrDefault(r => Same(Str(r, "id"), id) && Same(Str(r, "catalogId"), catalogId)) ?? throw FakeDirectory.NotFound("resource " + id, hint);
+            if (_roleScopes.Any(r => Same(Str(r["role"]?["resource"] as JsonObject, "id"), id)
+                && _packages.Any(p => Same(Str(p, "id"), Str(r, "accessPackageId")) && Same(CatalogOf(p), catalogId))))
             {
                 throw FakeDirectory.BadRequest("The resource is used by an access package of the catalog.", hint);
             }
