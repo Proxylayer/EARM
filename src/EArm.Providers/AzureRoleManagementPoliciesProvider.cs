@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
@@ -17,16 +18,21 @@ namespace EArm.Providers;
 /// <c>Microsoft.Entra/azureRoleManagementPolicies</c>: the PIM policy (role settings) of an Azure RBAC role at an Azure scope, managed through Azure Resource
 /// Manager (<c>Microsoft.Authorization/roleManagementPolicies</c>, api-version <see cref="AzureRoleManagementPolicyLookup.PolicyApiVersion"/>): the Azure twin
 /// of <see cref="RoleManagementPoliciesProvider"/>, whose declared rule shape is already ARM's, so the rules are compared and sent as declared (no Graph
-/// mapping). The resource name is a deterministic GUID (a label); the policy is named by <c>scope</c> (a subscription, a resource group or a resource) and
-/// <c>roleDefinitionId</c> (normalised to the subscription-qualified id) or the sugar <c>role</c> (a role name, resolved at plan time), and read live on every run.
+/// mapping). The resource name is a deterministic GUID (a label); the policy is named by <c>scope</c> (a management group, a subscription, a resource group or a
+/// resource) and <c>roleDefinitionId</c> (normalised to the subscription-qualified id, or the tenant-level id at a management group) or the sugar <c>role</c>
+/// (a role name, resolved at plan time), and read live on every run.
 /// <list type="bullet">
 /// <item><b>Read</b>: the policy assignment of the role AT the scope, then its policy (<see cref="AzureRoleManagementPolicyLookup"/>); the policy's resource path is the Graph id.</item>
 /// <item><b>Plan</b>: only the declared rule ids are managed (live-only rules are left alone); each declared rule is filled from the live rule
 /// (<see cref="RoleManagementPolicyShape.FillFromLive"/>: ARM resets a member a PATCHed rule leaves out) and compared in the shared comparable shape. A
 /// declared rule id the live policy does not have is an error listing the policy's ids. Unchanged rules are decided here, never sent (ARM bumps the policy's
 /// lastModifiedDateTime even for a PATCH that changes nothing).</item>
-/// <item><b>Create</b>: never. ARM has a policy for every role at every scope (a Reader policy exists at a brand-new resource group), so a missing one is
-/// <see cref="EngineDiagnosticCodes.PimPolicyNotAvailable"/>.</item>
+/// <item><b>Create</b>: never. ARM has a policy for every role at every subscription, resource group and resource scope (a Reader policy exists at a
+/// brand-new resource group), so a missing one is <see cref="EngineDiagnosticCodes.PimPolicyNotAvailable"/>. At a management group ARM lists a role's
+/// policy only once the first eligibility or assignment request of that role exists there: when an <c>azureRoleEligibilityScheduleRequests</c> of the same
+/// scope and role is declared in the deployment, the policy is deferred to the end of the run (an Ignore row marked
+/// <see cref="ResourceChange.RetryAtEndOfRun"/>, with a <see cref="EngineDiagnosticCodes.PimPolicyNotAvailable"/> warning) and planned again once the
+/// request has run; otherwise it is <see cref="EngineDiagnosticCodes.PimPolicyNotAvailable"/>, naming the cause and the fix.</item>
 /// <item><b>Update</b>: ONE <c>PATCH {policyId}</c> of <c>properties.rules</c> carrying only the changed declared rules, each complete; ARM leaves the other
 /// rules untouched and answers with the whole policy, which is the re-read.</item>
 /// <item><b>Delete</b>: refused (<see cref="IDeleteRefusalSource"/>, <see cref="EngineDiagnosticCodes.NotDeletable"/>): a policy cannot be deleted; revert
@@ -34,11 +40,12 @@ namespace EArm.Providers;
 /// </list>
 /// Calls go to Azure Resource Manager (<see cref="IResourceManagerProvider"/>), through the run's <see cref="ArmClient"/> that
 /// <see cref="ProviderDiscovery.CreateRegistry(ResourceTypeCatalog, ReplicationWait, ArmClient)"/> passes in; the offline registries have none, and there any
-/// Resource Manager call fails with an <see cref="InvalidOperationException"/> (validation and permissions need none). No apply order: EARM declares no Azure
-/// eligibility or assignment requests yet, so nothing has to wait for the policy.
+/// Resource Manager call fails with an <see cref="InvalidOperationException"/> (validation and permissions need none). Order: a policy is applied before the
+/// <c>azureRoleEligibilityScheduleRequests</c> of the same scope and role the template declares (<see cref="IApplyOrderSource"/>,
+/// <see cref="AzureRoleManagementPolicyApplyOrder"/>), so they are judged by the declared rules.
 /// </summary>
 [EntraProvider(ResourceType)]
-public sealed partial class AzureRoleManagementPoliciesProvider : ProviderBase, IResourceManagerProvider, IDeleteRefusalSource, IOrphanCandidateSource
+public sealed partial class AzureRoleManagementPoliciesProvider : ProviderBase, IResourceManagerProvider, IDeleteRefusalSource, IOrphanCandidateSource, IApplyOrderSource
 {
     public const string ResourceType = AzureRoleManagementPolicyRules.ResourceType;
 
@@ -47,6 +54,9 @@ public sealed partial class AzureRoleManagementPoliciesProvider : ProviderBase, 
     private const string RefusalText = "an Azure PIM role management policy cannot be deleted (every role has one at every scope), so it is kept with its current rules; to undo a setting, declare the rule with the value to restore and deploy";
 
     private readonly ArmClient? _resourceManager;
+
+    /// <summary>The policies an eligibility request of the same deployment requests the role of (found by <see cref="AppliesBefore"/>).</summary>
+    private readonly ConditionalWeakTable<ResourceInstance, object> _requestedThisRun = new();
 
     /// <param name="definition">The catalog definition of the type.</param>
     /// <param name="catalog">The catalog.</param>
@@ -103,6 +113,25 @@ public sealed partial class AzureRoleManagementPoliciesProvider : ProviderBase, 
             ? AzureRoleManagementPolicyRules.NormalizeScope(declared) ?? declared
             : "the declared scope";
         return [$"Owner, User Access Administrator or Role Based Access Control Administrator at '{scope}'"];
+    }
+
+    // ---- apply order ----
+
+    /// <summary>
+    /// The <c>azureRoleEligibilityScheduleRequests</c> of the same scope and role (applied after the policy, so they are judged by the declared rules); a
+    /// policy that governs one is remembered, so a management group policy ARM does not list yet waits for the end of the run instead of failing.
+    /// </summary>
+    public IEnumerable<ResourceInstance> AppliesBefore(ResourceInstance instance, IReadOnlyList<ResourceInstance> declared)
+    {
+        ArgumentNullException.ThrowIfNull(instance);
+        ArgumentNullException.ThrowIfNull(declared);
+        var requests = AzureRoleManagementPolicyApplyOrder.GovernedRequests(instance, declared);
+        if (requests.Count > 0)
+        {
+            _requestedThisRun.AddOrUpdate(instance, requests);
+        }
+
+        return requests;
     }
 
     // ---- prepare (sugar + live validation) ----
