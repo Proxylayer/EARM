@@ -80,6 +80,26 @@ public sealed class PermissionsVerbOptionTests
         Assert.False(json.Json["needsResourceManager"]!.GetValue<bool>());
     }
 
+    [Theory]
+    [InlineData("whatif")]
+    [InlineData("create")]
+    [InlineData("delete")]
+    public async Task TheAzurePimPolicySample_NeedsResourceManager_AndOnlyTheSignInScope(string verb)
+    {
+        string[] args = ["permissions", "-f", TestPaths.Sample("azure-pim-policies.entra.json"), "-p", "@" + TestPaths.Sample("azure-pim-policies.parameters.json"), "--verb", verb];
+        var table = await CliRunner.RunAsync(args);
+        var json = await CliRunner.RunAsync([.. args, "-o", "json"]);
+
+        Assert.Equal(0, table.ExitCode);
+        Assert.Contains("Azure Resource Manager: https://management.azure.com/user_impersonation", table.StandardOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("Azure Resource Manager: not needed", table.StandardOutput, StringComparison.Ordinal);
+        Assert.Contains("Azure Key Vault: not needed", table.StandardOutput, StringComparison.Ordinal);
+        Assert.Equal(0, json.ExitCode);
+        Assert.True(json.Json["needsResourceManager"]!.GetValue<bool>());
+        Assert.False(json.Json["needsKeyVault"]!.GetValue<bool>());
+        Assert.Equal(["User.Read"], json.Json["graphScopes"]!.AsArray().Select(n => n!.GetValue<string>()).ToList());
+    }
+
     [Fact]
     public void WriteScopes_ANeedForResourceManager_NamesTheArmScope_InTextAndJson()
     {

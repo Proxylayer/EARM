@@ -465,4 +465,23 @@ public sealed class RunScopesTests
     {
         Assert.False((await ComputeAsync(template, parameters, RunVerb.Create)).NeedsResourceManager);
     }
+
+    [Theory]
+    [InlineData(RunVerb.Create)]
+    [InlineData(RunVerb.WhatIf)]
+    [InlineData(RunVerb.Delete)]
+    public async Task NeedsResourceManager_IsTrue_ForTheAzurePimPolicySample_WithTheProductionRegistry(RunVerb verb)
+    {
+        var scopes = await ComputeAsync("azure-pim-policies.entra.json", "azure-pim-policies.parameters.json", verb);
+
+        Assert.True(scopes.NeedsResourceManager);
+        Assert.False(scopes.NeedsKeyVault);
+        Assert.Equal(new[] { "User.Read" }, scopes.GraphScopes.ToArray());
+    }
+
+    [Fact]
+    public async Task NeedsResourceManager_IsFalse_ForValidatingTheAzurePimPolicySample()
+    {
+        Assert.False((await ComputeAsync("azure-pim-policies.entra.json", "azure-pim-policies.parameters.json", RunVerb.Validate)).NeedsResourceManager);
+    }
 }

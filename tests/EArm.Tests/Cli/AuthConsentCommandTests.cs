@@ -374,6 +374,27 @@ public sealed class AuthConsentCommandTests
     }
 
     [Fact]
+    public async Task Status_WithTheAzurePimPolicySample_ReportsThatResourceManagerIsNeeded()
+    {
+        using var sandbox = new CliSandbox(nameof(Status_WithTheAzurePimPolicySample_ReportsThatResourceManagerIsNeeded));
+        sandbox.Tokens.AppId = PublicClients.GraphCommandLineTools;
+        sandbox.Tokens.Scopes = ["User.Read"];
+        string[] template = ["-f", TestPaths.Sample("azure-pim-policies.entra.json"), "-p", "@" + TestPaths.Sample("azure-pim-policies.parameters.json")];
+
+        var table = await CliRunner.RunAsync(["auth", "status", .. template]);
+        var json = await CliRunner.RunAsync(["auth", "status", .. template, "-o", "json"]);
+
+        Assert.Equal(0, table.ExitCode);
+        Assert.Contains("ARM:           the template declares Azure Resource Manager resources", table.StandardOutput, StringComparison.Ordinal);
+        Assert.Contains("Missing:       (none)", table.StandardOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("Key Vault:", table.StandardOutput, StringComparison.Ordinal);
+        Assert.Equal(0, json.ExitCode);
+        Assert.True(json.Json["resourceManagerNeeded"]!.GetValue<bool>());
+        Assert.False(json.Json["keyVaultNeeded"]!.GetValue<bool>());
+        Assert.Empty(json.Json["missingScopes"]!.AsArray());
+    }
+
+    [Fact]
     public async Task Status_WithATemplate_AndEveryScopeGranted_SaysNoneMissing()
     {
         using var sandbox = new CliSandbox(nameof(Status_WithATemplate_AndEveryScopeGranted_SaysNoneMissing));

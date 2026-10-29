@@ -188,7 +188,16 @@ public sealed class ProviderContractTests
         var first = provider.RequiredPermissions(null);
         var second = provider.RequiredPermissions(null);
 
-        Assert.NotEmpty(first);
+        if (provider is IResourceManagerProvider)
+        {
+            // Calls Azure Resource Manager only: its grant is Azure RBAC (the permission manifest's Azure entries), no Graph permission.
+            Assert.Empty(first);
+        }
+        else
+        {
+            Assert.NotEmpty(first);
+        }
+
         Assert.Equal(first, second);
         Assert.All(first, p => Assert.False(string.IsNullOrWhiteSpace(p)));
     }
