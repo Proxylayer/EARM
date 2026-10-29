@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-10-29
+
+### Fixed
+
+- `Microsoft.Entra/entitlementManagement/catalogResources`: the same group (or application, or site) declared in two different catalogs is no longer
+  reported as `DuplicateGraphObject`. Graph keeps one `accessPackageResource` per origin and lists it in every catalog that holds it under the same id,
+  so the duplicate check now scopes a catalog resource by its `catalogId`; declaring the same resource twice in one catalog is still a duplicate.
+
 ## [1.1.0] - 2026-10-28
 
 ### Added

@@ -73,6 +73,19 @@ public sealed class CatalogResourcesProvider : ProviderBase, IApplyOrderSource
     /// <summary>The catalog's resource list can miss a resource for a moment after its request.</summary>
     public override bool KeyReadLagsCreate => true;
 
+    /// <summary>
+    /// Graph keeps one <c>accessPackageResource</c> per origin, so a group added to two catalogs is listed in both under the same id: the claim is scoped
+    /// by the catalog (<c>{type}/{catalogId}/{graphId}</c>).
+    /// </summary>
+    public override string ClaimIdentity(ResourceKey key, string graphId)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        ArgumentNullException.ThrowIfNull(graphId);
+        return key.TryGet(CatalogIdProperty, out var catalogId) && catalogId.Length > 0
+            ? TypeName + "/" + catalogId + "/" + graphId
+            : base.ClaimIdentity(key, graphId);
+    }
+
     public override async Task<ExistingResource?> ReadAsync(ResourceKey key, IGraphClient graph, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(key);
