@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-10-29
+
 ### Fixed
 
 - `Microsoft.Entra/entitlementManagement/catalogResources`: the same group (or application, or site) declared in two different catalogs is no longer
