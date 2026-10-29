@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using EArm.Core.Diagnostics;
 using EArm.Expressions;
 using EArm.Expressions.Evaluation;
+using EArm.TestSupport;
 using Xunit;
 
 namespace EArm.Tests;
@@ -176,11 +177,12 @@ public sealed class Review3J_VariableChainTests
         Assert.Equal(DiagnosticCodes.ExpressionTooDeep, error.Code);
     }
 
-    /// <summary>Runs <paramref name="work"/> on its own thread and fails the test (instead of hanging it) when it does not finish within 30 seconds.</summary>
+    /// <summary>
+    /// Runs <paramref name="work"/> on its own thread with a fixed 1 MiB stack and fails the test (instead of hanging it) when it does not finish within
+    /// 30 seconds. The fixed stack keeps the outcome the same on every OS: the guard trips on the remaining stack, and a Linux thread has 8 MiB.
+    /// </summary>
     private static T OnWorkerThread<T>(Func<T> work)
     {
-        var task = Task.Factory.StartNew(work, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
-        Assert.True(task.Wait(TimeSpan.FromSeconds(30), CancellationToken.None), "The evaluation did not finish within 30 seconds.");
-        return task.Result;
+        return FixedStackThread.Run(work);
     }
 }
