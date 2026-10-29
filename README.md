@@ -411,7 +411,8 @@ variables `EARM_IT_TENANT` (required), `EARM_IT_PREFIX`, `EARM_IT_DOMAIN`, `EARM
 [tests/EArm.Integration.Tests/README.md](tests/EArm.Integration.Tests/README.md) first (what it creates, how it cleans up, which permissions it needs).
 The suites, coverage (`test.ps1 -Coverage`, [tests/COVERAGE.md](tests/COVERAGE.md)) and how the tests are reviewed: [docs/testing.md](docs/testing.md).
 A `-Filter` that matches no test exits 3 (a typo is not a green run); tests that assert a wall-clock bound run in a second, serial pass (`-SkipTiming` skips it while iterating).
-CI (`.github/workflows/ci.yml`) runs `build.ps1` and `test.ps1` on Windows and Linux, then builds Release and packs the tool as an artifact. To report a vulnerability, see [SECURITY.md](SECURITY.md).
+CI (`.github/workflows/ci.yml`) runs `build.ps1` and `test.ps1` on Windows and Linux, then builds Release and packs the tool as an artifact. A pushed version tag publishes the
+package to nuget.org through `.github/workflows/release.yml` with NuGet trusted publishing ([docs/releasing.md](docs/releasing.md)). To report a vulnerability, see [SECURITY.md](SECURITY.md).
 
 ## Licence
 
