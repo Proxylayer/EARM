@@ -15,7 +15,8 @@ namespace EArm.Graph.Auth;
 /// Azure.Identity exception. A silent failure that means "consent needed" (<see cref="ConsentRequiredException.IsConsentFailure"/>) becomes a
 /// <see cref="GraphTransportException"/> whose inner exception is a <see cref="ConsentRequiredException"/>; with an <see cref="IConsentPrompter"/>
 /// (opt-in) the provider first asks it for consent to exactly that scope set (for a Key Vault <c>.default</c> request: the vault's delegated
-/// <see cref="GraphCloud.KeyVaultConsentScopes"/>, which is what <c>.default</c> needs consented) and retries silently once, with a NEW credential from
+/// <see cref="GraphCloud.KeyVaultConsentScopes"/>, which is what <c>.default</c> needs consented; for Azure Resource Manager likewise
+/// <see cref="GraphCloud.ResourceManagerConsentScopes"/>) and retries silently once, with a NEW credential from
 /// the renew callback when one is given (a new credential over the same stored sign-in is what was verified against a real tenant).
 /// </summary>
 public sealed class AzureIdentityTokenProvider : IGraphTokenProvider, IDisposable
@@ -239,7 +240,10 @@ public sealed class AzureIdentityTokenProvider : IGraphTokenProvider, IDisposabl
         _cache.Clear();
     }
 
-    /// <summary>The scopes a consent prompt for <paramref name="requested"/> asks for: a Key Vault <c>.default</c> request needs the vault's <c>user_impersonation</c>.</summary>
+    /// <summary>
+    /// The scopes a consent prompt for <paramref name="requested"/> asks for: a Key Vault <c>.default</c> request needs the vault's <c>user_impersonation</c>,
+    /// an Azure Resource Manager <c>.default</c> request the ARM <c>user_impersonation</c>.
+    /// </summary>
     internal static TokenScopes ConsentSetFor(TokenScopes requested)
     {
         if (requested.IsDefault)
@@ -249,6 +253,11 @@ public sealed class AzureIdentityTokenProvider : IGraphTokenProvider, IDisposabl
                 if (string.Equals(requested.Resource, cloud.KeyVaultResource, StringComparison.OrdinalIgnoreCase))
                 {
                     return cloud.KeyVaultConsentScopes;
+                }
+
+                if (string.Equals(requested.Resource, cloud.ResourceManagerOrigin, StringComparison.OrdinalIgnoreCase))
+                {
+                    return cloud.ResourceManagerConsentScopes;
                 }
             }
         }

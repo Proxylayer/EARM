@@ -18,7 +18,7 @@ namespace EArm.Cli.Hosting;
 /// <summary>
 /// The composition root for the online verbs: <see cref="GraphAuthOptions"/> → <see cref="GraphAuthFactory"/> → <see cref="IGraphTokenProvider"/>
 /// → <see cref="HttpGraphClient"/> (over one <see cref="HttpClient"/>, with <see cref="RetryPolicy"/>) → <see cref="GraphPreflight"/> and
-/// <see cref="KeyVaultClient"/> → <see cref="ProviderRegistry"/> → planner / executor. Built once per command invocation and disposed with it.
+/// <see cref="KeyVaultClient"/> and <see cref="ArmClient"/> → <see cref="ProviderRegistry"/> → planner / executor. Built once per command invocation and disposed with it.
 /// The registry is filled by <see cref="ProviderDiscovery"/>: every <c>[EntraProvider]</c> class in EArm.Providers registers itself, so a new provider
 /// never edits this file (see docs/providers.md). Tests inject an <see cref="HttpMessageHandler"/> and a fake token provider through
 /// <see cref="ServiceOverrides"/>; nothing is read from the environment for that.
@@ -26,7 +26,7 @@ namespace EArm.Cli.Hosting;
 /// Scopes: a run that signs in as a user with the stored sign-in (<see cref="GraphAuthFactory.UsesStoredSignIn"/>) and has the scopes of its verb
 /// (<see cref="RunAuthentication.Scopes"/>) requests exactly those delegated scopes: ONE <see cref="TokenScopes"/> instance shared by the Graph client and the
 /// preflight (whose <c>scp</c> check compares the token with it). Every other identity (service principal, workload or managed identity) keeps <c>.default</c>.
-/// Key Vault always requests the vault's <c>.default</c>. Such a run also gets the consent prompter of <see cref="ConsentPrompting"/> (interactive terminals
+/// Key Vault always requests the vault's <c>.default</c>, Azure Resource Manager its <c>.default</c>. Such a run also gets the consent prompter of <see cref="ConsentPrompting"/> (interactive terminals
 /// only): the token provider prompts for a consent a silent request lacks, the preflight for scopes the token lacks.
 /// </para>
 /// </summary>
@@ -37,7 +37,7 @@ internal sealed class EngineServices : IDisposable
     private readonly ReplicationWait _replicationWait;
     private readonly KeyAbsenceCheck _keyAbsenceCheck;
 
-    private EngineServices(ConnectionSettings connection, GraphCloud cloud, GraphAuthOptions auth, ILoggerFactory loggerFactory, RunAuthentication run, TextWriter stderr)
+    private EngineServices(ConnectionSettings connection, GraphCloud cloud, GraphAuthOptions auth, ILoggerFactory loggerFactory, RunAuthentication run, TextWriter stderr, GraphRequestCounter? requestCounter)
     {
         var overrides = connection.Overrides ?? ServiceOverrides.Ambient;
         LoggerFactory = loggerFactory;
@@ -63,11 +63,13 @@ internal sealed class EngineServices : IDisposable
         _replicationWait = new ReplicationWait { Delay = overrides?.Delay ?? TaskDelayProvider.Instance };
         _keyAbsenceCheck = new KeyAbsenceCheck { Delay = overrides?.Delay ?? TaskDelayProvider.Instance };
         RetryPolicy = new RetryPolicy(new RetryOptions(), overrides?.Delay ?? TaskDelayProvider.Instance, loggerFactory.CreateLogger<RetryPolicy>());
-        var options = new GraphOptions { Cloud = cloud, MaxParallel = Math.Max(1, connection.Parallelism), Scopes = graphScopes };
+        var options = new GraphOptions { Cloud = cloud, MaxParallel = Math.Max(1, connection.Parallelism), Scopes = graphScopes, RequestCounter = requestCounter ?? new GraphRequestCounter() };
         Graph = new HttpGraphClient(_http, _tokens, RetryPolicy, options, loggerFactory.CreateLogger<HttpGraphClient>(), time);
         Preflight = new GraphPreflight(_tokens, Graph, cloud, auth.Mode, loggerFactory.CreateLogger<GraphPreflight>(), graphScopes, preflightPrompter);
         KeyVault = new KeyVaultClient(_http, _tokens, RetryPolicy, cloud, options.Timeout, loggerFactory.CreateLogger<KeyVaultClient>(), time);
-        Providers = ProviderDiscovery.CreateRegistry(ResourceTypeCatalog.Default, _replicationWait);
+        ResourceManager = new ArmClient(_http, _tokens, RetryPolicy, cloud, options.Timeout, loggerFactory.CreateLogger<ArmClient>(), time);
+        // The Resource Manager providers (IResourceManagerProvider) call ARM through the run's client; the offline registries (validate, permissions) have none.
+        Providers = ProviderDiscovery.CreateRegistry(ResourceTypeCatalog.Default, _replicationWait, ResourceManager);
         EdgeKinds = ProviderDiscovery.CreateEdgeKinds(ResourceTypeCatalog.Default);
     }
 
@@ -83,8 +85,9 @@ internal sealed class EngineServices : IDisposable
     /// <summary>
     /// As above, for one run of an online verb: <paramref name="run"/> gives the delegated scopes a user sign-in requests (and how a consent prompt is shown); with
     /// <c>-o json</c> the reason is ONE JSON document on <paramref name="stdout"/> (<see cref="EArm.Cli.Commands.VerbOutput"/>), not prose on stderr.
+    /// <paramref name="requestCounter"/>, when given, counts the Graph client's HTTP attempts (the run's phase timings read it).
     /// </summary>
-    public static bool TryCreate(ConnectionSettings connection, ILoggerFactory loggerFactory, TextWriter stdout, TextWriter stderr, OutputFormat output, RunAuthentication run, out EngineServices? services, out int exitCode)
+    public static bool TryCreate(ConnectionSettings connection, ILoggerFactory loggerFactory, TextWriter stdout, TextWriter stderr, OutputFormat output, RunAuthentication run, out EngineServices? services, out int exitCode, GraphRequestCounter? requestCounter = null)
     {
         ArgumentNullException.ThrowIfNull(run);
         ArgumentNullException.ThrowIfNull(connection);
@@ -96,7 +99,7 @@ internal sealed class EngineServices : IDisposable
         try
         {
             var (cloud, auth) = connection.Resolve();
-            services = new EngineServices(connection, cloud, auth, loggerFactory, run, stderr);
+            services = new EngineServices(connection, cloud, auth, loggerFactory, run, stderr, requestCounter);
             return true;
         }
         catch (ArgumentException ex)
@@ -130,6 +133,9 @@ internal sealed class EngineServices : IDisposable
     public GraphPreflight Preflight { get; }
 
     public KeyVaultClient KeyVault { get; }
+
+    /// <summary>The Azure Resource Manager client of the providers whose calls go to ARM (<see cref="IResourceManagerProvider"/>): its own <c>.default</c> token, the shared transport and retry policy.</summary>
+    public ArmClient ResourceManager { get; }
 
     /// <summary>Resource providers by type, discovered from EArm.Providers; a template type without one fails with <see cref="UnknownProviderException"/>.</summary>
     public ProviderRegistry Providers { get; }

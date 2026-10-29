@@ -24,6 +24,7 @@
     then the Timing tests alone and serially (reported as "<project> [timing, serial]"), so the rest of the suite cannot distort them.
     A project with no [Trait("Category", "Timing")] in its sources gets no second pass (its process start would be wasted).
     -SkipTiming skips that second pass (useful on an overloaded machine or while iterating). With -Filter the expression is used as is, in one pass.
+    Benchmarks carry [Trait("Category", "Perf")] and are left out of both passes; run them explicitly with -Filter "Category=Perf".
     -NoBuild skips the build step and runs the binaries already built (after build.ps1 or a previous test.ps1 run, same -Configuration).
     Iterating on one area: build once, then pwsh -File test.ps1 -NoBuild -SkipTiming -Target EArm.Tests -Filter "FullyQualifiedName~MyTests".
     Each result line ends with the wall-clock seconds of its pass; the last line is the total.
@@ -201,6 +202,7 @@ else {
 # bound is not distorted by the rest of the suite. -SkipTiming drops the second pass. With -Filter the expression is passed through
 # as is, in one pass (a VSTest filter cannot be combined with the trait filters).
 $timingTrait = 'Category=Timing'
+$perfTrait = 'Category=Perf'
 
 function Invoke-TestPass {
     param(
@@ -315,7 +317,7 @@ foreach ($project in $projects) {
     }
     else {
         $passes = @(
-            @{ Label = $projectName; Selection = @('--filter-not-trait', $timingTrait); Artifact = $projectName; Quiet = $false }
+            @{ Label = $projectName; Selection = @('--filter-not-trait', $timingTrait, '--filter-not-trait', $perfTrait); Artifact = $projectName; Quiet = $false }
         )
         # A project without a single Timing test gets no second pass: it would only pay for another process start.
         if (-not $SkipTiming -and (Test-HasTimingTests -ProjectPath $project)) {

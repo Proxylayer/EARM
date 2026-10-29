@@ -1,6 +1,11 @@
 using System;
+using System.IO;
 using System.Linq;
+using System.Text.Json.Nodes;
 using System.Threading.Tasks;
+using EArm.Cli;
+using EArm.Cli.Commands;
+using EArm.Engine.Permissions;
 using Xunit;
 
 namespace EArm.Tests.Cli;
@@ -25,7 +30,7 @@ public sealed class PermissionsVerbOptionTests
 
         Assert.Equal(0, result.ExitCode);
         var json = result.Json;
-        Assert.Equal(["template", "verb", "graphScopes", "needsKeyVault", "scopes"], json.Select(p => p.Key).ToList());
+        Assert.Equal(["template", "verb", "graphScopes", "needsKeyVault", "needsResourceManager", "scopes"], json.Select(p => p.Key).ToList());
         Assert.Equal(verb.ToLowerInvariant(), json["verb"]!.GetValue<string>());
         Assert.True(json["needsKeyVault"]!.GetValue<bool>());
         var names = json["graphScopes"]!.AsArray().Select(n => n!.GetValue<string>()).ToList();
@@ -61,6 +66,56 @@ public sealed class PermissionsVerbOptionTests
 
         Assert.Equal(0, result.ExitCode);
         Assert.Contains("Azure Key Vault: not needed", result.StandardOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task WithoutResourceManagerProviders_SaysResourceManagerIsNotNeeded()
+    {
+        var table = await OrdersAsync("--verb", "create");
+        var json = await OrdersAsync("--verb", "create", "-o", "json");
+
+        Assert.Equal(0, table.ExitCode);
+        Assert.Contains("Azure Resource Manager: not needed", table.StandardOutput, StringComparison.Ordinal);
+        Assert.Equal(0, json.ExitCode);
+        Assert.False(json.Json["needsResourceManager"]!.GetValue<bool>());
+    }
+
+    [Theory]
+    [InlineData("whatif")]
+    [InlineData("create")]
+    [InlineData("delete")]
+    public async Task TheAzurePimPolicySample_NeedsResourceManager_AndOnlyTheSignInScope(string verb)
+    {
+        string[] args = ["permissions", "-f", TestPaths.Sample("azure-pim-policies.entra.json"), "-p", "@" + TestPaths.Sample("azure-pim-policies.parameters.json"), "--verb", verb];
+        var table = await CliRunner.RunAsync(args);
+        var json = await CliRunner.RunAsync([.. args, "-o", "json"]);
+
+        Assert.Equal(0, table.ExitCode);
+        Assert.Contains("Azure Resource Manager: https://management.azure.com/user_impersonation", table.StandardOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("Azure Resource Manager: not needed", table.StandardOutput, StringComparison.Ordinal);
+        Assert.Contains("Azure Key Vault: not needed", table.StandardOutput, StringComparison.Ordinal);
+        Assert.Equal(0, json.ExitCode);
+        Assert.True(json.Json["needsResourceManager"]!.GetValue<bool>());
+        Assert.False(json.Json["needsKeyVault"]!.GetValue<bool>());
+        Assert.Equal(["User.Read"], json.Json["graphScopes"]!.AsArray().Select(n => n!.GetValue<string>()).ToList());
+    }
+
+    [Fact]
+    public void WriteScopes_ANeedForResourceManager_NamesTheArmScope_InTextAndJson()
+    {
+        var needs = new RunScopeSet(RunVerb.Create, [new RunScope("User.Read", ["(every deployment)"], ["sign-in"])], false, true);
+        using var text = new StringWriter();
+        using var json = new StringWriter();
+
+        PermissionsCommand.WriteScopes("t.entra.json", needs, OutputFormat.Table, text);
+        PermissionsCommand.WriteScopes("t.entra.json", needs, OutputFormat.Json, json);
+
+        Assert.Contains("Azure Resource Manager: https://management.azure.com/user_impersonation", text.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("Azure Resource Manager: not needed", text.ToString(), StringComparison.Ordinal);
+        Assert.Contains("Azure Key Vault: not needed", text.ToString(), StringComparison.Ordinal);
+        var parsed = JsonNode.Parse(json.ToString())!;
+        Assert.True(parsed["needsResourceManager"]!.GetValue<bool>());
+        Assert.False(parsed["needsKeyVault"]!.GetValue<bool>());
     }
 
     [Fact]

@@ -69,12 +69,15 @@ internal static class ValidateCommand
 
         var noPrompt = DeploymentOptions.CreateNoPrompt();
 
+        var timings = DeploymentOptions.CreateTimings();
+
         var command = new Command("validate", "Validates a template offline (JSON Schema, type catalog, semantic checks); with --validation-level Provider also against the tenant (read only).");
         command.Options.Add(templateFile);
         command.Options.Add(parameters);
         command.Options.Add(validationLevel);
         command.Options.Add(fetchLinks);
         command.Options.Add(noPrompt);
+        command.Options.Add(timings);
         command.SetAction((parseResult, ct) =>
         {
             string file = parseResult.GetRequiredValue(templateFile);
@@ -89,6 +92,7 @@ internal static class ValidateCommand
                 Output = format,
                 Connection = GlobalOptions.BuildConnection(parseResult, 4),
                 LogLevel = GlobalOptions.GetLogLevel(parseResult),
+                ShowTimings = parseResult.GetValue(timings),
             };
             var linkedTemplates = parseResult.GetValue(fetchLinks) ? LinkedTemplateDownloads.ForRun() : null;
             return RunAsync(file, tokens, format, parseResult.InvocationConfiguration.Output, parseResult.InvocationConfiguration.Error, ct, level, online, linkedTemplates);
@@ -107,6 +111,8 @@ internal static class ValidateCommand
         DeploymentInvocation? online = null,
         LinkedTemplateReader? linkedTemplates = null)
     {
+        // --timings (online levels only: the offline pass makes no Graph request): the phase table on stderr when the run ends.
+        using var timingsReport = RunTimingsWriter.Begin(online, stderr);
         var report = new ValidationReport { TemplateFile = templateFile };
 
         ParameterSet parameters;

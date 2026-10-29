@@ -1,0 +1,97 @@
+name: release
+
+# Publishes the tool package (Proxylayer.EARM) to nuget.org when a version tag (v1.0.1) is pushed, with NuGet trusted publishing: the job exchanges
+# its GitHub OIDC token for a short-lived nuget.org API key (NuGet/login), so no long-lived key is stored in the repository. The nuget.org trusted
+# publishing policy names this repository and this workflow file (release.yml); renaming the file breaks publishing until the policy is updated.
+# Setup and the release steps: docs/releasing.md.
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: read
+
+# One release at a time, and a started release is never cancelled half-way (a push may already be on nuget.org).
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  DOTNET_NOLOGO: "1"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: "1"
+  EARM_UPDATE_GOLDENS: ""
+
+# Action pinning follows ci.yml (major tags; see the note there).
+jobs:
+  publish:
+    name: publish to nuget.org
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      # Required by NuGet/login: the GitHub OIDC token it exchanges for the temporary nuget.org API key.
+      id-token: write
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+        with:
+          # The whole history, so the tagged commit can be checked against main below.
+          fetch-depth: 0
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      # The tag must name the version the package will carry (VersionPrefix in Directory.Build.props), and the tagged commit must be on main:
+      # a tag on an unmerged branch never publishes.
+      - name: Check the tag against the version and main
+        shell: pwsh
+        run: |
+          $tag = '${{ github.ref_name }}'
+          $props = [xml](Get-Content -Raw Directory.Build.props)
+          $version = @($props.Project.PropertyGroup.VersionPrefix | Where-Object { $_ })[0]
+          if ($tag -ne "v$version") {
+            throw "Tag '$tag' does not match VersionPrefix '$version' in Directory.Build.props (expected 'v$version')."
+          }
+          git merge-base --is-ancestor '${{ github.sha }}' origin/main
+          if ($LASTEXITCODE -ne 0) {
+            throw "Tag '$tag' points at ${{ github.sha }}, which is not on main; merge first, then tag the merge."
+          }
+          Write-Host "Publishing Proxylayer.EARM $version from ${{ github.sha }}"
+
+      - name: Build (Release, zero warnings)
+        shell: pwsh
+        run: pwsh -File build.ps1 -Configuration Release
+
+      # EArm.Integration.Tests stays gated (EARM_IT_TENANT is never set here). The Windows-only tests ran on CI for the merged commit.
+      - name: Test
+        shell: pwsh
+        run: pwsh -File test.ps1
+
+      # The same switches as deploy.ps1 and ci.yml: no absolute build path in the package.
+      - name: Pack the tool
+        shell: pwsh
+        run: dotnet pack src/EArm.Cli/EArm.Cli.csproj --configuration Release --output artifacts/nupkg -p:ContinuousIntegrationBuild=true -p:DeterministicSourcePaths=true
+
+      # Trusted publishing: a nuget.org API key valid for about an hour, minted for this run only. NUGET_USER is the nuget.org username of the account
+      # that created the policy, kept as a secret so the run's public log masks it (a variable would be printed).
+      - name: Sign in to nuget.org
+        id: nuget-login
+        uses: NuGet/login@v1
+        with:
+          user: ${{ secrets.NUGET_USER }}
+
+      # --skip-duplicate makes a re-run of a release that already reached nuget.org succeed instead of failing on the existing version.
+      - name: Push to nuget.org
+        shell: pwsh
+        run: dotnet nuget push "artifacts/nupkg/*.nupkg" --api-key "${{ steps.nuget-login.outputs.NUGET_API_KEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate
+
+      - name: Upload the published package
+        uses: actions/upload-artifact@v4
+        with:
+          name: earm-nupkg-${{ github.ref_name }}
+          path: artifacts/nupkg/*.nupkg
+          if-no-files-found: error
+          retention-days: 90

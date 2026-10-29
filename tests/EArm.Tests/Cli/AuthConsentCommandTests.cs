@@ -6,7 +6,9 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Azure.Identity;
+using EArm.Cli.Commands;
 using EArm.Cli.Hosting;
+using EArm.Engine.Permissions;
 using EArm.Graph;
 using EArm.Graph.Auth;
 using Xunit;
@@ -118,6 +120,93 @@ public sealed class AuthConsentCommandTests
         Assert.Equal(["https://vault.azure.net/user_impersonation"], factory.Requests[1].Scopes.Scopes);
         Assert.Equal("alice@contoso.example", factory.Requests[1].Account!.Username);
         Assert.Contains("Key Vault scopes consented: https://vault.azure.net/user_impersonation", result.StandardOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Login_ScopesWithTheResourceManagerScope_ConsentItInASecondRequestAsTheSameAccount()
+    {
+        using var sandbox = new CliSandbox(nameof(Login_ScopesWithTheResourceManagerScope_ConsentItInASecondRequestAsTheSameAccount));
+        var factory = new RecordingLoginFactory(sandbox.Overrides.RecordStore!);
+        using var scope = Use(sandbox, factory);
+
+        var table = await CliRunner.RunAsync("auth", "login", "--scopes", "https://management.azure.com/user_impersonation");
+        var tableRequests = factory.Requests.ToList();
+        factory.Requests.Clear();
+        var json = await CliRunner.RunAsync("auth", "login", "--scopes", "https://management.azure.com/user_impersonation", "-o", "json");
+
+        Assert.Equal(0, table.ExitCode);
+        Assert.Equal(2, tableRequests.Count);
+        Assert.Equal(["https://graph.microsoft.com/User.Read"], tableRequests[0].Scopes.Scopes);
+        Assert.Equal(["https://management.azure.com/user_impersonation"], tableRequests[1].Scopes.Scopes);
+        Assert.Equal("alice@contoso.example", tableRequests[1].Account!.Username);
+        Assert.Contains("Azure Resource Manager scopes consented: https://management.azure.com/user_impersonation", table.StandardOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("Key Vault scopes consented", table.StandardOutput, StringComparison.Ordinal);
+        Assert.Equal(0, json.ExitCode);
+        Assert.Equal(["https://management.azure.com/user_impersonation"], json.Json["resourceManagerScopes"]!.AsArray().Select(n => n!.GetValue<string>()));
+        Assert.Empty(json.Json["keyVaultScopes"]!.AsArray());
+    }
+
+    [Fact]
+    public async Task Login_Plain_ReportsNoResourceManagerScopes()
+    {
+        using var sandbox = new CliSandbox(nameof(Login_Plain_ReportsNoResourceManagerScopes));
+        var factory = new RecordingLoginFactory(sandbox.Overrides.RecordStore!);
+        using var scope = Use(sandbox, factory);
+
+        var table = await CliRunner.RunAsync("auth", "login");
+        var json = await CliRunner.RunAsync("auth", "login", "-o", "json");
+
+        Assert.Equal(0, table.ExitCode);
+        Assert.DoesNotContain("Azure Resource Manager", table.StandardOutput, StringComparison.Ordinal);
+        Assert.Equal(0, json.ExitCode);
+        Assert.Empty(json.Json["resourceManagerScopes"]!.AsArray());
+        Assert.All(factory.Requests, r => Assert.Equal("https://graph.microsoft.com", r.Scopes.Resource));
+    }
+
+    [Fact]
+    public async Task Login_ScopesWithTheVaultAndResourceManagerScopes_RequestsGraphThenKeyVaultThenResourceManager()
+    {
+        using var sandbox = new CliSandbox(nameof(Login_ScopesWithTheVaultAndResourceManagerScopes_RequestsGraphThenKeyVaultThenResourceManager));
+        var factory = new RecordingLoginFactory(sandbox.Overrides.RecordStore!);
+        using var scope = Use(sandbox, factory);
+
+        var result = await CliRunner.RunAsync("auth", "login", "--scopes", "https://management.azure.com/user_impersonation,https://vault.azure.net/user_impersonation", "-o", "json");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(["https://graph.microsoft.com", "https://vault.azure.net", "https://management.azure.com"], factory.Requests.Select(r => r.Scopes.Resource));
+        Assert.Equal(["https://vault.azure.net/user_impersonation"], result.Json["keyVaultScopes"]!.AsArray().Select(n => n!.GetValue<string>()));
+        Assert.Equal(["https://management.azure.com/user_impersonation"], result.Json["resourceManagerScopes"]!.AsArray().Select(n => n!.GetValue<string>()));
+    }
+
+    [Fact]
+    public async Task Login_AnotherHttpsScope_ExitsOne_AndTheMessageNamesTheResourceManagerScope()
+    {
+        using var sandbox = new CliSandbox(nameof(Login_AnotherHttpsScope_ExitsOne_AndTheMessageNamesTheResourceManagerScope));
+        var factory = new RecordingLoginFactory(sandbox.Overrides.RecordStore!);
+        using var scope = Use(sandbox, factory);
+
+        var result = await CliRunner.RunAsync("auth", "login", "--scopes", "https://management.usgovcloudapi.net/user_impersonation");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains("https://management.azure.com/user_impersonation", result.StandardError, StringComparison.Ordinal);
+        Assert.Empty(factory.Requests);
+    }
+
+    [Fact]
+    public async Task Login_InChina_TheResourceManagerScopeIsChinas()
+    {
+        using var sandbox = new CliSandbox(nameof(Login_InChina_TheResourceManagerScopeIsChinas));
+        var factory = new RecordingLoginFactory(sandbox.Overrides.RecordStore!);
+        using var scope = Use(sandbox, factory, GraphCloud.China);
+
+        var china = await CliRunner.RunAsync("auth", "login", "--client-id", "44444444-4444-4444-4444-444444444444", "--scopes", "https://management.chinacloudapi.cn/user_impersonation");
+        var publicScope = await CliRunner.RunAsync("auth", "login", "--client-id", "44444444-4444-4444-4444-444444444444", "--scopes", "https://management.azure.com/user_impersonation");
+
+        Assert.Equal(0, china.ExitCode);
+        Assert.Equal(2, factory.Requests.Count);
+        Assert.Equal(GraphCloud.China.ResourceManagerConsentScopes, factory.Requests[1].Scopes);
+        Assert.Equal(1, publicScope.ExitCode);
+        Assert.Contains("https://management.chinacloudapi.cn/user_impersonation", publicScope.StandardError, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -266,6 +355,46 @@ public sealed class AuthConsentCommandTests
     }
 
     [Fact]
+    public async Task Status_WithATemplate_ReportsThatResourceManagerIsNotNeeded()
+    {
+        using var sandbox = new CliSandbox(nameof(Status_WithATemplate_ReportsThatResourceManagerIsNotNeeded));
+        sandbox.Tokens.AppId = PublicClients.GraphCommandLineTools;
+        sandbox.Tokens.Scopes = ["User.Read"];
+
+        var table = await CliRunner.RunAsync(Orders("auth", "status"));
+        var json = await CliRunner.RunAsync(Orders("auth", "status", "-o", "json"));
+        var plain = await CliRunner.RunAsync("auth", "status", "-o", "json");
+
+        Assert.Equal(0, table.ExitCode);
+        Assert.DoesNotContain("ARM:", table.StandardOutput, StringComparison.Ordinal);
+        Assert.Equal(0, json.ExitCode);
+        Assert.False(json.Json["resourceManagerNeeded"]!.GetValue<bool>());
+        Assert.True(json.Json["keyVaultNeeded"]!.GetValue<bool>());
+        Assert.Null(plain.Json["resourceManagerNeeded"]);
+    }
+
+    [Fact]
+    public async Task Status_WithTheAzurePimPolicySample_ReportsThatResourceManagerIsNeeded()
+    {
+        using var sandbox = new CliSandbox(nameof(Status_WithTheAzurePimPolicySample_ReportsThatResourceManagerIsNeeded));
+        sandbox.Tokens.AppId = PublicClients.GraphCommandLineTools;
+        sandbox.Tokens.Scopes = ["User.Read"];
+        string[] template = ["-f", TestPaths.Sample("azure-pim-policies.entra.json"), "-p", "@" + TestPaths.Sample("azure-pim-policies.parameters.json")];
+
+        var table = await CliRunner.RunAsync(["auth", "status", .. template]);
+        var json = await CliRunner.RunAsync(["auth", "status", .. template, "-o", "json"]);
+
+        Assert.Equal(0, table.ExitCode);
+        Assert.Contains("ARM:           the template declares Azure Resource Manager resources", table.StandardOutput, StringComparison.Ordinal);
+        Assert.Contains("Missing:       (none)", table.StandardOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("Key Vault:", table.StandardOutput, StringComparison.Ordinal);
+        Assert.Equal(0, json.ExitCode);
+        Assert.True(json.Json["resourceManagerNeeded"]!.GetValue<bool>());
+        Assert.False(json.Json["keyVaultNeeded"]!.GetValue<bool>());
+        Assert.Empty(json.Json["missingScopes"]!.AsArray());
+    }
+
+    [Fact]
     public async Task Status_WithATemplate_AndEveryScopeGranted_SaysNoneMissing()
     {
         using var sandbox = new CliSandbox(nameof(Status_WithATemplate_AndEveryScopeGranted_SaysNoneMissing));
@@ -294,6 +423,100 @@ public sealed class AuthConsentCommandTests
         Assert.Contains("delegated scopes do not apply", appOnly.StandardError, StringComparison.Ordinal);
         Assert.Equal(1, authDefault.ExitCode);
         Assert.Contains("--mode app", authDefault.StandardError, StringComparison.Ordinal);
+    }
+
+    // ---- LoginConsent.Build ----
+
+    private static RunScopeSet TemplateScopes(bool needsKeyVault, bool needsResourceManager)
+    {
+        return new RunScopeSet(RunVerb.Create, [new RunScope("Group.ReadWrite.All", ["/g"], ["test"])], needsKeyVault, needsResourceManager);
+    }
+
+    [Fact]
+    public void LoginConsent_TheResourceManagerScope_BecomesTheResourceManagerRequest()
+    {
+        var consent = LoginConsent.Build(GraphCloud.Public, ["https://management.azure.com/user_impersonation"], null);
+
+        Assert.Null(consent.KeyVault);
+        Assert.NotNull(consent.ResourceManager);
+        Assert.Equal(GraphCloud.Public.ResourceManagerConsentScopes, consent.ResourceManager);
+        Assert.Equal(["User.Read"], consent.Graph.Names);
+        Assert.Equal([consent.Graph, consent.ResourceManager], consent.Requests);
+    }
+
+    [Fact]
+    public void LoginConsent_TheResourceManagerScope_IsMatchedCaseInsensitively_AndOnce()
+    {
+        var consent = LoginConsent.Build(GraphCloud.Public, ["HTTPS://MANAGEMENT.AZURE.COM/user_impersonation https://management.azure.com/user_impersonation"], TemplateScopes(false, true));
+
+        Assert.Single(consent.ResourceManager!.Scopes);
+        Assert.Equal("https://management.azure.com", consent.ResourceManager.Resource);
+    }
+
+    [Theory]
+    [InlineData("https://evil.example/user_impersonation")]
+    [InlineData("https://management.azure.com.evil.example/user_impersonation")]
+    [InlineData("https://management.chinacloudapi.cn/user_impersonation")]
+    [InlineData("https://management.core.windows.net/user_impersonation")]
+    public void LoginConsent_AnotherHttpsScope_Fails_AndTheMessageNamesTheResourceManagerScope(string bad)
+    {
+        var error = Assert.Throws<ArgumentException>(() => LoginConsent.Build(GraphCloud.Public, [bad], null));
+
+        Assert.StartsWith("--scopes:", error.Message, StringComparison.Ordinal);
+        Assert.Contains("https://management.azure.com/user_impersonation", error.Message, StringComparison.Ordinal);
+        Assert.Contains("https://vault.azure.net/user_impersonation", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void LoginConsent_TheResourceManagerDotDefault_IsRefused()
+    {
+        var error = Assert.Throws<ArgumentException>(() => LoginConsent.Build(GraphCloud.Public, ["https://management.azure.com/.default"], null));
+
+        Assert.StartsWith("--scopes:", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void LoginConsent_ATemplateThatNeedsResourceManager_AddsTheResourceManagerConsent()
+    {
+        var needs = LoginConsent.Build(GraphCloud.Public, [], TemplateScopes(false, true));
+        var doesNot = LoginConsent.Build(GraphCloud.Public, [], TemplateScopes(false, false));
+
+        Assert.Equal(GraphCloud.Public.ResourceManagerConsentScopes, needs.ResourceManager);
+        Assert.Null(needs.KeyVault);
+        Assert.Contains("Group.ReadWrite.All", needs.Graph.Names);
+        Assert.Equal(2, needs.Requests.Count);
+        Assert.Null(doesNot.ResourceManager);
+        Assert.Equal([doesNot.Graph], doesNot.Requests);
+    }
+
+    [Fact]
+    public void LoginConsent_Requests_AreOrderedGraphKeyVaultResourceManager()
+    {
+        var consent = LoginConsent.Build(GraphCloud.Public, ["https://management.azure.com/user_impersonation", "https://vault.azure.net/user_impersonation"], TemplateScopes(true, true));
+
+        Assert.Equal(
+            ["https://graph.microsoft.com", "https://vault.azure.net", "https://management.azure.com"],
+            consent.Requests.Select(r => r.Resource));
+        Assert.Equal(GraphCloud.Public.KeyVaultConsentScopes, consent.KeyVault);
+        Assert.Equal(GraphCloud.Public.ResourceManagerConsentScopes, consent.ResourceManager);
+    }
+
+    [Theory]
+    [InlineData("usgov", "https://management.usgovcloudapi.net")]
+    [InlineData("usgovdod", "https://management.usgovcloudapi.net")]
+    [InlineData("china", "https://management.chinacloudapi.cn")]
+    public void LoginConsent_ASovereignCloud_UsesItsOwnResourceManagerOrigin(string key, string origin)
+    {
+        var cloud = GraphCloud.Parse(key);
+
+        var fromTemplate = LoginConsent.Build(cloud, [], TemplateScopes(false, true));
+        var fromScopes = LoginConsent.Build(cloud, [origin + "/user_impersonation"], null);
+        var publicScope = Assert.Throws<ArgumentException>(() => LoginConsent.Build(cloud, ["https://management.azure.com/user_impersonation"], null));
+
+        Assert.Equal(origin, fromTemplate.ResourceManager!.Resource);
+        Assert.Equal([origin + "/user_impersonation"], fromTemplate.ResourceManager.Scopes);
+        Assert.Equal(cloud.ResourceManagerConsentScopes, fromScopes.ResourceManager);
+        Assert.Contains(origin + "/user_impersonation", publicScope.Message, StringComparison.Ordinal);
     }
 
     // ---- consent prompting decision (phase 4 seam) ----

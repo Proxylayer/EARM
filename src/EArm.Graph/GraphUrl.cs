@@ -142,13 +142,28 @@ internal static class GraphUrl
         return Uri.EscapeDataString(ReplaceLoneSurrogates(name)).Replace("%24", "$", StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// <see cref="Uri.TryCreate(string?, UriKind, out Uri?)"/> with <see cref="UriKind.Absolute"/>, except that a rooted path without a scheme
+    /// (<c>/v1.0/users</c>) is not absolute: on Linux and macOS <see cref="Uri"/> reads it as an implicit <c>file:///</c> URI, on Windows it does not.
+    /// </summary>
+    internal static bool TryParseAbsolute(string text, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out Uri? uri)
+    {
+        if (Uri.TryCreate(text, UriKind.Absolute, out uri) && !(uri.IsFile && !text.TrimStart().StartsWith("file:", StringComparison.OrdinalIgnoreCase)))
+        {
+            return true;
+        }
+
+        uri = null;
+        return false;
+    }
+
     /// <summary>Parses and validates an absolute <c>@odata.nextLink</c>.</summary>
     /// <exception cref="GraphTransportException">The link is not an https URL on the Graph origin.</exception>
     public static Uri ParseNextLink(GraphCloud cloud, string nextLink)
     {
         ArgumentNullException.ThrowIfNull(cloud);
         ArgumentException.ThrowIfNullOrWhiteSpace(nextLink);
-        if (!Uri.TryCreate(nextLink, UriKind.Absolute, out var uri))
+        if (!TryParseAbsolute(nextLink, out var uri))
         {
             throw new GraphTransportException(GraphTransportFailure.UnsafeUrl, "Refusing to follow @odata.nextLink: it is not an absolute URL.");
         }

@@ -47,7 +47,8 @@ Implemented (a working pre-release, see [Limitations](#limitations-v1) for what 
   for Groups eligibility: eligible membership or ownership of a group), `privilegedAccess/groupAssignmentScheduleRequests` (time-bound active
   membership or ownership of a group through PIM for Groups) and `roleManagementPolicies` (the PIM policy rules of a directory role or a group:
   approval, MFA, justification, maximum durations, notifications; shaped like ARM's `Microsoft.Authorization/roleManagementPolicies`, only the
-  declared rules managed, never created or deleted), and entitlement management (access packages, [docs/access-packages.md](docs/access-packages.md)):
+  declared rules managed, never created or deleted), `azureRoleManagementPolicies` (the same PIM policy rules for an Azure role at a subscription,
+  resource group or resource, written through Azure Resource Manager), and entitlement management (access packages, [docs/access-packages.md](docs/access-packages.md)):
   `entitlementManagement/catalogs`, `entitlementManagement/catalogResources` (a group, application or SharePoint Online site added to a catalog), `entitlementManagement/accessPackages`,
   `entitlementManagement/resourceRoleScopes` (the group role a package grants: Member, Owner, Eligible Member or Eligible Owner) and
   `entitlementManagement/accessPackages/assignmentPolicies` (who may request, approval stages, expiration), `accessReviews/definitions`
@@ -210,6 +211,7 @@ declared resource **in the live tenant by a key derived from its type and `name`
 | `accessReviews/definitions` | `displayName` = the `name` (matched over the whole collection; duplicates are `AmbiguousMatch`) |
 | `roleAssignments`, `roleEligibilityScheduleRequests`, `roleAssignmentScheduleRequests`, `privilegedAccess/groupEligibilityScheduleRequests`, `privilegedAccess/groupAssignmentScheduleRequests`, `appRoleAssignments`, `oauth2PermissionGrants` | their tuple (principal, role or resource or group, scope / access / consent type); the `guid(...)` `name` is only a label |
 | `roleManagementPolicies` | the policy assignment of (`scopeType`, `scopeId`, `roleDefinitionId`): a directory role, or a group's member / owner access; the `guid(...)` `name` is only a label; never created (a missing policy is `PimPolicyNotAvailable`) |
+| `azureRoleManagementPolicies` | the Azure Resource Manager policy assignment of (`scope`, `roleDefinitionId`) at exactly that scope (never an inherited one): an Azure role at a subscription, resource group or resource; the `guid(...)` `name` is only a label; never created (a missing policy is `PimPolicyNotAvailable`) |
 | `conditionalAccess/policies`, `conditionalAccess/namedLocations`, `administrativeUnits`, custom `roleDefinitions`, custom `conditionalAccess/authenticationStrengths`, `entitlementManagement/catalogs`, `entitlementManagement/accessPackages` | `displayName` = the `name` |
 | `entitlementManagement/accessPackages/assignmentPolicies` | its `displayName` under the parent access package |
 | `entitlementManagement/catalogResources`, `entitlementManagement/resourceRoleScopes` | their tuple (catalog + group, service principal or site URL; package + resource + role); the `guid(...)` `name` is only a label |
@@ -284,6 +286,9 @@ Directory roles and group access can be **just in time** through Privileged Iden
 - Graph's PIM APIs are request-based; EARM finds the **schedule** by its tuple and sends `adminAssign`, `adminUpdate` or `adminRemove` itself, so a rerun
   converges like any other type. `roleManagementPolicies` changes only the declared rules, is never created or deleted, and is applied **before** the
   requests of its role or group.
+- `azureRoleManagementPolicies` manages the same rules for an **Azure role at an Azure scope** (`scope`, and `roleDefinitionId` or the role's name in
+  `role`) through Azure Resource Manager: one PATCH of the changed rules, never created or deleted
+  ([`samples/azure-pim-policies.entra.json`](samples/azure-pim-policies.entra.json)).
 - A group's first request onboards it to PIM for Groups permanently; a group policy may only appear after that, in which case the policy applies on
   the second run. A changed tuple keeps the old eligibility (`orphan: retained`).
 - Needs **Microsoft Entra ID P2** or **ID Governance**; the permissions are escalation-capable ([SECURITY.md](SECURITY.md#privileged-access-and-authentication-methods)).
@@ -322,7 +327,10 @@ drift check (exit 5). Details and golden fixtures: [docs/whatif.md](docs/whatif.
 `earm permissions -f template -p …` lists, offline, the Microsoft Graph application permissions (or delegated scopes and the Entra roles, `--mode delegated`) a
 template needs, grouped by permission with the resources that need them, including the conditional ones (`Application.ReadWrite.OwnedBy` instead of `.All`,
 `RoleManagement.ReadWrite.Directory` for role-assignable groups and directory roles, `AppRoleAssignment.ReadWrite.All` for assignments, the PIM and
-authentication-method permissions…) and the Key Vault note.
+authentication-method permissions…) and the Key Vault note. An `azureRoleManagementPolicies` resource needs no Graph permission: it is listed under
+**Azure** as the RBAC grant `Microsoft.Authorization/roleManagementPolicies/write` at its scope (Owner, User Access Administrator or Role Based Access
+Control Administrator; a what-if reads with `.../read`), and the run requests a separate Azure Resource Manager token (`earm auth login -f` asks for its
+one-time consent).
 Manifest tables and warnings: [docs/permissions.md](docs/permissions.md).
 
 ## Limitations (v1)
@@ -403,7 +411,8 @@ variables `EARM_IT_TENANT` (required), `EARM_IT_PREFIX`, `EARM_IT_DOMAIN`, `EARM
 [tests/EArm.Integration.Tests/README.md](tests/EArm.Integration.Tests/README.md) first (what it creates, how it cleans up, which permissions it needs).
 The suites, coverage (`test.ps1 -Coverage`, [tests/COVERAGE.md](tests/COVERAGE.md)) and how the tests are reviewed: [docs/testing.md](docs/testing.md).
 A `-Filter` that matches no test exits 3 (a typo is not a green run); tests that assert a wall-clock bound run in a second, serial pass (`-SkipTiming` skips it while iterating).
-CI (`.github/workflows/ci.yml`) runs `build.ps1` and `test.ps1` on Windows and Linux, then builds Release and packs the tool as an artifact. To report a vulnerability, see [SECURITY.md](SECURITY.md).
+CI (`.github/workflows/ci.yml`) runs `build.ps1` and `test.ps1` on Windows and Linux, then builds Release and packs the tool as an artifact. A pushed version tag publishes the
+package to nuget.org through `.github/workflows/release.yml` with NuGet trusted publishing ([docs/releasing.md](docs/releasing.md)). To report a vulnerability, see [SECURITY.md](SECURITY.md).
 
 ## Licence
 

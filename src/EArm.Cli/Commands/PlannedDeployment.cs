@@ -17,6 +17,7 @@ using EArm.Engine.Permissions;
 using EArm.Engine.Planning;
 using EArm.Engine.Planning.Nested;
 using EArm.Engine.Providers;
+using EArm.Engine.Timing;
 using EArm.Graph;
 using EArm.Graph.Auth;
 using Microsoft.Extensions.Logging;
@@ -35,10 +36,12 @@ namespace EArm.Cli.Commands;
 internal sealed class PlannedDeployment : IDisposable
 {
     private readonly ILoggerFactory _loggerFactory;
+    private readonly RunTimings _timings;
 
-    private PlannedDeployment(ILoggerFactory loggerFactory, EngineServices services, GraphPreflightResult preflight, DeploymentPlan plan)
+    private PlannedDeployment(ILoggerFactory loggerFactory, RunTimings timings, EngineServices services, GraphPreflightResult preflight, DeploymentPlan plan)
     {
         _loggerFactory = loggerFactory;
+        _timings = timings;
         Services = services;
         Preflight = preflight;
         Plan = plan;
@@ -59,8 +62,10 @@ internal sealed class PlannedDeployment : IDisposable
         ArgumentNullException.ThrowIfNull(invocation);
         ArgumentNullException.ThrowIfNull(stdout);
         ArgumentNullException.ThrowIfNull(stderr);
+        var timings = invocation.Timings;
 
         // 1. Parameters and template (offline).
+        var loadPhase = timings.Measure("load template");
         ParameterSet parameters;
         try
         {
@@ -106,21 +111,29 @@ internal sealed class PlannedDeployment : IDisposable
         }
 
         SecretRegistration.RegisterDocument(document);
+        loadPhase.Dispose();
 
         // The delegated scopes of this run, computed offline from the loaded template before the services (and their token provider) exist. Null when the
         // template does not expand offline: the validation below then reports why.
         // One reader for the whole run, so an https linked template is downloaded once, not by each of the expansion, the validation and the plan.
         var linkedTemplates = LinkedTemplateDownloads.ForRun();
-        var runScopes = TemplateRunScopes.Compute(document, verb, name, linkedTemplates);
+        RunScopeSet? runScopes;
+        using (timings.Measure("run scopes"))
+        {
+            runScopes = TemplateRunScopes.Compute(document, verb, name, linkedTemplates);
+        }
 
         ILoggerFactory? loggerFactory = GlobalOptions.CreateLoggerFactory(invocation.LogLevel);
         EngineServices? services = null;
         try
         {
-            if (!EngineServices.TryCreate(invocation.Connection, loggerFactory, stdout, stderr, invocation.Output, new RunAuthentication(runScopes, invocation.DeviceCode), out services, out int createExit))
+            if (!EngineServices.TryCreate(invocation.Connection, loggerFactory, stdout, stderr, invocation.Output, new RunAuthentication(runScopes, invocation.DeviceCode), out services, out int createExit, timings.Requests))
             {
                 return (null, createExit);
             }
+
+            // Event 2090 per phase from here on (the phases already finished are logged now); detached before the logger factory is disposed.
+            timings.UseLogger(loggerFactory.CreateLogger<RunTimings>());
 
             var (exit, preflight, plan) = await PlanCoreAsync(invocation, services!, document, name, catalog, linkedTemplates, verb, mode, planMode, stdout, stderr, cancellationToken).ConfigureAwait(false);
             if (exit is { } failed)
@@ -128,13 +141,18 @@ internal sealed class PlannedDeployment : IDisposable
                 return (null, failed);
             }
 
-            var deployment = new PlannedDeployment(loggerFactory, services!, preflight!, plan!);
+            var deployment = new PlannedDeployment(loggerFactory, timings, services!, preflight!, plan!);
             services = null;
             loggerFactory = null;
             return (deployment, ExitCodes.Ok);
         }
         finally
         {
+            if (loggerFactory is not null)
+            {
+                timings.UseLogger(null);
+            }
+
             services?.Dispose();
             loggerFactory?.Dispose();
         }
@@ -142,6 +160,7 @@ internal sealed class PlannedDeployment : IDisposable
 
     public void Dispose()
     {
+        _timings.UseLogger(null);
         Services.Dispose();
         _loggerFactory.Dispose();
     }
@@ -162,9 +181,13 @@ internal sealed class PlannedDeployment : IDisposable
     {
         // 2. Offline validation. Key Vault references are resolved after preflight, so the what-if promotion rules apply here;
         //    PlanAsync repeats the validation with the real mode.
+        var timings = invocation.Timings;
         try
         {
-            services.CreatePlanner(new PlannerOptions { DeploymentName = name, Catalog = catalog, LinkedTemplates = linkedTemplates }).Validate(document, PlanMode.WhatIf);
+            using (timings.Measure("validate"))
+            {
+                services.CreatePlanner(new PlannerOptions { DeploymentName = name, Catalog = catalog, LinkedTemplates = linkedTemplates }).Validate(document, PlanMode.WhatIf);
+            }
         }
         catch (ValidationFailedException ex)
         {
@@ -182,7 +205,10 @@ internal sealed class PlannedDeployment : IDisposable
         GraphPreflightResult preflight;
         try
         {
-            preflight = await services.Preflight.RunAsync(cancellationToken).ConfigureAwait(false);
+            using (timings.Measure("sign-in and preflight"))
+            {
+                preflight = await services.Preflight.RunAsync(cancellationToken).ConfigureAwait(false);
+            }
         }
         catch (Exception ex) when (ex is GraphTransportException or GraphException)
         {
@@ -192,15 +218,54 @@ internal sealed class PlannedDeployment : IDisposable
         }
 
         // 3b. Tenant size (one GET /users/$count): sizes the Graph request scheduler's directory budget for the rest of the run. It never fails the run;
-        //     an unreadable count keeps the smallest tenant's budget.
-        await services.Graph.DetectTenantSizeAsync(cancellationToken).ConfigureAwait(false);
+        //     an unreadable count keeps the smallest tenant's budget. Started now (a token exists) and not awaited: it runs alongside the Key Vault step
+        //     and the plan, whose requests the scheduler does not hold back for it (they use the smallest budget until it is known). It is always awaited
+        //     before this method returns, so a defect it raises still surfaces and nothing is left running.
+        var tenantSize = TimeAsync(timings.Measure("tenant size (overlapped)"), services.Graph.DetectTenantSizeAsync(cancellationToken));
+        try
+        {
+            return await ResolveAndPlanAsync(invocation, services, document, preflight, name, catalog, linkedTemplates, verb, mode, planMode, stdout, stderr, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            await tenantSize.ConfigureAwait(false);
+        }
+    }
 
+    private static async Task TimeAsync(RunPhase phase, Task task)
+    {
+        using (phase)
+        {
+            await task.ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>Steps 4 and 5 of <see cref="PlanCoreAsync"/>: the Key Vault parameter references, then the plan.</summary>
+    private static async Task<(int? ExitCode, GraphPreflightResult? Preflight, DeploymentPlan? Plan)> ResolveAndPlanAsync(
+        DeploymentInvocation invocation,
+        EngineServices services,
+        TemplateDocument document,
+        GraphPreflightResult preflight,
+        string name,
+        ResourceTypeCatalog catalog,
+        LinkedTemplateReader linkedTemplates,
+        RunVerb verb,
+        DeploymentMode mode,
+        PlanMode planMode,
+        TextWriter stdout,
+        TextWriter stderr,
+        CancellationToken cancellationToken)
+    {
         // 4. Key Vault parameter references, with a Key Vault token of the same identity.
         if (KeyVaultSecretResolver.HasPendingReferences(document))
         {
             try
             {
-                document = await services.CreateKeyVaultResolver().ResolveAsync(document, cancellationToken).ConfigureAwait(false);
+                using (invocation.Timings.Measure("Key Vault secrets"))
+                {
+                    document = await services.CreateKeyVaultResolver().ResolveAsync(document, cancellationToken).ConfigureAwait(false);
+                }
+
                 SecretRegistration.RegisterDocument(document);
             }
             catch (KeyVaultResolutionException ex)
@@ -229,6 +294,7 @@ internal sealed class PlannedDeployment : IDisposable
             Catalog = catalog,
             LinkedTemplates = linkedTemplates,
             KeyVaultSecrets = services.CreateKeyVaultResolver(),
+            Timings = invocation.Timings,
         });
 
         try

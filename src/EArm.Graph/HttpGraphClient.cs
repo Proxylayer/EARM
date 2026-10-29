@@ -65,7 +65,7 @@ public sealed partial class HttpGraphClient : IGraphClient
     internal GraphRequestScheduler Scheduler => _scheduler;
 
     /// <summary>
-    /// Reads the tenant size once (one <c>GET /users/$count</c>, no retries, paced like every other request) and sizes the directory request budget by
+    /// Reads the tenant size once (one plain-text <c>GET /users/$count</c>, no retries, paced like every other request) and sizes the directory request budget by
     /// it; later calls share the first result. Run right after the sign-in preflight. It never fails: when Graph refuses the read (for example a
     /// delegated run without <c>User.ReadBasic.All</c>), answers something that is not a number or cannot be reached, the smallest tenant's budget stays
     /// and that is logged. Only the caller's cancellation surfaces.
@@ -223,12 +223,15 @@ public sealed partial class HttpGraphClient : IGraphClient
 
         // The scheduler's wait comes before the parallelism gate, so a request waiting for its budget (or a paused area) holds no slot that a request
         // to another area could use. Nothing has been sent while it waits: the caller's cancellation is honoured.
+        var schedulerWaitStarted = Stopwatch.GetTimestamp();
         using var ticket = await _scheduler.AcquireAsync(call, cancellationToken).ConfigureAwait(false);
+        Requests.SchedulerWaited(Stopwatch.GetElapsedTime(schedulerWaitStarted));
         var probe = new ConnectProbe();
         var responsesBefore = Volatile.Read(ref _responsesStarted);
 
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         var stopwatch = Stopwatch.StartNew();
+        Requests.Started(write);
         try
         {
             // A write is never abandoned once it is on the wire: the caller's cancellation (Ctrl+C) is honoured up to here and then only between
@@ -318,17 +321,20 @@ public sealed partial class HttpGraphClient : IGraphClient
         }
         finally
         {
+            Requests.Finished();
             _gate.Release();
         }
     }
 
     /// <summary>
-    /// The scheduler's tenant-size probe: <c>GET /users/$count</c> (advanced query), one attempt. Throws when Graph refuses it (for example a delegated
-    /// run without <c>User.ReadBasic.All</c>) or answers something that is not a number; the scheduler then keeps the smallest tier.
+    /// The scheduler's tenant-size probe: <c>GET /users/$count</c> (advanced query), one attempt. It asks for <c>Accept: text/plain</c> because Graph
+    /// serves <c>$count</c> only as plain text and answers 415 to the default <c>application/json</c>; the bare number parses as a JSON number.
+    /// Throws when Graph refuses it (for example a delegated run without <c>User.ReadBasic.All</c>) or answers something that is not a number; the
+    /// scheduler then keeps the smallest tier.
     /// </summary>
     private async Task<long> CountUsersAsync(CancellationToken cancellationToken)
     {
-        var request = new GraphRequest("/users/$count", advanced: true, hint: RetryHint.None);
+        var request = new GraphRequest("/users/$count", advanced: true, hint: RetryHint.None).WithHeader("Accept", "text/plain");
         var uri = GraphUrl.Build(_options.Cloud, request);
         var response = await SendAsync("GET", uri, request, null, cancellationToken).ConfigureAwait(false);
         if (response.Body is JsonValue value && value.TryGetValue<long>(out var users) && users >= 0)
@@ -353,7 +359,7 @@ public sealed partial class HttpGraphClient : IGraphClient
     }
 
     /// <summary>True for the <see cref="HttpRequestError"/> kinds that occur before any byte of the request was written.</summary>
-    private static bool FailedBeforeSending(HttpRequestException ex)
+    internal static bool FailedBeforeSending(HttpRequestException ex)
     {
         return ex.HttpRequestError is HttpRequestError.NameResolutionError
             or HttpRequestError.ConnectionError

@@ -1,0 +1,318 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/azureRoleManagementPolicies.json",
+  "title": "Microsoft.Entra/azureRoleManagementPolicies",
+  "description": "The PIM policy (role settings) of an Azure RBAC role at an Azure scope (a subscription, a resource group or a resource), managed through Azure Resource Manager as Microsoft.Authorization/roleManagementPolicies (api-version 2020-10-01): the Azure twin of Microsoft.Entra/roleManagementPolicies, with the same rules[]. The resource name is a deterministic GUID chosen with guid() (a label, not the identity); the policy is named by scope and roleDefinitionId (or role) and read live on every run, keeping only the policy assignment of that exact scope (an inherited policy is never changed). Only the rules declared in rules[] (matched by id) are managed: each is filled from the live rule, and the changed ones are sent in one PATCH of the policy; undeclared rules are left as they are. Never created (every role has a policy at every scope) and never deleted (kept as NotDeletable). Needs an Azure RBAC role at the scope (Owner, User Access Administrator or Role Based Access Control Administrator), not a Graph permission.",
+  "type": "object",
+  "properties": {
+    "scope": {
+      "description": "Required: the Azure scope of the policy: /subscriptions/{subscriptionId}, /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}, or a resource id under a resource group. Management group scopes are not supported yet.",
+      "anyOf": [ { "type": "string", "minLength": 1 }, { "$ref": "#/$defs/expression" } ]
+    },
+    "roleDefinitionId": {
+      "description": "The Azure role definition: its GUID or its id (/subscriptions/{subscriptionId}/providers/Microsoft.Authorization/roleDefinitions/{guid}); normalised to the subscription-qualified id of the scope. Not with role.",
+      "anyOf": [ { "type": "string", "minLength": 1 }, { "$ref": "#/$defs/expression" } ]
+    },
+    "role": {
+      "description": "EARM sugar: the name of a built-in or custom Azure role assignable at the scope (Reader, Contributor...), or its GUID; resolved to roleDefinitionId when the deployment is planned (exactly one role of that name must exist). Not with roleDefinitionId.",
+      "anyOf": [ { "type": "string", "minLength": 1 }, { "$ref": "#/$defs/expression" } ]
+    },
+    "rules": {
+      "description": "Required: the rules to manage, matched by id (Expiration_EndUser_Assignment, Approval_EndUser_Assignment...). Every other rule of the policy is left as it is.",
+      "anyOf": [
+        {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "description": "Required: the rule id: Expiration_, Enablement_, Approval_ or AuthenticationContext_ + Admin_ or EndUser_ + Assignment or Eligibility, or Notification_ + Admin_, Requestor_ or Approver_ + the same caller and level.",
+                    "anyOf": [ { "type": "string", "minLength": 1 }, { "$ref": "#/$defs/expression" } ]
+                  },
+                  "ruleType": {
+                    "description": "The ARM rule type; optional (implied by the id) and, when declared, must match it. Mapped to Graph's @odata.type (#microsoft.graph.unifiedRoleManagementPolicy...Rule). Any casing.",
+                    "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                  },
+                  "target": {
+                    "description": "Who and what the rule applies to; undeclared members keep their live values. caller and level must agree with the id.",
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "caller": {
+                            "description": "Admin or EndUser (any casing).",
+                            "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                          },
+                          "operations": {
+                            "description": "All, Activate, Deactivate, Assign, Update, Remove, Extend, Renew (any casing).",
+                            "anyOf": [
+                              { "type": "array", "items": { "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] } },
+                              { "$ref": "#/$defs/expression" }
+                            ]
+                          },
+                          "level": {
+                            "description": "Assignment or Eligibility (any casing).",
+                            "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                          },
+                          "targetObjects": {
+                            "description": "Graph passthrough.",
+                            "anyOf": [
+                              { "type": [ "array", "null" ], "items": { "anyOf": [ { "type": "object" }, { "$ref": "#/$defs/expression" } ] } },
+                              { "$ref": "#/$defs/expression" }
+                            ]
+                          },
+                          "inheritableSettings": {
+                            "description": "Graph passthrough.",
+                            "anyOf": [
+                              { "type": [ "array", "null" ], "items": { "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] } },
+                              { "$ref": "#/$defs/expression" }
+                            ]
+                          },
+                          "enforcedSettings": {
+                            "description": "Graph passthrough.",
+                            "anyOf": [
+                              { "type": [ "array", "null" ], "items": { "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] } },
+                              { "$ref": "#/$defs/expression" }
+                            ]
+                          }
+                        }
+                      },
+                      { "$ref": "#/$defs/expression" }
+                    ]
+                  },
+                  "isExpirationRequired": {
+                    "description": "Expiration rules: whether an expiration is required (false allows permanent assignment or eligibility).",
+                    "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/expression" } ]
+                  },
+                  "maximumDuration": {
+                    "description": "Expiration rules: the ISO 8601 maximum duration (PT8H, P365D); compared by value.",
+                    "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                  },
+                  "enabledRules": {
+                    "description": "Enablement rules: MultiFactorAuthentication, Justification, Ticketing (any casing); [] clears them.",
+                    "anyOf": [
+                      { "type": "array", "items": { "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] } },
+                      { "$ref": "#/$defs/expression" }
+                    ]
+                  },
+                  "setting": {
+                    "description": "Approval rules: the approval settings; undeclared members keep their live values.",
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "isApprovalRequired": {
+                            "description": "Whether activation needs approval; when true, every stage needs at least one primary approver.",
+                            "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/expression" } ]
+                          },
+                          "isApprovalRequiredForExtension": {
+                            "description": "Whether an extension needs approval.",
+                            "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/expression" } ]
+                          },
+                          "isRequestorJustificationRequired": {
+                            "description": "Whether the requestor must justify the request.",
+                            "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/expression" } ]
+                          },
+                          "approvalMode": {
+                            "description": "SingleStage, Serial, Parallel or NoApproval (any casing).",
+                            "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                          },
+                          "approvalStages": {
+                            "description": "One or two approval stages.",
+                            "anyOf": [
+                              {
+                                "type": "array",
+                                "items": {
+                                  "anyOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "approvalStageTimeOutInDays": {
+                                          "description": "Days a request may wait before it is denied.",
+                                          "anyOf": [ { "type": "integer" }, { "$ref": "#/$defs/expression" } ]
+                                        },
+                                        "isApproverJustificationRequired": {
+                                          "description": "Whether the approver must justify the decision.",
+                                          "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/expression" } ]
+                                        },
+                                        "escalationTimeInMinutes": {
+                                          "description": "Minutes before escalation.",
+                                          "anyOf": [ { "type": "integer" }, { "$ref": "#/$defs/expression" } ]
+                                        },
+                                        "isEscalationEnabled": {
+                                          "description": "Whether escalation is enabled (needs escalationApprovers).",
+                                          "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/expression" } ]
+                                        },
+                                        "primaryApprovers": {
+                                          "description": "The approvers (users or groups), compared as a set.",
+                                          "anyOf": [
+                                            {
+                                              "type": "array",
+                                              "items": {
+                                                "anyOf": [
+                                                  {
+                                                    "type": "object",
+                                                    "properties": {
+                                                      "id": {
+                                                        "description": "Required: the object id of the approving user or group.",
+                                                        "anyOf": [
+                                                          {
+                                                            "type": "string",
+                                                            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+                                                          },
+                                                          { "$ref": "#/$defs/expression" }
+                                                        ]
+                                                      },
+                                                      "userType": {
+                                                        "description": "Required: User (a single user approves; Graph singleUser) or Group (any member approves; Graph groupMembers). Any casing.",
+                                                        "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                                                      },
+                                                      "description": {
+                                                        "description": "ARM display text; read-only in Graph, never compared or sent.",
+                                                        "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                                                      },
+                                                      "isBackup": {
+                                                        "description": "Whether the approver is a backup approver. Only false (the default, the same as absent) is accepted: Graph does not return isBackup when the policy is read, so true could never be verified.",
+                                                        "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/expression" } ]
+                                                      }
+                                                    },
+                                                    "required": [ "id", "userType" ]
+                                                  },
+                                                  { "$ref": "#/$defs/expression" }
+                                                ]
+                                              }
+                                            },
+                                            { "$ref": "#/$defs/expression" }
+                                          ]
+                                        },
+                                        "escalationApprovers": {
+                                          "description": "The escalation approvers, compared as a set.",
+                                          "anyOf": [
+                                            {
+                                              "type": [ "array", "null" ],
+                                              "items": {
+                                                "anyOf": [
+                                                  {
+                                                    "type": "object",
+                                                    "properties": {
+                                                      "id": {
+                                                        "description": "Required: the object id of the approving user or group.",
+                                                        "anyOf": [
+                                                          {
+                                                            "type": "string",
+                                                            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+                                                          },
+                                                          { "$ref": "#/$defs/expression" }
+                                                        ]
+                                                      },
+                                                      "userType": {
+                                                        "description": "Required: User (a single user approves; Graph singleUser) or Group (any member approves; Graph groupMembers). Any casing.",
+                                                        "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                                                      },
+                                                      "description": {
+                                                        "description": "ARM display text; read-only in Graph, never compared or sent.",
+                                                        "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                                                      },
+                                                      "isBackup": {
+                                                        "description": "Whether the approver is a backup approver. Only false (the default, the same as absent) is accepted: Graph does not return isBackup when the policy is read, so true could never be verified.",
+                                                        "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/expression" } ]
+                                                      }
+                                                    },
+                                                    "required": [ "id", "userType" ]
+                                                  },
+                                                  { "$ref": "#/$defs/expression" }
+                                                ]
+                                              }
+                                            },
+                                            { "$ref": "#/$defs/expression" }
+                                          ]
+                                        }
+                                      }
+                                    },
+                                    { "$ref": "#/$defs/expression" }
+                                  ]
+                                }
+                              },
+                              { "$ref": "#/$defs/expression" }
+                            ]
+                          }
+                        }
+                      },
+                      { "$ref": "#/$defs/expression" }
+                    ]
+                  },
+                  "isEnabled": {
+                    "description": "Authentication context rules: whether activation must satisfy an authentication context.",
+                    "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/expression" } ]
+                  },
+                  "claimValue": {
+                    "description": "Authentication context rules: the authentication context id, c1 to c99.",
+                    "anyOf": [ { "type": [ "string", "null" ] }, { "$ref": "#/$defs/expression" } ]
+                  },
+                  "notificationType": {
+                    "description": "Notification rules: Email.",
+                    "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                  },
+                  "recipientType": {
+                    "description": "Notification rules: Requestor, Approver or Admin; must agree with the id.",
+                    "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                  },
+                  "notificationLevel": {
+                    "description": "Notification rules: None, Critical or All.",
+                    "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                  },
+                  "notificationRecipients": {
+                    "description": "Notification rules: additional e-mail recipients; [] clears them.",
+                    "anyOf": [
+                      { "type": [ "array", "null" ], "items": { "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ] } },
+                      { "$ref": "#/$defs/expression" }
+                    ]
+                  },
+                  "isDefaultRecipientsEnabled": {
+                    "description": "Notification rules: whether the default recipients are notified.",
+                    "anyOf": [ { "type": "boolean" }, { "$ref": "#/$defs/expression" } ]
+                  }
+                },
+                "required": [ "id" ]
+              },
+              { "$ref": "#/$defs/expression" }
+            ]
+          },
+          "minItems": 1
+        },
+        { "$ref": "#/$defs/expression" }
+      ]
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "expression": { "type": "string", "pattern": "^\\[.*\\]$", "description": "A template expression, for example [parameters('env')]." }
+  },
+  "x-earm": {
+    "type": "Microsoft.Entra/azureRoleManagementPolicies",
+    "parentType": null,
+    "graphPath": "/providers/Microsoft.Authorization/roleManagementPolicies",
+    "apiVersions": { "2026-10-01-preview": "v1.0", "2026-10-01-preview.beta": "beta" },
+    "nameMapsTo": null,
+    "nameKind": "guid",
+    "namePattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+    "keyProperties": ["scope", "roleDefinitionId"],
+    "requiredOnCreate": [],
+    "defaults": {},
+    "immutable": [],
+    "createOnly": [],
+    "secure": [],
+    "relationships": [],
+    "memberKey": { "rules": "id", "rules.setting.approvalStages": "$index" },
+    "stripOnRead": [],
+    "nullable": {},
+    "permissions": {
+      "application": [],
+      "roles": [],
+      "azureRbac": ["Microsoft.Authorization/roleManagementPolicies/write", "Microsoft.Authorization/roleManagementPolicies/read"],
+      "notes": "Azure Resource Manager, not Microsoft Graph (Learn: role-based-access-control/built-in-roles, Microsoft.Authorization/roleManagementPolicies/write): the policy is written with PATCH {scope}/providers/Microsoft.Authorization/roleManagementPolicies/{policy} and read through roleManagementPolicyAssignments and roleDefinitions (api-version 2020-10-01 and 2022-04-01), which needs an Azure RBAC role of the signed-in identity at the declared scope: Owner, User Access Administrator or Role Based Access Control Administrator (Microsoft.Authorization/roleManagementPolicies/write); a what-if needs only Microsoft.Authorization/roleManagementPolicies/read (Reader). No Graph application permission or Entra role. The run requests a separate Azure Resource Manager token (.default; a delegated sign-in consents to user_impersonation once). The earm permissions report lists the grant per declared policy and scope."
+    }
+  }
+}

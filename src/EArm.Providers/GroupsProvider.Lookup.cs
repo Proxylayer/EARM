@@ -15,34 +15,42 @@ namespace EArm.Providers;
 /// <summary>The Graph lookups of <see cref="GroupsProvider"/>: by uniqueName, by display name for adoption, and soft-deleted Microsoft 365 groups by mailNickname.</summary>
 public sealed partial class GroupsProvider
 {
+    private readonly AlternateKeyFallback _uniqueNameKey = new();
+
     /// <summary>
     /// <c>GET /groups(uniqueName='…')</c>. <c>uniqueName</c> is documented as an alternate key for the upsert only, so a tenant that
-    /// rejects the key form (400) is asked with <c>$filter=uniqueName eq '…'</c> (advanced query). A 404 stays "does not exist".
+    /// rejects the key form (400) is asked with <c>$filter=uniqueName eq '…'</c> (advanced query); after the first refusal the later lookups of the run
+    /// ask with the filter directly (<see cref="AlternateKeyFallback"/>). A 404 stays "does not exist".
     /// </summary>
-    private static async Task<JsonObject?> GetByUniqueNameAsync(IGraphClient graph, ResourceKey key, string[] select, CancellationToken cancellationToken)
+    private async Task<JsonObject?> GetByUniqueNameAsync(IGraphClient graph, ResourceKey key, string[] select, CancellationToken cancellationToken)
     {
         string uniqueName = ProviderSupport.SingleKey(key, "uniqueName");
-        try
+        if (!_uniqueNameKey.Refused)
         {
-            return await graph.GetAsync(new GraphRequest(AlternateKeyPath(key), key.Api).WithSelect(select), cancellationToken).ConfigureAwait(false) as JsonObject;
-        }
-        catch (GraphException ex) when (ex.Status == HttpStatusCode.BadRequest)
-        {
-            var request = new GraphRequest(Collection, key.Api)
-                .WithFilter("uniqueName eq '" + ProviderSupport.EscapeLiteral(uniqueName) + "'")
-                .WithCount()
-                .WithConsistencyLevelEventual()
-                .WithSelect(select);
-            await foreach (var item in graph.GetAllPagesAsync(request, cancellationToken).ConfigureAwait(false))
+            try
             {
-                if (item is JsonObject match && string.Equals(JsonObjects.GetString(match, "uniqueName"), uniqueName, StringComparison.OrdinalIgnoreCase))
-                {
-                    return match;
-                }
+                return await graph.GetAsync(new GraphRequest(AlternateKeyPath(key), key.Api).WithSelect(select), cancellationToken).ConfigureAwait(false) as JsonObject;
             }
-
-            return null;
+            catch (GraphException ex) when (ex.Status == HttpStatusCode.BadRequest)
+            {
+                _uniqueNameKey.MarkRefused();
+            }
         }
+
+        var request = new GraphRequest(Collection, key.Api)
+            .WithFilter("uniqueName eq '" + ProviderSupport.EscapeLiteral(uniqueName) + "'")
+            .WithCount()
+            .WithConsistencyLevelEventual()
+            .WithSelect(select);
+        await foreach (var item in graph.GetAllPagesAsync(request, cancellationToken).ConfigureAwait(false))
+        {
+            if (item is JsonObject match && string.Equals(JsonObjects.GetString(match, "uniqueName"), uniqueName, StringComparison.OrdinalIgnoreCase))
+            {
+                return match;
+            }
+        }
+
+        return null;
     }
 
     /// <summary>

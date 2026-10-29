@@ -48,6 +48,7 @@ internal static class DeleteCommand
         command.Options.Add(options.DeviceCode);
         command.Options.Add(yes);
         command.Options.Add(continueOnError);
+        command.Options.Add(options.Timings);
         command.SetAction((parseResult, ct) => RunAsync(
             options.Read(parseResult) with { Yes = parseResult.GetValue(yes), ContinueOnError = parseResult.GetValue(continueOnError) },
             parseResult.InvocationConfiguration.Output,
@@ -62,6 +63,9 @@ internal static class DeleteCommand
         ArgumentNullException.ThrowIfNull(invocation);
         using var scrubScope = SecretScrubber.Begin();
 
+        // --timings: the phase table on stderr when the run ends, whatever the exit (declared before the deployment, so written after it is disposed).
+        using var timingsReport = RunTimingsWriter.Begin(invocation, stderr);
+
         // The declared objects are found exactly as what-if finds them: by key, read-only.
         var (opened, setupExit) = await PlannedDeployment.OpenAsync(invocation, RunVerb.Delete, DeploymentMode.Incremental, PlanMode.WhatIf, stdout, stderr, cancellationToken).ConfigureAwait(false);
         if (opened is null)
@@ -74,7 +78,9 @@ internal static class DeleteCommand
         var preflight = deployment.Preflight;
         string name = invocation.EffectiveName;
         var deleter = deployment.Services.CreateTemplateDeleter();
+        var findPhase = invocation.Timings.Measure("find declared objects");
         var targets = await deleter.FindDeclaredObjectsAsync(plan, cancellationToken).ConfigureAwait(false);
+        findPhase.Dispose();
         if (targets.Count == 0)
         {
             return VerbOutput.Succeed(invocation.Output, stdout, $"Nothing to delete: none of the objects template '{invocation.TemplateFile}' declares exists in tenant {preflight.TenantId}.", json =>
@@ -89,7 +95,9 @@ internal static class DeleteCommand
             return VerbOutput.Fail(invocation.Output, stdout, stderr, ExitCodes.Failure, CliDiagnosticCodes.NotConfirmed, "Nothing deleted.");
         }
 
+        var deletePhase = invocation.Timings.Measure("delete");
         var result = await deleter.DeleteAsync(plan, targets, invocation.ContinueOnError, cancellationToken).ConfigureAwait(false);
+        deletePhase.Dispose();
         return Report(invocation, name, result, stdout, stderr);
     }
 

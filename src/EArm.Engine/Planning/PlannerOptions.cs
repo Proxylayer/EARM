@@ -83,4 +83,7 @@ public sealed record PlannerOptions
 
     /// <summary>True when the token is an application (app-only) token (no <c>scp</c> claim; preflight reports principal type <c>application</c>): <c>ownerOf</c> on a user is then reported as <c>EdgeUnsupportedInAppMode</c> instead of read.</summary>
     public bool AppOnlyToken { get; init; }
+
+    /// <summary>Times the phases of the plan (expansion, what-if reads, edge pass, orphan report); <c>null</c> (the default) times nothing.</summary>
+    public Timing.RunTimings? Timings { get; init; }
 }

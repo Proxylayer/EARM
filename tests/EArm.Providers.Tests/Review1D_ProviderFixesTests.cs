@@ -80,6 +80,102 @@ public sealed class Review1D_ProviderFixesTests
         Assert.All(filtered, r => Assert.Equal("true", r.UrlParameters!["$count"]));
     }
 
+    private static string TwoAppsAndTwoGroups()
+    {
+        return string.Join(",",
+            Templates.Resource(AppType, "fb-app-1", """{ "displayName": "Fallback 1" }"""),
+            Templates.Resource(AppType, "fb-app-2", """{ "displayName": "Fallback 2" }"""),
+            Templates.Resource(GroupType, "fb-group-1", """{ "displayName": "Fallback group 1" }"""),
+            Templates.Resource(GroupType, "fb-group-2", """{ "displayName": "Fallback group 2" }"""));
+    }
+
+    private static int KeyFormReads(Run run, string collection)
+    {
+        return run.Requests.Count(r => r.Method == "GET" && r.Path.StartsWith(collection + "(uniqueName=", StringComparison.Ordinal));
+    }
+
+    private static int FilterReads(Run run, string collection)
+    {
+        return run.Requests.Count(r => r.Method == "GET" && r.Path == collection && r.UrlParameters is not null && r.UrlParameters.TryGetValue("$filter", out var f) && f.StartsWith("uniqueName eq", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task G07_AfterTheFirst400_TheLaterLookupsOfTheProviderGoStraightToTheFilter_ForApplicationsAndGroups()
+    {
+        var host = new ProviderHost();
+        Check.Succeeded(await host.CreateAsync(host.Resources(TwoAppsAndTwoGroups())));
+        host.Fake.Failures.Add("GET", "(uniqueName=", BadRequest, times: -1);
+
+        var whatIf = await host.WhatIfAsync(host.Resources(TwoAppsAndTwoGroups()));
+
+        // One refused key-form read per type (the first lookup), then the filter for every lookup, the refused one included.
+        Assert.Equal(1, KeyFormReads(whatIf, "/applications"));
+        Assert.Equal(1, KeyFormReads(whatIf, "/groups"));
+        Assert.Equal(2, FilterReads(whatIf, "/applications"));
+        Assert.Equal(2, FilterReads(whatIf, "/groups"));
+        Assert.All(whatIf.Plan.Changes, c => Assert.Equal(EArm.Engine.Providers.ChangeType.NoChange, c.Type));
+        Assert.Equal(4, whatIf.Plan.Changes.Count);
+    }
+
+    [Fact]
+    public async Task G07_TheRefusalIsRememberedPerProviderInstance_AFreshInstanceAsksWithTheKeyFormAgain()
+    {
+        var host = new ProviderHost();
+        Check.Succeeded(await host.CreateAsync(host.Resources(TwoAppsAndTwoGroups())));
+        host.Fake.Failures.Add("GET", "(uniqueName=", BadRequest, times: -1);
+        await host.WhatIfAsync(host.Resources(TwoAppsAndTwoGroups()));
+
+        // The same provider instances (ProviderHost keeps one registry): they remember the refusal and send no key-form read at all.
+        var sameInstances = await host.WhatIfAsync(host.Resources(TwoAppsAndTwoGroups()));
+
+        Assert.Equal(0, KeyFormReads(sameInstances, "/applications"));
+        Assert.Equal(0, KeyFormReads(sameInstances, "/groups"));
+        Assert.Equal(2, FilterReads(sameInstances, "/applications"));
+        Assert.Equal(2, FilterReads(sameInstances, "/groups"));
+
+        // A new registry (a new run in the CLI builds one) starts over: its first lookup per type tries the key form again.
+        var freshRun = new ProviderHost(host.Fake);
+        var fresh = await freshRun.WhatIfAsync(freshRun.Resources(TwoAppsAndTwoGroups()));
+
+        Assert.Equal(1, KeyFormReads(fresh, "/applications"));
+        Assert.Equal(1, KeyFormReads(fresh, "/groups"));
+        Assert.All(fresh.Plan.Changes, c => Assert.Equal(EArm.Engine.Providers.ChangeType.NoChange, c.Type));
+    }
+
+    [Fact]
+    public async Task G07_AKeyFormThatGraphAccepts_KeepsBeingUsed_AndA404IsNotARefusal()
+    {
+        // fb-app-1 / fb-group-1 exist (key-form 200); fb-app-2 / fb-group-2 do not (key-form 404): neither answer switches the provider to the filter.
+        var host = new ProviderHost();
+        Check.Succeeded(await host.CreateAsync(host.Resources(string.Join(",",
+            Templates.Resource(AppType, "fb-app-1", """{ "displayName": "Fallback 1" }"""),
+            Templates.Resource(GroupType, "fb-group-1", """{ "displayName": "Fallback group 1" }""")))));
+        host.ClearRequests();
+
+        var whatIf = await host.WhatIfAsync(host.Resources(TwoAppsAndTwoGroups()));
+
+        Assert.Equal(2, KeyFormReads(whatIf, "/applications"));
+        Assert.Equal(2, KeyFormReads(whatIf, "/groups"));
+        Assert.Equal(0, FilterReads(whatIf, "/applications"));
+        Assert.Equal(0, FilterReads(whatIf, "/groups"));
+        Assert.Equal(2, whatIf.Plan.Changes.Count(c => c.Type == EArm.Engine.Providers.ChangeType.Create));
+    }
+
+    [Fact]
+    public async Task G07_TheRefusalOfOneType_DoesNotSwitchTheOtherType()
+    {
+        var host = new ProviderHost();
+        Check.Succeeded(await host.CreateAsync(host.Resources(TwoAppsAndTwoGroups())));
+        host.Fake.Failures.Add("GET", "/groups(uniqueName=", BadRequest, times: -1);
+
+        var whatIf = await host.WhatIfAsync(host.Resources(TwoAppsAndTwoGroups()));
+
+        Assert.Equal(1, KeyFormReads(whatIf, "/groups"));
+        Assert.Equal(2, FilterReads(whatIf, "/groups"));
+        Assert.Equal(2, KeyFormReads(whatIf, "/applications"));
+        Assert.Equal(0, FilterReads(whatIf, "/applications"));
+    }
+
     [Fact]
     public async Task G07_AdoptingByAppId_SetsTheUniqueNameWithItsOwnPatch_AndAGraphRefusalIsExplained()
     {

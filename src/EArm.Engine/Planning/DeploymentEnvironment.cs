@@ -103,13 +103,15 @@ public static class DeploymentEnvironment
         return value is null ? null : JsonValue.Create(value);
     }
 
+    /// <summary>The portal, the Resource Manager endpoint (the cloud's <see cref="GraphCloud.ResourceManagerOrigin"/> with ARM's trailing slash) and the audiences.</summary>
     private static (string Portal, string ResourceManager, string[] Audiences) ArmEndpoints(GraphCloud cloud)
     {
+        var resourceManager = cloud.ResourceManagerOrigin + "/";
         return cloud.EnvironmentName switch
         {
-            "AzureUSGovernment" or "AzureUSGovernmentDoD" => ("https://portal.azure.us", "https://management.usgovcloudapi.net/", ["https://management.core.usgovcloudapi.net/", "https://management.usgovcloudapi.net/"]),
-            "AzureChinaCloud" => ("https://portal.azure.cn", "https://management.chinacloudapi.cn/", ["https://management.core.chinacloudapi.cn/", "https://management.chinacloudapi.cn/"]),
-            _ => ("https://portal.azure.com", "https://management.azure.com/", ["https://management.core.windows.net/", "https://management.azure.com/"]),
+            "AzureUSGovernment" or "AzureUSGovernmentDoD" => ("https://portal.azure.us", resourceManager, ["https://management.core.usgovcloudapi.net/", resourceManager]),
+            "AzureChinaCloud" => ("https://portal.azure.cn", resourceManager, ["https://management.core.chinacloudapi.cn/", resourceManager]),
+            _ => ("https://portal.azure.com", resourceManager, ["https://management.core.windows.net/", resourceManager]),
         };
     }
 }

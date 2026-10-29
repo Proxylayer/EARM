@@ -90,6 +90,7 @@ public sealed class DeploymentPlanner
         ArgumentNullException.ThrowIfNull(document);
         var catalog = _options.Catalog;
         var evaluator = _options.Evaluator;
+        var expandPhase = _options.Timings?.Measure("plan: expand and graph");
 
         // Secure parameter values are masked from every message from here on (review finding S-02).
         SecretRegistration.RegisterDocument(document);
@@ -217,12 +218,13 @@ public sealed class DeploymentPlanner
 
         // From here on providers may be used: existing-resource lookups go through them.
         resolver.ExistingLookup = LookupExistingAsync;
+        expandPhase?.Dispose();
 
         // 6. What-if: read and plan every batch; nothing is written. Then the edge pass rows
         //    (read-only) and the orphan report rows (read-only; nothing is ever deleted).
         if (planMode == PlanMode.WhatIf)
         {
-            await new WhatIfReadPass(_graph, _options.RetryPolicy, _logger, _keyAbsenceCheck).RunAsync(plan, cancellationToken).ConfigureAwait(false);
+            await new WhatIfReadPass(_graph, _options.RetryPolicy, _logger, _keyAbsenceCheck, _options.Timings).RunAsync(plan, cancellationToken).ConfigureAwait(false);
         }
 
         plan.FinishChanges();

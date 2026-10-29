@@ -7,6 +7,7 @@ using EArm.Core;
 using EArm.Expressions;
 using EArm.Expressions.Evaluation;
 using EArm.Expressions.Syntax;
+using EArm.TestSupport;
 using Xunit;
 
 namespace EArm.Tests;
@@ -281,8 +282,9 @@ public sealed class ExpressionParserFuzzTests
             deep = new PropertyExpression(0, deep, "p");
         }
 
-        var evaluation = Assert.Throws<ExpressionEvaluationException>(() => ExpressionEvaluator.Default.Evaluate(deep, Expr.Context()));
-        var rendering = Assert.Throws<ExpressionEvaluationException>(() => deep.ToExpressionText());
+        // On a fixed 1 MiB stack: the guard trips on the remaining stack, which a Linux thread (8 MiB) has far more of.
+        var evaluation = FixedStackThread.Run(() => Assert.Throws<ExpressionEvaluationException>(() => ExpressionEvaluator.Default.Evaluate(deep, Expr.Context())));
+        var rendering = FixedStackThread.Run(() => Assert.Throws<ExpressionEvaluationException>(() => deep.ToExpressionText()));
 
         Assert.Equal("ExpressionTooDeep", evaluation.Code);
         Assert.Equal("ExpressionTooDeep", rendering.Code);

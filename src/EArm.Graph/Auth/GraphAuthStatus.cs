@@ -47,6 +47,9 @@ public sealed record GraphAuthStatus
     /// <summary>True when the template run also needs the Key Vault consent (<see cref="GraphCloud.KeyVaultConsentScopes"/>).</summary>
     public bool KeyVaultNeeded { get; init; }
 
+    /// <summary>True when the template run also needs the Azure Resource Manager consent (<see cref="GraphCloud.ResourceManagerConsentScopes"/>).</summary>
+    public bool ResourceManagerNeeded { get; init; }
+
     public IReadOnlyList<string> Roles { get; init; } = [];
 
     public DateTimeOffset? ExpiresOn { get; init; }
@@ -95,7 +98,7 @@ public sealed record GraphAuthStatus
     }
 
     /// <summary>This status compared with the delegated scopes a run requires: <see cref="MissingScopes"/> are the required names absent from <c>scp</c>.</summary>
-    public GraphAuthStatus WithRequired(IReadOnlyList<string> requiredScopes, bool keyVaultNeeded)
+    public GraphAuthStatus WithRequired(IReadOnlyList<string> requiredScopes, bool keyVaultNeeded, bool resourceManagerNeeded)
     {
         ArgumentNullException.ThrowIfNull(requiredScopes);
         var granted = new HashSet<string>(Scopes, StringComparer.OrdinalIgnoreCase);
@@ -104,6 +107,7 @@ public sealed record GraphAuthStatus
             RequiredScopes = requiredScopes,
             MissingScopes = requiredScopes.Where(scope => !granted.Contains(scope)).ToList(),
             KeyVaultNeeded = keyVaultNeeded,
+            ResourceManagerNeeded = resourceManagerNeeded,
         };
     }
 }

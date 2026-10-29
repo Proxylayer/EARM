@@ -35,6 +35,9 @@ public sealed class GraphOptions
 
     /// <summary>The version in the <c>User-Agent</c> header (<c>EARM/&lt;version&gt;</c>).</summary>
     public string UserAgentVersion { get; set; } = GraphVersion.Current;
+
+    /// <summary>Counts the client's HTTP attempts (<see cref="HttpGraphClient.Requests"/>); a run passes its own to read the counts per phase. Default: a new counter.</summary>
+    public GraphRequestCounter RequestCounter { get; set; } = new();
 }
 
 /// <summary>The product version stamped into the User-Agent.</summary>

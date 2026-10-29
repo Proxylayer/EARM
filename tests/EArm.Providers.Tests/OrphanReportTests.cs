@@ -1,11 +1,17 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
+using System.Net;
+using System.Runtime.CompilerServices;
 using System.Text.Json.Nodes;
+using System.Threading;
 using System.Threading.Tasks;
 using EArm.Engine;
 using EArm.Engine.Planning;
 using EArm.Engine.Providers;
+using EArm.Graph;
 using EArm.Providers.Tests.Infrastructure;
+using EArm.TestSupport;
 using Xunit;
 
 namespace EArm.Providers.Tests;
@@ -208,5 +214,228 @@ public sealed class OrphanReportTests
 
         Assert.Empty(whatIf.Plan.Orphans);
         Assert.Contains(whatIf.Plan.Diagnostics, d => d.Code == EngineDiagnosticCodes.OrphanReportIncomplete && d.Message.Contains(LocType, StringComparison.Ordinal));
+    }
+
+    // ---- concurrent listings, reported in decision order ----
+
+    private static readonly TimeSpan HangGuard = TimeSpan.FromSeconds(10);
+
+    private static void SeedStrength(ProviderHost host, string displayName)
+    {
+        host.Directory.Add(StrengthPath, new JsonObject { ["displayName"] = displayName, ["policyType"] = "custom", ["allowedCombinations"] = new JsonArray("fido2") });
+    }
+
+    /// <summary>A Complete-mode template declaring one authentication strength and one named location: two listed types, strengths first in decision (ordinal) order.</summary>
+    private static string StrengthAndLocation()
+    {
+        return Templates.Resource(StrengthType, "Phishing-resistant", """{ "allowedCombinations": ["fido2", "windowsHelloForBusiness"] }""") + ", " + Location("Contoso offices");
+    }
+
+    /// <summary>The what-if over <paramref name="graph"/>, with a plan parallelism of 4 so the orphan listings run concurrently.</summary>
+    private static async Task<DeploymentPlan> ConcurrentWhatIfAsync(ProviderHost host, IGraphClient graph, string resources)
+    {
+        var planner = new DeploymentPlanner(host.Registry, graph, host.Options() with { Parallelism = 4 }, host.Logs.For<DeploymentPlanner>());
+        return await planner.PlanAsync(host.Resources(resources), DeploymentMode.Complete, PlanMode.WhatIf, ProviderHost.Ct).WaitAsync(TimeSpan.FromSeconds(60), ProviderHost.Ct);
+    }
+
+    private static List<EArm.Core.Diagnostics.Diagnostic> ListingNotes(DeploymentPlan plan)
+    {
+        return plan.Diagnostics.Where(d => d.Code == EngineDiagnosticCodes.OrphanReportIncomplete && d.Message.Contains("could not be listed", StringComparison.Ordinal)).ToList();
+    }
+
+    [Fact]
+    public async Task ListingsThatFinishOutOfOrder_StillReportTheirRowsInDecisionOrder()
+    {
+        var host = new ProviderHost();
+        SeedStrength(host, "Old custom strength");
+        SeedLocation(host, "Legacy offices");
+        var graph = new ListingGate(host.Fake);
+
+        // The strengths (first in decision order) are listed only after the named locations have been.
+        graph.Before(StrengthPath, ct => graph.Listed(LocPath).WaitAsync(HangGuard, ct));
+
+        var plan = await ConcurrentWhatIfAsync(host, graph, StrengthAndLocation());
+
+        Assert.Equal([LocPath, StrengthPath], graph.CompletionOrder);
+        Assert.Equal(
+            ["/providers/" + StrengthType + "/Old custom strength", "/providers/" + LocType + "/Legacy offices"],
+            plan.Orphans.Select(o => o.Id.Id));
+        Assert.Equal(plan.Orphans.Select(o => o.Id.Id), plan.Changes.Where(c => c.Orphan is not null).Select(c => c.Id.Id));
+        Assert.Empty(ListingNotes(plan));
+    }
+
+    [Fact]
+    public async Task FailedListings_ThatFinishOutOfOrder_KeepTheirNotesInDecisionOrder()
+    {
+        var host = new ProviderHost();
+        SeedStrength(host, "Old custom strength");
+        SeedLocation(host, "Legacy offices");
+        var graph = new ListingGate(host.Fake);
+        graph.Before(StrengthPath, ct => graph.Listed(LocPath).WaitAsync(HangGuard, ct));
+        graph.Fail(StrengthPath);
+        graph.Fail(LocPath);
+
+        var plan = await ConcurrentWhatIfAsync(host, graph, StrengthAndLocation());
+
+        Assert.Equal([LocPath, StrengthPath], graph.CompletionOrder);
+        Assert.Empty(plan.Orphans);
+        var notes = ListingNotes(plan);
+        Assert.Equal(2, notes.Count);
+        Assert.Contains("'" + StrengthType + "'", notes[0].Message, StringComparison.Ordinal);
+        Assert.Contains("'" + LocType + "'", notes[1].Message, StringComparison.Ordinal);
+        Assert.All(notes, n => Assert.Contains("Insufficient privileges", n.Message, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task AFailedListing_DoesNotStopTheOtherTypes_AndOnlyItsTypeLosesItsRows()
+    {
+        var host = new ProviderHost();
+        SeedStrength(host, "Old custom strength");
+        SeedLocation(host, "Legacy offices");
+        var graph = new ListingGate(host.Fake);
+        graph.Before(StrengthPath, ct => graph.Listed(LocPath).WaitAsync(HangGuard, ct));
+        graph.Fail(StrengthPath);
+
+        var plan = await ConcurrentWhatIfAsync(host, graph, StrengthAndLocation());
+
+        var orphan = Assert.Single(plan.Orphans);
+        Assert.Equal("/providers/" + LocType + "/Legacy offices", orphan.Id.Id);
+        var note = Assert.Single(ListingNotes(plan));
+        Assert.Contains("'" + StrengthType + "'", note.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task TheListingsOverlap_WhenThePlanAllowsIt()
+    {
+        // Each listing is held until both are in progress: a serial report would never get there (the hang guard would fail it).
+        var host = new ProviderHost();
+        SeedStrength(host, "Old custom strength");
+        SeedLocation(host, "Legacy offices");
+        var graph = new ListingGate(host.Fake);
+        graph.Before(StrengthPath, ct => graph.Started(LocPath).WaitAsync(HangGuard, ct));
+        graph.Before(LocPath, ct => graph.Started(StrengthPath).WaitAsync(HangGuard, ct));
+
+        var plan = await ConcurrentWhatIfAsync(host, graph, StrengthAndLocation());
+
+        Assert.Equal(2, plan.Orphans.Count);
+        Assert.Equal(StrengthType, plan.Orphans[0].ResourceType);
+        Assert.Equal(LocType, plan.Orphans[1].ResourceType);
+        Assert.Empty(ListingNotes(plan));
+    }
+
+    /// <summary>
+    /// Forwards everything to the fake, but lets a test hold (<see cref="Before"/>) or fail (<see cref="Fail"/>, a 403) the orphan listing of a collection: a
+    /// <c>GET</c> of the collection with a <c>$select</c> and no <c>$filter</c> (the reads of the declared resources carry a filter or no query at all).
+    /// </summary>
+    private sealed class ListingGate(FakeGraphClient inner) : IGraphClient
+    {
+        private readonly Dictionary<string, Func<CancellationToken, Task>> _before = new(StringComparer.Ordinal);
+        private readonly HashSet<string> _fail = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, TaskCompletionSource> _started = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, TaskCompletionSource> _listed = new(StringComparer.Ordinal);
+        private readonly List<string> _completionOrder = [];
+
+        public IReadOnlyList<string> CompletionOrder
+        {
+            get
+            {
+                lock (_completionOrder)
+                {
+                    return [.. _completionOrder];
+                }
+            }
+        }
+
+        public void Before(string collection, Func<CancellationToken, Task> wait)
+        {
+            _before[collection] = wait;
+        }
+
+        public void Fail(string collection)
+        {
+            _fail.Add(collection);
+        }
+
+        public Task Started(string collection)
+        {
+            return Signal(_started, collection).Task;
+        }
+
+        public Task Listed(string collection)
+        {
+            return Signal(_listed, collection).Task;
+        }
+
+        private static TaskCompletionSource Signal(Dictionary<string, TaskCompletionSource> signals, string collection)
+        {
+            lock (signals)
+            {
+                if (!signals.TryGetValue(collection, out var signal))
+                {
+                    signal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    signals[collection] = signal;
+                }
+
+                return signal;
+            }
+        }
+
+        private static bool IsListing(GraphRequest request)
+        {
+            return request.UrlParameters is { } query && query.ContainsKey("$select") && !query.ContainsKey("$filter");
+        }
+
+        public async IAsyncEnumerable<JsonNode> GetAllPagesAsync(GraphRequest request, [EnumeratorCancellation] CancellationToken cancellationToken)
+        {
+            if (!IsListing(request))
+            {
+                await foreach (var item in inner.GetAllPagesAsync(request, cancellationToken))
+                {
+                    yield return item;
+                }
+
+                yield break;
+            }
+
+            try
+            {
+                Signal(_started, request.Path).TrySetResult();
+                if (_before.TryGetValue(request.Path, out var wait))
+                {
+                    await wait(cancellationToken);
+                }
+
+                if (_fail.Contains(request.Path))
+                {
+                    throw new GraphException(HttpStatusCode.Forbidden, "Authorization_RequestDenied", "Insufficient privileges to complete the operation.", request.Hint);
+                }
+
+                await foreach (var item in inner.GetAllPagesAsync(request, cancellationToken))
+                {
+                    yield return item;
+                }
+            }
+            finally
+            {
+                lock (_completionOrder)
+                {
+                    _completionOrder.Add(request.Path);
+                }
+
+                Signal(_listed, request.Path).TrySetResult();
+            }
+        }
+
+        public Task<JsonNode?> GetAsync(GraphRequest request, CancellationToken cancellationToken) => inner.GetAsync(request, cancellationToken);
+
+        public Task<GraphResponse> PostAsync(GraphRequest request, JsonNode? body, CancellationToken cancellationToken) => inner.PostAsync(request, body, cancellationToken);
+
+        public Task<GraphResponse> PatchAsync(GraphRequest request, JsonNode body, CancellationToken cancellationToken) => inner.PatchAsync(request, body, cancellationToken);
+
+        public Task<GraphResponse> PutAsync(GraphRequest request, JsonNode body, CancellationToken cancellationToken) => inner.PutAsync(request, body, cancellationToken);
+
+        public Task DeleteAsync(GraphRequest request, CancellationToken cancellationToken) => inner.DeleteAsync(request, cancellationToken);
+
+        public Task<IReadOnlyList<BatchResponse>> BatchAsync(IReadOnlyList<BatchRequest> requests, GraphApi api, RetryHint hint, CancellationToken cancellationToken) => inner.BatchAsync(requests, api, hint, cancellationToken);
     }
 }

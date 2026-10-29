@@ -5,6 +5,7 @@ using System.IO;
 using EArm.Cli.Hosting;
 using EArm.Engine.Planning;
 using EArm.Engine.Providers;
+using EArm.Engine.Timing;
 using EArm.Engine.WhatIf;
 using Microsoft.Extensions.Logging;
 
@@ -65,6 +66,12 @@ internal sealed record DeploymentInvocation
     /// <summary><c>--device-code</c>: a consent prompt the run needs uses the device-code flow instead of a browser.</summary>
     public bool DeviceCode { get; init; }
 
+    /// <summary><c>--timings</c>: print the phase timings table on stderr when the run ends.</summary>
+    public bool ShowTimings { get; init; }
+
+    /// <summary>The phase timings of this run (log event 2090 per phase; the <c>--timings</c> table).</summary>
+    public RunTimings Timings { get; init; } = new();
+
     /// <summary><c>-n</c>, or the template file stem without <c>.entra</c> (<c>orders-api.entra.json</c> → <c>orders-api</c>).</summary>
     public string EffectiveName
     {
@@ -123,6 +130,8 @@ internal sealed class DeploymentOptions
     };
 
     public Option<bool> NoPrompt { get; } = CreateNoPrompt();
+
+    public Option<bool> Timings { get; } = CreateTimings();
 
     // what-if
     public Option<string> ResultFormat { get; } = CreateResultFormat("--result-format", "-r");
@@ -191,6 +200,7 @@ internal sealed class DeploymentOptions
         command.Options.Add(OnSoftDeletedConflict);
         command.Options.Add(DeviceCode);
         command.Options.Add(NoPrompt);
+        command.Options.Add(Timings);
     }
 
     public void AddWhatIf(Command command)
@@ -251,6 +261,7 @@ internal sealed class DeploymentOptions
             Connection = GlobalOptions.BuildConnection(parseResult, parallelism),
             LogLevel = GlobalOptions.GetLogLevel(parseResult),
             DeviceCode = parseResult.GetValue(DeviceCode),
+            ShowTimings = parseResult.GetValue(Timings),
         };
     }
 
@@ -263,6 +274,15 @@ internal sealed class DeploymentOptions
         {
             Description = "Do not ask for the value of a parameter that has none (an interactive run asks otherwise); the run then fails with MissingParameterValue. Accepts true or false.",
             Arity = ArgumentArity.ZeroOrOne,
+        };
+    }
+
+    /// <summary><c>--timings</c>: a table of the run's phases (milliseconds, Graph requests) on stderr at the end, whatever the log level.</summary>
+    public static Option<bool> CreateTimings()
+    {
+        return new Option<bool>("--timings")
+        {
+            Description = "When the run ends, print how long each phase took and how many Graph requests it made (on stderr, whatever the log level and output format).",
         };
     }
 

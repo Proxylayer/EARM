@@ -934,6 +934,43 @@ $policyApprover = Obj '' -Required 'id', 'userType' -Props (Props ([ordered]@{
     description = Str 'ARM display text; read-only in Graph, never compared or sent.'
     isBackup    = Bool 'Whether the approver is a backup approver. Only false (the default, the same as absent) is accepted: Graph does not return isBackup when the policy is read, so true could never be verified.'
 }))
+# The rules in ARM's own shape (Microsoft.Authorization/roleManagementPolicies): shared by roleManagementPolicies and azureRoleManagementPolicies.
+$policyRules = Arr -d 'Required: the rules to manage, matched by id (Expiration_EndUser_Assignment, Approval_EndUser_Assignment...). Every other rule of the policy is left as it is.' -Min 1 -Items (Obj '' -Required 'id' -Props (Props ([ordered]@{
+    id                   = Str 'Required: the rule id: Expiration_, Enablement_, Approval_ or AuthenticationContext_ + Admin_ or EndUser_ + Assignment or Eligibility, or Notification_ + Admin_, Requestor_ or Approver_ + the same caller and level.' -Min 1
+    ruleType             = Str 'The ARM rule type; optional (implied by the id) and, when declared, must match it. Mapped to Graph''s @odata.type (#microsoft.graph.unifiedRoleManagementPolicy...Rule). Any casing.'
+    target               = Obj -d 'Who and what the rule applies to; undeclared members keep their live values. caller and level must agree with the id.' -Props (Props ([ordered]@{
+        caller              = Str 'Admin or EndUser (any casing).'
+        operations          = StrArr 'All, Activate, Deactivate, Assign, Update, Remove, Extend, Renew (any casing).'
+        level               = Str 'Assignment or Eligibility (any casing).'
+        targetObjects       = Arr -d 'Graph passthrough.' -Items (FreeObj '') -Nullable
+        inheritableSettings = StrArr 'Graph passthrough.' -Nullable
+        enforcedSettings    = StrArr 'Graph passthrough.' -Nullable
+    }))
+    isExpirationRequired = Bool 'Expiration rules: whether an expiration is required (false allows permanent assignment or eligibility).'
+    maximumDuration      = Str 'Expiration rules: the ISO 8601 maximum duration (PT8H, P365D); compared by value.'
+    enabledRules         = StrArr 'Enablement rules: MultiFactorAuthentication, Justification, Ticketing (any casing); [] clears them.'
+    setting              = Obj -d 'Approval rules: the approval settings; undeclared members keep their live values.' -Props (Props ([ordered]@{
+        isApprovalRequired               = Bool 'Whether activation needs approval; when true, every stage needs at least one primary approver.'
+        isApprovalRequiredForExtension   = Bool 'Whether an extension needs approval.'
+        isRequestorJustificationRequired = Bool 'Whether the requestor must justify the request.'
+        approvalMode                     = Str 'SingleStage, Serial, Parallel or NoApproval (any casing).'
+        approvalStages                   = Arr -d 'One or two approval stages.' -Items (Obj '' -Props (Props ([ordered]@{
+            approvalStageTimeOutInDays      = Int 'Days a request may wait before it is denied.'
+            isApproverJustificationRequired = Bool 'Whether the approver must justify the decision.'
+            escalationTimeInMinutes         = Int 'Minutes before escalation.'
+            isEscalationEnabled             = Bool 'Whether escalation is enabled (needs escalationApprovers).'
+            primaryApprovers                = Arr -d 'The approvers (users or groups), compared as a set.' -Items $policyApprover
+            escalationApprovers             = Arr -d 'The escalation approvers, compared as a set.' -Items $policyApprover -Nullable
+        })))
+    }))
+    isEnabled                  = Bool 'Authentication context rules: whether activation must satisfy an authentication context.'
+    claimValue                 = Str 'Authentication context rules: the authentication context id, c1 to c99.' -Nullable
+    notificationType           = Str 'Notification rules: Email.'
+    recipientType              = Str 'Notification rules: Requestor, Approver or Admin; must agree with the id.'
+    notificationLevel          = Str 'Notification rules: None, Critical or All.'
+    notificationRecipients     = StrArr 'Notification rules: additional e-mail recipients; [] clears them.' -Nullable
+    isDefaultRecipientsEnabled = Bool 'Notification rules: whether the default recipients are notified.'
+})))
 $specs['roleManagementPolicies'] = [ordered]@{
     NamePattern = $script:GuidPattern
     Description = 'The PIM policy (role settings) of a directory role or of a PIM for Groups membership / ownership, shaped like ARM''s Microsoft.Authorization/roleManagementPolicies. The resource name is a deterministic GUID chosen with guid() (a label, not the identity); the policy is named by role (a directory role), or by group and accessId (a group), or by scopeType, scopeId and roleDefinitionId, and read live on every run. Only the rules declared in rules[] (matched by id) are managed: each is filled from the live rule and changed in place with one PATCH per changed rule; undeclared rules are left as they are. Never created (every role and onboarded group has a policy; a group policy may opt in to onboarding the group with onboarding) and never deleted (kept as NotDeletable). Applied before the PIM schedule requests of the same role or group in the template.'
@@ -947,42 +984,19 @@ $specs['roleManagementPolicies'] = [ordered]@{
         onboarding       = Obj -d 'EARM opt-in, group policies only: lets the deployment onboard the group in PIM for Groups when Graph lists no policy for it (PIM onboards a group only on its first eligibility or assignment). A temporary member eligibility (one hour) is created for temporaryEligiblePrincipalId, the policy is waited for, the eligibility is removed, and the rules are applied, all in the same run. Ignored when the group is onboarded already, or when a schedule request of the same deployment onboards it. Never sent to Graph. Needs PrivilegedEligibilitySchedule.ReadWrite.AzureADGroup.' -Nullable -Required 'temporaryEligiblePrincipalId' -Props (Props ([ordered]@{
             temporaryEligiblePrincipalId = Guid 'Required: the object id of the user or service principal made eligible (member) for the onboarding, typically [reference(...).id]. The group''s default policy must allow it to be made eligible.'
         }))
-        rules            = Arr -d 'Required: the rules to manage, matched by id (Expiration_EndUser_Assignment, Approval_EndUser_Assignment...). Every other rule of the policy is left as it is.' -Min 1 -Items (Obj '' -Required 'id' -Props (Props ([ordered]@{
-            id                   = Str 'Required: the rule id: Expiration_, Enablement_, Approval_ or AuthenticationContext_ + Admin_ or EndUser_ + Assignment or Eligibility, or Notification_ + Admin_, Requestor_ or Approver_ + the same caller and level.' -Min 1
-            ruleType             = Str 'The ARM rule type; optional (implied by the id) and, when declared, must match it. Mapped to Graph''s @odata.type (#microsoft.graph.unifiedRoleManagementPolicy...Rule). Any casing.'
-            target               = Obj -d 'Who and what the rule applies to; undeclared members keep their live values. caller and level must agree with the id.' -Props (Props ([ordered]@{
-                caller              = Str 'Admin or EndUser (any casing).'
-                operations          = StrArr 'All, Activate, Deactivate, Assign, Update, Remove, Extend, Renew (any casing).'
-                level               = Str 'Assignment or Eligibility (any casing).'
-                targetObjects       = Arr -d 'Graph passthrough.' -Items (FreeObj '') -Nullable
-                inheritableSettings = StrArr 'Graph passthrough.' -Nullable
-                enforcedSettings    = StrArr 'Graph passthrough.' -Nullable
-            }))
-            isExpirationRequired = Bool 'Expiration rules: whether an expiration is required (false allows permanent assignment or eligibility).'
-            maximumDuration      = Str 'Expiration rules: the ISO 8601 maximum duration (PT8H, P365D); compared by value.'
-            enabledRules         = StrArr 'Enablement rules: MultiFactorAuthentication, Justification, Ticketing (any casing); [] clears them.'
-            setting              = Obj -d 'Approval rules: the approval settings; undeclared members keep their live values.' -Props (Props ([ordered]@{
-                isApprovalRequired               = Bool 'Whether activation needs approval; when true, every stage needs at least one primary approver.'
-                isApprovalRequiredForExtension   = Bool 'Whether an extension needs approval.'
-                isRequestorJustificationRequired = Bool 'Whether the requestor must justify the request.'
-                approvalMode                     = Str 'SingleStage, Serial, Parallel or NoApproval (any casing).'
-                approvalStages                   = Arr -d 'One or two approval stages.' -Items (Obj '' -Props (Props ([ordered]@{
-                    approvalStageTimeOutInDays      = Int 'Days a request may wait before it is denied.'
-                    isApproverJustificationRequired = Bool 'Whether the approver must justify the decision.'
-                    escalationTimeInMinutes         = Int 'Minutes before escalation.'
-                    isEscalationEnabled             = Bool 'Whether escalation is enabled (needs escalationApprovers).'
-                    primaryApprovers                = Arr -d 'The approvers (users or groups), compared as a set.' -Items $policyApprover
-                    escalationApprovers             = Arr -d 'The escalation approvers, compared as a set.' -Items $policyApprover -Nullable
-                })))
-            }))
-            isEnabled                  = Bool 'Authentication context rules: whether activation must satisfy an authentication context.'
-            claimValue                 = Str 'Authentication context rules: the authentication context id, c1 to c99.' -Nullable
-            notificationType           = Str 'Notification rules: Email.'
-            recipientType              = Str 'Notification rules: Requestor, Approver or Admin; must agree with the id.'
-            notificationLevel          = Str 'Notification rules: None, Critical or All.'
-            notificationRecipients     = StrArr 'Notification rules: additional e-mail recipients; [] clears them.' -Nullable
-            isDefaultRecipientsEnabled = Bool 'Notification rules: whether the default recipients are notified.'
-        })))
+        rules            = $policyRules
+    }
+}
+
+# --- azureRoleManagementPolicies (PIM policy rules of an Azure role at an Azure scope, through Azure Resource Manager) -------
+$specs['azureRoleManagementPolicies'] = [ordered]@{
+    NamePattern = $script:GuidPattern
+    Description = 'The PIM policy (role settings) of an Azure RBAC role at an Azure scope (a subscription, a resource group or a resource), managed through Azure Resource Manager as Microsoft.Authorization/roleManagementPolicies (api-version 2020-10-01): the Azure twin of Microsoft.Entra/roleManagementPolicies, with the same rules[]. The resource name is a deterministic GUID chosen with guid() (a label, not the identity); the policy is named by scope and roleDefinitionId (or role) and read live on every run, keeping only the policy assignment of that exact scope (an inherited policy is never changed). Only the rules declared in rules[] (matched by id) are managed: each is filled from the live rule, and the changed ones are sent in one PATCH of the policy; undeclared rules are left as they are. Never created (every role has a policy at every scope) and never deleted (kept as NotDeletable). Needs an Azure RBAC role at the scope (Owner, User Access Administrator or Role Based Access Control Administrator), not a Graph permission.'
+    Props       = [ordered]@{
+        scope            = Str 'Required: the Azure scope of the policy: /subscriptions/{subscriptionId}, /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}, or a resource id under a resource group. Management group scopes are not supported yet.' -Min 1
+        roleDefinitionId = Str 'The Azure role definition: its GUID or its id (/subscriptions/{subscriptionId}/providers/Microsoft.Authorization/roleDefinitions/{guid}); normalised to the subscription-qualified id of the scope. Not with role.' -Min 1
+        role             = Str 'EARM sugar: the name of a built-in or custom Azure role assignable at the scope (Reader, Contributor...), or its GUID; resolved to roleDefinitionId when the deployment is planned (exactly one role of that name must exist). Not with roleDefinitionId.' -Min 1
+        rules            = $policyRules
     }
 }
 

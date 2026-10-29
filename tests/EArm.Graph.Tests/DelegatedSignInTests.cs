@@ -301,6 +301,16 @@ public sealed class DelegatedSignInTests
     }
 
     [Fact]
+    public void Guidance_ForResourceManager_NamesTheQualifiedScope_AndForACustomClient_KeepsTheClient()
+    {
+        var arm = new ConsentRequiredException(GraphCloud.Public.ResourceManagerConsentScopes, "alice@contoso.example", CustomClient, null);
+
+        var message = GraphAuthGuidance.ConsentNeeded(arm);
+
+        Assert.Contains("earm auth login --scopes https://management.azure.com/user_impersonation --client-id " + CustomClient, message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task AutoMode_ConsentFailure_IsNotTurnedIntoExpired_ButExpiryStillIs()
     {
         var path = NewRecordPath();
@@ -516,11 +526,28 @@ public sealed class DelegatedSignInTests
     {
         var status = new GraphAuthStatus { Mode = "auto", Credential = "interactive sign-in", Cloud = "public", ClientId = PublicClients.GraphCommandLineTools, Scopes = ["user.read", "Organization.Read.All"] };
 
-        var checkedStatus = status.WithRequired(["Group.ReadWrite.All", "Organization.Read.All", "User.Read"], keyVaultNeeded: true);
+        var checkedStatus = status.WithRequired(["Group.ReadWrite.All", "Organization.Read.All", "User.Read"], keyVaultNeeded: true, resourceManagerNeeded: false);
 
         Assert.Equal(["Group.ReadWrite.All"], checkedStatus.MissingScopes);
         Assert.True(checkedStatus.KeyVaultNeeded);
         Assert.Equal("Microsoft Graph Command Line Tools", checkedStatus.ClientName);
         Assert.Null(status.RequiredScopes);
+        Assert.False(checkedStatus.ResourceManagerNeeded);
+    }
+
+    [Fact]
+    public void Status_WithRequired_CarriesTheResourceManagerNeed_IndependentlyOfKeyVault()
+    {
+        var status = new GraphAuthStatus { Mode = "auto", Credential = "interactive sign-in", Cloud = "public", ClientId = PublicClients.GraphCommandLineTools, Scopes = ["User.Read"] };
+
+        var armOnly = status.WithRequired(["User.Read"], keyVaultNeeded: false, resourceManagerNeeded: true);
+        var both = status.WithRequired(["User.Read"], keyVaultNeeded: true, resourceManagerNeeded: true);
+
+        Assert.True(armOnly.ResourceManagerNeeded);
+        Assert.False(armOnly.KeyVaultNeeded);
+        Assert.Empty(armOnly.MissingScopes);
+        Assert.True(both.ResourceManagerNeeded);
+        Assert.True(both.KeyVaultNeeded);
+        Assert.False(status.ResourceManagerNeeded);
     }
 }

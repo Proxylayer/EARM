@@ -62,8 +62,20 @@ internal sealed class SchedulerLog
         GraphLog.SchedulerTier(_logger, users, tier.ToString(), DirectoryLimits.ResourceUnits(tier));
     }
 
-    public void TierUnknown(string reason)
+    /// <summary>
+    /// Logs that the tenant size could not be read; <paramref name="permissionDenied"/> (Graph answered 401 or 403) adds the permission the read
+    /// needs, any other failure is logged with its reason only.
+    /// </summary>
+    public void TierUnknown(string reason, bool permissionDenied)
     {
-        GraphLog.SchedulerTierUnknown(_logger, reason, DirectoryLimits.ResourceUnits(TenantSizeTier.Small));
+        var units = DirectoryLimits.ResourceUnits(TenantSizeTier.Small);
+        if (permissionDenied)
+        {
+            GraphLog.SchedulerTierUnknown(_logger, reason, units);
+        }
+        else
+        {
+            GraphLog.SchedulerTierUnread(_logger, reason, units);
+        }
     }
 }

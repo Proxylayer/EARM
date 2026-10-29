@@ -357,7 +357,8 @@ public sealed class HttpGraphClientSchedulingTests
     [InlineData("1000", "Large", 8_000)]
     public async Task TheTenantSizeIsReadWithOneAdvancedCountRequest(string count, string tier, int budget)
     {
-        var handler = new ScriptedHttpHandler(ScriptedResponse.Json(count));
+        // Graph serves $count only as plain text (and answers 415 to Accept: application/json).
+        var handler = new ScriptedHttpHandler(ScriptedResponse.Text(count));
         using var harness = Harness(handler);
 
         await harness.Client.DetectTenantSizeAsync(Ct);
@@ -367,10 +368,11 @@ public sealed class HttpGraphClientSchedulingTests
         Assert.Equal(HttpMethod.Get, probe.Method);
         Assert.Equal("https://graph.microsoft.com/v1.0/users/$count", probe.Uri.AbsoluteUri);
         Assert.Equal("eventual", probe.Header("ConsistencyLevel"));
+        Assert.Equal("text/plain", probe.Header("Accept"));
         Assert.Equal(Enum.Parse<TenantSizeTier>(tier), harness.Client.Scheduler.Tier);
         var logged = Assert.Single(harness.Log.Entries, static e => e.EventId.Id == 1063);
         Assert.Contains(budget.ToString(System.Globalization.CultureInfo.InvariantCulture), logged.Message, StringComparison.Ordinal);
-        Assert.DoesNotContain(harness.Log.Entries, static e => e.EventId.Id == 1064);
+        Assert.DoesNotContain(harness.Log.Entries, static e => e.EventId.Id is 1064 or 1066);
 
         // The probe itself cost 2 units of the budget; the rest is the tier's.
         var rest = await harness.Client.Scheduler.AcquireAsync(new ScheduledCall([new GraphRequestCost(GraphServiceArea.Directory, budget - 2, false)], false), Ct);
@@ -381,16 +383,31 @@ public sealed class HttpGraphClientSchedulingTests
         Assert.Equal([TimeSpan.FromSeconds(1)], harness.Delays.Delays);
     }
 
-    public static TheoryData<string> ProbeFailures => ["403", "404", "429", "503", "not a number", "object", "negative", "transport"];
+    // The expected event: 1064 (with the permission the read needs) when Graph refuses the caller, 1066 (the reason only) for anything else.
+    public static TheoryData<string, int> ProbeFailures => new()
+    {
+        { "401", 1064 },
+        { "403", 1064 },
+        { "404", 1066 },
+        { "415", 1066 },
+        { "429", 1066 },
+        { "503", 1066 },
+        { "not a number", 1066 },
+        { "object", 1066 },
+        { "negative", 1066 },
+        { "transport", 1066 },
+    };
 
     [Theory]
     [MemberData(nameof(ProbeFailures))]
-    public async Task AnUnreadableTenantSizeIsOneAttemptKeepsTheSmallestBudgetAndIsLoggedOnce(string failure)
+    public async Task AnUnreadableTenantSizeIsOneAttemptKeepsTheSmallestBudgetAndIsLoggedOnce(string failure, int eventId)
     {
         var response = failure switch
         {
+            "401" => ScriptedResponse.Error(HttpStatusCode.Unauthorized, "InvalidAuthenticationToken", "Access token validation failure."),
             "403" => ScriptedResponse.Error(HttpStatusCode.Forbidden, "Authorization_RequestDenied", "Insufficient privileges to complete the operation."),
             "404" => ScriptedResponse.Error(HttpStatusCode.NotFound, "Request_ResourceNotFound", "nope"),
+            "415" => ScriptedResponse.Error(HttpStatusCode.UnsupportedMediaType, "Request_BadRequest", "The requested media type is not supported."),
             "429" => ScriptedResponse.Error(HttpStatusCode.TooManyRequests, "TooManyRequests", "slow down").WithHeader("Retry-After", "1"),
             "503" => ScriptedResponse.Error(HttpStatusCode.ServiceUnavailable, "ServiceUnavailable", "try later"),
             "not a number" => ScriptedResponse.Json("\"many\""),
@@ -398,7 +415,7 @@ public sealed class HttpGraphClientSchedulingTests
             "negative" => ScriptedResponse.Json("-5"),
             _ => new ScriptedResponse { Throw = new HttpRequestException("connection reset") },
         };
-        var handler = new ScriptedHttpHandler(response, ScriptedResponse.Json("1000"));
+        var handler = new ScriptedHttpHandler(response, ScriptedResponse.Text("1000"));
         using var harness = Harness(handler);
 
         await harness.Client.DetectTenantSizeAsync(Ct);
@@ -406,11 +423,29 @@ public sealed class HttpGraphClientSchedulingTests
 
         Assert.Single(handler.Requests);
         Assert.Equal(TenantSizeTier.Small, harness.Client.Scheduler.Tier);
-        Assert.Single(harness.Log.Entries, static e => e.EventId.Id == 1064);
+        var logged = Assert.Single(harness.Log.Entries, e => e.EventId.Id == eventId);
+        Assert.DoesNotContain(harness.Log.Entries, e => e.EventId.Id == (eventId == 1064 ? 1066 : 1064));
         Assert.DoesNotContain(harness.Log.Entries, static e => e.EventId.Id == 1063);
-        if (failure == "403")
+        if (eventId == 1064)
         {
-            Assert.Contains("403 Authorization_RequestDenied", harness.Log.Entries.Single(static e => e.EventId.Id == 1064).Message, StringComparison.Ordinal);
+            Assert.Contains("User.ReadBasic.All", logged.Message, StringComparison.Ordinal);
+        }
+        else
+        {
+            Assert.DoesNotContain("User.ReadBasic.All", logged.Message, StringComparison.Ordinal);
+        }
+
+        switch (failure)
+        {
+            case "401":
+                Assert.Contains("401 InvalidAuthenticationToken", logged.Message, StringComparison.Ordinal);
+                break;
+            case "403":
+                Assert.Contains("403 Authorization_RequestDenied", logged.Message, StringComparison.Ordinal);
+                break;
+            case "415":
+                Assert.Contains("415 Request_BadRequest", logged.Message, StringComparison.Ordinal);
+                break;
         }
     }
 
@@ -418,7 +453,7 @@ public sealed class HttpGraphClientSchedulingTests
     public async Task ACancelledCallerSeesItsCancellationWhileTheProbeStillDecidesTheTier()
     {
         // The answer takes a moment, so the detection is still running when the cancelled caller asks for it.
-        var handler = new ScriptedHttpHandler(new ScriptedResponse { Body = "1000", Delay = TimeSpan.FromMilliseconds(200) });
+        var handler = new ScriptedHttpHandler(new ScriptedResponse { Body = "1000", ContentType = "text/plain", Delay = TimeSpan.FromMilliseconds(200) });
         using var harness = Harness(handler);
         using var cts = new CancellationTokenSource();
         await cts.CancelAsync();

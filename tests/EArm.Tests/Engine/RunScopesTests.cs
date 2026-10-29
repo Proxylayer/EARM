@@ -1,13 +1,19 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using EArm.Cli.Commands;
 using EArm.Core;
+using EArm.Core.Json;
 using EArm.Core.Loading;
 using EArm.Core.Types;
 using EArm.Engine.Permissions;
+using EArm.Engine.Providers;
+using EArm.Graph;
 using EArm.Providers;
 using Xunit;
+using GraphApi = EArm.Graph.GraphApi;
 
 namespace EArm.Tests.Engine;
 
@@ -363,5 +369,119 @@ public sealed class RunScopesTests
         Assert.Throws<ArgumentNullException>(() => RunScopes.Compute((TemplateDocument)null!, registry, RunVerb.Create));
         Assert.Throws<ArgumentNullException>(() => RunScopes.Compute((OfflineTemplateExpansion)null!, registry, RunVerb.Create));
         Assert.Throws<ArgumentNullException>(() => OfflineTemplateExpansion.Run(null!, ResourceTypeCatalog.Default));
+    }
+
+    // ---- Azure Resource Manager need ----
+
+    /// <summary>A real provider marked as calling Azure Resource Manager: every member delegates, only the marker interface is added.</summary>
+    private sealed class ResourceManagerMarked(IResourceProvider inner) : IResourceProvider, IResourceManagerProvider
+    {
+        public string TypeName => inner.TypeName;
+
+        public IReadOnlyDictionary<string, GraphApi> ApiVersions => inner.ApiVersions;
+
+        public IReadOnlySet<JsonPath> ImmutableProperties => inner.ImmutableProperties;
+
+        public IReadOnlyList<RelationshipSpec> Relationships => inner.Relationships;
+
+        public IReadOnlyList<string> RequiredPermissions(ResourceInstance? desired) => inner.RequiredPermissions(desired);
+
+        public ResourceKey ResolveKey(ResourceInstance desired) => inner.ResolveKey(desired);
+
+        public Task<ExistingResource?> ReadAsync(ResourceKey key, IGraphClient graph, CancellationToken cancellationToken) => inner.ReadAsync(key, graph, cancellationToken);
+
+        public ResourceChange Plan(ResourceInstance desired, ExistingResource? existing, PlanOptions options) => inner.Plan(desired, existing, options);
+
+        public Task<AppliedResource> CreateAsync(ResourceInstance desired, IGraphClient graph, CancellationToken cancellationToken) => inner.CreateAsync(desired, graph, cancellationToken);
+
+        public Task<AppliedResource> UpdateAsync(ResourceInstance desired, ExistingResource existing, ResourceChange change, IGraphClient graph, CancellationToken cancellationToken) => inner.UpdateAsync(desired, existing, change, graph, cancellationToken);
+
+        public Task DeleteAsync(ResourceKey key, ExistingResource live, IGraphClient graph, CancellationToken cancellationToken) => inner.DeleteAsync(key, live, graph, cancellationToken);
+    }
+
+    private const string MarkedType = "Microsoft.Entra/applications";
+
+    /// <summary>The production registry with the provider of <paramref name="type"/> replaced by its <see cref="IResourceManagerProvider"/>-marked twin.</summary>
+    private static ProviderRegistry RegistryMarking(string type)
+    {
+        var registry = ProviderDiscovery.CreateRegistry(ResourceTypeCatalog.Default);
+        registry.Register(new ResourceManagerMarked(registry.Get(type)), replace: true);
+        return registry;
+    }
+
+    [Theory]
+    [InlineData(RunVerb.Create)]
+    [InlineData(RunVerb.WhatIf)]
+    [InlineData(RunVerb.Delete)]
+    public async Task NeedsResourceManager_IsTrue_WhenADeclaredResourcesProviderCallsResourceManager(RunVerb verb)
+    {
+        var document = await LoadAsync("orders-api.entra.json", "orders-api.parameters.json");
+
+        var marked = RunScopes.Compute(document, RegistryMarking(MarkedType), verb);
+        var plain = RunScopes.Compute(document, ProviderDiscovery.CreateRegistry(ResourceTypeCatalog.Default), verb);
+
+        Assert.True(marked.NeedsResourceManager);
+        Assert.False(plain.NeedsResourceManager);
+        Assert.Equal(plain.GraphScopes, marked.GraphScopes);
+        Assert.Equal(plain.NeedsKeyVault, marked.NeedsKeyVault);
+    }
+
+    [Fact]
+    public async Task NeedsResourceManager_IsFalse_WhenTheMarkedTypeIsNotDeclared()
+    {
+        var document = await LoadAsync("tenant-security.entra.json", "tenant-security.parameters.json");
+
+        Assert.False(RunScopes.Compute(document, RegistryMarking(MarkedType), RunVerb.Create).NeedsResourceManager);
+    }
+
+    [Fact]
+    public async Task NeedsResourceManager_IsFalse_ForValidate_EvenWithAMarkedProvider()
+    {
+        var document = await LoadAsync("orders-api.entra.json", "orders-api.parameters.json");
+
+        var scopes = RunScopes.Compute(document, RegistryMarking(MarkedType), RunVerb.Validate);
+
+        Assert.False(scopes.NeedsResourceManager);
+        Assert.Empty(scopes.Scopes);
+    }
+
+    [Fact]
+    public async Task NeedsResourceManager_IsTheSameThroughTheExpansionOverload()
+    {
+        var document = await LoadAsync("orders-api.entra.json", "orders-api.parameters.json");
+        var registry = RegistryMarking(MarkedType);
+
+        var fromDocument = RunScopes.Compute(document, registry, RunVerb.Create);
+        var fromExpansion = RunScopes.Compute(OfflineTemplateExpansion.Run(document, ResourceTypeCatalog.Default), registry, RunVerb.Create);
+
+        Assert.True(fromDocument.NeedsResourceManager);
+        Assert.True(fromExpansion.NeedsResourceManager);
+        Assert.False(RunScopes.Compute(OfflineTemplateExpansion.Run(document, ResourceTypeCatalog.Default), registry, RunVerb.Validate).NeedsResourceManager);
+    }
+
+    [Theory]
+    [MemberData(nameof(Samples))]
+    public async Task NeedsResourceManager_IsFalse_ForEverySample_WithTheProductionRegistry(string template, string? parameters)
+    {
+        Assert.False((await ComputeAsync(template, parameters, RunVerb.Create)).NeedsResourceManager);
+    }
+
+    [Theory]
+    [InlineData(RunVerb.Create)]
+    [InlineData(RunVerb.WhatIf)]
+    [InlineData(RunVerb.Delete)]
+    public async Task NeedsResourceManager_IsTrue_ForTheAzurePimPolicySample_WithTheProductionRegistry(RunVerb verb)
+    {
+        var scopes = await ComputeAsync("azure-pim-policies.entra.json", "azure-pim-policies.parameters.json", verb);
+
+        Assert.True(scopes.NeedsResourceManager);
+        Assert.False(scopes.NeedsKeyVault);
+        Assert.Equal(new[] { "User.Read" }, scopes.GraphScopes.ToArray());
+    }
+
+    [Fact]
+    public async Task NeedsResourceManager_IsFalse_ForValidatingTheAzurePimPolicySample()
+    {
+        Assert.False((await ComputeAsync("azure-pim-policies.entra.json", "azure-pim-policies.parameters.json", RunVerb.Validate)).NeedsResourceManager);
     }
 }

@@ -23,6 +23,7 @@ public sealed class ResourceTypeCatalogTests
         "Microsoft.Entra/applications/passwordCredentials",
         "Microsoft.Entra/appRoleAssignments",
         "Microsoft.Entra/authenticationMethodConfigurations",
+        "Microsoft.Entra/azureRoleManagementPolicies",
         "Microsoft.Entra/conditionalAccess/authenticationContextClassReferences",
         "Microsoft.Entra/conditionalAccess/authenticationStrengths",
         "Microsoft.Entra/conditionalAccess/namedLocations",
@@ -72,7 +73,7 @@ public sealed class ResourceTypeCatalogTests
     public void Default_ContainsExactlyTheExpectedTypes()
     {
         Assert.Equal(ExpectedTypes, Catalog.Types.Select(t => t.Type).ToList());
-        Assert.Equal(36, EmbeddedSchemas.NamesUnder(EmbeddedSchemas.TypeSchemaPrefix).Count);
+        Assert.Equal(37, EmbeddedSchemas.NamesUnder(EmbeddedSchemas.TypeSchemaPrefix).Count);
         Assert.Same(Catalog, ResourceTypeCatalog.Default);
     }
 
@@ -156,11 +157,20 @@ public sealed class ResourceTypeCatalogTests
             Assert.False(string.IsNullOrWhiteSpace(definition.NameMapsTo), "nameMapsTo");
         }
 
-        Assert.NotEmpty(definition.Permissions.Application);
         // Delegated scopes come from the providers' conditional rules (RunScopes); an overlay list would be an unused, drifting union.
         Assert.Null(definition.Permissions.Raw?["delegated"]);
-        // Every type names the Entra roles a user needs: alternatives (roles), or roles needed together (rolesAllOf: catalog resources).
-        Assert.True(definition.Permissions.Roles.Count > 0 || definition.Permissions.Raw?["rolesAllOf"] is System.Text.Json.Nodes.JsonArray { Count: > 1 }, "roles or rolesAllOf");
+        if (definition.Permissions.Raw?["azureRbac"] is System.Text.Json.Nodes.JsonArray { Count: > 0 })
+        {
+            // An Azure Resource Manager type (azureRoleManagementPolicies): its grant is the Azure RBAC actions it names, no Graph permission or Entra role.
+            Assert.Empty(definition.Permissions.Application);
+            Assert.Empty(definition.Permissions.Roles);
+        }
+        else
+        {
+            Assert.NotEmpty(definition.Permissions.Application);
+            // Every type names the Entra roles a user needs: alternatives (roles), or roles needed together (rolesAllOf: catalog resources).
+            Assert.True(definition.Permissions.Roles.Count > 0 || definition.Permissions.Raw?["rolesAllOf"] is System.Text.Json.Nodes.JsonArray { Count: > 1 }, "roles or rolesAllOf");
+        }
         Assert.NotNull(definition.Permissions.Raw);
         Assert.NotNull(definition.Schema);
         Assert.StartsWith(EmbeddedSchemas.TypeSchemaPrefix, definition.SchemaResourceName);
@@ -196,7 +206,7 @@ public sealed class ResourceTypeCatalogTests
             Assert.Contains("{parentId}", child.GraphPath);
         });
 
-        Assert.Equal(31, Catalog.Types.Count(t => !t.IsChildType));
+        Assert.Equal(32, Catalog.Types.Count(t => !t.IsChildType));
         Assert.All(Catalog.Types.Where(t => !t.IsChildType), t => Assert.Equal(1, t.Depth));
         Assert.Empty(Catalog.ChildrenOf("Microsoft.Entra/groups"));
     }
@@ -306,7 +316,7 @@ public sealed class ResourceTypeCatalogTests
         Assert.Equal("https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentParameters.json", ResourceTypeCatalog.ParametersSchemaUri);
         Assert.Contains(EmbeddedSchemas.TemplateSchemaResource, EmbeddedSchemas.Names);
         Assert.Contains(EmbeddedSchemas.ParametersSchemaResource, EmbeddedSchemas.Names);
-        Assert.Equal(38, EmbeddedSchemas.Names.Count);
+        Assert.Equal(39, EmbeddedSchemas.Names.Count);
         Assert.Contains("\"$id\": \"https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json\"", EmbeddedSchemas.ReadText(EmbeddedSchemas.TemplateSchemaResource));
         Assert.NotEmpty(EmbeddedSchemas.ReadBytes(EmbeddedSchemas.ParametersSchemaResource));
     }

@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Text.Json.Nodes;
 using EArm.Engine.Planning;
 using EArm.Graph;
@@ -133,6 +134,23 @@ public sealed class DeploymentEnvironmentTests
         Assert.Equal("common", environment["authentication"]!["tenant"]!.GetValue<string>());
         Assert.Equal("AAD", environment["authentication"]!["identityProvider"]!.GetValue<string>());
         Assert.Equal(keyVaultDns, environment["suffixes"]!["keyvaultDns"]!.GetValue<string>());
+    }
+
+    [Theory]
+    [InlineData("public", "https://management.azure.com/", "https://management.core.windows.net/")]
+    [InlineData("usgov", "https://management.usgovcloudapi.net/", "https://management.core.usgovcloudapi.net/")]
+    [InlineData("usgovdod", "https://management.usgovcloudapi.net/", "https://management.core.usgovcloudapi.net/")]
+    [InlineData("china", "https://management.chinacloudapi.cn/", "https://management.core.chinacloudapi.cn/")]
+    public void Environment_ResourceManagerAndAudiences_AreUnchanged_AndFollowTheCloudsResourceManagerOrigin(string cloud, string resourceManager, string classicAudience)
+    {
+        var graphCloud = GraphCloud.Parse(cloud);
+
+        var environment = DeploymentEnvironment.Environment(graphCloud);
+
+        Assert.Equal(resourceManager, environment["resourceManager"]!.GetValue<string>());
+        Assert.Equal(graphCloud.ResourceManagerOrigin + "/", environment["resourceManager"]!.GetValue<string>());
+        var audiences = Assert.IsType<JsonArray>(environment["authentication"]!["audiences"]);
+        Assert.Equal([classicAudience, resourceManager], audiences.Select(static a => a!.GetValue<string>()));
     }
 
     [Fact]

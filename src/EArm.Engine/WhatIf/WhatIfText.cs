@@ -146,6 +146,10 @@ public static class WhatIfText
         writer.WriteLine(report.RequiredPermissions.Count == 0
             ? "Required permissions: none."
             : "Required permissions: " + string.Join(", ", report.RequiredPermissions) + ".");
+        if (report.RequiredAzureRoles.Count > 0)
+        {
+            writer.WriteLine("Required Azure roles: " + string.Join("; ", report.RequiredAzureRoles) + ".");
+        }
 
         if (summary.Unsupported > 0)
         {

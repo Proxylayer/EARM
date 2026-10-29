@@ -246,6 +246,52 @@ public sealed class RunScopeConsentTests
         Assert.Equal(GraphCloud.Public.KeyVaultConsentScopes, AzureIdentityTokenProvider.ConsentSetFor(GraphCloud.Public.KeyVaultConsentScopes));
     }
 
+    [Fact]
+    public void ResourceManagerDefault_IsMappedToTheArmUserImpersonation_InEveryCloud_AndTheOtherMappingsAreUnchanged()
+    {
+        foreach (var cloud in GraphCloud.All)
+        {
+            Assert.Equal(cloud.ResourceManagerConsentScopes, AzureIdentityTokenProvider.ConsentSetFor(cloud.ResourceManagerScopes));
+            Assert.Equal(cloud.ResourceManagerConsentScopes, AzureIdentityTokenProvider.ConsentSetFor(cloud.ResourceManagerConsentScopes));
+            Assert.Equal(cloud.KeyVaultConsentScopes, AzureIdentityTokenProvider.ConsentSetFor(cloud.KeyVaultScopes));
+            Assert.Equal(cloud.GraphScopes, AzureIdentityTokenProvider.ConsentSetFor(cloud.GraphScopes));
+        }
+
+        Assert.Equal("https://management.azure.com/user_impersonation", AzureIdentityTokenProvider.ConsentSetFor(GraphCloud.Public.ResourceManagerScopes).ToString());
+        Assert.Equal("https://management.usgovcloudapi.net/user_impersonation", AzureIdentityTokenProvider.ConsentSetFor(GraphCloud.UsGovDod.ResourceManagerScopes).ToString());
+        Assert.Equal("https://management.chinacloudapi.cn/user_impersonation", AzureIdentityTokenProvider.ConsentSetFor(GraphCloud.China.ResourceManagerScopes).ToString());
+        var loopback = GraphCloud.LoopbackForTests(1234).ResourceManagerScopes;
+        Assert.Equal(loopback, AzureIdentityTokenProvider.ConsentSetFor(loopback));
+    }
+
+    [Fact]
+    public async Task AResourceManagerDefaultRequestThatNeedsConsent_PromptsForTheArmUserImpersonation_ThenGetsDefaultSilently()
+    {
+        var original = new FakeCredential().Throws(DelegatedSignInTests.ConsentFailure("https://management.azure.com/.default"));
+        var renewed = new FakeCredential().Returns("arm-token", DateTimeOffset.UtcNow.AddHours(1));
+        var prompter = new FakePrompter();
+        using var provider = new AzureIdentityTokenProvider(original, GraphAuthMode.Auto, consentPrompter: prompter, renewCredential: () => renewed);
+
+        var token = await provider.GetTokenAsync(GraphCloud.Public.ResourceManagerScopes, Ct);
+
+        Assert.Equal("arm-token", token.Value);
+        Assert.Equal([GraphCloud.Public.ResourceManagerConsentScopes], prompter.Calls);
+        Assert.Equal(["https://management.azure.com/.default"], renewed.Scopes);
+    }
+
+    [Fact]
+    public async Task AResourceManagerConsentFailure_WithoutAPrompter_NamesTheQualifiedArmScope_AndTheTemplateLogin()
+    {
+        var credential = new FakeCredential().Throws(DelegatedSignInTests.ConsentFailure("https://management.chinacloudapi.cn/.default"));
+        using var provider = new AzureIdentityTokenProvider(credential, GraphAuthMode.Auto, signIn: new SignInAccount("alice@contoso.example", PublicClients.GraphCommandLineTools));
+
+        var error = await Assert.ThrowsAsync<GraphTransportException>(() => provider.GetTokenAsync(GraphCloud.China.ResourceManagerScopes, Ct).AsTask());
+
+        Assert.Equal(GraphCloud.China.ResourceManagerConsentScopes, ConsentRequiredException.FindIn(error)!.Scopes);
+        Assert.Contains("earm auth login --scopes https://management.chinacloudapi.cn/user_impersonation", error.Message, StringComparison.Ordinal);
+        Assert.Contains("earm auth login -f <template>", error.Message, StringComparison.Ordinal);
+    }
+
     // ---- preflight scp check ----------------------------------------------------------------------------------------
 
     [Fact]
@@ -365,6 +411,21 @@ public sealed class RunScopeConsentTests
         Assert.Contains("earm auth login --scopes Group.Read.All Policy.Read.All" + Environment.NewLine, message, StringComparison.Ordinal);
         Assert.Contains("earm auth login -f <template>", message, StringComparison.Ordinal);
         Assert.Contains(GraphAuthGuidance.SharedConsentNote, message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ConsentGuidance_ForResourceManager_ListsTheArmScopeFullyQualified_InBothWordings()
+    {
+        var refused = new ConsentRequiredException(GraphCloud.Public.ResourceManagerConsentScopes, "alice@contoso.example", PublicClients.GraphCommandLineTools, innerException: null);
+        var missing = new ConsentRequiredException(GraphCloud.UsGov.ResourceManagerConsentScopes, null, PublicClients.GraphCommandLineTools, innerException: null, ConsentGap.ScopesMissingFromToken);
+
+        var refusedMessage = GraphAuthGuidance.ConsentNeeded(refused);
+        var missingMessage = GraphAuthGuidance.ConsentNeeded(missing);
+
+        Assert.StartsWith("Consent needed: your sign-in (alice@contoso.example) has not been granted https://management.azure.com/user_impersonation for https://management.azure.com (AADSTS65001)", refusedMessage, StringComparison.Ordinal);
+        Assert.Contains("earm auth login --scopes https://management.azure.com/user_impersonation" + Environment.NewLine, refusedMessage, StringComparison.Ordinal);
+        Assert.StartsWith("Consent needed: your sign-in got an access token for https://management.usgovcloudapi.net whose scp does not include https://management.usgovcloudapi.net/user_impersonation", missingMessage, StringComparison.Ordinal);
+        Assert.Contains("earm auth login --scopes https://management.usgovcloudapi.net/user_impersonation" + Environment.NewLine, missingMessage, StringComparison.Ordinal);
     }
 
     [Fact]

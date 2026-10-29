@@ -107,7 +107,7 @@ public static class WhatIfJson
         }
 
         var summary = view.Summary;
-        return new JsonObject
+        var document = new JsonObject
         {
             ["status"] = "Succeeded",
             ["deploymentName"] = report.DeploymentName,
@@ -136,6 +136,14 @@ public static class WhatIfJson
                 },
             },
         };
+
+        // Only a template with Azure Resource Manager types carries the key (next to requiredPermissions), so Graph-only documents keep their shape.
+        if (report.RequiredAzureRoles.Count > 0)
+        {
+            document.Insert(document.IndexOf("requiredPermissions") + 1, "requiredAzureRoles", new JsonArray([.. report.RequiredAzureRoles.Select(r => (JsonNode?)JsonValue.Create(r))]));
+        }
+
+        return document;
     }
 
     public static JsonObject BuildChange(WhatIfRow row, ResultFormat format)

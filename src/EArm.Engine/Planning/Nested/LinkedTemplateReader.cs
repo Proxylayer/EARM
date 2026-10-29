@@ -66,7 +66,9 @@ public sealed class LinkedTemplateReader
             throw new ArgumentException("'relativePath' is empty.");
         }
 
-        if (relativePath.Contains("://", StringComparison.Ordinal) || Path.IsPathRooted(relativePath) || relativePath.StartsWith('/') || relativePath.StartsWith('\\'))
+        // A drive-letter path (C:/x, C:x) is absolute on every OS: Path.IsPathRooted only knows drive letters on Windows.
+        bool driveLetter = relativePath.Length >= 2 && char.IsAsciiLetter(relativePath[0]) && relativePath[1] == ':';
+        if (relativePath.Contains("://", StringComparison.Ordinal) || driveLetter || Path.IsPathRooted(relativePath) || relativePath.StartsWith('/') || relativePath.StartsWith('\\'))
         {
             throw new ArgumentException($"'relativePath' must be relative to the template ('{relativePath}' is absolute); use 'uri' for an https URL.");
         }

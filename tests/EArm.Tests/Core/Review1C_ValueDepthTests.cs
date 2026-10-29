@@ -7,6 +7,7 @@ using EArm.Core.Json;
 using EArm.Core.Secrets;
 using EArm.Expressions.Values;
 using EArm.Tests.Engine;
+using EArm.TestSupport;
 using Xunit;
 
 namespace EArm.Tests;
@@ -104,25 +105,29 @@ public sealed class Review1C_ValueDepthTests
     [Fact]
     public void EveryRecursiveWalker_FailsWithAValueTooDeepException_OnAHandBuiltTreeOfTwentyThousandLevels()
     {
-        var deep = Review1C.DeepTree(20_000);
-        var other = Review1C.DeepTree(20_000);
+        // On a fixed 1 MiB stack: the guard trips on the remaining stack, and a Linux thread (8 MiB) walks 20,000 levels without reaching it.
+        FixedStackThread.Run(() =>
+        {
+            var deep = Review1C.DeepTree(20_000);
+            var other = Review1C.DeepTree(20_000);
 
-        Assert.Throws<ValueTooDeepException>(() => SecretJson.ContainsSecret(deep));
-        Assert.Throws<ValueTooDeepException>(() => SecretJson.Clone(deep));
-        Assert.Throws<ValueTooDeepException>(() => SecretJson.Taint(deep));
-        Assert.Throws<ValueTooDeepException>(() => SecretJson.Redact(deep));
-        Assert.Throws<ValueTooDeepException>(() => SecretJson.Reveal(deep));
-        Assert.Throws<ValueTooDeepException>(() => CanonicalJson.Serialize(deep));
-        Assert.Throws<ValueTooDeepException>(() => CanonicalJson.Hash(deep));
-        Assert.Throws<ValueTooDeepException>(() => JsonValues.Clone(deep));
-        Assert.Throws<ValueTooDeepException>(() => JsonValues.AreEqual(deep, other));
-        Assert.Throws<ValueTooDeepException>(() => JsonValues.StructuralHash(deep));
-        Assert.Throws<ValueTooDeepException>(() => UnknownJson.ContainsUnknown(deep));
-        Assert.Throws<ValueTooDeepException>(() => UnknownJson.ContainsTaint(deep));
-        Assert.Throws<ValueTooDeepException>(() => UnknownJson.OriginsOf(deep));
-        Assert.Throws<ValueTooDeepException>(() => UnknownJson.Render(deep));
-        Assert.Throws<ValueTooDeepException>(() => TaintHelper.Taint(deep));
-        Assert.Throws<ValueTooDeepException>(() => TaintHelper.RevealSecrets(deep));
+            Assert.Throws<ValueTooDeepException>(() => SecretJson.ContainsSecret(deep));
+            Assert.Throws<ValueTooDeepException>(() => SecretJson.Clone(deep));
+            Assert.Throws<ValueTooDeepException>(() => SecretJson.Taint(deep));
+            Assert.Throws<ValueTooDeepException>(() => SecretJson.Redact(deep));
+            Assert.Throws<ValueTooDeepException>(() => SecretJson.Reveal(deep));
+            Assert.Throws<ValueTooDeepException>(() => CanonicalJson.Serialize(deep));
+            Assert.Throws<ValueTooDeepException>(() => CanonicalJson.Hash(deep));
+            Assert.Throws<ValueTooDeepException>(() => JsonValues.Clone(deep));
+            Assert.Throws<ValueTooDeepException>(() => JsonValues.AreEqual(deep, other));
+            Assert.Throws<ValueTooDeepException>(() => JsonValues.StructuralHash(deep));
+            Assert.Throws<ValueTooDeepException>(() => UnknownJson.ContainsUnknown(deep));
+            Assert.Throws<ValueTooDeepException>(() => UnknownJson.ContainsTaint(deep));
+            Assert.Throws<ValueTooDeepException>(() => UnknownJson.OriginsOf(deep));
+            Assert.Throws<ValueTooDeepException>(() => UnknownJson.Render(deep));
+            Assert.Throws<ValueTooDeepException>(() => TaintHelper.Taint(deep));
+            Assert.Throws<ValueTooDeepException>(() => TaintHelper.RevealSecrets(deep));
+        });
     }
 
     [Fact]

@@ -6,6 +6,41 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-10-28
+
+### Fixed
+
+- The what-if footer names the Azure RBAC roles a template with Azure Resource Manager types needs (`Required Azure roles: …`, `requiredAzureRoles`
+  in the JSON) instead of only `Required permissions: none.`.
+- The per-phase timing lines (event 2090) are logged at Debug, so a run without `--timings` no longer prints them.
+
+## [1.0.0] - 2026-10-28
+
+### Added
+
+- `--timings` on `deployment create`, `what-if`, `validate` and `delete`: when the run ends, a table of its phases (milliseconds, Graph HTTP
+  requests, request-scheduler wait), the time from the process start to the first Graph write, and the total, on standard error whatever the
+  output format. Each phase is also logged as event 2090. See docs/cli.md.
+- Azure Resource Manager access: a separate `https://management.azure.com` token (consent `https://management.azure.com/user_impersonation`,
+  accepted by `earm auth login --scopes` and requested by `earm auth login -f` when the template needs it). `earm permissions` reports
+  `needsResourceManager` and `earm auth status -f` reports `resourceManagerNeeded`, next to the Key Vault need.
+- `Microsoft.Entra/azureRoleManagementPolicies`: the PIM role settings of an Azure RBAC role at a subscription, resource group or resource
+  scope, managed through Azure Resource Manager (`Microsoft.Authorization/roleManagementPolicies`, api-version 2020-10-01) with the same
+  `rules[]` and rule checks as `roleManagementPolicies`. Named by `scope` and `roleDefinitionId` (a GUID or role definition id) or the role's
+  name in `role` (resolved through the scope's role definitions); only the policy assignment of exactly that scope is used, never an
+  inherited one. Only the declared rule ids are managed: each is filled from the live rule (ARM resets a member a rule leaves out), and the
+  changed ones are sent in one PATCH; nothing is sent when nothing changed. Never created (a missing policy is `PimPolicyNotAvailable`) or
+  deleted (`NotDeletable`); management group scopes are refused offline for now. Needs an Azure RBAC role at the scope (Owner, User Access
+  Administrator or Role Based Access Control Administrator), which `earm permissions` lists per policy, and no Graph permission. New sample
+  `samples/azure-pim-policies.entra.json`; see docs/providers.md and docs/pim.md.
+
+### Changed
+
+- Key Vault parameter references are read up to four at a time, and the Complete-mode orphan report lists its types concurrently (up to the
+  run's parallelism); both still report in the same order as before.
+- Once Graph refuses the `uniqueName` alternate-key form of a group or application lookup in a run, the later lookups of that run go straight to
+  the `$filter` query.
+
 ## [0.3.1] - 2026-10-21
 
 ### Added

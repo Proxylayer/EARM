@@ -270,6 +270,7 @@ public sealed class WhatIfReport
         Summary = ChangeSummary.Of(rows.Select(r => r.Change));
         Edges = rows.Aggregate(EdgeSummary.Empty, (total, row) => total + row.Edges);
         RequiredPermissions = plan.RequiredPermissions.OrderBy(p => p, StringComparer.Ordinal).ToList();
+        RequiredAzureRoles = plan.RequiredAzureRoles.OrderBy(r => r, StringComparer.Ordinal).ToList();
         Diagnostics = plan.Diagnostics;
         UnresolvedReferences = plan.UnresolvedReferences;
     }
@@ -291,6 +292,9 @@ public sealed class WhatIfReport
 
     /// <summary>Sorted union of the Graph application permissions the plan needs.</summary>
     public IReadOnlyList<string> RequiredPermissions { get; }
+
+    /// <summary>Sorted union of the Azure RBAC roles the plan needs (Azure Resource Manager types); empty for a Graph-only template.</summary>
+    public IReadOnlyList<string> RequiredAzureRoles { get; }
 
     public IReadOnlyList<Diagnostic> Diagnostics { get; }
 

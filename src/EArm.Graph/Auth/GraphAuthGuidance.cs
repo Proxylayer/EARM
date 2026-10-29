@@ -96,8 +96,8 @@ public static partial class GraphAuthGuidance
             builder.Append(" (").Append(SecretRedactor.RedactText(consent.Account)).Append(')');
         }
 
-        // Graph scopes are listed by name (as --scopes and a token's scp take them); a Key Vault scope fully qualified.
-        var listed = IsKeyVault(consent.Scopes.Resource) ? consent.Scopes.Scopes : consent.Scopes.Names;
+        // Graph scopes are listed by name (as --scopes and a token's scp take them); a Key Vault or Azure Resource Manager scope fully qualified.
+        var listed = IsKeyVaultOrResourceManager(consent.Scopes.Resource) ? consent.Scopes.Scopes : consent.Scopes.Names;
         if (consent.Gap == ConsentGap.ScopesMissingFromToken)
         {
             // A token WAS issued (no AADSTS65001): its scp lacks the scopes, so the sign-in app has no grant for them (never given, or revoked since).
@@ -124,11 +124,12 @@ public static partial class GraphAuthGuidance
         return string.IsNullOrWhiteSpace(clientId) || PublicClients.NameOf(clientId) is not null ? string.Empty : " --client-id " + clientId;
     }
 
-    private static bool IsKeyVault(string resource)
+    private static bool IsKeyVaultOrResourceManager(string resource)
     {
         foreach (var cloud in GraphCloud.All)
         {
-            if (string.Equals(resource, cloud.KeyVaultResource, StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(resource, cloud.KeyVaultResource, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(resource, cloud.ResourceManagerOrigin, StringComparison.OrdinalIgnoreCase))
             {
                 return true;
             }

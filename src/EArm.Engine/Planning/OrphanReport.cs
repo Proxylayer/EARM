@@ -57,6 +57,8 @@ internal sealed class OrphanReport
         var diagnostics = new List<Diagnostic>();
         var skippedTenantWide = new List<string>();
 
+        // 1. Decide, type by type (ordinal order), what is listed; a type that is not listed may leave a note in its place.
+        var slots = new List<TypeSlot>();
         foreach (var group in _plan.Instances.GroupBy(i => i.Type, StringComparer.OrdinalIgnoreCase).OrderBy(g => g.Key, StringComparer.Ordinal))
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -89,7 +91,7 @@ internal sealed class OrphanReport
 
             if (declared.FirstOrDefault(i => i.IsSymbolic || i.Condition is null || !isSettled(i)) is { } unsettled)
             {
-                diagnostics.Add(Diagnostic.Warning(EngineDiagnosticCodes.OrphanReportIncomplete, $"Undeclared objects of type '{group.Key}' were not listed: the live object of {unsettled.Describe()} is not known in this run (a deploy-time name or condition, or a read or apply that failed)."));
+                slots.Add(new TypeSlot(group, source) { Note = Diagnostic.Warning(EngineDiagnosticCodes.OrphanReportIncomplete, $"Undeclared objects of type '{group.Key}' were not listed: the live object of {unsettled.Describe()} is not known in this run (a deploy-time name or condition, or a read or apply that failed).") });
                 continue;
             }
 
@@ -99,27 +101,25 @@ internal sealed class OrphanReport
                 continue;
             }
 
-            IReadOnlyList<OrphanCandidate> candidates;
-            try
+            slots.Add(new TypeSlot(group, source) { Query = query });
+        }
+
+        // 2. List the types concurrently (at most the plan's parallelism at once); each listing keeps its own outcome.
+        var parallel = new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, _plan.Parallelism), CancellationToken = cancellationToken };
+        await Parallel.ForEachAsync(slots.Where(s => s.Query is not null), parallel, (slot, ct) => new ValueTask(ListAsync(slot, ct))).ConfigureAwait(false);
+
+        // 3. Report in the order of step 1, so the rows and the notes never depend on which listing finished first.
+        foreach (var slot in slots)
+        {
+            var group = slot.Group;
+            var source = slot.Source;
+            if (slot.Note is { } note)
             {
-                candidates = await _retry.WithRetryAsync(ct => source.ListOrphanCandidatesAsync(query, _graph, ct), RetryHint.Default, cancellationToken).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (Exception ex) when (ex is GraphException or GraphTransportException or ProviderException)
-            {
-                diagnostics.Add(Diagnostic.Warning(EngineDiagnosticCodes.OrphanReportIncomplete, $"Undeclared objects of type '{group.Key}' could not be listed: {SecretRegistration.Scrub(ex.Message)}"));
-                continue;
-            }
-            catch (OperationCanceledException ex)
-            {
-                // Not the caller's cancellation (an HTTP timeout): this type is not listed, the report goes on.
-                diagnostics.Add(Diagnostic.Warning(EngineDiagnosticCodes.OrphanReportIncomplete, $"Undeclared objects of type '{group.Key}' could not be listed: {NonCallerCancellation.Describe(ex)}"));
+                diagnostics.Add(note);
                 continue;
             }
 
+            var candidates = slot.Candidates!;
             var claimed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var instance in group)
             {
@@ -153,6 +153,43 @@ internal sealed class OrphanReport
         }
 
         return new OrphanReportResult(rows, diagnostics);
+    }
+
+    /// <summary>Lists the candidates of one type; a failure becomes the type's note (the report goes on), the caller's cancellation ends the report.</summary>
+    private async Task ListAsync(TypeSlot slot, CancellationToken cancellationToken)
+    {
+        var query = slot.Query!;
+        try
+        {
+            slot.Candidates = await _retry.WithRetryAsync(ct => slot.Source.ListOrphanCandidatesAsync(query, _graph, ct), RetryHint.Default, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is GraphException or GraphTransportException or ProviderException)
+        {
+            slot.Note = Diagnostic.Warning(EngineDiagnosticCodes.OrphanReportIncomplete, $"Undeclared objects of type '{slot.Group.Key}' could not be listed: {SecretRegistration.Scrub(ex.Message)}");
+        }
+        catch (OperationCanceledException ex)
+        {
+            // Not the caller's cancellation (an HTTP timeout): this type is not listed, the report goes on.
+            slot.Note = Diagnostic.Warning(EngineDiagnosticCodes.OrphanReportIncomplete, $"Undeclared objects of type '{slot.Group.Key}' could not be listed: {NonCallerCancellation.Describe(ex)}");
+        }
+    }
+
+    /// <summary>One declared type in the report: listed (<see cref="Query"/>, then <see cref="Candidates"/>) or not (<see cref="Note"/> says why).</summary>
+    private sealed class TypeSlot(IGrouping<string, ResourceInstance> group, IOrphanCandidateSource source)
+    {
+        public IGrouping<string, ResourceInstance> Group { get; } = group;
+
+        public IOrphanCandidateSource Source { get; } = source;
+
+        public OrphanQuery? Query { get; init; }
+
+        public IReadOnlyList<OrphanCandidate>? Candidates { get; set; }
+
+        public Diagnostic? Note { get; set; }
     }
 
     /// <summary>

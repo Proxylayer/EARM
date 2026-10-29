@@ -36,8 +36,13 @@ namespace EArm.Integration.Tests;
 /// command. A service principal (<c>AZURE_*</c> variables, or <c>EARM_AUTH=default</c>) keeps <c>.default</c>.
 /// </para>
 /// <para>
-/// Cleanup guard: <see cref="DisposeAsync"/> (0) restores every authentication method and PIM policy snapshot a test left pending
-/// (<see cref="AuthMethodRestoreGuard"/>, <see cref="PimPolicyRestoreGuard"/>), (1) sweeps everything whose name starts with the run
+/// Azure Resource Manager: with <c>EARM_IT_ALLOW_AZURE_PIM_POLICIES=1</c> and a valid <c>EARM_IT_AZURE_SCOPE</c> the fixture also builds an
+/// <see cref="ArmClient"/> over the same sign-in (<see cref="AzureResourceManagerSession"/>) and reads the resource group once; a failure (no consent for
+/// Azure Resource Manager, no access to the subscription) skips only the tests that need <see cref="Needs.AzurePimPolicies"/>, with the reason.
+/// </para>
+/// <para>
+/// Cleanup guard: <see cref="DisposeAsync"/> (0) restores every authentication method, PIM policy and Azure PIM policy snapshot a test left pending
+/// (<see cref="AuthMethodRestoreGuard"/>, <see cref="PimPolicyRestoreGuard"/>, <see cref="AzurePimPolicyRestoreGuard"/>), (1) sweeps everything whose name starts with the run
 /// prefix (<see cref="TenantCleanup"/>; with <c>EARM_IT_ALLOW_PIM=1</c> first the PIM schedules of the prefixed principals, <see cref="PimCleanup"/>)
 /// and purges their soft-deleted copies, (2) writes a log into the run
 /// directory and fails loudly when a live object with the prefix could not be removed. Objects without the prefix are
@@ -55,6 +60,8 @@ public sealed class IntegrationFixture : IAsyncLifetime
     private IGraphTokenProvider? _tokens;
     private HttpGraphClient? _graph;
     private string _unavailableReason = string.Empty;
+    private AzureResourceManagerSession? _azure;
+    private string _azureUnavailableReason = "the Azure Resource Manager client was not set up (the real-tenant stack did not get that far).";
 
     public IntegrationFixture()
     {
@@ -115,6 +122,9 @@ public sealed class IntegrationFixture : IAsyncLifetime
 
     private PimPolicyRestoreGuard? _pimPolicies;
 
+    /// <summary>The Azure Resource Manager client, response recorder and policy guard of the Azure PIM policy probes (after <see cref="Require"/> with <see cref="Needs.AzurePimPolicies"/>).</summary>
+    internal AzureResourceManagerSession Azure => _azure ?? throw new InvalidOperationException("The Azure Resource Manager client is not available: " + _azureUnavailableReason);
+
     /// <summary>What the cleanup guard did (filled by <see cref="DisposeAsync"/> or <see cref="SweepNowAsync"/>).</summary>
     public IReadOnlyList<string> CleanupLog { get; private set; } = [];
 
@@ -141,6 +151,27 @@ public sealed class IntegrationFixture : IAsyncLifetime
             !needs.HasFlag(Needs.SharePointSite) || (Settings.SharePointSiteUrl is not null && Settings.SharePointSiteRole is not null),
             $"{IntegrationSettings.SharePointSiteUrlVariable} and {IntegrationSettings.SharePointSiteRoleVariable} are required to add an existing SharePoint Online site to a prefixed catalog (the signed-in user must be a SharePoint Administrator or an administrator of the site; Graph lists sites in a catalog only to delegated callers).");
         Assert.SkipUnless(!needs.HasFlag(Needs.PimPolicies) || Settings.AllowPimPolicies, $"{IntegrationSettings.AllowPimPoliciesVariable}=1 is required to change PIM role management policies (Message Center Reader and prefixed test groups only; snapshot first, restored at the end).");
+        if (needs.HasFlag(Needs.AzurePimPolicies))
+        {
+            RequireAzure();
+        }
+    }
+
+    /// <summary>The gates of <see cref="Needs.AzurePimPolicies"/>: a refused scope or role fails the test (a dangerous value is never silently skipped).</summary>
+    private void RequireAzure()
+    {
+        Assert.SkipUnless(
+            Settings.AllowAzurePimPolicies,
+            $"{IntegrationSettings.AllowAzurePimPoliciesVariable}=1 is required to change an Azure PIM role management policy (one role, default Reader, at the resource group {IntegrationSettings.AzureScopeVariable}; snapshot first, restored at the end).");
+        if (Settings.AzurePimPolicyProblem is { } problem)
+        {
+            Assert.Fail(problem);
+        }
+
+        Assert.SkipUnless(
+            Settings.AzurePimPolicyTarget is not null,
+            $"{IntegrationSettings.AzureScopeVariable} is not set: name a throw-away resource group, /subscriptions/{{subscription-id}}/resourceGroups/{{name}}, where the signed-in user is Owner, User Access Administrator or Role Based Access Control Administrator (active).");
+        Assert.SkipUnless(_azure is not null, "The Azure PIM policy probes are skipped: " + _azureUnavailableReason);
     }
 
     /// <summary>The verified domain; only valid after <see cref="Require"/> with <see cref="Needs.Domain"/>.</summary>
@@ -275,6 +306,36 @@ public sealed class IntegrationFixture : IAsyncLifetime
         {
             _unavailableReason = $"EARM is signed in to tenant {Session.TenantId}, but {IntegrationSettings.TenantVariable} is {Settings.TenantId}; sign in to that tenant (AZURE_TENANT_ID, or 'earm auth login --tenant {Settings.TenantId}'). The real-tenant tests are skipped.";
             Session = null;
+            return;
+        }
+
+        if (Settings.AllowAzurePimPolicies && Settings.AzurePimPolicyTarget is { } target)
+        {
+            await ConnectAzureAsync(target, cloud, auth, retryPolicy, cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// Builds the Azure Resource Manager session and reads the resource group once. A failure leaves <see cref="Azure"/> unavailable with the reason (the
+    /// ARM error code, or the consent command), which only the tests that need <see cref="Needs.AzurePimPolicies"/> report.
+    /// </summary>
+    private async Task ConnectAzureAsync(AzurePimPolicyTarget target, GraphCloud cloud, GraphAuthOptions auth, RetryPolicy retryPolicy, CancellationToken cancellationToken)
+    {
+        var azure = new AzureResourceManagerSession(_tokens!, retryPolicy, cloud, target, RunDirectory, _loggerFactory!);
+        try
+        {
+            await azure.PreflightAsync(cancellationToken);
+            _azure = azure;
+            _azureUnavailableReason = string.Empty;
+        }
+        catch (Exception ex) when (ex is GraphTransportException or GraphException)
+        {
+            azure.Dispose();
+            _azureUnavailableReason = ConsentRequiredException.FindIn(ex) is { } consent
+                ? AzureConsentMissingReason(consent, cloud, auth)
+                : ex is GraphException arm
+                    ? $"reading the resource group {target.Scope} through Azure Resource Manager failed with {ProbeReport.Describe(arm)} (the signed-in identity needs at least read access to it, and Owner, User Access Administrator or Role Based Access Control Administrator, active, to change its PIM policies)."
+                    : $"reading the resource group {target.Scope} through Azure Resource Manager failed: {ex.Message}";
         }
     }
 
@@ -297,6 +358,7 @@ public sealed class IntegrationFixture : IAsyncLifetime
         finally
         {
             _http?.Dispose();
+            _azure?.Dispose();
             (_tokens as IDisposable)?.Dispose();
             _loggerFactory?.Dispose();
             _logCapture.Dispose();
@@ -381,6 +443,12 @@ public sealed class IntegrationFixture : IAsyncLifetime
             }
         }
 
+        // The Azure PIM policy snapshot likewise (one policy at one resource group, never deletable).
+        if (_azure is not null && _azure.Policies.Pending.Count > 0)
+        {
+            _leftovers.AddRange(await _azure.Policies.RestoreAllAsync(log, cancellationToken));
+        }
+
         // The prefix sweep removes everything the runs created (every test object carries the run prefix), also what a failed
         // 'deployment delete' left behind and everything tests created directly.
         var cleanup = new TenantCleanup(_graph, Prefix, includePim: Settings.AllowPim, includeAccessPackages: Settings.AllowAccessPackages, includeAccessReviews: Settings.AllowAccessReviews);
@@ -452,6 +520,17 @@ public sealed class IntegrationFixture : IAsyncLifetime
         string account = string.IsNullOrWhiteSpace(consent.Account) ? "The stored sign-in" : $"The stored sign-in ({consent.Account})";
         return $"{account} has not been granted every delegated scope the enabled scenarios need (missing: {string.Join(' ', consent.Scopes.Names)}), so the real-tenant tests are skipped. "
             + $"Consent once, interactively, for the whole run with:{Environment.NewLine}  {IntegrationScopes.LoginCommand(RunScopes, Settings.TenantId, clientId)}{Environment.NewLine}"
+            + $"or set {IntegrationSettings.InteractiveVariable}=1 to be prompted once at the start of the run. "
+            + GraphAuthGuidance.SharedConsentNote;
+    }
+
+    /// <summary>Why the Azure PIM policy probes skip when the user sign-in has not consented Azure Resource Manager: the one command that adds that consent.</summary>
+    private string AzureConsentMissingReason(ConsentRequiredException consent, GraphCloud cloud, GraphAuthOptions auth)
+    {
+        string? clientId = auth.ClientId ?? (PublicClients.NameOf(consent.ClientId) is null ? consent.ClientId : null);
+        string account = string.IsNullOrWhiteSpace(consent.Account) ? "the stored sign-in" : $"the stored sign-in ({consent.Account})";
+        return $"{account} has not consented Azure Resource Manager ({string.Join(' ', cloud.ResourceManagerConsentScopes.Scopes)}). Consent once, interactively, with:{Environment.NewLine}"
+            + $"  {IntegrationScopes.LoginCommand(cloud.ResourceManagerConsentScopes.Scopes, Settings.TenantId, clientId)}{Environment.NewLine}"
             + $"or set {IntegrationSettings.InteractiveVariable}=1 to be prompted once at the start of the run. "
             + GraphAuthGuidance.SharedConsentNote;
     }

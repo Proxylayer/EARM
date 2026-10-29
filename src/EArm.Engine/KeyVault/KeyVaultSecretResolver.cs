@@ -41,6 +41,9 @@ public sealed class KeyVaultResolutionException : Exception
 /// </summary>
 public sealed class KeyVaultSecretResolver
 {
+    /// <summary>The most secrets <see cref="ResolveAsync"/> reads at the same time.</summary>
+    internal const int MaxConcurrentReads = 4;
+
     private readonly KeyVaultClient _client;
     private readonly ILogger _logger;
 
@@ -76,10 +79,19 @@ public sealed class KeyVaultSecretResolver
             values[pair.Key] = pair.Value;
         }
 
-        foreach (var bound in document.ParameterValues.Values.Where(b => b.PendingReference is not null).OrderBy(b => b.Name, StringComparer.OrdinalIgnoreCase))
+        // The secrets are read concurrently (at most MaxConcurrentReads at once), then taken in parameter-name order: the first failure reported, the
+        // constraint checks and the log lines are those of a one-by-one read. Every read is finished (or failed) before anything is reported, so
+        // none is left running or unobserved.
+        var pending = document.ParameterValues.Values.Where(b => b.PendingReference is not null).OrderBy(b => b.Name, StringComparer.OrdinalIgnoreCase).ToList();
+        using var throttle = new SemaphoreSlim(MaxConcurrentReads);
+        var reads = pending.Select(bound => ReadThrottledAsync(throttle, bound.Name, bound.PendingReference!, cancellationToken)).ToList();
+        await ((Task)Task.WhenAll(reads)).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+
+        for (int i = 0; i < pending.Count; i++)
         {
+            var bound = pending[i];
             var reference = bound.PendingReference!;
-            string secret = await GetSecretAsync(bound.Name, reference, cancellationToken).ConfigureAwait(false);
+            string secret = await reads[i].ConfigureAwait(false);
             SecretScrubber.Register(secret, secureDeclared: true);
             var value = SecretJson.CreateString(secret);
 
@@ -99,6 +111,19 @@ public sealed class KeyVaultSecretResolver
         }
 
         return document with { ParameterValues = values };
+    }
+
+    private async Task<string> ReadThrottledAsync(SemaphoreSlim throttle, string parameterName, KeyVaultReference reference, CancellationToken cancellationToken)
+    {
+        await throttle.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            return await GetSecretAsync(parameterName, reference, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            throttle.Release();
+        }
     }
 
     /// <summary>Reads one secret's value. The returned string is the raw secret: wrap it (<see cref="SecretJson.CreateString"/>) before it travels anywhere.</summary>

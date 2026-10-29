@@ -1,7 +1,7 @@
 # Privileged access (PIM)
 
 EARM manages Microsoft Entra **Privileged Identity Management** (PIM) for directory roles and for groups with five resource types, shaped after ARM's
-PIM for Azure resources where ARM has one:
+PIM for Azure resources where ARM has one, and the PIM role settings of Azure roles with a sixth:
 
 | Type (`Microsoft.Entra/...`) | What it declares | ARM analogue |
 |---|---|---|
@@ -10,6 +10,7 @@ PIM for Azure resources where ARM has one:
 | `privilegedAccess/groupEligibilityScheduleRequests` | A user or group **eligible** for the membership or ownership of a group (PIM for Groups) | none |
 | `privilegedAccess/groupAssignmentScheduleRequests` | A **time-bound active** membership or ownership of a group through PIM for Groups | none |
 | `roleManagementPolicies` | The PIM policy **rules** (role settings) of a directory role or of a group's member / owner access: activation duration, MFA, justification, approval, authentication context, assignment expiry, notifications | `Microsoft.Authorization/roleManagementPolicies` |
+| `azureRoleManagementPolicies` | The same PIM policy **rules** for an **Azure RBAC role at an Azure scope** (a subscription, a resource group or a resource), written through Azure Resource Manager, not Graph: named by `scope` and `roleDefinitionId` (or the role's name in `role`); never created or deleted, only the declared rule ids are managed, and the changed ones are sent in one PATCH ([providers.md](providers.md#worked-example-azure-pim-role-management-policies), sample [`azure-pim-policies.entra.json`](../samples/azure-pim-policies.entra.json)) | `Microsoft.Authorization/roleManagementPolicies` (the same resource) |
 
 Property-level detail is in [format.md](format.md#resource-type-catalog) and the provider view in [providers.md](providers.md#worked-example-pim-eligibility-for-directory-roles);
 this page explains how the pieces fit together. The sample [`samples/privileged-access.entra.json`](../samples/privileged-access.entra.json) combines them
@@ -167,7 +168,10 @@ not check that combination offline.
 PIM needs **Microsoft Entra ID P2** or **Microsoft Entra ID Governance** in the tenant; without it Graph refuses the requests. The Graph permissions per type
 (`RoleEligibilitySchedule.ReadWrite.Directory`, `RoleAssignmentSchedule.ReadWrite.Directory`, `PrivilegedEligibilitySchedule.ReadWrite.AzureADGroup`,
 `PrivilegedAssignmentSchedule.ReadWrite.AzureADGroup`, `RoleManagementPolicy.ReadWrite.Directory` / `.AzureADGroup`) and Entra roles are in
-[permissions.md](permissions.md#manifest-by-type). They are escalation-capable: read [SECURITY.md](../SECURITY.md#privileged-access-and-authentication-methods).
+[permissions.md](permissions.md#manifest-by-type). They are escalation-capable: read [SECURITY.md](../SECURITY.md#privileged-access-and-authentication-methods). `azureRoleManagementPolicies`
+needs no Graph permission and no Entra licence check of its own: an Azure RBAC role at the policy's scope that may write role management policies (Owner,
+User Access Administrator or Role Based Access Control Administrator; Reader for a what-if), and a delegated sign-in's one-time Azure Resource Manager consent
+(`earm auth login -f <template>`); `earm permissions` lists the grant per policy and scope.
 
 A signed-in user needs the Entra role **active**, not just eligible: PIM checks the roles the token carries. For PIM for Groups
 (`privilegedAccess/groupEligibilityScheduleRequests`, `groupAssignmentScheduleRequests`) that is a directory-scope **Groups Administrator**, **Identity
@@ -192,5 +196,6 @@ dependency was created in the same run, repeats that 403 on `/identityGovernance
 
 ## Not covered
 
-PIM for Azure resources (use ARM's own `Microsoft.Authorization` types), PIM alerts and their settings, access reviews, and activating an eligibility
+PIM eligibility and active assignment requests for Azure resources (use ARM's own `Microsoft.Authorization` types; their role settings are
+`azureRoleManagementPolicies`), Azure role settings at a management group scope (refused until verified), PIM alerts and their settings, access reviews, and activating an eligibility
 (a user's action, not a deployment).

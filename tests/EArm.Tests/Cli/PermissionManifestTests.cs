@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using EArm.Core;
+using EArm.Core.Loading;
 using EArm.Core.Types;
 using EArm.Engine.Permissions;
 using EArm.Providers;
@@ -228,5 +229,74 @@ public sealed class PermissionManifestTests
         Assert.Throws<ArgumentNullException>(() => PermissionManifest.Build("t", PermissionMode.App, [], null!, [], [], 0));
         Assert.Throws<ArgumentNullException>(() => PermissionManifest.Build("t", PermissionMode.App, [], registry, null!, [], 0));
         Assert.Throws<ArgumentNullException>(() => PermissionManifest.Build("t", PermissionMode.App, [], registry, [], null!, 0));
+    }
+
+    // ---- Azure role management policies (Azure Resource Manager) ----
+
+    private const string AzurePolicyType = "Microsoft.Entra/azureRoleManagementPolicies";
+    private const string AzurePolicyName = "3f6e1a2b-7c8d-4e9f-a0b1-c2d3e4f5a6b7";
+    private const string AzureRgScope = "/subscriptions/6e1f4c2a-0000-4000-8000-000000000003/resourceGroups/rg-app";
+    private const string AzurePolicyNote = "Azure role management policies (Microsoft.Entra/azureRoleManagementPolicies) are read and written through Azure Resource Manager";
+
+    private static PermissionReport BuildFrom(PermissionMode mode, params string[] resources)
+    {
+        string json = "{ \"$schema\": \"https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#\", \"contentVersion\": \"1.0.0.0\", \"resources\": [ " + string.Join(", ", resources) + " ] }";
+        var document = new TemplateLoader(ResourceTypeCatalog.Default).Parse(json, "inline.entra.json", ParameterSet.Empty);
+        var expansion = OfflineTemplateExpansion.Run(document, ResourceTypeCatalog.Default);
+        Assert.True(expansion.Succeeded);
+        return PermissionManifest.Build("t.entra.json", mode, expansion, ProviderDiscovery.CreateRegistry(ResourceTypeCatalog.Default));
+    }
+
+    private static string AzurePolicy(string scope)
+    {
+        return "{ \"type\": \"" + AzurePolicyType + "\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"" + AzurePolicyName + "\", \"properties\": { \"scope\": \"" + scope + "\", \"role\": \"Reader\", \"rules\": [ { \"id\": \"Expiration_EndUser_Assignment\", \"maximumDuration\": \"PT4H\" } ] } }";
+    }
+
+    private static string Group(string name)
+    {
+        return "{ \"type\": \"Microsoft.Entra/groups\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"" + name + "\", \"properties\": { \"displayName\": \"" + name + "\", \"mailEnabled\": false, \"mailNickname\": \"" + name + "\", \"securityEnabled\": true } }";
+    }
+
+    [Theory]
+    [InlineData(PermissionMode.App)]
+    [InlineData(PermissionMode.Delegated)]
+    public void Build_AnAzurePolicy_IsOneAzureRbacEntry_AtItsNormalisedLiteralScope_AndNoGraphPermission(PermissionMode mode)
+    {
+        var report = BuildFrom(mode, AzurePolicy("/SUBSCRIPTIONS/6E1F4C2A-0000-4000-8000-000000000003/resourcegroups/rg-app/"));
+
+        string resource = "/providers/" + AzurePolicyType + "/" + AzurePolicyName;
+        var entry = Assert.Single(report.Permissions, p => p.Resources.Contains(resource));
+        Assert.Equal(PermissionKind.AzureRbac, entry.Kind);
+        Assert.Contains("'Microsoft.Authorization/roleManagementPolicies/write'", entry.Name, StringComparison.Ordinal);
+        Assert.EndsWith("at scope '" + AzureRgScope + "'", entry.Name, StringComparison.Ordinal);
+        Assert.Contains(entry.Reasons, r => r.Contains("PATCH {scope}/providers/Microsoft.Authorization/roleManagementPolicies/{policy}", StringComparison.Ordinal));
+        Assert.Empty(report.Roles);
+        Assert.DoesNotContain(report.Permissions, p => p.Kind != PermissionKind.AzureRbac && p.Resources.Contains(resource));
+        if (mode == PermissionMode.Delegated)
+        {
+            Assert.Equal([entry], report.Permissions);
+        }
+    }
+
+    [Fact]
+    public void Build_AnAzurePolicyWhoseScopeIsKnownOnlyAtDeployment_NamesAPlaceholderScope()
+    {
+        string scope = "[format('/subscriptions/6e1f4c2a-0000-4000-8000-000000000003/resourceGroups/{0}', reference(resourceId('Microsoft.Entra/groups', 'g1')).id)]";
+
+        var report = BuildFrom(PermissionMode.Delegated, Group("g1"), AzurePolicy(scope));
+
+        var entry = Assert.Single(report.Permissions, p => p.Kind == PermissionKind.AzureRbac);
+        Assert.EndsWith("at scope '(the declared scope, known at deployment)'", entry.Name, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Build_TheResourceManagerNote_AppearsOnlyWhenAnAzurePolicyIsDeclared()
+    {
+        var with = BuildFrom(PermissionMode.Delegated, AzurePolicy(AzureRgScope));
+        var without = BuildFrom(PermissionMode.Delegated, Group("g1"));
+
+        Assert.Single(with.Notes, n => n.StartsWith(AzurePolicyNote, StringComparison.Ordinal));
+        Assert.DoesNotContain(without.Notes, n => n.Contains("azureRoleManagementPolicies", StringComparison.Ordinal));
+        Assert.DoesNotContain(without.Permissions, p => p.Kind == PermissionKind.AzureRbac);
     }
 }

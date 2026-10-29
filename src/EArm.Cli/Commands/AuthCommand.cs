@@ -29,7 +29,7 @@ internal sealed record AuthInvocation
     /// <summary><c>auth login --device-code</c>: the device-code flow instead of a browser.</summary>
     public bool DeviceCode { get; init; }
 
-    /// <summary><c>auth login --scopes</c>: extra delegated scopes to consent (short Graph names, qualified Graph scopes, or the Key Vault scope).</summary>
+    /// <summary><c>auth login --scopes</c>: extra delegated scopes to consent (short Graph names, qualified Graph scopes, the Key Vault scope or the Azure Resource Manager scope).</summary>
     public IReadOnlyList<string> Scopes { get; init; } = [];
 
     /// <summary><c>-f</c>: the template whose run scopes <c>login</c> consents and <c>status</c> checks; null without one.</summary>
@@ -69,7 +69,7 @@ internal static class AuthCommand
         };
         var scopes = new Option<string[]>("--scopes")
         {
-            Description = "Extra delegated scopes to consent now, besides User.Read: Microsoft Graph names (Group.ReadWrite.All), qualified Graph scopes, or the Key Vault scope (https://vault.azure.net/user_impersonation). Space- or comma-separated.",
+            Description = "Extra delegated scopes to consent now, besides User.Read: Microsoft Graph names (Group.ReadWrite.All), qualified Graph scopes, the Key Vault scope (https://vault.azure.net/user_impersonation) or the Azure Resource Manager scope (https://management.azure.com/user_impersonation). Space- or comma-separated.",
             AllowMultipleArgumentsPerToken = true,
             DefaultValueFactory = _ => [],
         };
@@ -176,6 +176,7 @@ internal static class AuthCommand
                     ["record"] = factory.RecordStore.FilePath,
                     ["scopes"] = ToArray(consent.Graph.Names),
                     ["keyVaultScopes"] = ToArray(consent.KeyVault?.Scopes ?? []),
+                    ["resourceManagerScopes"] = ToArray(consent.ResourceManager?.Scopes ?? []),
                 }.ToJsonString(JsonOptions));
             }
             else if (invocation.Output == OutputFormat.Table)
@@ -185,6 +186,11 @@ internal static class AuthCommand
                 if (consent.KeyVault is not null)
                 {
                     stdout.WriteLine($"Key Vault scopes consented: {string.Join(' ', consent.KeyVault.Scopes)}");
+                }
+
+                if (consent.ResourceManager is not null)
+                {
+                    stdout.WriteLine($"Azure Resource Manager scopes consented: {string.Join(' ', consent.ResourceManager.Scopes)}");
                 }
 
                 stdout.WriteLine($"The sign-in record (no secrets) is stored at {factory.RecordStore.FilePath}; the tokens are in the encrypted '{GraphAuthFactory.CacheName}' cache of this machine.");
@@ -311,7 +317,7 @@ internal static class AuthCommand
                     return StatusFailure(invocation.Output, stdout, stderr, ValidateCommand.InvalidArgumentCode, AppOnlyTemplateCheck, ExitCodes.Failure);
                 }
 
-                status = status.WithRequired(required.GraphScopes, required.NeedsKeyVault);
+                status = status.WithRequired(required.GraphScopes, required.NeedsKeyVault, required.NeedsResourceManager);
             }
 
             Write(status, invocation.Output, stdout);
@@ -406,6 +412,7 @@ internal static class AuthCommand
                 json["requiredScopes"] = ToArray(status.RequiredScopes);
                 json["missingScopes"] = ToArray(status.MissingScopes);
                 json["keyVaultNeeded"] = status.KeyVaultNeeded;
+                json["resourceManagerNeeded"] = status.ResourceManagerNeeded;
             }
 
             stdout.WriteLine(json.ToJsonString(JsonOptions));
@@ -456,6 +463,11 @@ internal static class AuthCommand
             if (status.KeyVaultNeeded)
             {
                 stdout.WriteLine("Key Vault:     the template resolves Key Vault references; 'earm auth login -f <template>' also consents the Key Vault scope (user_impersonation).");
+            }
+
+            if (status.ResourceManagerNeeded)
+            {
+                stdout.WriteLine("ARM:           the template declares Azure Resource Manager resources; 'earm auth login -f <template>' also consents the Azure Resource Manager scope (user_impersonation).");
             }
         }
     }
