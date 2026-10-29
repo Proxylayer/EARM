@@ -196,7 +196,7 @@ public sealed class RunTimingsTests
         timings.UseLogger(logger);
 
         Assert.Equal(2, logger.Entries.Count);
-        Assert.All(logger.Entries, e => Assert.Equal((2090, LogLevel.Information), (e.EventId, e.Level)));
+        Assert.All(logger.Entries, e => Assert.Equal((2090, LogLevel.Debug), (e.EventId, e.Level)));
         var finished = timings.Phases;
         Assert.Equal(
             [$"Phase load template: {finished[0].ElapsedMs} ms, 0 Graph requests", $"Phase run scopes: {finished[1].ElapsedMs} ms, 3 Graph requests"],

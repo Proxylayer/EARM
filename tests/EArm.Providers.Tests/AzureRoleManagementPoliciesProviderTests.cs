@@ -546,6 +546,56 @@ public sealed class AzureRoleManagementPoliciesProviderTests
         Assert.Empty(env.Provider.RequiredPermissions(whatIf.Plan.Instances.Single()));
     }
 
+    // ---- required Azure roles (the what-if footer) ----
+
+    private const string RoleList = "Owner, User Access Administrator or Role Based Access Control Administrator at ";
+
+    [Fact]
+    public async Task RequiredAzureRoles_NameTheRolesThatMayWriteThePolicy_AtTheDeclaredScope()
+    {
+        var env = Create();
+        var whatIf = await env.Host.WhatIfAsync(env.Host.Resources(Policy("""{ "id": "Expiration_EndUser_Assignment" }""")));
+
+        var role = Assert.Single(env.Provider.RequiredAzureRoles(whatIf.Plan.Instances.Single()));
+
+        Assert.Equal(RoleList + "'" + Rg + "'", role);
+    }
+
+    [Fact]
+    public async Task RequiredAzureRoles_NormaliseTheScope_LowerCaseSubscription_WithoutTheTrailingSlash()
+    {
+        var env = Create();
+        var instance = await InstanceFactory.WithPropertiesAsync(
+            env.Host,
+            Policy("""{ "id": "Expiration_EndUser_Assignment" }"""),
+            "{ \"scope\": \" /subscriptions/" + Subscription.ToUpperInvariant() + "/resourceGroups/rg-earm/ \", \"roleDefinitionId\": \"" + Reader + "\" }");
+
+        Assert.Equal([RoleList + "'" + Rg + "'"], env.Provider.RequiredAzureRoles(instance));
+    }
+
+    [Fact]
+    public async Task RequiredAzureRoles_KeepAScopeThatIsNotAnAzureScope_AsDeclared()
+    {
+        var env = Create();
+        var instance = await InstanceFactory.WithPropertiesAsync(env.Host, Policy("""{ "id": "Expiration_EndUser_Assignment" }"""), "{ \"scope\": \"/not/an/azure/scope\" }");
+
+        Assert.Equal([RoleList + "'/not/an/azure/scope'"], env.Provider.RequiredAzureRoles(instance));
+    }
+
+    [Fact]
+    public async Task RequiredAzureRoles_WithoutAnInstanceOrAScope_SayTheDeclaredScope()
+    {
+        var env = Create();
+        var withoutScope = await InstanceFactory.WithPropertiesAsync(env.Host, Policy("""{ "id": "Expiration_EndUser_Assignment" }"""), "{ \"roleDefinitionId\": \"" + Reader + "\" }");
+
+        Assert.Equal([RoleList + "'the declared scope'"], env.Provider.RequiredAzureRoles(null));
+        Assert.Equal([RoleList + "'the declared scope'"], env.Provider.RequiredAzureRoles(withoutScope));
+        Assert.Empty(((IResourceManagerProvider)new DefaultResourceManagerProvider()).RequiredAzureRoles(null));
+    }
+
+    /// <summary>An <see cref="IResourceManagerProvider"/> that keeps the interface's default (no Azure role).</summary>
+    private sealed class DefaultResourceManagerProvider : IResourceManagerProvider;
+
     // ---- registries ----
 
     [Fact]

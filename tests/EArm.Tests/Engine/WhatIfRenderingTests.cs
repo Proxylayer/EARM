@@ -6,10 +6,17 @@ using System.Threading.Tasks;
 using EArm.Cli;
 using EArm.Cli.Commands;
 using EArm.Cli.Output;
+using EArm.Core;
 using EArm.Core.Json;
+using EArm.Core.Loading;
 using EArm.Core.Secrets;
+using EArm.Core.Types;
+using EArm.Engine.Execution;
+using EArm.Engine.Planning;
 using EArm.Engine.Providers;
 using EArm.Engine.WhatIf;
+using EArm.Providers;
+using EArm.TestSupport;
 using Microsoft.Extensions.Logging;
 using Xunit;
 
@@ -339,6 +346,141 @@ public sealed class WhatIfRenderingTests
         Assert.Contains("  \"a\": ", pretty);
         Assert.DoesNotContain("\\u0027", pretty, StringComparison.Ordinal);
         Assert.DoesNotContain("\\u00", compact, StringComparison.Ordinal);
+    }
+
+    // ---- required Azure roles (Azure Resource Manager types) ----
+
+    private const string PimSubscription = "6e1f4c2a-0000-4000-8000-000000000003";
+    private const string PimResourceGroup = "rg-earm";
+    private const string PimSubscriptionScope = "/subscriptions/" + PimSubscription;
+    private const string PimScope = PimSubscriptionScope + "/resourceGroups/" + PimResourceGroup;
+    private const string RoleList = "Owner, User Access Administrator or Role Based Access Control Administrator at ";
+
+    /// <summary>A what-if of <paramref name="document"/> with the real providers (Azure Resource Manager calls go to <paramref name="arm"/>), EchoProvider for the rest.</summary>
+    private static async Task<(DeploymentPlan Plan, WhatIfReport Report)> PlanWithArmAsync(FakeAzureResourceManager arm, TemplateDocument document)
+    {
+        var catalog = ResourceTypeCatalog.Default;
+        var registry = ProviderDiscovery.CreateRegistry(catalog, ReplicationWait.Default, arm.CreateClient());
+        foreach (var definition in catalog.Types.Where(d => !registry.Contains(d.Type)))
+        {
+            registry.Register(new EchoProvider(definition, catalog));
+        }
+
+        var options = new PlannerOptions
+        {
+            DeploymentName = "azure-pim",
+            TenantId = EngineHost.Tenant,
+            Catalog = catalog,
+            EdgeKinds = ProviderDiscovery.CreateEdgeKinds(catalog),
+            KeyAbsenceCheck = new KeyAbsenceCheck { Delay = new RecordingDelayProvider() },
+        };
+        var planner = new DeploymentPlanner(registry, new FakeGraphClient(), options, Microsoft.Extensions.Logging.Abstractions.NullLogger<DeploymentPlanner>.Instance);
+        var plan = await planner.PlanAsync(document, DeploymentMode.Incremental, PlanMode.WhatIf, TestContext.Current.CancellationToken);
+        return (plan, WhatIfReport.From(plan));
+    }
+
+    /// <summary>samples/azure-pim-policies.entra.json (Reader's policy at a resource group) over a fake Azure Resource Manager that has that policy.</summary>
+    private static async Task<(DeploymentPlan Plan, WhatIfReport Report)> PlanAzurePimSampleAsync()
+    {
+        var arm = new FakeAzureResourceManager();
+        arm.AddPolicy(PimScope, FakeAzureResourceManager.Reader);
+        var parameters = ParameterSet.Empty.WithInline("subscriptionId", PimSubscription).WithInline("resourceGroupName", PimResourceGroup);
+        var document = await new TemplateLoader(ResourceTypeCatalog.Default).LoadAsync(TestPaths.Sample("azure-pim-policies.entra.json"), parameters, TestContext.Current.CancellationToken);
+        return await PlanWithArmAsync(arm, document);
+    }
+
+    private static string AzurePolicy(string name, string scope, string role)
+    {
+        return "{ \"type\": \"Microsoft.Entra/azureRoleManagementPolicies\", \"apiVersion\": \"2026-10-01-preview\", \"name\": \"" + name + "\", \"properties\": { \"scope\": \"" + scope
+            + "\", \"role\": \"" + role + "\", \"rules\": [ { \"id\": \"Expiration_EndUser_Assignment\", \"maximumDuration\": \"PT4H\" } ] } }";
+    }
+
+    [Fact]
+    public async Task AzurePimSample_ThePlanAndReport_CarryTheAzureRoleOfItsScope_AndNoGraphPermission()
+    {
+        var (plan, report) = await PlanAzurePimSampleAsync();
+
+        string expected = RoleList + "'" + PimScope + "'";
+        Assert.Equal([expected], plan.RequiredAzureRoles);
+        Assert.Equal([expected], report.RequiredAzureRoles);
+        Assert.Empty(report.RequiredPermissions);
+        Assert.Empty(report.Diagnostics);
+        Assert.True(report.HasChanges);
+    }
+
+    [Fact]
+    public async Task AzurePimSample_Text_PrintsTheAzureRoleLine_RightAfterTheRequiredPermissions()
+    {
+        var lines = Text((await PlanAzurePimSampleAsync()).Report).Split('\n');
+
+        int permissions = Array.IndexOf(lines, "Required permissions: none.");
+        Assert.True(permissions > 0, "the footer has its permissions line");
+        Assert.Equal("Required Azure roles: " + RoleList + "'" + PimScope + "'.", lines[permissions + 1]);
+        Assert.Single(lines, l => l.StartsWith("Required Azure roles:", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task AzurePimSample_Json_HasRequiredAzureRoles_RightAfterRequiredPermissions()
+    {
+        var report = (await PlanAzurePimSampleAsync()).Report;
+
+        foreach (var format in new[] { ResultFormat.FullResourcePayloads, ResultFormat.ResourceIdOnly })
+        {
+            var json = WhatIfJson.Build(report, format);
+
+            Assert.Equal(["status", "deploymentName", "tenantId", "mode", "changes", "diagnostics", "requiredPermissions", "requiredAzureRoles", "unresolvedReferences", "skipped", "summary"], json.Select(p => p.Key).ToList());
+            Assert.Empty(json["requiredPermissions"]!.AsArray());
+            Assert.Equal([RoleList + "'" + PimScope + "'"], json["requiredAzureRoles"]!.AsArray().Select(r => r!.GetValue<string>()).ToList());
+        }
+
+        string compact = WhatIfJson.Serialize(WhatIfJson.Build(report), prettyPrint: false);
+        Assert.Contains("\"requiredPermissions\":[],\"requiredAzureRoles\":[\"" + RoleList + "'" + PimScope + "'\"],\"unresolvedReferences\":", compact, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AzureRoles_AreOneEntryPerScope_SortedOrdinally_WhateverTheRoles()
+    {
+        var arm = new FakeAzureResourceManager();
+        arm.AddPolicy(PimScope, FakeAzureResourceManager.Reader);
+        arm.AddPolicy(PimScope, FakeAzureResourceManager.Contributor);
+        arm.AddPolicy(PimSubscriptionScope, FakeAzureResourceManager.Reader);
+        var document = Templates.Resources(string.Join(", ",
+            AzurePolicy("3f6e1a2b-7c8d-4e9f-a0b1-c2d3e4f5a601", PimScope, "Reader"),
+            AzurePolicy("3f6e1a2b-7c8d-4e9f-a0b1-c2d3e4f5a602", "/subscriptions/" + PimSubscription.ToUpperInvariant() + "/resourceGroups/" + PimResourceGroup + "/", "Contributor"),
+            AzurePolicy("3f6e1a2b-7c8d-4e9f-a0b1-c2d3e4f5a603", PimSubscriptionScope, "Reader")));
+
+        var (plan, report) = await PlanWithArmAsync(arm, document);
+
+        Assert.Empty(plan.Diagnostics);
+        Assert.Equal(2, plan.RequiredAzureRoles.Count);
+        Assert.Equal([RoleList + "'" + PimSubscriptionScope + "'", RoleList + "'" + PimScope + "'"], report.RequiredAzureRoles);
+        Assert.Contains("Required Azure roles: " + RoleList + "'" + PimSubscriptionScope + "'; " + RoleList + "'" + PimScope + "'.\n", Text(report), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("create-incremental")]
+    [InlineData("modify-incremental")]
+    [InlineData("orphans-complete")]
+    [InlineData("retained-incremental")]
+    public async Task AGraphOnlyPlan_HasNoAzureRoleLine_AndNoRequiredAzureRolesMember(string scenario)
+    {
+        var run = await WhatIfScenario.Find(scenario).PlanAsync();
+
+        Assert.Empty(run.Plan.RequiredAzureRoles);
+        Assert.Empty(run.Report.RequiredAzureRoles);
+        Assert.DoesNotContain("Required Azure roles", Text(run.Report), StringComparison.Ordinal);
+        Assert.False(WhatIfJson.Build(run.Report).ContainsKey("requiredAzureRoles"));
+        Assert.False(WhatIfJson.Build(run.Report, ResultFormat.ResourceIdOnly).ContainsKey("requiredAzureRoles"));
+    }
+
+    [Fact]
+    public async Task AnEmptyTemplate_HasNoAzureRoleLine_AndNoRequiredAzureRolesMember()
+    {
+        var plan = await new EngineHost().WhatIfAsync(Templates.Resources(string.Empty));
+
+        Assert.Empty(plan.RequiredAzureRoles);
+        Assert.DoesNotContain("Required Azure roles", Text(WhatIfReport.From(plan)), StringComparison.Ordinal);
+        Assert.False(WhatIfJson.Build(plan).ContainsKey("requiredAzureRoles"));
     }
 
     // ---- masking ----
