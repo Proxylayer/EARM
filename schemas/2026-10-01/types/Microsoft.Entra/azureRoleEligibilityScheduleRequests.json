@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/azureRoleEligibilityScheduleRequests.json",
+  "title": "Microsoft.Entra/azureRoleEligibilityScheduleRequests",
+  "description": "A PIM eligibility for an Azure RBAC role at an Azure scope (a management group, a subscription, a resource group or a resource), requested through Azure Resource Manager as Microsoft.Authorization/roleEligibilityScheduleRequests (api-version 2022-04-01-preview): the Azure twin of Microsoft.Entra/roleEligibilityScheduleRequests. The resource name is a deterministic GUID chosen with guid() (a label, not the identity); the eligibility is matched by (scope, roleDefinitionId or role, principalId) against the Direct roleEligibilitySchedules of exactly that scope (inherited and group-held eligibilities do not count) and read live on every run. An existing eligibility is adopted as it is (a differing schedule is reported, never rewritten); a missing one is requested with requestType AdminAssign; RoleAssignmentExists is adopted. Never deleted by a deployment; earm deployment delete removes it with an AdminRemove request. Applied after the azureRoleManagementPolicies of the same scope and role. Needs an Azure RBAC role at the scope (Owner or User Access Administrator), not a Graph permission.",
+  "type": "object",
+  "properties": {
+    "scope": {
+      "description": "Required: the Azure scope: /providers/Microsoft.Management/managementGroups/{managementGroupId}, /subscriptions/{subscriptionId}, /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}, or a resource id under a resource group. Only an object of exactly this scope counts (an inherited one is never acted on).",
+      "anyOf": [ { "type": "string", "minLength": 1 }, { "$ref": "#/$defs/expression" } ]
+    },
+    "roleDefinitionId": {
+      "description": "The Azure role definition: its GUID or its id (/subscriptions/{subscriptionId}/providers/Microsoft.Authorization/roleDefinitions/{guid}); normalised to the subscription-qualified id of the scope, or the tenant-level id (/providers/Microsoft.Authorization/roleDefinitions/{guid}) at a management group. Not with role.",
+      "anyOf": [ { "type": "string", "minLength": 1 }, { "$ref": "#/$defs/expression" } ]
+    },
+    "role": {
+      "description": "EARM sugar: the name of a built-in or custom Azure role assignable at the scope (Reader, Contributor...), or its GUID; resolved to roleDefinitionId when the deployment is planned (exactly one role of that name must exist). Not with roleDefinitionId.",
+      "anyOf": [ { "type": "string", "minLength": 1 }, { "$ref": "#/$defs/expression" } ]
+    },
+    "principalId": {
+      "description": "Required: the object id of the user, group or service principal, typically [reference(resourceId('Microsoft.Entra/groups', 'platform-admins')).id].",
+      "anyOf": [
+        { "type": "string", "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$" },
+        { "$ref": "#/$defs/expression" }
+      ]
+    },
+    "justification": {
+      "description": "Request metadata, sent with the AdminAssign request and never compared (default \"Deployed by earm\"); the role's PIM policy may require it.",
+      "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+    },
+    "scheduleInfo": {
+      "description": "The eligibility period. Absent: permanent (expiration type NoExpiration), which the default Azure policy forbids (Expiration_Admin_Eligibility: at most 365 days) unless a Microsoft.Entra/azureRoleManagementPolicies allows it. Sent on create only: a live eligibility with another end is reported, not changed.",
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "startDateTime": {
+              "description": "ISO 8601 start; absent or in the past means now.",
+              "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+            },
+            "expiration": {
+              "description": "When the eligibility ends.",
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "description": "NoExpiration, AfterDateTime (needs endDateTime) or AfterDuration (needs duration); any casing, sent in ARM's PascalCase.",
+                      "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                    },
+                    "endDateTime": {
+                      "description": "AfterDateTime: the ISO 8601 end, after startDateTime. Compared with the live end (1 s tolerance) and reported when it differs.",
+                      "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                    },
+                    "duration": {
+                      "description": "AfterDuration: an ISO 8601 duration such as P365D or PT8H. Applied when the eligibility is requested and never compared afterwards.",
+                      "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+                    }
+                  }
+                },
+                { "$ref": "#/$defs/expression" }
+              ]
+            }
+          }
+        },
+        { "$ref": "#/$defs/expression" }
+      ]
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "expression": { "type": "string", "pattern": "^\\[.*\\]$", "description": "A template expression, for example [parameters('env')]." }
+  },
+  "x-earm": {
+    "type": "Microsoft.Entra/azureRoleEligibilityScheduleRequests",
+    "parentType": null,
+    "graphPath": "/providers/Microsoft.Authorization/roleEligibilityScheduleRequests",
+    "apiVersions": { "2026-10-01-preview": "v1.0", "2026-10-01-preview.beta": "beta" },
+    "nameMapsTo": null,
+    "nameKind": "guid",
+    "namePattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+    "keyProperties": ["scope", "roleDefinitionId", "principalId"],
+    "requiredOnCreate": [],
+    "defaults": {},
+    "immutable": [],
+    "createOnly": [],
+    "secure": [],
+    "relationships": [],
+    "memberKey": {},
+    "stripOnRead": [],
+    "nullable": {},
+    "permissions": {
+      "application": [],
+      "roles": [],
+      "azureRbac": ["Microsoft.Authorization/roleEligibilityScheduleRequests/write", "Microsoft.Authorization/roleEligibilitySchedules/read"],
+      "notes": "Azure Resource Manager, not Microsoft Graph (Learn: role-based-access-control/built-in-roles, Microsoft.Authorization/roleEligibilityScheduleRequests/write): the eligibility is requested with PUT {scope}/providers/Microsoft.Authorization/roleEligibilityScheduleRequests/{guid} (api-version 2022-04-01-preview) and read through roleEligibilitySchedules and roleDefinitions (api-version 2020-10-01 and 2022-04-01), which needs an Azure RBAC role of the signed-in identity at the declared scope: Owner or User Access Administrator (Microsoft.Authorization/roleEligibilityScheduleRequests/write); a what-if needs only Microsoft.Authorization/roleEligibilitySchedules/read (Reader). No Graph application permission or Entra role. The run requests a separate Azure Resource Manager token (.default; a delegated sign-in consents to user_impersonation once). The earm permissions report lists the grant per declared eligibility and scope."
+    }
+  }
+}

@@ -133,6 +133,7 @@ public static class PermissionManifest
         bool managerDeclared = false;
         bool users = false;
         bool azureRoleManagementPolicies = false;
+        var azureGrantTypes = new SortedSet<string>(StringComparer.Ordinal);
         foreach (var instance in instances.OrderBy(i => i.PlannedId.Id, StringComparer.Ordinal))
         {
             string resource = instance.PlannedId.Id;
@@ -252,6 +253,26 @@ public static class PermissionManifest
                     "provider: PATCH {scope}/providers/Microsoft.Authorization/roleManagementPolicies/{policy} (whatif reads it: '.../read', for example Reader)");
             }
 
+            if (ResourceIdentifier.TypeEquals(instance.Type, AzureRoleEligibilityScheduleRules.ResourceType))
+            {
+                // Requested through Azure Resource Manager, not Graph: an Azure RBAC grant of the signed-in identity at the eligibility's scope.
+                azureGrantTypes.Add(AzureRoleEligibilityScheduleRules.ResourceType);
+                azure.Add(
+                    $"Azure role eligibility request ('Microsoft.Authorization/roleEligibilityScheduleRequests/write': Owner or User Access Administrator) at scope '{AzurePolicyScope(instance)}'",
+                    resource,
+                    "provider: PUT {scope}/providers/Microsoft.Authorization/roleEligibilityScheduleRequests/{guid} (AdminAssign; deployment delete AdminRemove; whatif reads roleEligibilitySchedules: '.../read', for example Reader)");
+            }
+
+            if (ResourceIdentifier.TypeEquals(instance.Type, AzureRoleAssignmentRules.ResourceType))
+            {
+                // Assigned through Azure Resource Manager, not Graph: an Azure RBAC grant of the signed-in identity at the assignment's scope.
+                azureGrantTypes.Add(AzureRoleAssignmentRules.ResourceType);
+                azure.Add(
+                    $"Azure role assignment write ('Microsoft.Authorization/roleAssignments/write', and '.../delete' for deployment delete: Owner, User Access Administrator or Role Based Access Control Administrator) at scope '{AzurePolicyScope(instance)}'",
+                    resource,
+                    "provider: PUT {scope}/providers/Microsoft.Authorization/roleAssignments/{guid} (deployment delete: DELETE; whatif reads roleAssignments: '.../read', for example Reader)");
+            }
+
             users |= instance.Type.EndsWith("/users", StringComparison.OrdinalIgnoreCase);
             managerDeclared |= instance.Definition.Relationships.Any(r => r.Kind == RelationshipKind.Manager && Declares(instance, r.Property));
         }
@@ -331,6 +352,11 @@ public static class PermissionManifest
             notes.Add("Azure role management policies (Microsoft.Entra/azureRoleManagementPolicies) are read and written through Azure Resource Manager with its own token: the signed-in identity needs the Azure RBAC grant listed at each policy's scope (no Graph permission), and a delegated sign-in the one-time Resource Manager consent (earm auth login -f <template>).");
         }
 
+        if (azureGrantTypes.Count > 0)
+        {
+            notes.Add($"Azure role grants ({string.Join(", ", azureGrantTypes)}) are read and written through Azure Resource Manager with its own token: the signed-in identity needs the Azure RBAC grant listed at each declared scope (no Graph permission), and a delegated sign-in the one-time Resource Manager consent (earm auth login -f <template>).");
+        }
+
         notes.Add("Edge permissions are listed for every relationship property the template declares (including an empty array, which removes edges). Key Vault access is an Azure RBAC / access-policy requirement of the signed-in identity, not a Graph permission.");
         return new PermissionReport(template, mode, instances.Count, permissions, roleRequirements, notes);
     }
@@ -369,7 +395,7 @@ public static class PermissionManifest
         return permission.Replace(".ReadWrite.", ".Read.", StringComparison.Ordinal);
     }
 
-    /// <summary>The literal scope of an Azure role management policy, or a placeholder while it is only known at deployment.</summary>
+    /// <summary>The literal scope of an Azure Resource Manager declaration (a policy, an eligibility, a role assignment), or a placeholder while it is only known at deployment.</summary>
     private static string AzurePolicyScope(ResourceInstance instance)
     {
         var properties = instance.Properties ?? instance.Declaration.Properties as JsonObject;

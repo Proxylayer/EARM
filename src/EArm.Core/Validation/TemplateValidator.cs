@@ -66,6 +66,8 @@ public sealed class TemplateValidator : ITemplateValidator
         new PimScheduleRequestChecker(document, diagnostics, GroupAssignmentScheduleRules.ResourceType, DiagnosticCodes.InvalidGroupAssignmentScheduleRequest, GroupAssignmentScheduleRules.Check).Run();
         new PimScheduleRequestChecker(document, diagnostics, RoleManagementPolicyRules.ResourceType, DiagnosticCodes.InvalidRoleManagementPolicy, RoleManagementPolicyRules.Check).Run();
         new PimScheduleRequestChecker(document, diagnostics, AzureRoleManagementPolicyRules.ResourceType, DiagnosticCodes.InvalidRoleManagementPolicy, AzureRoleManagementPolicyRules.Check).Run();
+        new PimScheduleRequestChecker(document, diagnostics, AzureRoleEligibilityScheduleRules.ResourceType, DiagnosticCodes.InvalidRoleEligibilityScheduleRequest, AzureRoleEligibilityScheduleRules.Check).Run();
+        new PimScheduleRequestChecker(document, diagnostics, AzureRoleAssignmentRules.ResourceType, DiagnosticCodes.InvalidAzureRoleAssignment, AzureRoleAssignmentRules.Check).Run();
         new PimScheduleRequestChecker(document, diagnostics, AccessPackageReviewRules.ResourceType, DiagnosticCodes.InvalidAccessPackageReviewSettings, AccessPackageReviewRules.Check).Run();
 
         var semanticPaths = new HashSet<(string? Source, JsonPath Path)>();

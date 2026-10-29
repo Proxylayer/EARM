@@ -15,8 +15,8 @@ public static class ApplyPhases
     /// <summary>
     /// 1: namedLocations, authenticationContextClassReferences, authenticationStrengths, authenticationMethodConfigurations, roleDefinitions, users,
     /// applications · 2: servicePrincipals, federatedIdentityCredentials, passwordCredentials, keyCredentials, extensionProperties · 3: groups ·
-    /// 4: administrativeUnits, roleManagementPolicies (also ordered before the PIM schedule requests they govern), azureRoleManagementPolicies · 5: roleAssignments, roleEligibilityScheduleRequests, roleAssignmentScheduleRequests, privilegedAccess/groupEligibilityScheduleRequests,
-    /// privilegedAccess/groupAssignmentScheduleRequests, appRoleAssignments, oauth2PermissionGrants ·
+    /// 4: administrativeUnits, roleManagementPolicies (also ordered before the PIM schedule requests they govern), azureRoleManagementPolicies (also ordered before the Azure eligibility requests they govern) · 5: roleAssignments, roleEligibilityScheduleRequests, roleAssignmentScheduleRequests, privilegedAccess/groupEligibilityScheduleRequests,
+    /// privilegedAccess/groupAssignmentScheduleRequests, appRoleAssignments, oauth2PermissionGrants, azureRoleEligibilityScheduleRequests, azureRoleAssignments ·
     /// 6: conditionalAccess/policies. Entitlement management: catalogs 4, catalogResources and accessPackages 5, resourceRoleScopes and
     /// accessPackages/assignmentPolicies 6 (role scopes are also ordered after the catalog resources and before the policies they relate to).
     /// Access reviews (accessReviews/definitions) 6: after the groups and access packages their scope queries name.
@@ -49,6 +49,8 @@ public static class ApplyPhases
             "privilegedAccess/groupAssignmentScheduleRequests" => 5,
             "appRoleAssignments" => 5,
             "oauth2PermissionGrants" => 5,
+            "azureRoleEligibilityScheduleRequests" => 5,
+            "azureRoleAssignments" => 5,
             "conditionalAccess/policies" => 6,
             "entitlementManagement/catalogs" => 4,
             "entitlementManagement/catalogResources" => 5,
@@ -68,7 +70,7 @@ public static class ApplyPhases
     }
 
     /// <summary>
-    /// Complete-mode delete order: CA policies → assignments/eligibilities/PIM active assignments/grants/PIM policies and Azure PIM policies (kept, never deleted) → administrativeUnits → groups →
+    /// Complete-mode delete order: CA policies → assignments/eligibilities/PIM active assignments/grants/Azure eligibilities and role assignments/PIM policies and Azure PIM policies (kept, never deleted) → administrativeUnits → groups →
     /// passwordCredentials/federatedIdentityCredentials/keyCredentials/extensionProperties → servicePrincipals → applications → users → roleDefinitions
     /// → authenticationStrengths → authenticationContextClassReferences → namedLocations → authenticationMethodConfigurations (reset, never removed).
     /// Entitlement management: assignment policies and resource role scopes (1) → access packages (2) → catalog resources (3) → catalogs (4).
@@ -89,6 +91,8 @@ public static class ApplyPhases
             "oauth2PermissionGrants" => 2,
             "roleManagementPolicies" => 2,
             "azureRoleManagementPolicies" => 2,
+            "azureRoleEligibilityScheduleRequests" => 2,
+            "azureRoleAssignments" => 2,
             "administrativeUnits" => 3,
             "groups" => 4,
             "applications/passwordCredentials" => 5,
@@ -162,6 +166,8 @@ public static class ApplyPhases
         "privilegedAccess/groupAssignmentScheduleRequests",
         "appRoleAssignments",
         "oauth2PermissionGrants",
+        "azureRoleEligibilityScheduleRequests",
+        "azureRoleAssignments",
         "conditionalAccess/policies",
         "entitlementManagement/catalogs",
         "entitlementManagement/catalogResources",

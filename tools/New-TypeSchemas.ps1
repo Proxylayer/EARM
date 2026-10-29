@@ -988,15 +988,56 @@ $specs['roleManagementPolicies'] = [ordered]@{
     }
 }
 
+# The Azure scope and role of the Azure Resource Manager types (azureRoleManagementPolicies, azureRoleEligibilityScheduleRequests, azureRoleAssignments).
+$azureScope = Str 'Required: the Azure scope: /providers/Microsoft.Management/managementGroups/{managementGroupId}, /subscriptions/{subscriptionId}, /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}, or a resource id under a resource group. Only an object of exactly this scope counts (an inherited one is never acted on).' -Min 1
+$azureRoleDefinitionId = Str 'The Azure role definition: its GUID or its id (/subscriptions/{subscriptionId}/providers/Microsoft.Authorization/roleDefinitions/{guid}); normalised to the subscription-qualified id of the scope, or the tenant-level id (/providers/Microsoft.Authorization/roleDefinitions/{guid}) at a management group. Not with role.' -Min 1
+$azureRole = Str 'EARM sugar: the name of a built-in or custom Azure role assignable at the scope (Reader, Contributor...), or its GUID; resolved to roleDefinitionId when the deployment is planned (exactly one role of that name must exist). Not with roleDefinitionId.' -Min 1
+$azurePrincipalId = Guid 'Required: the object id of the user, group or service principal, typically [reference(resourceId(''Microsoft.Entra/groups'', ''platform-admins'')).id].'
+
 # --- azureRoleManagementPolicies (PIM policy rules of an Azure role at an Azure scope, through Azure Resource Manager) -------
 $specs['azureRoleManagementPolicies'] = [ordered]@{
     NamePattern = $script:GuidPattern
-    Description = 'The PIM policy (role settings) of an Azure RBAC role at an Azure scope (a subscription, a resource group or a resource), managed through Azure Resource Manager as Microsoft.Authorization/roleManagementPolicies (api-version 2020-10-01): the Azure twin of Microsoft.Entra/roleManagementPolicies, with the same rules[]. The resource name is a deterministic GUID chosen with guid() (a label, not the identity); the policy is named by scope and roleDefinitionId (or role) and read live on every run, keeping only the policy assignment of that exact scope (an inherited policy is never changed). Only the rules declared in rules[] (matched by id) are managed: each is filled from the live rule, and the changed ones are sent in one PATCH of the policy; undeclared rules are left as they are. Never created (every role has a policy at every scope) and never deleted (kept as NotDeletable). Needs an Azure RBAC role at the scope (Owner, User Access Administrator or Role Based Access Control Administrator), not a Graph permission.'
+    Description = 'The PIM policy (role settings) of an Azure RBAC role at an Azure scope (a management group, a subscription, a resource group or a resource), managed through Azure Resource Manager as Microsoft.Authorization/roleManagementPolicies (api-version 2020-10-01): the Azure twin of Microsoft.Entra/roleManagementPolicies, with the same rules[]. The resource name is a deterministic GUID chosen with guid() (a label, not the identity); the policy is named by scope and roleDefinitionId (or role) and read live on every run, keeping only the policy assignment of that exact scope (an inherited policy is never changed). Only the rules declared in rules[] (matched by id) are managed: each is filled from the live rule, and the changed ones are sent in one PATCH of the policy; undeclared rules are left as they are. Never created (every role has a policy at every subscription, resource group and resource scope; at a management group ARM lists a role''s policy only after the first eligibility or assignment request there, so the policy waits for the end of the run when an azureRoleEligibilityScheduleRequests of the same scope and role is in the deployment) and never deleted (kept as NotDeletable). Applied before the azureRoleEligibilityScheduleRequests of the same scope and role. Needs an Azure RBAC role at the scope (Owner, User Access Administrator or Role Based Access Control Administrator), not a Graph permission.'
     Props       = [ordered]@{
-        scope            = Str 'Required: the Azure scope of the policy: /subscriptions/{subscriptionId}, /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}, or a resource id under a resource group. Management group scopes are not supported yet.' -Min 1
-        roleDefinitionId = Str 'The Azure role definition: its GUID or its id (/subscriptions/{subscriptionId}/providers/Microsoft.Authorization/roleDefinitions/{guid}); normalised to the subscription-qualified id of the scope. Not with role.' -Min 1
+        scope            = $azureScope
+        roleDefinitionId = $azureRoleDefinitionId
         role             = Str 'EARM sugar: the name of a built-in or custom Azure role assignable at the scope (Reader, Contributor...), or its GUID; resolved to roleDefinitionId when the deployment is planned (exactly one role of that name must exist). Not with roleDefinitionId.' -Min 1
         rules            = $policyRules
+    }
+}
+
+# --- azureRoleEligibilityScheduleRequests (PIM eligibility for an Azure role, through Azure Resource Manager) ---------------
+$specs['azureRoleEligibilityScheduleRequests'] = [ordered]@{
+    NamePattern = $script:GuidPattern
+    Description = 'A PIM eligibility for an Azure RBAC role at an Azure scope (a management group, a subscription, a resource group or a resource), requested through Azure Resource Manager as Microsoft.Authorization/roleEligibilityScheduleRequests (api-version 2022-04-01-preview): the Azure twin of Microsoft.Entra/roleEligibilityScheduleRequests. The resource name is a deterministic GUID chosen with guid() (a label, not the identity); the eligibility is matched by (scope, roleDefinitionId or role, principalId) against the Direct roleEligibilitySchedules of exactly that scope (inherited and group-held eligibilities do not count) and read live on every run. An existing eligibility is adopted as it is (a differing schedule is reported, never rewritten); a missing one is requested with requestType AdminAssign; RoleAssignmentExists is adopted. Never deleted by a deployment; earm deployment delete removes it with an AdminRemove request. Applied after the azureRoleManagementPolicies of the same scope and role. Needs an Azure RBAC role at the scope (Owner or User Access Administrator), not a Graph permission.'
+    Props       = [ordered]@{
+        scope            = $azureScope
+        roleDefinitionId = $azureRoleDefinitionId
+        role             = $azureRole
+        principalId      = $azurePrincipalId
+        justification    = Str 'Request metadata, sent with the AdminAssign request and never compared (default "Deployed by earm"); the role''s PIM policy may require it.'
+        scheduleInfo     = Obj -d 'The eligibility period. Absent: permanent (expiration type NoExpiration), which the default Azure policy forbids (Expiration_Admin_Eligibility: at most 365 days) unless a Microsoft.Entra/azureRoleManagementPolicies allows it. Sent on create only: a live eligibility with another end is reported, not changed.' -Props (Props ([ordered]@{
+            startDateTime = Str 'ISO 8601 start; absent or in the past means now.'
+            expiration    = Obj -d 'When the eligibility ends.' -Props (Props ([ordered]@{
+                type        = Str 'NoExpiration, AfterDateTime (needs endDateTime) or AfterDuration (needs duration); any casing, sent in ARM''s PascalCase.'
+                endDateTime = Str 'AfterDateTime: the ISO 8601 end, after startDateTime. Compared with the live end (1 s tolerance) and reported when it differs.'
+                duration    = Str 'AfterDuration: an ISO 8601 duration such as P365D or PT8H. Applied when the eligibility is requested and never compared afterwards.'
+            }))
+        }))
+    }
+}
+
+# --- azureRoleAssignments (permanent active Azure RBAC role assignments, through Azure Resource Manager) -------------------
+$specs['azureRoleAssignments'] = [ordered]@{
+    NamePattern = $script:GuidPattern
+    Description = 'A permanent, active Azure RBAC role assignment at an Azure scope (a management group, a subscription, a resource group or a resource), made through Azure Resource Manager as Microsoft.Authorization/roleAssignments (api-version 2022-04-01): the Azure twin of Microsoft.Entra/roleAssignments. The resource name is a deterministic GUID chosen with guid() (a label, not the identity); the assignment is matched by (scope, roleDefinitionId or role, principalId) against the role assignments of exactly that scope, under any name (one made in the portal or by PIM is adopted; an inherited one does not count), and read live on every run. A missing one is created with PUT roleAssignments/{guid(scope, roleDefinitionId, principalId)}; RoleAssignmentExists is adopted. Never changed in place and never deleted by a deployment; earm deployment delete deletes the matched assignment. Needs an Azure RBAC role at the scope (Owner, User Access Administrator or Role Based Access Control Administrator), not a Graph permission.'
+    Props       = [ordered]@{
+        scope            = $azureScope
+        roleDefinitionId = $azureRoleDefinitionId
+        role             = $azureRole
+        principalId      = $azurePrincipalId
+        principalType    = Str 'The kind of principalId: User, Group or ServicePrincipal (any casing). Sent on create only (it lets ARM accept a principal created moments ago); never compared.'
+        description      = Str 'A description of the assignment, sent on create only and never compared.'
     }
 }
 

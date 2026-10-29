@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schema.earm.proxylayer.net/schemas/2026-10-01/types/Microsoft.Entra/azureRoleAssignments.json",
+  "title": "Microsoft.Entra/azureRoleAssignments",
+  "description": "A permanent, active Azure RBAC role assignment at an Azure scope (a management group, a subscription, a resource group or a resource), made through Azure Resource Manager as Microsoft.Authorization/roleAssignments (api-version 2022-04-01): the Azure twin of Microsoft.Entra/roleAssignments. The resource name is a deterministic GUID chosen with guid() (a label, not the identity); the assignment is matched by (scope, roleDefinitionId or role, principalId) against the role assignments of exactly that scope, under any name (one made in the portal or by PIM is adopted; an inherited one does not count), and read live on every run. A missing one is created with PUT roleAssignments/{guid(scope, roleDefinitionId, principalId)}; RoleAssignmentExists is adopted. Never changed in place and never deleted by a deployment; earm deployment delete deletes the matched assignment. Needs an Azure RBAC role at the scope (Owner, User Access Administrator or Role Based Access Control Administrator), not a Graph permission.",
+  "type": "object",
+  "properties": {
+    "scope": {
+      "description": "Required: the Azure scope: /providers/Microsoft.Management/managementGroups/{managementGroupId}, /subscriptions/{subscriptionId}, /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}, or a resource id under a resource group. Only an object of exactly this scope counts (an inherited one is never acted on).",
+      "anyOf": [ { "type": "string", "minLength": 1 }, { "$ref": "#/$defs/expression" } ]
+    },
+    "roleDefinitionId": {
+      "description": "The Azure role definition: its GUID or its id (/subscriptions/{subscriptionId}/providers/Microsoft.Authorization/roleDefinitions/{guid}); normalised to the subscription-qualified id of the scope, or the tenant-level id (/providers/Microsoft.Authorization/roleDefinitions/{guid}) at a management group. Not with role.",
+      "anyOf": [ { "type": "string", "minLength": 1 }, { "$ref": "#/$defs/expression" } ]
+    },
+    "role": {
+      "description": "EARM sugar: the name of a built-in or custom Azure role assignable at the scope (Reader, Contributor...), or its GUID; resolved to roleDefinitionId when the deployment is planned (exactly one role of that name must exist). Not with roleDefinitionId.",
+      "anyOf": [ { "type": "string", "minLength": 1 }, { "$ref": "#/$defs/expression" } ]
+    },
+    "principalId": {
+      "description": "Required: the object id of the user, group or service principal, typically [reference(resourceId('Microsoft.Entra/groups', 'platform-admins')).id].",
+      "anyOf": [
+        { "type": "string", "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$" },
+        { "$ref": "#/$defs/expression" }
+      ]
+    },
+    "principalType": {
+      "description": "The kind of principalId: User, Group or ServicePrincipal (any casing). Sent on create only (it lets ARM accept a principal created moments ago); never compared.",
+      "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+    },
+    "description": {
+      "description": "A description of the assignment, sent on create only and never compared.",
+      "anyOf": [ { "type": "string" }, { "$ref": "#/$defs/expression" } ]
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "expression": { "type": "string", "pattern": "^\\[.*\\]$", "description": "A template expression, for example [parameters('env')]." }
+  },
+  "x-earm": {
+    "type": "Microsoft.Entra/azureRoleAssignments",
+    "parentType": null,
+    "graphPath": "/providers/Microsoft.Authorization/roleAssignments",
+    "apiVersions": { "2026-10-01-preview": "v1.0", "2026-10-01-preview.beta": "beta" },
+    "nameMapsTo": null,
+    "nameKind": "guid",
+    "namePattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+    "keyProperties": ["scope", "roleDefinitionId", "principalId"],
+    "requiredOnCreate": [],
+    "defaults": {},
+    "immutable": [],
+    "createOnly": [],
+    "secure": [],
+    "relationships": [],
+    "memberKey": {},
+    "stripOnRead": [],
+    "nullable": {},
+    "permissions": {
+      "application": [],
+      "roles": [],
+      "azureRbac": ["Microsoft.Authorization/roleAssignments/write", "Microsoft.Authorization/roleAssignments/read"],
+      "notes": "Azure Resource Manager, not Microsoft Graph (Learn: role-based-access-control/built-in-roles, Microsoft.Authorization/roleAssignments/write): the assignment is made with PUT {scope}/providers/Microsoft.Authorization/roleAssignments/{guid} and read through roleAssignments and roleDefinitions (api-version 2022-04-01), which needs an Azure RBAC role of the signed-in identity at the declared scope: Owner, User Access Administrator or Role Based Access Control Administrator (Microsoft.Authorization/roleAssignments/write; earm deployment delete also needs Microsoft.Authorization/roleAssignments/delete); a what-if needs only Microsoft.Authorization/roleAssignments/read (Reader). No Graph application permission or Entra role. The run requests a separate Azure Resource Manager token (.default; a delegated sign-in consents to user_impersonation once). The earm permissions report lists the grant per declared assignment and scope."
+    }
+  }
+}
