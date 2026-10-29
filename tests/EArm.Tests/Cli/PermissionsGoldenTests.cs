@@ -36,6 +36,7 @@ public sealed class PermissionsGoldenTests
             ("pim-active", "pim-active"),
             ("pim-policies", "pim-policies"),
             ("azure-pim-policies", "azure-pim-policies"),
+            ("azure-pim-access", "azure-pim-access"),
             ("pim-group-onboarding", "pim-group-onboarding"),
             ("privileged-access", "privileged-access"),
             ("access-packages", "access-packages"),

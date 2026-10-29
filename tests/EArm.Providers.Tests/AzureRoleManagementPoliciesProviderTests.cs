@@ -638,6 +638,120 @@ public sealed class AzureRoleManagementPoliciesProviderTests
         Assert.Throws<ArgumentNullException>(() => ProviderDiscovery.CreateRegistry(ResourceTypeCatalog.Default, ReplicationWait.Default, null!));
     }
 
+    // ---- management group scopes, and the eligibilities a policy governs ----
+
+    private const string Mg = "/providers/Microsoft.Management/managementGroups/mg-platform";
+    private const string EligibilityName = "9c8d7e6f-0000-4000-8000-0000000000e1";
+    private const string Principal = "7d3c2b1a-0000-4000-8000-0000000000c1";
+
+    /// <summary>The host of <see cref="Create"/>, with the eligibility provider on the same fake ARM.</summary>
+    private static Env CreateWithEligibilities()
+    {
+        var env = Create();
+        env.Host.Registry.Register(new AzureRoleEligibilityScheduleRequestsProvider(env.Host.Catalog, env.Arm.CreateClient()), replace: true);
+        return env;
+    }
+
+    private static string Eligibility(string scope, string schedule = ", \"scheduleInfo\": { \"expiration\": { \"type\": \"AfterDuration\", \"duration\": \"P180D\" } }")
+    {
+        return Templates.Resource(AzureRoleEligibilityScheduleRequestsProvider.ResourceType, EligibilityName, "{ \"scope\": \"" + scope + "\", \"role\": \"Reader\", \"principalId\": \"" + Principal + "\"" + schedule + " }");
+    }
+
+    [Fact]
+    public async Task APolicyAtAManagementGroup_IsFoundThroughTheTenantLevelRoleId()
+    {
+        var env = Create();
+        string path = env.Arm.AddPolicy(Mg, Reader);
+
+        var run = await env.Host.WhatIfAsync(env.Host.Resources(Policy("""{ "id": "Expiration_EndUser_Assignment", "maximumDuration": "PT8H" }""", scope: Mg + "/")));
+
+        var change = run.Change(Name);
+        Assert.Equal(ChangeType.NoChange, change.Type);
+        Assert.Equal(path, change.GraphId);
+        var list = Assert.Single(Requests(env.Arm, "GET", Mg + "/providers/Microsoft.Authorization/roleManagementPolicyAssignments"));
+        Assert.Contains("$filter=roleDefinitionId eq '/providers/Microsoft.Authorization/roleDefinitions/" + Reader + "'", Query(list), StringComparison.Ordinal);
+        Assert.Single(Requests(env.Arm, "GET", Mg + "/providers/Microsoft.Authorization/roleDefinitions"));
+    }
+
+    [Fact]
+    public async Task AManagementGroupPolicyArmDoesNotListYet_WithoutAnEligibility_IsPimPolicyNotAvailable_NamingTheCauseAndTheFix()
+    {
+        var env = Create();
+        env.Arm.AddPolicyOnFirstRequest(Mg, Reader);
+
+        var change = (await env.Host.WhatIfAsync(env.Host.Resources(Policy("""{ "id": "Expiration_EndUser_Assignment", "maximumDuration": "PT4H" }""", scope: Mg)))).Change(Name);
+
+        Assert.Equal(EngineDiagnosticCodes.PimPolicyNotAvailable, change.UnsupportedCode);
+        Assert.Contains("at a management group, ARM creates a role's PIM policy only with the first eligibility or assignment request", change.UnsupportedReason, StringComparison.Ordinal);
+        Assert.Contains("no azureRoleEligibilityScheduleRequests of this deployment", change.UnsupportedReason, StringComparison.Ordinal);
+        Assert.False(change.RetryAtEndOfRun);
+    }
+
+    [Fact]
+    public async Task AManagementGroupPolicyArmDoesNotListYet_WaitsForTheEligibilityOfTheDeployment_AndIsAppliedAtTheEndOfTheRun()
+    {
+        var env = CreateWithEligibilities();
+        env.Arm.AddPolicyOnFirstRequest(Mg, Reader);
+        var document = env.Host.Resources(Policy("""{ "id": "Expiration_EndUser_Assignment", "maximumDuration": "PT4H" }""", scope: Mg) + ", " + Eligibility(Mg));
+
+        var whatIf = await env.Host.WhatIfAsync(document);
+        var deferred = whatIf.Change(Name);
+        Assert.Equal(ChangeType.Ignore, deferred.Type);
+        Assert.True(deferred.RetryAtEndOfRun);
+        Assert.Contains(deferred.Reasons, r => r.Contains("the policy is applied at the end of this run", StringComparison.Ordinal));
+        Assert.Equal(ChangeType.Create, whatIf.Change(EligibilityName).Type);
+
+        var run = await env.Host.CreateAsync(document);
+
+        Assert.True(run.Succeeded, run.Result?.Diagnostics.FirstOrDefault()?.Message);
+        Assert.True(env.Arm.HasPolicy(Mg, Reader));
+        Assert.Single(env.Arm.EligibilityRequests);
+        var patch = Assert.Single(env.Arm.Patches);
+        Assert.StartsWith(Mg + "/providers/Microsoft.Authorization/roleManagementPolicies/", patch.Path, StringComparison.Ordinal);
+        Assert.Equal("PT4H", env.Arm.Rule(Mg, Reader, "Expiration_EndUser_Assignment")["maximumDuration"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public async Task APolicy_IsAppliedBeforeTheEligibilityOfTheSameScopeAndRole_WithoutADependsOn()
+    {
+        var env = CreateWithEligibilities();
+        var document = env.Host.Resources(Eligibility(Rg) + ", " + Policy("""{ "id": "Expiration_EndUser_Assignment", "maximumDuration": "PT4H" }"""));
+
+        var run = await env.Host.CreateAsync(document);
+
+        Assert.True(run.Succeeded, run.Result?.Diagnostics.FirstOrDefault()?.Message);
+        var writes = env.Arm.Requests.Where(r => r.Method is "PATCH" or "PUT").Select(r => r.Method).ToList();
+        Assert.Equal(["PATCH", "PUT"], writes);
+    }
+
+    [Fact]
+    public async Task AnEligibilityThatAlreadyDependsOnThePolicy_IsAppliedAfterIt_Once()
+    {
+        var env = CreateWithEligibilities();
+        string eligibility = Templates.Resource(
+            AzureRoleEligibilityScheduleRequestsProvider.ResourceType,
+            EligibilityName,
+            "{ \"scope\": \"" + Rg + "\", \"role\": \"Reader\", \"principalId\": \"" + Principal + "\" }",
+            extra: Templates.DependsOn(Type, Name));
+        var document = env.Host.Resources(eligibility + ", " + Policy("""{ "id": "Expiration_Admin_Eligibility", "isExpirationRequired": false }"""));
+
+        var run = await env.Host.CreateAsync(document);
+
+        Assert.True(run.Succeeded, run.Result?.Diagnostics.FirstOrDefault()?.Message);
+        Assert.Equal(["PATCH", "PUT"], env.Arm.Requests.Where(r => r.Method is "PATCH" or "PUT").Select(r => r.Method).ToList());
+    }
+
+    [Fact]
+    public async Task AnEligibilityOfAnotherRoleOrScope_IsNotGoverned()
+    {
+        var env = CreateWithEligibilities();
+        var provider = env.Provider;
+        var plan = await env.Host.ExpandAsync(env.Host.Resources(Policy("""{ "id": "Expiration_EndUser_Assignment" }""") + ", " + Eligibility(SubscriptionScope)));
+        var policy = plan.Instances.Single(i => ResourceIdentifier.TypeEquals(i.Type, Type));
+
+        Assert.Empty(provider.AppliesBefore(policy, plan.Instances));
+    }
+
     [Fact]
     public void TheProvider_IsAppliedInPhase4_AndDeletedInOrder2()
     {

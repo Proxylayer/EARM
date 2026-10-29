@@ -479,6 +479,20 @@ public sealed class RunScopesTests
         Assert.Equal(new[] { "User.Read" }, scopes.GraphScopes.ToArray());
     }
 
+    [Theory]
+    [InlineData(RunVerb.Create)]
+    [InlineData(RunVerb.WhatIf)]
+    [InlineData(RunVerb.Delete)]
+    public async Task NeedsResourceManager_IsTrue_ForTheAzurePimAccessSample_NextToTheGroupsGraphScope(RunVerb verb)
+    {
+        var scopes = await ComputeAsync("azure-pim-access.entra.json", "azure-pim-access.parameters.json", verb);
+
+        Assert.True(scopes.NeedsResourceManager);
+        Assert.False(scopes.NeedsKeyVault);
+        Assert.Contains("User.Read", scopes.GraphScopes);
+        Assert.Contains(scopes.GraphScopes, s => s.StartsWith("Group.", StringComparison.Ordinal));
+    }
+
     [Fact]
     public async Task NeedsResourceManager_IsFalse_ForValidatingTheAzurePimPolicySample()
     {

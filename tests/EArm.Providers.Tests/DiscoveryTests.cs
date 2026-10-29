@@ -49,6 +49,8 @@ public sealed class DiscoveryTests
     [InlineData("Microsoft.Entra/privilegedAccess/groupAssignmentScheduleRequests", typeof(GroupAssignmentScheduleRequestsProvider))]
     [InlineData("Microsoft.Entra/roleManagementPolicies", typeof(RoleManagementPoliciesProvider))]
     [InlineData("Microsoft.Entra/azureRoleManagementPolicies", typeof(AzureRoleManagementPoliciesProvider))]
+    [InlineData("Microsoft.Entra/azureRoleEligibilityScheduleRequests", typeof(AzureRoleEligibilityScheduleRequestsProvider))]
+    [InlineData("Microsoft.Entra/azureRoleAssignments", typeof(AzureRoleAssignmentsProvider))]
     [InlineData("Microsoft.Entra/conditionalAccess/authenticationStrengths", typeof(AuthenticationStrengthsProvider))]
     [InlineData("Microsoft.Entra/appRoleAssignments", typeof(AppRoleAssignmentsProvider))]
     [InlineData("Microsoft.Entra/oauth2PermissionGrants", typeof(OAuth2PermissionGrantsProvider))]

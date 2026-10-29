@@ -30,6 +30,7 @@ public sealed class TemplateSchemaValidationTests
     private const string PimActive = "pim-active";
     private const string PimPolicies = "pim-policies";
     private const string AzurePimPolicies = "azure-pim-policies";
+    private const string AzurePimAccess = "azure-pim-access";
     private const string AccessPackages = "access-packages";
     private const string TenantPolicies = "tenant-policies";
     private const string AccessReviews = "access-reviews";
@@ -136,6 +137,12 @@ public sealed class TemplateSchemaValidationTests
         // azureRoleManagementPolicies (PIM policy rules of an Azure role, through Azure Resource Manager)
         I(AzurePimPolicies, "azureRoleManagementPolicies", 0, ["rules", 0, "isExpirationRequired"], "\"yes\"", "type"),
         I(AzurePimPolicies, "azureRoleManagementPolicies", 0, ["rules", 1], "{ \"enabledRules\": [\"Justification\"] }", "required"),
+
+        // azureRoleEligibilityScheduleRequests and azureRoleAssignments (Azure role grants, through Azure Resource Manager)
+        I(AzurePimAccess, "azureRoleEligibilityScheduleRequests", 0, ["principalId"], "\"not-a-guid\"", "pattern"),
+        I(AzurePimAccess, "azureRoleEligibilityScheduleRequests", 0, ["scheduleInfo", "expiration"], "\"NoExpiration\"", "type"),
+        I(AzurePimAccess, "azureRoleAssignments", 0, ["principalId"], "\"not-a-guid\"", "pattern"),
+        I(AzurePimAccess, "azureRoleAssignments", 0, ["description"], "42", "type"),
 
         // entitlement management (access packages)
         I(AccessPackages, "entitlementManagement/catalogs", 0, ["state"], "\"draft\"", "enum"),
@@ -270,7 +277,7 @@ public sealed class TemplateSchemaValidationTests
             Assert.Contains(definition.Type, covered);
         }
 
-        Assert.Equal(37, ResourceTypeCatalog.Default.Types.Count);
+        Assert.Equal(39, ResourceTypeCatalog.Default.Types.Count);
         foreach (string keyword in new[] { "enum", "pattern", "type", "required", "additionalProperties" })
         {
             Assert.Contains(Injections, i => i.Keyword == keyword);
