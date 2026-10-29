@@ -47,6 +47,9 @@ internal static class DeploymentRunner
         // Every secret value the run learns is masked from here on, wherever an error message echoes it (S-02).
         using var scrubScope = SecretScrubber.Begin();
 
+        // --timings: the phase table on stderr when the run ends, whatever the exit (declared before the deployment, so written after it is disposed).
+        using var timingsReport = RunTimingsWriter.Begin(invocation, stderr);
+
         // 0. The secure outputs file must be usable BEFORE anything is written: a secret that cannot be saved is lost for good (E-03a).
         if (!invocation.WhatIf && !string.IsNullOrWhiteSpace(invocation.SecureOutputsFile) && SecureOutputsFile.Validate(invocation.SecureOutputsFile) is { } fileProblem)
         {
@@ -132,6 +135,7 @@ internal static class DeploymentRunner
         }
 
         // 7. Execute.
+        var applyPhase = invocation.Timings.Measure("apply");
         var executor = deployment.Services.CreateExecutor();
         var result = await executor.ExecuteAsync(plan, new ExecuteOptions
         {
@@ -143,6 +147,7 @@ internal static class DeploymentRunner
             // -y confirms every replacement; otherwise only the ones the user saw and confirmed (a replacement found later in the run is refused).
             ApprovedRecreates = invocation.Yes ? null : Replacements(plan).Select(change => change.Id.Id).ToHashSet(StringComparer.OrdinalIgnoreCase),
         }, cancellationToken).ConfigureAwait(false);
+        applyPhase.Dispose();
 
         var embeddedWhatIf = invocation.Output == OutputFormat.Json && confirmedWhatIf is not null ? WhatIfJson.Build(confirmedWhatIf) : null;
         DeploymentResultWriter.Write(result, invocation.Output, !invocation.NoPrettyPrint, stdout, stderr, embeddedWhatIf);

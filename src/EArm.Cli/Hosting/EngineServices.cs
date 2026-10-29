@@ -37,7 +37,7 @@ internal sealed class EngineServices : IDisposable
     private readonly ReplicationWait _replicationWait;
     private readonly KeyAbsenceCheck _keyAbsenceCheck;
 
-    private EngineServices(ConnectionSettings connection, GraphCloud cloud, GraphAuthOptions auth, ILoggerFactory loggerFactory, RunAuthentication run, TextWriter stderr)
+    private EngineServices(ConnectionSettings connection, GraphCloud cloud, GraphAuthOptions auth, ILoggerFactory loggerFactory, RunAuthentication run, TextWriter stderr, GraphRequestCounter? requestCounter)
     {
         var overrides = connection.Overrides ?? ServiceOverrides.Ambient;
         LoggerFactory = loggerFactory;
@@ -63,7 +63,7 @@ internal sealed class EngineServices : IDisposable
         _replicationWait = new ReplicationWait { Delay = overrides?.Delay ?? TaskDelayProvider.Instance };
         _keyAbsenceCheck = new KeyAbsenceCheck { Delay = overrides?.Delay ?? TaskDelayProvider.Instance };
         RetryPolicy = new RetryPolicy(new RetryOptions(), overrides?.Delay ?? TaskDelayProvider.Instance, loggerFactory.CreateLogger<RetryPolicy>());
-        var options = new GraphOptions { Cloud = cloud, MaxParallel = Math.Max(1, connection.Parallelism), Scopes = graphScopes };
+        var options = new GraphOptions { Cloud = cloud, MaxParallel = Math.Max(1, connection.Parallelism), Scopes = graphScopes, RequestCounter = requestCounter ?? new GraphRequestCounter() };
         Graph = new HttpGraphClient(_http, _tokens, RetryPolicy, options, loggerFactory.CreateLogger<HttpGraphClient>(), time);
         Preflight = new GraphPreflight(_tokens, Graph, cloud, auth.Mode, loggerFactory.CreateLogger<GraphPreflight>(), graphScopes, preflightPrompter);
         KeyVault = new KeyVaultClient(_http, _tokens, RetryPolicy, cloud, options.Timeout, loggerFactory.CreateLogger<KeyVaultClient>(), time);
@@ -83,8 +83,9 @@ internal sealed class EngineServices : IDisposable
     /// <summary>
     /// As above, for one run of an online verb: <paramref name="run"/> gives the delegated scopes a user sign-in requests (and how a consent prompt is shown); with
     /// <c>-o json</c> the reason is ONE JSON document on <paramref name="stdout"/> (<see cref="EArm.Cli.Commands.VerbOutput"/>), not prose on stderr.
+    /// <paramref name="requestCounter"/>, when given, counts the Graph client's HTTP attempts (the run's phase timings read it).
     /// </summary>
-    public static bool TryCreate(ConnectionSettings connection, ILoggerFactory loggerFactory, TextWriter stdout, TextWriter stderr, OutputFormat output, RunAuthentication run, out EngineServices? services, out int exitCode)
+    public static bool TryCreate(ConnectionSettings connection, ILoggerFactory loggerFactory, TextWriter stdout, TextWriter stderr, OutputFormat output, RunAuthentication run, out EngineServices? services, out int exitCode, GraphRequestCounter? requestCounter = null)
     {
         ArgumentNullException.ThrowIfNull(run);
         ArgumentNullException.ThrowIfNull(connection);
@@ -96,7 +97,7 @@ internal sealed class EngineServices : IDisposable
         try
         {
             var (cloud, auth) = connection.Resolve();
-            services = new EngineServices(connection, cloud, auth, loggerFactory, run, stderr);
+            services = new EngineServices(connection, cloud, auth, loggerFactory, run, stderr, requestCounter);
             return true;
         }
         catch (ArgumentException ex)

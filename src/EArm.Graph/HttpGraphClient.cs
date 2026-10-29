@@ -223,12 +223,15 @@ public sealed partial class HttpGraphClient : IGraphClient
 
         // The scheduler's wait comes before the parallelism gate, so a request waiting for its budget (or a paused area) holds no slot that a request
         // to another area could use. Nothing has been sent while it waits: the caller's cancellation is honoured.
+        var schedulerWaitStarted = Stopwatch.GetTimestamp();
         using var ticket = await _scheduler.AcquireAsync(call, cancellationToken).ConfigureAwait(false);
+        Requests.SchedulerWaited(Stopwatch.GetElapsedTime(schedulerWaitStarted));
         var probe = new ConnectProbe();
         var responsesBefore = Volatile.Read(ref _responsesStarted);
 
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         var stopwatch = Stopwatch.StartNew();
+        Requests.Started(write);
         try
         {
             // A write is never abandoned once it is on the wire: the caller's cancellation (Ctrl+C) is honoured up to here and then only between
@@ -318,6 +321,7 @@ public sealed partial class HttpGraphClient : IGraphClient
         }
         finally
         {
+            Requests.Finished();
             _gate.Release();
         }
     }

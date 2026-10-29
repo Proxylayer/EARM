@@ -9,6 +9,7 @@ using EArm.Engine.Edges;
 using EArm.Engine.Execution;
 using EArm.Engine.Planning.Nested;
 using EArm.Engine.Providers;
+using EArm.Engine.Timing;
 using EArm.Expressions;
 using EArm.Graph;
 using Microsoft.Extensions.Logging;
@@ -26,9 +27,16 @@ internal sealed class WhatIfReadPass
     private readonly GraphCallRetry _retry;
     private readonly ILogger _logger;
     private readonly KeyAbsenceCheck _keyAbsenceCheck;
+    private readonly RunTimings? _timings;
 
-    public WhatIfReadPass(IGraphClient graph, RetryPolicy? retryPolicy, ILogger logger, KeyAbsenceCheck keyAbsenceCheck)
+    /// <param name="graph">The Graph client the reads go through.</param>
+    /// <param name="retryPolicy">The outer retry policy (tests); <c>null</c> with <see cref="HttpGraphClient"/>.</param>
+    /// <param name="logger">The planner's logger.</param>
+    /// <param name="keyAbsenceCheck">How an empty key read is confirmed.</param>
+    /// <param name="timings">Times the reads, the edge pass and the orphan report as phases; <c>null</c> times nothing.</param>
+    public WhatIfReadPass(IGraphClient graph, RetryPolicy? retryPolicy, ILogger logger, KeyAbsenceCheck keyAbsenceCheck, RunTimings? timings = null)
     {
+        _timings = timings;
         _graph = graph;
         _retryPolicy = retryPolicy;
         _retry = new GraphCallRetry(retryPolicy);
@@ -38,9 +46,20 @@ internal sealed class WhatIfReadPass
 
     public async Task RunAsync(DeploymentPlan plan, CancellationToken cancellationToken)
     {
-        await PlanBatchesAsync(plan, cancellationToken).ConfigureAwait(false);
-        await PlanEdgesAsync(plan, cancellationToken).ConfigureAwait(false);
-        await PlanOrphansAsync(plan, cancellationToken).ConfigureAwait(false);
+        using (_timings?.Measure("what-if reads"))
+        {
+            await PlanBatchesAsync(plan, cancellationToken).ConfigureAwait(false);
+        }
+
+        using (_timings?.Measure("edge pass"))
+        {
+            await PlanEdgesAsync(plan, cancellationToken).ConfigureAwait(false);
+        }
+
+        using (_timings?.Measure("orphan report"))
+        {
+            await PlanOrphansAsync(plan, cancellationToken).ConfigureAwait(false);
+        }
     }
 
     // ---- what-if pass ----
