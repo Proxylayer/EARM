@@ -72,6 +72,14 @@ internal enum Needs
     /// deleted (the tenant needs Microsoft Entra ID Governance or P2; the signed-in identity Identity Governance Administrator or User Administrator).
     /// </summary>
     AccessReviews = 2048,
+
+    /// <summary>
+    /// The Azure PIM role management policy of one role at one resource group may be changed (<c>EARM_IT_ALLOW_AZURE_PIM_POLICIES=1</c> with
+    /// <c>EARM_IT_AZURE_SCOPE</c>, optionally <c>EARM_IT_AZURE_ROLE</c>): through Azure Resource Manager, under the snapshot / restore guard
+    /// (<see cref="AzurePimPolicyRestoreGuard"/>). The signed-in user needs Owner, User Access Administrator or Role Based Access Control Administrator
+    /// (active) at that resource group, and the run a consented Azure Resource Manager token.
+    /// </summary>
+    AzurePimPolicies = 4096,
 }
 
 /// <summary>
@@ -93,6 +101,9 @@ internal sealed record IntegrationSettings
     public const string AllowCrossTenantVariable = "EARM_IT_ALLOW_CROSS_TENANT";
     public const string AllowGroupLifecycleVariable = "EARM_IT_ALLOW_GROUP_LIFECYCLE";
     public const string AllowAccessReviewsVariable = "EARM_IT_ALLOW_ACCESS_REVIEWS";
+    public const string AllowAzurePimPoliciesVariable = "EARM_IT_ALLOW_AZURE_PIM_POLICIES";
+    public const string AzureScopeVariable = "EARM_IT_AZURE_SCOPE";
+    public const string AzureRoleVariable = "EARM_IT_AZURE_ROLE";
     public const string PartnerTenantVariable = "EARM_IT_PARTNER_TENANT";
     public const string SharePointSiteUrlVariable = "EARM_IT_SP_SITE_URL";
     public const string SharePointSiteRoleVariable = "EARM_IT_SP_SITE_ROLE";
@@ -147,6 +158,18 @@ internal sealed record IntegrationSettings
     /// <summary><c>EARM_IT_ALLOW_ACCESS_REVIEWS=1</c>: prefixed standalone access review definitions (ID Governance).</summary>
     public bool AllowAccessReviews { get; init; }
 
+    /// <summary><c>EARM_IT_ALLOW_AZURE_PIM_POLICIES=1</c>: snapshot-guarded changes of the Azure PIM policy of <see cref="AzurePimPolicyTarget"/>.</summary>
+    public bool AllowAzurePimPolicies { get; init; }
+
+    /// <summary>
+    /// The validated <c>EARM_IT_AZURE_SCOPE</c> / <c>EARM_IT_AZURE_ROLE</c>: the only Azure PIM policy the probes may touch; null when the scope is unset
+    /// or the values were refused (<see cref="AzurePimPolicyProblem"/>).
+    /// </summary>
+    public AzurePimPolicyTarget? AzurePimPolicyTarget { get; init; }
+
+    /// <summary>Why <c>EARM_IT_AZURE_SCOPE</c> or <c>EARM_IT_AZURE_ROLE</c> was refused (a subscription scope, Owner, ...), or null.</summary>
+    public string? AzurePimPolicyProblem { get; init; }
+
     /// <summary><c>EARM_IT_PARTNER_TENANT</c>: the tenant id of a real other tenant for the partner configuration scenario, or null.</summary>
     public string? PartnerTenant { get; init; }
 
@@ -182,7 +205,8 @@ internal sealed record IntegrationSettings
             && (!needs.HasFlag(Needs.CrossTenant) || AllowCrossTenant)
             && (!needs.HasFlag(Needs.GroupLifecycle) || AllowGroupLifecycle)
             && (!needs.HasFlag(Needs.AccessReviews) || AllowAccessReviews)
-            && (!needs.HasFlag(Needs.SharePointSite) || (SharePointSiteUrl is not null && SharePointSiteRole is not null));
+            && (!needs.HasFlag(Needs.SharePointSite) || (SharePointSiteUrl is not null && SharePointSiteRole is not null))
+            && (!needs.HasFlag(Needs.AzurePimPolicies) || (AllowAzurePimPolicies && AzurePimPolicyTarget is not null));
     }
 
     public static IntegrationSettings FromEnvironment()
@@ -202,6 +226,11 @@ internal sealed record IntegrationSettings
                 $"{PrefixVariable}='{prefix}' is not usable: use {MinimumPrefixLength}-40 characters, lower-case letters, digits and '-', starting with a letter (a short prefix could make the cleanup sweep touch objects that are not part of this run)."));
         }
 
+        // Validated even when the gate is off, so a refused value is reported instead of silently ignored the day the gate is turned on.
+        string? azureScope = Read(AzureScopeVariable);
+        string? azureProblem = null;
+        var azureTarget = azureScope is null ? null : AzurePimPolicyTarget.Parse(azureScope, Read(AzureRoleVariable), out azureProblem);
+
         return new IntegrationSettings
         {
             TenantId = tenant,
@@ -217,6 +246,9 @@ internal sealed record IntegrationSettings
             AllowCrossTenant = IsOn(AllowCrossTenantVariable),
             AllowGroupLifecycle = IsOn(AllowGroupLifecycleVariable),
             AllowAccessReviews = IsOn(AllowAccessReviewsVariable),
+            AllowAzurePimPolicies = IsOn(AllowAzurePimPoliciesVariable),
+            AzurePimPolicyTarget = azureTarget,
+            AzurePimPolicyProblem = azureProblem,
             PartnerTenant = Read(PartnerTenantVariable),
             SharePointSiteUrl = Read(SharePointSiteUrlVariable),
             SharePointSiteRole = Read(SharePointSiteRoleVariable),

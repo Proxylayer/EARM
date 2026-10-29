@@ -10,7 +10,7 @@ Four kinds of tests live here:
 | Kind | Classes | Purpose |
 |---|---|---|
 | Scenarios | `ApplicationScenarioTests`, `DirectoryScenarioTests`, `ConditionalAccessScenarioTests`, `RoleScenarioTests`, `PimScenarioTests`, `AuthMethodScenarioTests`, `CleanupScenarioTests` | Create, what-if (NoChange), drift, Complete mode (report only, never deletes), `deployment delete -f` (reverse dependency order), secure outputs and edges, run through the real CLI in-process (`Program.BuildRootCommand`). EARM keeps no state, so every scenario finds its objects by key, as a real run does. |
-| Verification probes (`[Trait("Category","Verify")]`) | `GraphBehaviourProbes`, `GroupMembershipProbes`, `PimProbes`, `AuthMethodProbes` | One test per open verification TODO. Each exercises one real Graph behaviour the code assumes and asserts the assumption. |
+| Verification probes (`[Trait("Category","Verify")]`) | `GraphBehaviourProbes`, `GroupMembershipProbes`, `PimProbes`, `AuthMethodProbes`, `PimPolicyProbes`, `AzurePimPolicyProbes` | One test per open verification TODO. Each exercises one real Graph (or, for `AzurePimPolicyProbes`, Azure Resource Manager) behaviour the code assumes and asserts the assumption. |
 | Consent probes (`[Trait("Category","Consent")]`) | `ConsentProbes` | Interactive, separately gated (`EARM_IT_CONSENT_PROBE=1`); check the delegated-consent flow on real MSAL output. See [Consent probes](#consent-probes). |
 | Spike probes (`[Trait("Category","Spike")]`) | `DelegatedAuthSpikeProbes` | Interactive, separately gated (`EARM_IT_AUTH_SPIKE=1`); record how Microsoft Entra answers delegated-auth questions. See [Delegated-auth spike (DES-0002)](#delegated-auth-spike-des-0002). |
 
@@ -24,7 +24,9 @@ Four kinds of tests live here:
    Microsoft Entra ID Governance** (a P2 trial works); without it every PIM request is refused and those tests fail, so leave the gate off. A
    signed-in user's roles must be **active**, not just eligible: Privileged Role Administrator for directory roles and role-assignable groups, and
    Groups Administrator, Identity Governance Administrator, User Administrator or Directory Writers for PIM for Groups on groups that are not
-   role-assignable (Privileged Role Administrator alone gets 403 `PimGroupAccessDenied` there). No Azure subscription is needed.
+   role-assignable (Privileged Role Administrator alone gets 403 `PimGroupAccessDenied` there). No Azure subscription is needed, except for the
+   Azure PIM policy probes (`EARM_IT_ALLOW_AZURE_PIM_POLICIES=1`), which need one throw-away resource group: see
+   [Azure PIM policies: the restore guarantee](#azure-pim-policies-the-restore-guarantee).
 
 3. **A sign-in for that tenant: your own user (the main path).** The fixture builds the same stack as the CLI: `EARM_AUTH` / `EARM_TENANT_ID` / `EARM_CLIENT_ID` /
    `EARM_CLOUD` and the `AZURE_*` variables apply (see [docs/cli.md](../../docs/cli.md#signing-in)). Sign in once:
@@ -86,6 +88,7 @@ Four kinds of tests live here:
    | `PimScenarioTests`, `PimProbes` | `RoleEligibilitySchedule.ReadWrite.Directory`, `RoleAssignmentSchedule.ReadWrite.Directory`, `PrivilegedEligibilitySchedule.ReadWrite.AzureADGroup`, `PrivilegedAssignmentSchedule.ReadWrite.AzureADGroup`, `RoleManagement.ReadWrite.Directory` (P5 writes a plain role assignment), `User.ReadWrite.All`, `Group.ReadWrite.All`, `Directory.Read.All`; a user also needs **Privileged Role Administrator** (or Global Administrator) |
    | `AuthMethodScenarioTests`, `AuthMethodProbes` | `Policy.ReadWrite.AuthenticationMethod`; a user also needs **Authentication Policy Administrator** (or Global Administrator) |
    | `PimPolicyScenarioTests`, `PimPolicyProbes` | `RoleManagementPolicy.ReadWrite.Directory`, `RoleManagementPolicy.ReadWrite.AzureADGroup`, `PrivilegedEligibilitySchedule.ReadWrite.AzureADGroup`, `AuthenticationContext.Read.All` (PP6 reads the tenant's contexts), `User.ReadWrite.All`, `Group.ReadWrite.All`, `Directory.Read.All` (`IntegrationScopes.PimPolicyScopes` for the restore guard); a user also needs **Privileged Role Administrator** (or Global Administrator) |
+   | `AzurePimPolicyProbes` | none in Graph: Azure Resource Manager `user_impersonation` (a separate consent, `earm auth login --tenant <tenant-id> --scopes https://management.azure.com/user_impersonation`); the signed-in user needs **Owner**, **User Access Administrator** or **Role Based Access Control Administrator** (active, not just eligible) at the resource group, which carry `Microsoft.Authorization/roleManagementPolicies/write`. A service principal needs the same Azure role assignment. |
    | PIM cleanup (with `ALLOW_PIM`) | the four `*Schedule.ReadWrite.*` scopes above (`IntegrationScopes.PimCleanupScopes`) |
    | Probes | the union of the above; `B4` (user restore) additionally documents whether `User.DeleteRestore.All` is needed |
    | Purging soft-deleted objects (cleanup) | the type's `*.ReadWrite.All`; users `User.DeleteRestore.All` |
@@ -113,6 +116,9 @@ Four kinds of tests live here:
 | `EARM_IT_ALLOW_GROUP_LIFECYCLE` | `=1` | Required for the group expiration part of `TenantPolicyScenarioTests`. The tenant has one group expiration policy: the test creates a `Selected` policy (and a prefixed Microsoft 365 group in it) only when the tenant has **none**, and deletes it again; an existing policy is only compared by a what-if. Adds `Directory.ReadWrite.All`. |
 | `EARM_IT_ALLOW_ACCESS_REVIEWS` | `=1` | Required for `AccessReviewScenarioTests`: a prefixed standalone access review (`Microsoft.Entra/accessReviews/definitions`) of a prefixed group's members, reviewed by a second prefixed group, created, changed and deleted; nothing tenant-wide. The tenant needs Microsoft Entra ID Governance or P2 and the signed-in identity an **active** Identity Governance Administrator or User Administrator. The prefix sweep removes prefixed definitions before the groups. Adds `AccessReview.ReadWrite.All`. |
 | `EARM_IT_SP_SITE_URL`, `EARM_IT_SP_SITE_ROLE` | a site URL; one of its group names (`Team Members`) | Required (with `EARM_IT_ALLOW_ACCESS_PACKAGES`) for the SharePoint Online site test of `AccessPackageResourceKindScenarioTests`: the existing site is added to a prefixed catalog, its group granted by a package, then removed; the site is never changed. Run it signed in as a user who is a SharePoint Administrator or an administrator of the site (Graph lists sites in a catalog only to delegated callers). |
+| `EARM_IT_ALLOW_AZURE_PIM_POLICIES` | `=1` | Required (with `EARM_IT_AZURE_SCOPE`) for `AzurePimPolicyProbes`, which read and change the **Azure** PIM settings of one role at one resource group through Azure Resource Manager (`Microsoft.Authorization/roleManagementPolicies`, api-version 2020-10-01), always under the snapshot / restore guard (see [Azure PIM policies: the restore guarantee](#azure-pim-policies-the-restore-guarantee)). Builds a Resource Manager client over the same sign-in and reads the resource group once at the start; a failure skips only these probes, with the ARM error code or the consent command. |
+| `EARM_IT_AZURE_SCOPE` | with `ALLOW_AZURE_PIM_POLICIES` | A resource group id, exactly `/subscriptions/<subscription-id>/resourceGroups/<name>`. A subscription or management group scope (or anything below a resource group) is **refused**: the probes fail with the reason before any request, because every scope below it inherits the policy. Use a throw-away resource group. |
+| `EARM_IT_AZURE_ROLE` | no | The built-in role definition GUID whose policy the probes change. Default Reader (`acdd72a7-3385-48ef-bd42-f606fba81ae7`). Owner, User Access Administrator, Role Based Access Control Administrator and Contributor are **refused** (the probes fail before any request). |
 | `EARM_IT_SWEEP` | `=1` | Enables `It_Cleanup_ManualSweepOfTheConfiguredPrefix` (see Manual cleanup). |
 | `EARM_IT_INTERACTIVE` | `=1` | A person is at the machine: a user sign-in that lacks consent for the run's scopes may open ONE browser consent prompt at the start. Off: the run skips with the `earm auth login --scopes ...` command. Never set it in CI. |
 | `EARM_AUTH` | no | `default` forces the service principal / managed identity of the environment when an `earm auth login` record also exists. |
@@ -129,6 +135,8 @@ $env:EARM_IT_ALLOW_AUTH_METHODS = '1'   # optional: tenant-wide policy, snapshot
 $env:EARM_IT_ALLOW_PIM_POLICIES = '1'   # optional, with ALLOW_PIM: tenant-wide PIM policies, snapshot + restore
 $env:EARM_IT_ALLOW_ACCESS_PACKAGES = '1'  # optional: prefixed catalogs, access packages and policies (ID Governance)
 $env:EARM_IT_ALLOW_ACCESS_REVIEWS = '1'   # optional: a prefixed standalone access review (ID Governance)
+$env:EARM_IT_ALLOW_AZURE_PIM_POLICIES = '1'   # optional: the Azure PIM policy of one role at one resource group, snapshot + restore
+$env:EARM_IT_AZURE_SCOPE = '/subscriptions/<subscription-id>/resourceGroups/<name>'   # with ALLOW_AZURE_PIM_POLICIES; never a subscription
 
 pwsh -File build.ps1 -Target EArm.Integration.Tests                                   # compile only
 pwsh -File test.ps1 -Target EArm.Integration.Tests                                    # everything that is enabled
@@ -138,7 +146,8 @@ pwsh -File test.ps1 -Target EArm.Integration.Tests -Filter "FullyQualifiedName~A
 pwsh -File test.ps1 -Target EArm.Integration.Tests -Filter "FullyQualifiedName~It_Probe_F1" -Detailed   # diagnose one probe
 pwsh -File test.ps1 -Target EArm.Integration.Tests -Filter "FullyQualifiedName~PimScenarioTests|FullyQualifiedName~PimProbes" -Detailed   # PIM only
 pwsh -File test.ps1 -Target EArm.Integration.Tests -Filter "FullyQualifiedName~AuthMethod" -Detailed     # authentication methods only
-pwsh -File test.ps1 -Target EArm.Integration.Tests -Filter "FullyQualifiedName~PimPolicy" -Detailed      # PIM policies only
+pwsh -File test.ps1 -Target EArm.Integration.Tests -Filter "FullyQualifiedName~PimPolicy" -Detailed      # PIM policies only (Entra and Azure)
+pwsh -File test.ps1 -Target EArm.Integration.Tests -Filter "FullyQualifiedName~AzurePimPolicyProbes" -Detailed   # Azure PIM policies only
 ```
 
 With `EARM_IT_TENANT` set, `pwsh -File test.ps1` (no `-Target`) also includes this project. All classes share one xUnit collection
@@ -172,6 +181,7 @@ and run sequentially: they share the sign-in and the cleanup guard, and the in-p
 | `It_Probe_GA1` (group adoption) | - |
 | `It_Probe_P1` ... `It_Probe_P5` (PIM) | `DOMAIN`, `ALLOW_PIM` |
 | `It_Probe_AM1` ... `It_Probe_AM4` (authentication methods) | `ALLOW_AUTH_METHODS`; AM3 also skips unless Temporary Access Pass is disabled in the tenant |
+| `It_Probe_AZ1` ... `It_Probe_AZ6` (Azure PIM policies) | `ALLOW_AZURE_PIM_POLICIES`, `AZURE_SCOPE` (optionally `AZURE_ROLE`) and the Azure Resource Manager consent; AZ3, AZ4 and AZ6 write the configured policy (snapshot + restore); AZ1, AZ2 and AZ5 only read |
 | `It_Probe_PP1` ... `It_Probe_PP7` (PIM policies) | `ALLOW_PIM`, `ALLOW_PIM_POLICIES`; PP1, PP4 and PP7 also `DOMAIN`; PP6 only records when the tenant has an available authentication context; PP7 takes about 20-25 minutes (it polls 15 minutes before onboarding: shorten `PreOnboardingPollMinutes` in `PimPolicyProbes.cs` to iterate) |
 
 ## Cost and safety
@@ -196,6 +206,11 @@ and run sequentially: they share the sign-in and the cleanup guard, and the in-p
   (activation duration, enabled rules, approval by a prefixed approvers group, and PP2 / PP3 / PP6 rewrites) and the policies of prefixed test groups
   (PP7 writes one rule of its own group's policy back to its current value) are changed, always under [the restore guarantee](#pim-policies-the-restore-guarantee). The Global Administrator and Privileged Role Administrator
   policies are never touched (the guard refuses them, and every other directory role, before any request).
+* Azure PIM policies (`EARM_IT_ALLOW_AZURE_PIM_POLICIES=1`): only the policy of the configured role (Reader by default) at the configured **resource group**
+  is read and changed (`Expiration_EndUser_Assignment`, the maximum activation duration, `PT4H` / `PT3H`), always under
+  [the restore guarantee](#azure-pim-policies-the-restore-guarantee). Subscription and management group scopes, and the Owner, User Access Administrator,
+  Role Based Access Control Administrator and Contributor roles, are refused before any request; a policy inherited from a parent scope is never written.
+  No Azure resource is created and nothing costs money.
 * Tenant limits to keep in mind: 500 role-assignable groups, soft-deleted objects count against some quotas for 30 days.
 * Run it in a tenant that no one else is changing at the same time: what-if assertions expect NoChange right after a create.
 
@@ -206,7 +221,7 @@ remove their own deployments with `earm deployment delete -f <template> -p prefi
 declares, found by key, in reverse dependency order). There is no state directory to clean up. At teardown (`IntegrationFixture.DisposeAsync`), also
 when tests failed, the fixture removes whatever is left:
 
-0. **Authentication method and PIM policy restore** (`AuthMethodRestoreGuard`, `PimPolicyRestoreGuard`, only when a snapshot is still pending):
+0. **Authentication method, PIM policy and Azure PIM policy restore** (`AuthMethodRestoreGuard`, `PimPolicyRestoreGuard`, `AzurePimPolicyRestoreGuard`, only when a snapshot is still pending):
    every configuration or policy a test snapshotted but could not restore itself is PATCHed back to its snapshot and verified (see below), before the
    sweep deletes the prefixed approver groups a changed rule may name; one that still differs is a `LEFTOVER`.
 1. **Prefix sweep** (`TenantCleanup`): objects created directly through Graph and tracked with `Fixture.Track(...)`, then everything whose
@@ -280,6 +295,46 @@ After a crash, restore by hand from the snapshot file: for each rule in `rules`,
 with the rule (keep `@odata.type`, drop the `@odata.context` annotations and the approvers' `description`), for example in Graph Explorer, or set
 Message Center Reader back under *Identity Governance > Privileged Identity Management > Microsoft Entra roles > Settings*.
 
+### Azure PIM policies: the restore guarantee
+
+An Azure role management policy exists for every role at every scope and cannot be deleted, so `AzurePimPolicyProbes` change the live policy of one
+role at one resource group and put it back:
+
+1. **The configured scope and role only.** `AzurePimPolicyRestoreGuard` accepts exactly the policy of `EARM_IT_AZURE_ROLE` (default Reader) at
+   `EARM_IT_AZURE_SCOPE`. The scope must be a resource group (`/subscriptions/<id>/resourceGroups/<name>`); a subscription or management group scope,
+   and the Owner, User Access Administrator, Role Based Access Control Administrator and Contributor roles, are refused when the settings are read. The
+   policy assignment is looked up at the resource group (`roleManagementPolicyAssignments?$filter=roleDefinitionId eq '<subscription-qualified id>'`) and
+   its policy must be at exactly that resource group: a policy inherited from the subscription is never written.
+2. **Snapshot first.** `Fixture.Azure.Policies.SnapshotAsync()` reads the policy and keeps its whole `properties.rules` array as ARM returned it (the first
+   snapshot wins until it is restored); the guard refuses to PATCH without one. It is also written owner-only to
+   `%TEMP%\earm-it\<prefix>\azure-pim-policies\<role-guid>.json`.
+3. **Restore exactly.** In a `finally`, when any rule differs, the guard PATCHes `properties.rules` with the whole snapshot array (on a 400, each differing
+   rule alone, without its null members), then re-reads until every rule equals the snapshot (arrays compared as sets; up to 60 s). The fixture teardown
+   repeats this for a snapshot still pending. A policy that still differs is a `LEFTOVER` (the teardown fails) and its snapshot file is kept.
+4. **What the signed-in identity needs.** An Azure subscription with a resource group you may change, and at that resource group an **active** (not just
+   eligible) assignment of Owner, User Access Administrator or Role Based Access Control Administrator, which carry
+   `Microsoft.Authorization/roleManagementPolicies/write`. A user sign-in also needs the one-time Azure Resource Manager consent:
+
+   ```powershell
+   earm auth login --tenant <tenant-id> --scopes https://management.azure.com/user_impersonation
+   ```
+
+   (or `$env:EARM_IT_INTERACTIVE = '1'` to be prompted once at the start of the run). Without it, or without read access to the resource group, the
+   probes skip with the command or the ARM error code (for example `403 AuthorizationFailed`, `404 ResourceGroupNotFound`).
+
+Run them with:
+
+```powershell
+$env:EARM_IT_TENANT = '<tenant-id>'
+$env:EARM_IT_ALLOW_AZURE_PIM_POLICIES = '1'
+$env:EARM_IT_AZURE_SCOPE = '/subscriptions/<subscription-id>/resourceGroups/<name>'
+pwsh -File test.ps1 -Target EArm.Integration.Tests -Filter "FullyQualifiedName~AzurePimPolicyProbes" -Detailed
+```
+
+After a crash, restore by hand from the snapshot file: `PATCH https://management.azure.com<policyPath>?api-version=2020-10-01` with
+`{"properties":{"rules":<the file's rules array>}}`, or set the role back in the portal under *Privileged Identity Management > Azure resources >
+<resource group> > Settings*.
+
 ### Manual cleanup
 
 After a crash (power loss, killed process) the teardown may not have run. Use the prefix printed in the test output or found under
@@ -346,6 +401,13 @@ output too, and so are kept in the TRX file for passing tests. Letters follow th
 | `PP5` `$expand` | `GET /policies/roleManagementPolicyAssignments?$filter=…&$expand=policy($expand=rules)` returns the rules; `$expand=policy` alone and `GET /policies/roleManagementPolicies/{id}?$expand=rules` are **recorded** | `RoleManagementPolicyLookup.FindAsync` |
 | `PP6` MFA + authentication context | **recorded only**: whether the Message Center Reader policy accepts `MultiFactorAuthentication` in the enablement rule together with an enabled authentication context rule (an existing, available context of the tenant; never created), the error code when refused, and whether EARM's offline checks accept such a template | `RoleManagementPolicyRuleChecks.cs` (add an offline check when Graph refuses the combination) |
 | `PP7` when a group policy appears (TODO-0093) | **recorded only** (about 20-25 minutes): for a new prefixed group, every 30 s for 15 minutes, the status, item count and policy ids of the member assignment lookup, the scopeId+scopeType assignment lookup and the policies collection (`GET /policies/roleManagementPolicies?$filter=scopeId eq '…' and scopeType eq 'Group'`), stopping early when one returns a policy; if the policies collection returns one, whether writing `Expiration_EndUser_Assignment` back to its own value onboards the group within 180 s; how long after the first eligibility request (P7D) the policy is listed; and whether the member policy is still listed 60 s after that only eligibility is removed | how EARM onboards empty groups: `RoleManagementPoliciesProvider` (`PlanMissing`), `RoleManagementPolicyLookup`, docs/pim.md |
+
+| `AZ1` policy lookup (`AzurePimPolicyProbes`, read-only) | a policy assignment for the role exists at the resource group without any prior PIM use there, and the subscription-qualified role definition id finds it; which id forms work (subscription-qualified, resource-group-qualified, bare GUID), the assignment count, whether it carries `policyId`, `effectiveRules` and `policyAssignmentProperties`, its scope (the resource group or inherited), the filtered policies collection and the policy's rule count, `properties.scope` and name stability are **recorded**; the policy read by name has rules | the Azure policy lookup (`src/EArm.Providers/AzureRoleManagementPolicyLookup.cs`, with a 'policy not available' path when none exists) and `AzurePimPolicyRestoreGuard.ReadAsync` |
+| `AZ2` role by name (read-only) | `GET {scope}/providers/Microsoft.Authorization/roleDefinitions?$filter=roleName eq '<name>'` returns the role's GUID; whether the policy assignment filter accepts a role name at all is **recorded** (expected not) | the provider resolves role names itself: `AzureRoleManagementPolicyLookup.cs` |
+| `AZ3` partial rules PATCH | a `PATCH` of `properties.rules` naming only `Expiration_EndUser_Assignment` (maximum activation duration changed) is accepted, reads back, and leaves **every other rule** equal to the snapshot; the status and whether the answer is the full policy are **recorded** | the provider must PATCH the complete rules array (live rules with the declared ones merged in): `src/EArm.Providers/AzureRoleManagementPoliciesProvider.cs` |
+| `AZ4` partial rule body | **recorded only**: whether a rule sent with only `id`, `ruleType` and `maximumDuration` (no `target`, no `isExpirationRequired`) is accepted, and which members came back changed or defaulted | whether the provider must send every member of a rule |
+| `AZ5` throttling headers | **recorded only**: the `x-ms-ratelimit-remaining-*` headers of the AZ1-AZ4 responses by method (first, last and lowest value), `Retry-After` and 429 counts, `x-ms-request-id` presence | the provider's request budget and retry expectations |
+| `AZ6` unchanged rule PATCH | a `PATCH` of a rule with its own live value changes no rule; the status and whether `lastModifiedDateTime` moves are **recorded** (if it moves, NoChange must be decided client-side) | `AzureRoleManagementPoliciesProvider.cs` (decide NoChange before sending) |
 
 When all probes of a letter are green the matching verification item can be closed; paste the diagnostic output of
 the **recorded** items into the TODO or into [docs/providers.md](../../docs/providers.md).
