@@ -19,7 +19,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace EArm.Graph;
 
 /// <summary>
-/// Calls the Azure Resource Manager REST API of the cloud: <c>GET</c> and <c>PATCH</c> of one resource and a paged <c>GET</c> of a collection, each
+/// Calls the Azure Resource Manager REST API of the cloud: <c>GET</c>, <c>PATCH</c>, <c>PUT</c> and <c>DELETE</c> of one resource and a paged <c>GET</c> of a collection, each
 /// <c>{origin}{resourcePath}?api-version={apiVersion}</c> with a bearer token for the cloud's Resource Manager scope (<see cref="GraphCloud.ResourceManagerScopes"/>),
 /// a separate token audience from Graph and Key Vault. The resource path is validated BEFORE the URL is built and must survive URL parsing unchanged (nothing is
 /// escaped or normalised silently), so a template value cannot steer the request to another host or climb out of the path; the origin is always the fixed
@@ -28,7 +28,7 @@ namespace EArm.Graph;
 /// <para>
 /// Failures follow <see cref="HttpGraphClient"/>: 429 and 5xx are retried through the shared <see cref="RetryPolicy"/> (honouring <c>Retry-After</c>), a 401 once
 /// after the cached token is dropped, and a write is never abandoned once it is on the wire (the caller's cancellation is honoured until the <c>PATCH</c> is
-/// sent; after that only the request timeout bounds it), with a failure that may hide a commit marked ambiguous. ARM answers errors in the Graph shape
+/// sent; after that only the request timeout bounds it; the same for <c>PUT</c> and <c>DELETE</c>), with a failure that may hide a commit marked ambiguous. ARM answers errors in the Graph shape
 /// <c>{"error":{"code","message"}}</c> (Learn: Azure REST API reference, Azure Resource Manager error responses), read by <see cref="GraphErrorParser"/>.
 /// </para>
 /// </summary>
@@ -256,7 +256,37 @@ public sealed class ArmClient
     /// <exception cref="ArgumentException">An invalid resource path or api-version (nothing is sent).</exception>
     /// <exception cref="GraphException">ARM answered with an error status.</exception>
     /// <exception cref="GraphTransportException">As <see cref="GetAsync"/>; also a body over <see cref="MaxRequestBodyBytes"/> (nothing is sent).</exception>
-    public async Task<JsonObject?> PatchAsync(string resourcePath, string apiVersion, JsonObject body, CancellationToken cancellationToken)
+    public Task<JsonObject?> PatchAsync(string resourcePath, string apiVersion, JsonObject body, CancellationToken cancellationToken)
+    {
+        return WriteAsync(HttpMethod.Patch, resourcePath, apiVersion, body, cancellationToken);
+    }
+
+    /// <summary>
+    /// Creates (or replaces) one resource with <paramref name="body"/> and returns ARM's answer (<c>null</c> for an empty 2xx body). A <c>PUT</c> of the same
+    /// resource name is idempotent, so a retried one is safe; otherwise as <see cref="PatchAsync"/>.
+    /// </summary>
+    /// <exception cref="ArgumentException">An invalid resource path or api-version (nothing is sent).</exception>
+    /// <exception cref="GraphException">ARM answered with an error status.</exception>
+    /// <exception cref="GraphTransportException">As <see cref="PatchAsync"/>.</exception>
+    public Task<JsonObject?> PutAsync(string resourcePath, string apiVersion, JsonObject body, CancellationToken cancellationToken)
+    {
+        return WriteAsync(HttpMethod.Put, resourcePath, apiVersion, body, cancellationToken);
+    }
+
+    /// <summary>
+    /// Deletes one resource. ARM answers 200 or 204 (a resource that was already gone is 204 for most types, or a 404 the caller decides on). Once the
+    /// request is sent it is not abandoned on cancellation, as <see cref="PatchAsync"/>.
+    /// </summary>
+    /// <exception cref="ArgumentException">An invalid resource path or api-version (nothing is sent).</exception>
+    /// <exception cref="GraphException">ARM answered with an error status.</exception>
+    /// <exception cref="GraphTransportException">As <see cref="GetAsync"/>.</exception>
+    public async Task DeleteAsync(string resourcePath, string apiVersion, CancellationToken cancellationToken)
+    {
+        var uri = BuildUri(resourcePath, apiVersion);
+        await SendAsync(HttpMethod.Delete, uri, null, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<JsonObject?> WriteAsync(HttpMethod method, string resourcePath, string apiVersion, JsonObject body, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(body);
         var uri = BuildUri(resourcePath, apiVersion);
@@ -266,11 +296,11 @@ public sealed class ArmClient
         {
             throw new GraphTransportException(
                 GraphTransportFailure.RequestTooLarge,
-                $"PATCH {uri.AbsolutePath}: the request body is {bytes.ToString(CultureInfo.InvariantCulture)} bytes, over the {MaxRequestBodyBytes.ToString(CultureInfo.InvariantCulture)}-byte limit; nothing was sent.");
+                $"{method.Method} {uri.AbsolutePath}: the request body is {bytes.ToString(CultureInfo.InvariantCulture)} bytes, over the {MaxRequestBodyBytes.ToString(CultureInfo.InvariantCulture)}-byte limit; nothing was sent.");
         }
 
-        var answer = await SendAsync(HttpMethod.Patch, uri, payload, cancellationToken).ConfigureAwait(false);
-        return AsObject(answer, "PATCH", uri);
+        var answer = await SendAsync(method, uri, payload, cancellationToken).ConfigureAwait(false);
+        return AsObject(answer, method.Method, uri);
     }
 
     /// <summary>Parses and validates an absolute <c>nextLink</c>.</summary>

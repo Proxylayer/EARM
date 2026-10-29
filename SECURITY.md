@@ -43,7 +43,7 @@ principal-side relationship (`memberOf`, a principal's `appRoleAssignments` / `d
 ### Privileged access and authentication methods
 
 The PIM types (`roleEligibilityScheduleRequests`, `roleAssignmentScheduleRequests`, `privilegedAccess/groupEligibilityScheduleRequests`,
-`privilegedAccess/groupAssignmentScheduleRequests`, `roleManagementPolicies`, `azureRoleManagementPolicies`) and `authenticationMethodConfigurations` are **privilege-control surfaces**
+`privilegedAccess/groupAssignmentScheduleRequests`, `roleManagementPolicies`, `azureRoleManagementPolicies`, `azureRoleEligibilityScheduleRequests`, `azureRoleAssignments`) and `authenticationMethodConfigurations` are **privilege-control surfaces**
 ([docs/pim.md](docs/pim.md)):
 
 - **Escalation-capable permissions.** An identity with `RoleEligibilitySchedule.ReadWrite.Directory` or `RoleAssignmentSchedule.ReadWrite.Directory` can make

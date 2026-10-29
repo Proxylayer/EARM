@@ -47,6 +47,7 @@ public sealed class ReadYourWriteAfterCreateTests
             [
                 "Microsoft.Entra/accessReviews/definitions",
                 "Microsoft.Entra/administrativeUnits",
+                "Microsoft.Entra/azureRoleEligibilityScheduleRequests",
                 "Microsoft.Entra/conditionalAccess/authenticationStrengths",
                 "Microsoft.Entra/conditionalAccess/namedLocations",
                 "Microsoft.Entra/conditionalAccess/policies",

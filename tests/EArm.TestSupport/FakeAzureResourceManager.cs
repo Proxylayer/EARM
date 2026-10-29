@@ -24,9 +24,12 @@ namespace EArm.TestSupport;
 /// <item><c>GET {scope}/providers/Microsoft.Authorization/roleDefinitions?$filter=roleName eq '{name}'</c>: <see cref="RoleDefinitions"/> whose name equals the
 /// filtered one ignoring case, or <see cref="RoleDefinitionAnswer"/> when set.</item>
 /// </list>
+/// The role grants (eligibility schedules and requests, role assignments) are the other part of the class (<c>FakeAzureResourceManager.Grants.cs</c>).
+/// Management group scopes (<c>/providers/Microsoft.Management/managementGroups/{id}</c>) name roles by their tenant-level id; a role of a management group
+/// added with <see cref="AddPolicyOnFirstRequest"/> has no policy until the first eligibility request of that role there, as ARM behaves.
 /// Every request is recorded (<see cref="Requests"/>). Nothing waits: the client's retry policy runs on a no-delay provider.
 /// </summary>
-public sealed class FakeAzureResourceManager : HttpMessageHandler
+public sealed partial class FakeAzureResourceManager : HttpMessageHandler
 {
     public const string Authorization = "/providers/Microsoft.Authorization";
 
@@ -39,6 +42,7 @@ public sealed class FakeAzureResourceManager : HttpMessageHandler
     private readonly object _gate = new();
     private readonly List<RecordedHttpRequest> _requests = [];
     private readonly List<AzurePolicyState> _policies = [];
+    private readonly List<(string Scope, string Role)> _pendingPolicies = [];
 
     /// <summary>The scopes that exist (an assignment list of any other scope answers 404). Case-insensitive.</summary>
     public HashSet<string> Scopes { get; } = new(StringComparer.OrdinalIgnoreCase);
@@ -77,11 +81,47 @@ public sealed class FakeAzureResourceManager : HttpMessageHandler
         return new ArmClient(http, new FakeJwtTokenProvider(), retry, GraphCloud.Public, TimeSpan.FromSeconds(30));
     }
 
-    /// <summary>The subscription-qualified id of a role at the subscription of <paramref name="scope"/>.</summary>
+    /// <summary>The prefix of a management group scope.</summary>
+    public const string ManagementGroups = "/providers/Microsoft.Management/managementGroups/";
+
+    /// <summary>The subscription-qualified id of a role at the subscription of <paramref name="scope"/>, or its tenant-level id at a management group.</summary>
     public static string RoleDefinitionId(string scope, string role)
     {
+        if (IsManagementGroup(scope))
+        {
+            return Authorization + "/roleDefinitions/" + role;
+        }
+
         string subscription = scope.Split('/', StringSplitOptions.RemoveEmptyEntries)[1].ToLowerInvariant();
         return "/subscriptions/" + subscription + Authorization + "/roleDefinitions/" + role;
+    }
+
+    /// <summary>True for a management group scope.</summary>
+    public static bool IsManagementGroup(string scope)
+    {
+        return scope.StartsWith(ManagementGroups, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Makes <paramref name="scope"/> (a management group) exist with no policy for <paramref name="role"/> until the first eligibility request of that role
+    /// there, which adds it (ARM's behaviour at a management group).
+    /// </summary>
+    public void AddPolicyOnFirstRequest(string scope, string role)
+    {
+        lock (_gate)
+        {
+            Scopes.Add(scope);
+            _pendingPolicies.Add((scope, role));
+        }
+    }
+
+    /// <summary>True when the policy of <paramref name="role"/> at <paramref name="scope"/> exists.</summary>
+    public bool HasPolicy(string scope, string role)
+    {
+        lock (_gate)
+        {
+            return _policies.Any(p => string.Equals(p.Scope, scope, StringComparison.OrdinalIgnoreCase) && string.Equals(p.Role, role, StringComparison.OrdinalIgnoreCase));
+        }
     }
 
     /// <summary>Adds the policy of <paramref name="role"/> at <paramref name="scope"/> (the scope exists from then on) with ARM's default Azure rules.</summary>
@@ -247,7 +287,7 @@ public sealed class FakeAzureResourceManager : HttpMessageHandler
             case ["roleDefinitions"] when method == "GET":
                 return ListRoleDefinitions(scope, filter);
             default:
-                return Error(HttpStatusCode.BadRequest, "InvalidResourceType", "unscripted " + method + " " + path);
+                return RouteGrants(method, uri, scope, rest, body) ?? Error(HttpStatusCode.BadRequest, "InvalidResourceType", "unscripted " + method + " " + path);
         }
     }
 
@@ -259,9 +299,11 @@ public sealed class FakeAzureResourceManager : HttpMessageHandler
         }
 
         string? roleId = Between(filter, "roleDefinitionId eq '", "'");
-        if (roleId is null || !roleId.StartsWith("/subscriptions/", StringComparison.OrdinalIgnoreCase))
+        bool qualified = roleId is not null
+            && (roleId.StartsWith("/subscriptions/", StringComparison.OrdinalIgnoreCase) || (IsManagementGroup(scope) && roleId.StartsWith(Authorization + "/roleDefinitions/", StringComparison.OrdinalIgnoreCase)));
+        if (!qualified || roleId is null)
         {
-            return Error(HttpStatusCode.BadRequest, "InvalidARMRequest", "The filter must name a subscription-qualified role definition id.");
+            return Error(HttpStatusCode.BadRequest, "InvalidARMRequest", "The filter must name a subscription-qualified (or, at a management group, tenant-level) role definition id.");
         }
 
         string role = roleId[(roleId.LastIndexOf('/') + 1)..];
@@ -303,18 +345,18 @@ public sealed class FakeAzureResourceManager : HttpMessageHandler
     private (HttpStatusCode, JsonObject?) ListRoleDefinitions(string scope, string? filter)
     {
         string? name = Between(filter, "roleName eq '", "'");
-        string subscription = scope.Split('/', StringSplitOptions.RemoveEmptyEntries)[1];
+        string? subscription = IsManagementGroup(scope) ? null : scope.Split('/', StringSplitOptions.RemoveEmptyEntries)[1];
         var items = RoleDefinitionAnswer?.Select(d => (JsonNode?)d.DeepClone()).ToArray()
             ?? RoleDefinitions.Where(d => string.Equals(d.RoleName, name, StringComparison.OrdinalIgnoreCase)).Select(d => (JsonNode?)RoleDefinition(subscription, d.Id, d.RoleName)).ToArray();
         return (HttpStatusCode.OK, new JsonObject { ["value"] = new JsonArray(items) });
     }
 
-    /// <summary>A role definition as ARM lists it.</summary>
-    public static JsonObject RoleDefinition(string subscription, string id, string roleName)
+    /// <summary>A role definition as ARM lists it (tenant-level when <paramref name="subscription"/> is <c>null</c>: a management group's list).</summary>
+    public static JsonObject RoleDefinition(string? subscription, string id, string roleName)
     {
         return new JsonObject
         {
-            ["id"] = "/subscriptions/" + subscription + Authorization + "/roleDefinitions/" + id,
+            ["id"] = (subscription is null ? string.Empty : "/subscriptions/" + subscription) + Authorization + "/roleDefinitions/" + id,
             ["name"] = id,
             ["type"] = "Microsoft.Authorization/roleDefinitions",
             ["properties"] = new JsonObject { ["roleName"] = roleName, ["type"] = "BuiltInRole" },

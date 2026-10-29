@@ -13,7 +13,7 @@ using EArm.Graph;
 namespace EArm.Providers;
 
 /// <summary>
-/// What names an Azure PIM policy: the Azure scope (<see cref="AzureRoleManagementPolicyRules.NormalizeScope"/>) and the subscription-qualified role
+/// What names an Azure PIM policy: the Azure scope (<see cref="AzureRoleManagementPolicyRules.NormalizeScope"/>) and the qualified role
 /// definition id (<see cref="AzureRoleManagementPolicyRules.QualifiedRoleDefinitionId"/>).
 /// </summary>
 public sealed record AzurePolicyScope(string Scope, string RoleDefinitionId)

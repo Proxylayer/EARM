@@ -188,7 +188,7 @@ Rules:
   not counted as ignored), `Edges: n to add, n to remove.` (edge entries created / removed, counted over the
   relationship-property deltas), `Orphans: n live object(s) not declared in the template (reported only; never
   deleted).` (only when there are orphan rows), `Required permissions: …` (sorted union of the providers' Graph application permissions; `none.` when empty), `Required Azure roles: …` (only
-  when the template declares an Azure Resource Manager type such as `azureRoleManagementPolicies`: the Azure RBAC roles that may write it at its scope;
+  when the template declares an Azure Resource Manager type (`azureRoleManagementPolicies`, `azureRoleEligibilityScheduleRequests`, `azureRoleAssignments`): the Azure RBAC roles that may write it at its scope;
   `requiredAzureRoles` in the JSON, after `requiredPermissions`), then the
   unsupported count when non-zero, then a blank line and the diagnostics (warnings; `warning <Code>: <message>`)
   and the unresolved existing-resource lookups.

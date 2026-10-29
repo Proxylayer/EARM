@@ -12,8 +12,8 @@ namespace EArm.Tests;
 
 /// <summary>
 /// Offline validation of <c>Microsoft.Entra/azureRoleManagementPolicies</c> (<see cref="AzureRoleManagementPolicyRules"/> through <see cref="TemplateValidator"/>,
-/// <see cref="DiagnosticCodes.InvalidRoleManagementPolicy"/>): the scope forms (subscription, resource group, nested resource; management groups refused),
-/// one of role / roleDefinitionId, the role definition id forms normalised to the subscription-qualified id, the property set, and the rule checks shared
+/// <see cref="DiagnosticCodes.InvalidRoleManagementPolicy"/>): the scope forms (management group, subscription, resource group, nested resource),
+/// one of role / roleDefinitionId, the role definition id forms normalised to the subscription-qualified id (tenant-level at a management group), the property set, and the rule checks shared
 /// with <c>Microsoft.Entra/roleManagementPolicies</c>; computed values are left to plan time.
 /// </summary>
 public sealed class AzureRoleManagementPolicyValidationTests
@@ -58,21 +58,23 @@ public sealed class AzureRoleManagementPolicyValidationTests
     [InlineData(Rg + "/providers/Microsoft.Storage/storageAccounts/sa1")]
     [InlineData(Rg + "/providers/Microsoft.Storage/storageAccounts/sa1/blobServices/default/containers/c1")]
     [InlineData("[format('" + SubscriptionScope + "/resourceGroups/{0}', parameters('rg'))]")]
-    public void SubscriptionResourceGroupAndResourceScopes_AreAccepted(string scope)
+    [InlineData("/providers/Microsoft.Management/managementGroups/mg-platform")]
+    [InlineData("/providers/microsoft.management/managementgroups/mg-platform/")]
+    public void ManagementGroupSubscriptionResourceGroupAndResourceScopes_AreAccepted(string scope)
     {
         Assert.Empty(Errors(Declaration(scope)));
     }
 
     [Theory]
-    [InlineData("/providers/Microsoft.Management/managementGroups/mg-platform", "is a management group scope, which is not supported yet")]
-    [InlineData("/providers/Microsoft.Management/managementGroups/mg-platform/", "is a management group scope, which is not supported yet")]
+    [InlineData("/providers/Microsoft.Management/managementGroups/mg-platform/subscriptions/x", "is not an Azure scope")]
+    [InlineData("/providers/Microsoft.Management/managementGroups", "is not an Azure scope")]
     [InlineData("/subscriptions/not-a-guid", "is not an Azure scope")]
     [InlineData(SubscriptionScope + "/resourceGroups", "is not an Azure scope")]
     [InlineData(SubscriptionScope + "/providers/Microsoft.Storage/storageAccounts/sa1", "is not an Azure scope")]
     [InlineData(Rg + "/providers/Microsoft.Storage/storageAccounts", "is not an Azure scope")]
     [InlineData("subscriptions/" + Subscription, "is not an Azure scope")]
     [InlineData("/", "is not an Azure scope")]
-    public void ManagementGroupAndMalformedScopes_AreRefused(string scope, string message)
+    public void MalformedScopes_AreRefused(string scope, string message)
     {
         var error = Assert.Single(Errors(Declaration(scope)));
 
@@ -95,7 +97,8 @@ public sealed class AzureRoleManagementPolicyValidationTests
     [InlineData("/SUBSCRIPTIONS/6E1F4C2A-0000-4000-8000-000000000003/resourcegroups/RG-App", SubscriptionScope + "/resourceGroups/RG-App")]
     [InlineData("/Subscriptions/" + Subscription + "/", SubscriptionScope)]
     [InlineData(Rg + "/providers/Microsoft.Web/sites/app1", Rg + "/providers/Microsoft.Web/sites/app1")]
-    [InlineData("/providers/Microsoft.Management/managementGroups/mg", null)]
+    [InlineData("/providers/Microsoft.Management/managementGroups/mg", "/providers/Microsoft.Management/managementGroups/mg")]
+    [InlineData("/providers/microsoft.management/MANAGEMENTGROUPS/MG-Platform/", "/providers/Microsoft.Management/managementGroups/MG-Platform")]
     [InlineData("/subscriptions/x", null)]
     [InlineData("", null)]
     [InlineData(null, null)]
@@ -159,9 +162,11 @@ public sealed class AzureRoleManagementPolicyValidationTests
     [InlineData(Rg + "/providers/Microsoft.Authorization/roleDefinitions/" + Reader, Rg + "/providers/Microsoft.Web/sites/app1", QualifiedReader)]
     [InlineData(Reader, "/SUBSCRIPTIONS/6E1F4C2A-0000-4000-8000-000000000003/resourcegroups/x/", QualifiedReader)]
     [InlineData("Reader", Rg, null)]
-    [InlineData(Reader, "/providers/Microsoft.Management/managementGroups/mg", null)]
+    [InlineData(Reader, "/providers/Microsoft.Management/managementGroups/mg", "/providers/Microsoft.Authorization/roleDefinitions/" + Reader)]
+    [InlineData(QualifiedReader, "/providers/Microsoft.Management/managementGroups/mg", "/providers/Microsoft.Authorization/roleDefinitions/" + Reader)]
     [InlineData(null, Rg, null)]
-    public void QualifiedRoleDefinitionId_IsTheIdInTheScopesSubscription(string? roleDefinitionId, string scope, string? expected)
+    [InlineData(Reader, "/not/a/scope", null)]
+    public void QualifiedRoleDefinitionId_IsTheIdInTheScopesSubscription_OrTenantLevelAtAManagementGroup(string? roleDefinitionId, string scope, string? expected)
     {
         Assert.Equal(expected, AzureRoleManagementPolicyRules.QualifiedRoleDefinitionId(scope, roleDefinitionId));
     }

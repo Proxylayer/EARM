@@ -18,6 +18,7 @@ public sealed class SampleValidationCliTests
     [InlineData("pim-active.entra.json", "pim-active.parameters.json")]
     [InlineData("pim-policies.entra.json", "pim-policies.parameters.json")]
     [InlineData("azure-pim-policies.entra.json", "azure-pim-policies.parameters.json")]
+    [InlineData("azure-pim-access.entra.json", "azure-pim-access.parameters.json")]
     [InlineData("pim-group-onboarding.entra.json", "pim-group-onboarding.parameters.json")]
     [InlineData("privileged-access.entra.json", "privileged-access.parameters.json")]
     [InlineData("scoped-access-groups.entra.json", "scoped-access-groups.parameters.json")]

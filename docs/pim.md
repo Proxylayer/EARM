@@ -1,7 +1,8 @@
 # Privileged access (PIM)
 
 EARM manages Microsoft Entra **Privileged Identity Management** (PIM) for directory roles and for groups with five resource types, shaped after ARM's
-PIM for Azure resources where ARM has one, and the PIM role settings of Azure roles with a sixth:
+PIM for Azure resources where ARM has one, and Azure RBAC access through Azure Resource Manager with three more (the PIM role settings of Azure roles,
+eligibility for Azure roles, and permanent Azure role assignments; [Azure roles](#azure-roles)):
 
 | Type (`Microsoft.Entra/...`) | What it declares | ARM analogue |
 |---|---|---|
@@ -10,7 +11,9 @@ PIM for Azure resources where ARM has one, and the PIM role settings of Azure ro
 | `privilegedAccess/groupEligibilityScheduleRequests` | A user or group **eligible** for the membership or ownership of a group (PIM for Groups) | none |
 | `privilegedAccess/groupAssignmentScheduleRequests` | A **time-bound active** membership or ownership of a group through PIM for Groups | none |
 | `roleManagementPolicies` | The PIM policy **rules** (role settings) of a directory role or of a group's member / owner access: activation duration, MFA, justification, approval, authentication context, assignment expiry, notifications | `Microsoft.Authorization/roleManagementPolicies` |
-| `azureRoleManagementPolicies` | The same PIM policy **rules** for an **Azure RBAC role at an Azure scope** (a subscription, a resource group or a resource), written through Azure Resource Manager, not Graph: named by `scope` and `roleDefinitionId` (or the role's name in `role`); never created or deleted, only the declared rule ids are managed, and the changed ones are sent in one PATCH ([providers.md](providers.md#worked-example-azure-pim-role-management-policies), sample [`azure-pim-policies.entra.json`](../samples/azure-pim-policies.entra.json)) | `Microsoft.Authorization/roleManagementPolicies` (the same resource) |
+| `azureRoleManagementPolicies` | The same PIM policy **rules** for an **Azure RBAC role at an Azure scope** (a management group, a subscription, a resource group or a resource), written through Azure Resource Manager, not Graph: named by `scope` and `roleDefinitionId` (or the role's name in `role`); never created or deleted, only the declared rule ids are managed, and the changed ones are sent in one PATCH ([providers.md](providers.md#worked-example-azure-pim-role-management-policies), sample [`azure-pim-policies.entra.json`](../samples/azure-pim-policies.entra.json)) | `Microsoft.Authorization/roleManagementPolicies` (the same resource) |
+| `azureRoleEligibilityScheduleRequests` | A principal **eligible** (PIM) for an **Azure RBAC role at an Azure scope**, through Azure Resource Manager: named by `scope`, `roleDefinitionId` (or `role`) and `principalId`; an existing eligibility is adopted, a missing one is requested once (`AdminAssign`) | `Microsoft.Authorization/roleEligibilityScheduleRequests` (the same resource) |
+| `azureRoleAssignments` | A **permanent active** Azure RBAC role assignment at an Azure scope, through Azure Resource Manager: named by `scope`, `roleDefinitionId` (or `role`) and `principalId`; an existing assignment (under any name) is adopted, a missing one is created | `Microsoft.Authorization/roleAssignments` (the same resource) |
 
 Property-level detail is in [format.md](format.md#resource-type-catalog) and the provider view in [providers.md](providers.md#worked-example-pim-eligibility-for-directory-roles);
 this page explains how the pieces fit together. The sample [`samples/privileged-access.entra.json`](../samples/privileged-access.entra.json) combines them
@@ -59,7 +62,9 @@ A request is judged by the policy in force when PIM receives it (a policy that f
 through `IApplyOrderSource` ([engine.md](engine.md#pipeline)), which adds an ordering edge from the policy to each role request of the same role and each
 group request of the same group and access in the template, on top of the apply phase (policies are phase 4, requests phase 5). Values match when they
 reference the same declared resource or are the same literal (a role also by name against template id); spell them alike, or add a `dependsOn`. A
-failed policy skips the requests it governs.
+failed policy skips the requests it governs. An `azureRoleManagementPolicies` resource is ordered the same way before the
+`azureRoleEligibilityScheduleRequests` of the same `scope` and role (both `role`, or both `roleDefinitionId`: a role name is not matched against a GUID
+offline).
 
 ## Group onboarding
 
@@ -163,6 +168,58 @@ can then demand an authentication strength (for example phishing-resistant MFA).
 enablement rule (`MultiFactorAuthentication` in `Enablement_EndUser_Assignment`), not together with it: declare one or the other per policy. EARM does
 not check that combination offline.
 
+## Azure roles
+
+Three types manage Azure RBAC access through **Azure Resource Manager** instead of Graph (`IResourceManagerProvider`: a separate Resource Manager token,
+and a delegated sign-in's one-time consent, `earm auth login -f <template>`). Each is named by an Azure `scope` and a role, and read live on every run:
+
+- **`scope`**: a management group (`/providers/Microsoft.Management/managementGroups/{id}`), a subscription (`/subscriptions/{id}`), a resource group, or a
+  resource id under a resource group. It is normalised (no trailing `/`; ARM's casing of the keywords; the subscription id lower case). Only an object
+  whose `properties.scope` **is** that scope counts: an eligibility or assignment inherited from a parent scope, one of a child scope, and (for
+  eligibilities) one held through a group (`memberType` other than `Direct`) are never adopted, changed or deleted.
+- **`roleDefinitionId`** (a GUID or any role definition id) or **`role`** (a role's name such as `Contributor`, or its GUID; resolved at plan time with
+  `GET {scope}/providers/Microsoft.Authorization/roleDefinitions?$filter=roleName eq '…'`; exactly one role of that name must be assignable there). The id is
+  normalised to the form ARM uses at the scope: `/subscriptions/{subscription}/providers/Microsoft.Authorization/roleDefinitions/{guid}` under a
+  subscription, and the tenant-level `/providers/Microsoft.Authorization/roleDefinitions/{guid}` at a management group (roles are compared by GUID).
+- **`principalId`** (eligibilities and assignments): the object id of a user, group or service principal, usually `[reference(resourceId('Microsoft.Entra/groups', …)).id]`
+  of a group of the same template. It is not looked up in Graph (no Graph permission is needed); ARM refuses an unknown principal.
+
+| Type | Read | Missing | Exists | `deployment delete` |
+|---|---|---|---|---|
+| `azureRoleManagementPolicies` | `roleManagementPolicyAssignments?$filter=roleDefinitionId eq '…'` at the scope, then the policy | an error (`PimPolicyNotAvailable`), except at a management group (below) | the declared rules are compared; the changed ones are one PATCH | kept (`NotDeletable`) |
+| `azureRoleEligibilityScheduleRequests` | `roleEligibilitySchedules` (api-version 2020-10-01) at the scope, every page, matched client-side | one `PUT roleEligibilityScheduleRequests/{new GUID}` (2022-04-01-preview), `requestType: AdminAssign` | adopted (`NoChange`); a declared end the live eligibility does not have is reported in the row, never rewritten | one `AdminRemove` request |
+| `azureRoleAssignments` | `roleAssignments` (api-version 2022-04-01) at the scope, every page (`nextLink`), matched client-side | `PUT roleAssignments/{guid(scope, roleDefinitionId, principalId)}` | adopted (`NoChange`) under any name: one made in the portal, by PIM (an active PIM assignment is a role assignment too) or by another tool | `DELETE` of the matched assignment |
+
+A deployment (incremental or complete) never deletes an Azure eligibility or role assignment, and the orphan report does not list them. An eligibility
+request's `justification` (default "Deployed by earm") and `scheduleInfo` (default `{ "expiration": { "type": "NoExpiration" } }`; `AfterDuration` with
+`duration`, `AfterDateTime` with `endDateTime`; `startDateTime` is now when absent or past) are sent with the request only; an assignment's
+`principalType` (`User`, `Group` or `ServicePrincipal`, which lets ARM accept a principal created moments earlier) and `description` are sent on create only.
+An eligibility or assignment that appears between the plan and the write (ARM answers `RoleAssignmentExists`) is read again and adopted. A request the
+role's PIM policy refuses fails with `PimPolicyViolation`: the **default Azure policy forbids permanent eligibility** (`Expiration_Admin_Eligibility`, at
+most 365 days), so either declare an expiration or declare the role's `azureRoleManagementPolicies` with
+`{ "id": "Expiration_Admin_Eligibility", "isExpirationRequired": false }` (applied first; see the sample
+[`azure-pim-access.entra.json`](../samples/azure-pim-access.entra.json)).
+
+The signed-in identity needs an Azure RBAC role at each scope: **Owner** or **User Access Administrator** for eligibility requests
+(`Microsoft.Authorization/roleEligibilityScheduleRequests/write`), **Owner**, **User Access Administrator** or **Role Based Access Control Administrator** for
+role assignments (`Microsoft.Authorization/roleAssignments/write`, and `/delete` for `deployment delete`) and policies; **Reader** is enough for a what-if.
+`earm permissions` lists each grant per declared scope, and the what-if footer names them (`Required Azure roles`).
+
+### Management group policies
+
+At a subscription, resource group or resource, ARM has a PIM policy for every role. At a **management group** it does not: a role's policy (and its
+policy assignment) appears only once the first eligibility or assignment request of that role exists at that management group, so the
+`roleManagementPolicyAssignments` lookup lists nothing before that. EARM handles it this way:
+
+- When the template also declares an `azureRoleEligibilityScheduleRequests` of the **same scope and role** (spelled the same way), the policy is ordered
+  before it as usual, finds no policy, and is **deferred to the end of the run** (an `Ignore` row with a `PimPolicyNotAvailable` warning in what-if and in
+  the run). The eligibility request runs, which creates the policy; after the last batch the executor reads the policy again (on the replication
+  schedule) and applies the declared rules. If ARM still lists none by then, the run reports the warning and the next deployment applies the rules.
+  Until then the role's **default** policy judges that first request, so give it a `scheduleInfo` the default rules accept (an `AfterDuration` of at most
+  `P365D`); once the declared policy is in force, later requests follow it.
+- Otherwise the policy fails with `PimPolicyNotAvailable`, naming the cause and the fix: declare an eligibility of the same scope and role in the template,
+  or make a principal eligible for the role at the management group in the portal, then deploy again.
+
 ## Licensing and permissions
 
 PIM needs **Microsoft Entra ID P2** or **Microsoft Entra ID Governance** in the tenant; without it Graph refuses the requests. The Graph permissions per type
@@ -171,7 +228,9 @@ PIM needs **Microsoft Entra ID P2** or **Microsoft Entra ID Governance** in the 
 [permissions.md](permissions.md#manifest-by-type). They are escalation-capable: read [SECURITY.md](../SECURITY.md#privileged-access-and-authentication-methods). `azureRoleManagementPolicies`
 needs no Graph permission and no Entra licence check of its own: an Azure RBAC role at the policy's scope that may write role management policies (Owner,
 User Access Administrator or Role Based Access Control Administrator; Reader for a what-if), and a delegated sign-in's one-time Azure Resource Manager consent
-(`earm auth login -f <template>`); `earm permissions` lists the grant per policy and scope.
+(`earm auth login -f <template>`); `earm permissions` lists the grant per policy and scope. The same holds for `azureRoleEligibilityScheduleRequests` and
+`azureRoleAssignments` ([Azure roles](#azure-roles)); an Azure eligibility needs PIM for Azure resources, which Microsoft Entra ID P2 or ID Governance in the
+tenant provides.
 
 A signed-in user needs the Entra role **active**, not just eligible: PIM checks the roles the token carries. For PIM for Groups
 (`privilegedAccess/groupEligibilityScheduleRequests`, `groupAssignmentScheduleRequests`) that is a directory-scope **Groups Administrator**, **Identity
@@ -196,6 +255,6 @@ dependency was created in the same run, repeats that 403 on `/identityGovernance
 
 ## Not covered
 
-PIM eligibility and active assignment requests for Azure resources (use ARM's own `Microsoft.Authorization` types; their role settings are
-`azureRoleManagementPolicies`), Azure role settings at a management group scope (refused until verified), PIM alerts and their settings, access reviews, and activating an eligibility
-(a user's action, not a deployment).
+Time-bound active assignment requests for Azure roles (`Microsoft.Authorization/roleAssignmentScheduleRequests`; use ARM's own type), changing or
+renewing an existing Azure eligibility in place (remove it and deploy again), conditions on Azure role assignments (ABAC `condition`), PIM alerts and their
+settings, access reviews, and activating an eligibility (a user's action, not a deployment).
