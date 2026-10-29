@@ -35,7 +35,7 @@
 
   <!-- Version and package metadata. -->
   <PropertyGroup>
-    <VersionPrefix>0.3.1</VersionPrefix>
+    <VersionPrefix>1.0.0</VersionPrefix>
     <Product>EARM</Product>
     <Authors>EARM</Authors>
     <Company>EARM</Company>
