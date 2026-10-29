@@ -155,6 +155,16 @@ public sealed class IntegrationFixture : IAsyncLifetime
         {
             RequireAzure();
         }
+
+        if (needs.HasFlag(Needs.AzureRoleGrants))
+        {
+            Assert.SkipUnless(
+                Settings.AllowAzureRoleGrants,
+                $"{IntegrationSettings.AllowAzureRoleGrantsVariable}=1 is required to write Azure role grants (a Reader role assignment and eligibility of {IntegrationSettings.AzurePrincipalVariable} at {IntegrationSettings.AzureScopeVariable}, each removed again).");
+            Assert.SkipUnless(
+                Guid.TryParse(Settings.AzurePrincipalId, out _),
+                $"{IntegrationSettings.AzurePrincipalVariable} is not set to an object id (GUID): name a throw-away group or user the probes may grant Reader at the resource group.");
+        }
     }
 
     /// <summary>The gates of <see cref="Needs.AzurePimPolicies"/>: a refused scope or role fails the test (a dangerous value is never silently skipped).</summary>

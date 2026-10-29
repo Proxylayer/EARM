@@ -80,6 +80,14 @@ internal enum Needs
     /// (active) at that resource group, and the run a consented Azure Resource Manager token.
     /// </summary>
     AzurePimPolicies = 4096,
+
+    /// <summary>
+    /// Azure role grants may be written (<c>EARM_IT_ALLOW_AZURE_ROLE_GRANTS=1</c> with <c>EARM_IT_AZURE_PRINCIPAL_ID</c>, on top of
+    /// <see cref="AzurePimPolicies"/>' resource group and Resource Manager session): one Reader role assignment and one Reader eligibility of that principal
+    /// at that resource group, each removed in a <c>finally</c>; a grant the principal already has is never touched. The signed-in user needs Owner or User
+    /// Access Administrator (active) at the resource group.
+    /// </summary>
+    AzureRoleGrants = 8192,
 }
 
 /// <summary>
@@ -104,6 +112,8 @@ internal sealed record IntegrationSettings
     public const string AllowAzurePimPoliciesVariable = "EARM_IT_ALLOW_AZURE_PIM_POLICIES";
     public const string AzureScopeVariable = "EARM_IT_AZURE_SCOPE";
     public const string AzureRoleVariable = "EARM_IT_AZURE_ROLE";
+    public const string AllowAzureRoleGrantsVariable = "EARM_IT_ALLOW_AZURE_ROLE_GRANTS";
+    public const string AzurePrincipalVariable = "EARM_IT_AZURE_PRINCIPAL_ID";
     public const string PartnerTenantVariable = "EARM_IT_PARTNER_TENANT";
     public const string SharePointSiteUrlVariable = "EARM_IT_SP_SITE_URL";
     public const string SharePointSiteRoleVariable = "EARM_IT_SP_SITE_ROLE";
@@ -161,6 +171,12 @@ internal sealed record IntegrationSettings
     /// <summary><c>EARM_IT_ALLOW_AZURE_PIM_POLICIES=1</c>: snapshot-guarded changes of the Azure PIM policy of <see cref="AzurePimPolicyTarget"/>.</summary>
     public bool AllowAzurePimPolicies { get; init; }
 
+    /// <summary><c>EARM_IT_ALLOW_AZURE_ROLE_GRANTS=1</c>: a Reader role assignment and eligibility of <see cref="AzurePrincipalId"/>, each removed again.</summary>
+    public bool AllowAzureRoleGrants { get; init; }
+
+    /// <summary><c>EARM_IT_AZURE_PRINCIPAL_ID</c>: the object id (a GUID) of a throw-away group or user the Azure role grant probes may grant Reader, or null.</summary>
+    public string? AzurePrincipalId { get; init; }
+
     /// <summary>
     /// The validated <c>EARM_IT_AZURE_SCOPE</c> / <c>EARM_IT_AZURE_ROLE</c>: the only Azure PIM policy the probes may touch; null when the scope is unset
     /// or the values were refused (<see cref="AzurePimPolicyProblem"/>).
@@ -206,7 +222,8 @@ internal sealed record IntegrationSettings
             && (!needs.HasFlag(Needs.GroupLifecycle) || AllowGroupLifecycle)
             && (!needs.HasFlag(Needs.AccessReviews) || AllowAccessReviews)
             && (!needs.HasFlag(Needs.SharePointSite) || (SharePointSiteUrl is not null && SharePointSiteRole is not null))
-            && (!needs.HasFlag(Needs.AzurePimPolicies) || (AllowAzurePimPolicies && AzurePimPolicyTarget is not null));
+            && (!needs.HasFlag(Needs.AzurePimPolicies) || (AllowAzurePimPolicies && AzurePimPolicyTarget is not null))
+            && (!needs.HasFlag(Needs.AzureRoleGrants) || (AllowAzureRoleGrants && Guid.TryParse(AzurePrincipalId, out _)));
     }
 
     public static IntegrationSettings FromEnvironment()
@@ -249,6 +266,8 @@ internal sealed record IntegrationSettings
             AllowAzurePimPolicies = IsOn(AllowAzurePimPoliciesVariable),
             AzurePimPolicyTarget = azureTarget,
             AzurePimPolicyProblem = azureProblem,
+            AllowAzureRoleGrants = IsOn(AllowAzureRoleGrantsVariable),
+            AzurePrincipalId = Read(AzurePrincipalVariable),
             PartnerTenant = Read(PartnerTenantVariable),
             SharePointSiteUrl = Read(SharePointSiteUrlVariable),
             SharePointSiteRole = Read(SharePointSiteRoleVariable),
