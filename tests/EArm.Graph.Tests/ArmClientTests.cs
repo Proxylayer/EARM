@@ -15,7 +15,7 @@ namespace EArm.Graph.Tests;
 /// <summary>
 /// <see cref="ArmClient"/>: resource path and api-version validation before any token or URL exists, the Resource Manager origin from the cloud table, the
 /// <c>.default</c> token of that origin, paging over <c>nextLink</c> that stays on the origin, ARM's error shape, retries, size limits, a <c>PATCH</c> that is
-/// never abandoned once sent, and no token or body in the log.
+/// never abandoned once sent, <c>PUT</c> and <c>DELETE</c>, and no token or body in the log.
 /// </summary>
 public sealed class ArmClientTests
 {
@@ -663,6 +663,58 @@ public sealed class ArmClientTests
 
         Assert.False(error.IsAmbiguous);
         Assert.Single(handler.Requests);
+    }
+
+    // ---- PUT and DELETE --------------------------------------------------------------------------------------------
+
+    private const string AssignmentPath = "/subscriptions/00000000-0000-0000-0000-000000000001/providers/Microsoft.Authorization/roleAssignments/a1";
+
+    [Fact]
+    public async Task APutSendsTheBodyAsJsonAndReturnsTheAnswer()
+    {
+        var handler = new ScriptedHttpHandler(ScriptedResponse.Json("{\"id\":\"" + AssignmentPath + "\"}"));
+        using var harness = new Harness(handler);
+
+        var answer = await harness.Client.PutAsync(AssignmentPath, "2022-04-01", new JsonObject { ["properties"] = new JsonObject { ["principalId"] = "p" } }, Ct);
+
+        Assert.Equal(AssignmentPath, answer!["id"]!.GetValue<string>());
+        var request = Assert.Single(handler.Requests);
+        Assert.Equal(HttpMethod.Put, request.Method);
+        Assert.Equal(Origin + AssignmentPath + "?api-version=2022-04-01", request.Uri.AbsoluteUri);
+        Assert.Equal("{\"properties\":{\"principalId\":\"p\"}}", request.Body);
+        Assert.Equal("Bearer token-1", request.Header("Authorization"));
+    }
+
+    [Fact]
+    public async Task AServerErrorToAPutIsMarkedAmbiguous_AndAnInvalidPathSendsNothing()
+    {
+        var handler = new ScriptedHttpHandler();
+        handler.Fallback = _ => new ScriptedResponse { Status = HttpStatusCode.InternalServerError, Body = ArmError("InternalServerError", "oops") };
+        using var harness = new Harness(handler);
+
+        var error = await Assert.ThrowsAsync<GraphException>(() => harness.Client.PutAsync(AssignmentPath, "2022-04-01", new JsonObject(), Ct));
+        int sent = handler.Requests.Count;
+        await Assert.ThrowsAsync<ArgumentException>(() => harness.Client.PutAsync(AssignmentPath + "/../x", "2022-04-01", new JsonObject(), Ct));
+
+        Assert.True(error.IsAmbiguous);
+        Assert.All(handler.Requests, static r => Assert.Equal(HttpMethod.Put, r.Method));
+        Assert.Equal(sent, handler.Requests.Count);
+    }
+
+    [Fact]
+    public async Task ADeleteSendsNoBody_AndANotFoundIsAGraphException()
+    {
+        var handler = new ScriptedHttpHandler(ScriptedResponse.NoContent(), new ScriptedResponse { Status = HttpStatusCode.NotFound, Body = ArmError("RoleAssignmentNotFound", "gone") });
+        using var harness = new Harness(handler);
+
+        await harness.Client.DeleteAsync(AssignmentPath, "2022-04-01", Ct);
+        var error = await Assert.ThrowsAsync<GraphException>(() => harness.Client.DeleteAsync(AssignmentPath, "2022-04-01", Ct));
+
+        Assert.True(error.IsNotFound);
+        Assert.Equal("RoleAssignmentNotFound", error.Code);
+        Assert.All(handler.Requests, static r => Assert.Equal(HttpMethod.Delete, r.Method));
+        Assert.Null(handler.Requests[0].Body);
+        Assert.Equal(Origin + AssignmentPath + "?api-version=2022-04-01", handler.Requests[0].Uri.AbsoluteUri);
     }
 
     // ---- collections ---------------------------------------------------------------------------------------------
