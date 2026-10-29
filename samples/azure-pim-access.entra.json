@@ -1,0 +1,61 @@
+{
+  "$schema": "https://schema.earm.proxylayer.net/schemas/2026-10-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "Azure access for a platform team, managed through Azure Resource Manager: a security group (Microsoft.Entra/groups) eligible through PIM for Contributor on a subscription (azureRoleEligibilityScheduleRequests) under that role's PIM settings at the subscription (azureRoleManagementPolicies: 8-hour activations with MFA and a justification, permanent eligibility allowed), and permanently assigned Reader on the subscription (azureRoleAssignments). The eligibility depends on the policy (EARM also applies a policy before the eligibility requests of the same scope and role), so the request is judged by the declared rules. An eligibility or assignment that already exists at exactly the subscription is adopted as it is. Needs an Azure RBAC role at the subscription that may write role management policies, eligibility requests and role assignments (Owner or User Access Administrator; Reader is enough for a what-if), Group.ReadWrite.All for the group, and the Azure Resource Manager consent of a delegated sign-in (earm auth login -f). See docs/pim.md."
+  },
+  "parameters": {
+    "subscriptionId": { "type": "string", "metadata": { "description": "Id (GUID) of the subscription the team gets access to." } },
+    "groupName":      { "type": "string", "defaultValue": "platform-contributors", "metadata": { "description": "Unique name (and mail nickname) of the team's group." } }
+  },
+  "variables": {
+    "scope": "[format('/subscriptions/{0}', parameters('subscriptionId'))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Entra/groups", "apiVersion": "2026-10-01-preview", "name": "[parameters('groupName')]",
+      "properties": { "displayName": "Platform Contributors", "mailEnabled": false, "mailNickname": "[parameters('groupName')]", "securityEnabled": true }
+    },
+    {
+      "type": "Microsoft.Entra/azureRoleManagementPolicies", "apiVersion": "2026-10-01-preview",
+      "name": "[guid('azure-pim-policy', variables('scope'), 'Contributor')]",
+      "properties": {
+        "scope": "[variables('scope')]",
+        "role": "Contributor",
+        "rules": [
+          { "id": "Expiration_Admin_Eligibility", "isExpirationRequired": false },
+          { "id": "Expiration_EndUser_Assignment", "isExpirationRequired": true, "maximumDuration": "PT8H" },
+          { "id": "Enablement_EndUser_Assignment", "enabledRules": ["MultiFactorAuthentication", "Justification"] }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.Entra/azureRoleEligibilityScheduleRequests", "apiVersion": "2026-10-01-preview",
+      "name": "[guid(variables('scope'), 'Contributor', parameters('groupName'), 'eligible')]",
+      "properties": {
+        "scope": "[variables('scope')]",
+        "role": "Contributor",
+        "principalId": "[reference(resourceId('Microsoft.Entra/groups', parameters('groupName'))).id]",
+        "justification": "Platform team: eligible Contributor on the subscription",
+        "scheduleInfo": { "expiration": { "type": "NoExpiration" } }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Entra/azureRoleManagementPolicies', guid('azure-pim-policy', variables('scope'), 'Contributor'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Entra/azureRoleAssignments", "apiVersion": "2026-10-01-preview",
+      "name": "[guid(variables('scope'), 'Reader', parameters('groupName'))]",
+      "properties": {
+        "scope": "[variables('scope')]",
+        "role": "Reader",
+        "principalId": "[reference(resourceId('Microsoft.Entra/groups', parameters('groupName'))).id]",
+        "principalType": "Group",
+        "description": "Platform team: standing read access to the subscription"
+      }
+    }
+  ],
+  "outputs": {
+    "groupId": { "type": "string", "value": "[reference(resourceId('Microsoft.Entra/groups', parameters('groupName'))).id]" }
+  }
+}

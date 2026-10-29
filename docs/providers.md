@@ -764,15 +764,16 @@ A directory role without a policy (an unknown role id) is `PimPolicyNotAvailable
 ### Worked example: Azure PIM role management policies
 
 `Microsoft.Entra/azureRoleManagementPolicies` (`AzureRoleManagementPoliciesProvider`) is the Azure resource twin of `roleManagementPolicies`: the
-PIM role settings of an **Azure RBAC role at an Azure scope** (a subscription, a resource group, or a resource under one), managed through **Azure
+PIM role settings of an **Azure RBAC role at an Azure scope** (a management group, a subscription, a resource group, or a resource under one), managed through **Azure
 Resource Manager** as `Microsoft.Authorization/roleManagementPolicies` (api-version `2020-10-01`), not Graph. The declared rule shape is already ARM's,
 so nothing is mapped: the offline rule checks (`RoleManagementPolicyRuleChecks`), the normalisation (`RoleManagementPolicyRules.NormalizeRules`), the
 fill-from-live and the comparable view (`RoleManagementPolicyShape.FillFromLive` / `Comparable`) are shared with the Entra type, and the rule schema is
-the same (`$policyRules` in `tools/New-TypeSchemas.ps1`). The scope checks are `AzureRoleManagementPolicyRules` (management group scopes are refused
-offline: not probed yet); the ARM calls are `AzureRoleManagementPolicyLookup`.
+the same (`$policyRules` in `tools/New-TypeSchemas.ps1`). The scope checks are `AzureScopeRules` (shared with the Azure role grants below); the ARM calls are
+`AzureRoleManagementPolicyLookup`.
 
 The policy is named by `scope` and `roleDefinitionId` (a GUID or any qualified role definition id, normalised to
-`/subscriptions/{subscription of the scope}/providers/Microsoft.Authorization/roleDefinitions/{guid}`) or the sugar `role`, a role name resolved when the
+`/subscriptions/{subscription of the scope}/providers/Microsoft.Authorization/roleDefinitions/{guid}`, or to the tenant-level
+`/providers/Microsoft.Authorization/roleDefinitions/{guid}` at a management group) or the sugar `role`, a role name resolved when the
 deployment is planned. The `guid()` name is a label. The facts below come from the real-subscription probes (`AzurePimPolicyProbes`,
 `EARM_IT_ALLOW_AZURE_PIM_POLICIES=1`):
 
@@ -780,13 +781,13 @@ deployment is planned. The `guid()` name is a label. The facts below come from t
 |---|---|---|
 | Read | `GET {scope}/providers/Microsoft.Authorization/roleManagementPolicyAssignments?$filter=roleDefinitionId eq '{subscription-qualified id}'`, keeping only the assignment whose `properties.scope` equals the declared scope (case-insensitive); then `GET {policyId}` (rebuilt as `{scope}/providers/Microsoft.Authorization/roleManagementPolicies/{name}`, refused when the assignment names a policy elsewhere) for `properties.rules`. The policy's path is the Graph id | a bare GUID in the filter is refused (400 `InvalidARMRequest`); the list also returns policies inherited from parent scopes, which are never acted on; the policy name equalled the role GUID in the probes, but that is undocumented, so `policyId` is followed |
 | Role name | `GET {scope}/providers/Microsoft.Authorization/roleDefinitions?$filter=roleName eq '{name}'` (api-version `2022-04-01`), names re-matched ignoring case; exactly one match, else `RoleManagementPolicyInvalid` | the policy filter refuses `roleName` (400 `InvalidFilter`) |
-| Create | never: a missing policy is `PimPolicyNotAvailable` | a policy exists for every role at every scope, even one never used with PIM (Reader at a brand-new resource group: 17 rules, `properties.scope` the group itself); no policy means the scope does not exist (ARM's 404 on the list reads as "no policy") or the role is wrong |
+| Create | never: a missing policy is `PimPolicyNotAvailable`; at a management group it is deferred to the end of the run when an `azureRoleEligibilityScheduleRequests` of the same scope and role is declared (an `Ignore` row marked `RetryAtEndOfRun`, as the Entra type defers a group PIM for Groups has not onboarded) | a policy exists for every role at every subscription, resource group and resource scope, even one never used with PIM (Reader at a brand-new resource group: 17 rules, `properties.scope` the group itself); no policy means the scope does not exist (ARM's 404 on the list reads as "no policy") or the role is wrong. A management group lists a role's policy only after the first request of that role there ([pim.md](pim.md#management-group-policies)) |
 | Update | ONE `PATCH {policyId}` with `{ "properties": { "rules": [...] } }` carrying only the **changed** declared rules, each filled from its live rule (null members left out); the answer (the whole policy) is the re-read. When nothing differs at apply time, nothing is sent | a PATCH changes only the rules it carries (the others are untouched), but a rule sent with only some members **resets** the omitted ones (`isExpirationRequired` true → false), so every rule sent is complete; a PATCH of unchanged values still bumps `lastModifiedDateTime`, so NoChange is decided client-side |
 | Delete | never: kept as `NotDeletable` (`IDeleteRefusalSource`); Complete mode lists no orphans | a policy cannot be deleted; revert a setting by declaring the value to restore |
 
 Planning is the Entra type's: only the declared rule ids are managed, a declared id the live policy does not have is `RoleManagementPolicyInvalid`
-(listing the policy's ids), and the diff uses the `rules` member key `id`. No apply order is declared: EARM has no Azure eligibility or assignment
-requests yet. The probes saw about 250 reads and 200 writes per subscription window, far above a template's needs.
+(listing the policy's ids), and the diff uses the `rules` member key `id`. The policy is applied before the `azureRoleEligibilityScheduleRequests` of
+the same scope and role (`IApplyOrderSource`, `AzureRoleManagementPolicyApplyOrder`, which matches the declarations as `DeclarationConflicts` does). The probes saw about 250 reads and 200 writes per subscription window, far above a template's needs.
 
 **The Resource Manager client.** Provider methods receive only `IGraphClient`, so the provider takes an `ArmClient?` in its constructor
 (`(ResourceTypeDefinition, ResourceTypeCatalog, ArmClient)`, the first signature `ProviderDiscovery` tries). `EngineServices` builds the run's registry
@@ -796,6 +797,34 @@ where the provider still validates and reports its permissions but any Resource 
 `RequiredPermissions` is empty (no Graph scope); `PermissionManifest` lists an `azureRbac` entry per declared policy:
 `Microsoft.Authorization/roleManagementPolicies/write` at the declared scope (Owner, User Access Administrator or Role Based Access Control
 Administrator; a what-if reads with `.../read`).
+
+### Worked example: Azure role eligibility and role assignments
+
+`Microsoft.Entra/azureRoleEligibilityScheduleRequests` (`AzureRoleEligibilityScheduleRequestsProvider`) and `Microsoft.Entra/azureRoleAssignments`
+(`AzureRoleAssignmentsProvider`) grant an Azure RBAC role at an Azure scope through Azure Resource Manager: a PIM eligibility
+(`Microsoft.Authorization/roleEligibilityScheduleRequests`) and a permanent active assignment (`Microsoft.Authorization/roleAssignments`), the Azure twins
+of `roleEligibilityScheduleRequests` and `roleAssignments`. What they share is `AzureRoleGrantProvider` (an abstract base: the Resource Manager client,
+the `role` sugar resolved like the policy's, the normalised scope, role definition id and principal id, the "adopt as it is" plan) and the
+`AzureRoleGrant` record (scope, role definition id as ARM names it at the scope, principal id; `Matches` compares a listed object's `properties.scope`,
+role GUID and principal). The offline rules are `AzureRoleEligibilityScheduleRules` and `AzureRoleAssignmentRules` over `AzureScopeRules`; the ARM calls are
+`AzureRoleEligibilityLookup` and `AzureRoleAssignmentLookup`. The key is (`scope`, `roleDefinitionId`, `principalId`); the `guid()` name is a label.
+
+| Operation | `azureRoleEligibilityScheduleRequests` | `azureRoleAssignments` |
+|---|---|---|
+| Read | `GET {scope}/providers/Microsoft.Authorization/roleEligibilitySchedules?api-version=2020-10-01`, every page, no `$filter`; keep the schedule whose `properties.scope` equals the scope, `memberType` is `Direct`, and role and principal match | `GET {scope}/providers/Microsoft.Authorization/roleAssignments?api-version=2022-04-01`, every page (`nextLink`), no `$filter`; keep the assignment whose `properties.scope` equals the scope and whose role and principal match, under any name |
+| Plan | exists: `NoChange` (a declared end the live schedule does not have is a reason on the row, never an update); missing: `Create` | exists: `NoChange`; missing: `Create` |
+| Create | `PUT {scope}/providers/Microsoft.Authorization/roleEligibilityScheduleRequests/{new GUID}?api-version=2022-04-01-preview` with `requestType: AdminAssign`, the qualified role, the principal, the justification and the schedule in ARM's casing (start now when absent or past); then a read-back (`KeyReadLagsCreate`: PIM lists the schedule a little later; the request's `targetRoleEligibilityScheduleId` stands in until then) | `PUT {scope}/providers/Microsoft.Authorization/roleAssignments/{guid(scope, roleDefinitionId, principalId)}?api-version=2022-04-01` with `principalType` and `description` when declared (`CreateIsRepeatable`: the same PUT again is the same assignment) |
+| `RoleAssignmentExists` | re-read and adopted (made since the plan); rethrown when it cannot be read back yet, so the engine waits out replication | re-read and adopted (made under another name since the plan) |
+| Policy refusal | `PimPolicyViolation`, pointing at the default policy's `Expiration_Admin_Eligibility` and `azureRoleManagementPolicies` | n/a |
+| Update | never | never |
+| Delete (`deployment delete` only) | `PUT ...roleEligibilityScheduleRequests/{new GUID}` with `requestType: AdminRemove`; already gone (`RoleAssignmentDoesNotExist`, 404) is not an error | `DELETE` of the matched assignment's path (rebuilt in the scope's collection; one elsewhere is refused); 404 is not an error |
+
+Neither implements `IOrphanCandidateSource` (a complete-mode what-if names them among the types it does not list) nor ever deletes during a deployment.
+`RequiredPermissions` is empty; `RequiredAzureRoles` names Owner or User Access Administrator (eligibility) and Owner, User Access Administrator or Role
+Based Access Control Administrator (assignment) at the declared scope for the what-if footer, and `PermissionManifest` lists the
+`Microsoft.Authorization/roleEligibilityScheduleRequests/write` and `Microsoft.Authorization/roleAssignments/write` grants per declared scope. The
+gated probes are `AzureRoleGrantProbes` (`EARM_IT_ALLOW_AZURE_ROLE_GRANTS=1` with `EARM_IT_AZURE_PRINCIPAL_ID`, on top of the Azure PIM policy probes'
+resource group).
 
 ### Worked example: access packages
 

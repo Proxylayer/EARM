@@ -47,8 +47,9 @@ Implemented (a working pre-release, see [Limitations](#limitations-v1) for what 
   for Groups eligibility: eligible membership or ownership of a group), `privilegedAccess/groupAssignmentScheduleRequests` (time-bound active
   membership or ownership of a group through PIM for Groups) and `roleManagementPolicies` (the PIM policy rules of a directory role or a group:
   approval, MFA, justification, maximum durations, notifications; shaped like ARM's `Microsoft.Authorization/roleManagementPolicies`, only the
-  declared rules managed, never created or deleted), `azureRoleManagementPolicies` (the same PIM policy rules for an Azure role at a subscription,
-  resource group or resource, written through Azure Resource Manager), and entitlement management (access packages, [docs/access-packages.md](docs/access-packages.md)):
+  declared rules managed, never created or deleted), `azureRoleManagementPolicies` (the same PIM policy rules for an Azure role at a management group,
+  subscription, resource group or resource, written through Azure Resource Manager), `azureRoleEligibilityScheduleRequests` and `azureRoleAssignments`
+  (PIM eligibility and permanent role assignments for Azure roles, also through Azure Resource Manager), and entitlement management (access packages, [docs/access-packages.md](docs/access-packages.md)):
   `entitlementManagement/catalogs`, `entitlementManagement/catalogResources` (a group, application or SharePoint Online site added to a catalog), `entitlementManagement/accessPackages`,
   `entitlementManagement/resourceRoleScopes` (the group role a package grants: Member, Owner, Eligible Member or Eligible Owner) and
   `entitlementManagement/accessPackages/assignmentPolicies` (who may request, approval stages, expiration), `accessReviews/definitions`
@@ -211,7 +212,8 @@ declared resource **in the live tenant by a key derived from its type and `name`
 | `accessReviews/definitions` | `displayName` = the `name` (matched over the whole collection; duplicates are `AmbiguousMatch`) |
 | `roleAssignments`, `roleEligibilityScheduleRequests`, `roleAssignmentScheduleRequests`, `privilegedAccess/groupEligibilityScheduleRequests`, `privilegedAccess/groupAssignmentScheduleRequests`, `appRoleAssignments`, `oauth2PermissionGrants` | their tuple (principal, role or resource or group, scope / access / consent type); the `guid(...)` `name` is only a label |
 | `roleManagementPolicies` | the policy assignment of (`scopeType`, `scopeId`, `roleDefinitionId`): a directory role, or a group's member / owner access; the `guid(...)` `name` is only a label; never created (a missing policy is `PimPolicyNotAvailable`) |
-| `azureRoleManagementPolicies` | the Azure Resource Manager policy assignment of (`scope`, `roleDefinitionId`) at exactly that scope (never an inherited one): an Azure role at a subscription, resource group or resource; the `guid(...)` `name` is only a label; never created (a missing policy is `PimPolicyNotAvailable`) |
+| `azureRoleManagementPolicies` | the Azure Resource Manager policy assignment of (`scope`, `roleDefinitionId`) at exactly that scope (never an inherited one): an Azure role at a management group, subscription, resource group or resource; the `guid(...)` `name` is only a label; never created (a missing policy is `PimPolicyNotAvailable`) |
+| `azureRoleEligibilityScheduleRequests`, `azureRoleAssignments` | (`scope`, `roleDefinitionId`, `principalId`) at exactly that scope (never an inherited one); the `guid(...)` `name` is only a label; an existing eligibility or assignment is adopted as it is |
 | `conditionalAccess/policies`, `conditionalAccess/namedLocations`, `administrativeUnits`, custom `roleDefinitions`, custom `conditionalAccess/authenticationStrengths`, `entitlementManagement/catalogs`, `entitlementManagement/accessPackages` | `displayName` = the `name` |
 | `entitlementManagement/accessPackages/assignmentPolicies` | its `displayName` under the parent access package |
 | `entitlementManagement/catalogResources`, `entitlementManagement/resourceRoleScopes` | their tuple (catalog + group, service principal or site URL; package + resource + role); the `guid(...)` `name` is only a label |
@@ -288,7 +290,9 @@ Directory roles and group access can be **just in time** through Privileged Iden
   requests of its role or group.
 - `azureRoleManagementPolicies` manages the same rules for an **Azure role at an Azure scope** (`scope`, and `roleDefinitionId` or the role's name in
   `role`) through Azure Resource Manager: one PATCH of the changed rules, never created or deleted
-  ([`samples/azure-pim-policies.entra.json`](samples/azure-pim-policies.entra.json)).
+  ([`samples/azure-pim-policies.entra.json`](samples/azure-pim-policies.entra.json)). `azureRoleEligibilityScheduleRequests` makes a principal eligible
+  for an Azure role and `azureRoleAssignments` assigns one permanently, at the same scopes; an existing one is adopted, a missing one is requested once
+  ([`samples/azure-pim-access.entra.json`](samples/azure-pim-access.entra.json), [docs/pim.md](docs/pim.md#azure-roles)).
 - A group's first request onboards it to PIM for Groups permanently; a group policy may only appear after that, in which case the policy applies on
   the second run. A changed tuple keeps the old eligibility (`orphan: retained`).
 - Needs **Microsoft Entra ID P2** or **ID Governance**; the permissions are escalation-capable ([SECURITY.md](SECURITY.md#privileged-access-and-authentication-methods)).
@@ -328,7 +332,8 @@ drift check (exit 5). Details and golden fixtures: [docs/whatif.md](docs/whatif.
 template needs, grouped by permission with the resources that need them, including the conditional ones (`Application.ReadWrite.OwnedBy` instead of `.All`,
 `RoleManagement.ReadWrite.Directory` for role-assignable groups and directory roles, `AppRoleAssignment.ReadWrite.All` for assignments, the PIM and
 authentication-method permissions…) and the Key Vault note. An `azureRoleManagementPolicies` resource needs no Graph permission: it is listed under
-**Azure** as the RBAC grant `Microsoft.Authorization/roleManagementPolicies/write` at its scope (Owner, User Access Administrator or Role Based Access
+**Azure** as the RBAC grant `Microsoft.Authorization/roleManagementPolicies/write` at its scope (likewise `.../roleEligibilityScheduleRequests/write` for
+`azureRoleEligibilityScheduleRequests` and `.../roleAssignments/write` for `azureRoleAssignments`) (Owner, User Access Administrator or Role Based Access
 Control Administrator; a what-if reads with `.../read`), and the run requests a separate Azure Resource Manager token (`earm auth login -f` asks for its
 one-time consent).
 Manifest tables and warnings: [docs/permissions.md](docs/permissions.md).

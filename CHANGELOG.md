@@ -6,6 +6,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- `Microsoft.Entra/azureRoleEligibilityScheduleRequests`: a PIM eligibility for an Azure RBAC role at a management group, subscription, resource
+  group or resource scope, requested through Azure Resource Manager (`Microsoft.Authorization/roleEligibilityScheduleRequests`). Named by `scope`,
+  `roleDefinitionId` (or the role's name in `role`) and `principalId`; the Direct eligibility of exactly that scope is adopted as it is (a differing
+  schedule is reported, never rewritten; inherited and group-held ones never count), a missing one is requested once with `AdminAssign`
+  (`justification` and `scheduleInfo` optional, no expiration by default), `RoleAssignmentExists` is adopted, and `earm deployment delete` sends
+  `AdminRemove`. Needs Owner or User Access Administrator at the scope, no Graph permission.
+- `Microsoft.Entra/azureRoleAssignments`: a permanent active Azure RBAC role assignment at the same scopes (`Microsoft.Authorization/roleAssignments`).
+  The assignment of exactly that scope is adopted under any name (every page is read); a missing one is created as
+  `guid(scope, roleDefinitionId, principalId)` with the optional `principalType` and `description`; `RoleAssignmentExists` is adopted, and
+  `earm deployment delete` deletes the matched assignment. Needs Owner, User Access Administrator or Role Based Access Control Administrator at the
+  scope, no Graph permission.
+- `earm permissions` lists the Azure RBAC grant of each new type per declared scope, and the what-if footer names the Azure roles they need.
+- New sample `samples/azure-pim-access.entra.json`: a group eligible for Contributor on a subscription under that role's PIM settings, and assigned
+  Reader. See docs/pim.md ("Azure roles").
+
+### Changed
+
+- `Microsoft.Entra/azureRoleManagementPolicies` accepts management group scopes (`/providers/Microsoft.Management/managementGroups/{id}`), with the
+  tenant-level role definition id. ARM lists a role's policy at a management group only after the first request of that role there: when the
+  deployment declares an `azureRoleEligibilityScheduleRequests` of the same scope and role, the policy waits for the end of the run and is applied
+  then; otherwise it fails with `PimPolicyNotAvailable`, naming the fix. A policy is now applied before the Azure eligibility requests of the same
+  scope and role.
+
 ## [1.0.1] - 2026-10-28
 
 ### Fixed
