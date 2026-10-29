@@ -5,7 +5,7 @@ using EArm.Graph.Auth;
 namespace EArm.Graph;
 
 /// <summary>
-/// One national cloud: the Graph host, the Microsoft Entra authority host and the Key Vault DNS suffix. The set is a fixed
+/// One national cloud: the Graph host, the Microsoft Entra authority host, the Key Vault DNS suffix and the Azure Resource Manager host. The set is a fixed
 /// allow-list compiled into the product (<see cref="Public"/>, <see cref="UsGov"/>, <see cref="UsGovDod"/>, <see cref="China"/>);
 /// there is deliberately no way to point the transport at an arbitrary endpoint, so a bearer token can only ever be sent to a
 /// host this table names.
@@ -15,27 +15,31 @@ public sealed record GraphCloud
     /// <summary>The environment variable that selects the cloud: <c>public</c> (default), <c>usgov</c>, <c>usgovdod</c> or <c>china</c>.</summary>
     public const string EnvironmentVariable = "EARM_CLOUD";
 
-    private GraphCloud(string key, string environmentName, string graphHost, string authorityHost, string keyVaultSuffix, int loopbackPort = 0)
+    private GraphCloud(string key, string environmentName, string graphHost, string authorityHost, string keyVaultSuffix, string resourceManagerHost, int loopbackPort = 0)
     {
         Key = key;
         EnvironmentName = environmentName;
         GraphHost = graphHost;
         AuthorityHost = new Uri("https://" + authorityHost + "/", UriKind.Absolute);
         KeyVaultSuffix = keyVaultSuffix;
+        ResourceManagerHost = resourceManagerHost;
         LoopbackPort = loopbackPort;
     }
 
-    /// <summary>Global Azure: <c>graph.microsoft.com</c>, <c>login.microsoftonline.com</c>, <c>vault.azure.net</c>.</summary>
-    public static GraphCloud Public { get; } = new("public", "AzureCloud", "graph.microsoft.com", "login.microsoftonline.com", "vault.azure.net");
+    /// <summary>Global Azure: <c>graph.microsoft.com</c>, <c>login.microsoftonline.com</c>, <c>vault.azure.net</c>, <c>management.azure.com</c>.</summary>
+    public static GraphCloud Public { get; } = new("public", "AzureCloud", "graph.microsoft.com", "login.microsoftonline.com", "vault.azure.net", "management.azure.com");
 
-    /// <summary>Azure US Government (GCC High): <c>graph.microsoft.us</c>, <c>login.microsoftonline.us</c>, <c>vault.usgovcloudapi.net</c>.</summary>
-    public static GraphCloud UsGov { get; } = new("usgov", "AzureUSGovernment", "graph.microsoft.us", "login.microsoftonline.us", "vault.usgovcloudapi.net");
+    /// <summary>Azure US Government (GCC High): <c>graph.microsoft.us</c>, <c>login.microsoftonline.us</c>, <c>vault.usgovcloudapi.net</c>, <c>management.usgovcloudapi.net</c>.</summary>
+    public static GraphCloud UsGov { get; } = new("usgov", "AzureUSGovernment", "graph.microsoft.us", "login.microsoftonline.us", "vault.usgovcloudapi.net", "management.usgovcloudapi.net");
 
-    /// <summary>Azure US Government DoD: <c>dod-graph.microsoft.us</c>, <c>login.microsoftonline.us</c>, <c>vault.usgovcloudapi.net</c>.</summary>
-    public static GraphCloud UsGovDod { get; } = new("usgovdod", "AzureUSGovernmentDoD", "dod-graph.microsoft.us", "login.microsoftonline.us", "vault.usgovcloudapi.net");
+    /// <summary>
+    /// Azure US Government DoD: <c>dod-graph.microsoft.us</c>, <c>login.microsoftonline.us</c>, <c>vault.usgovcloudapi.net</c>, <c>management.usgovcloudapi.net</c>
+    /// (the DoD cloud shares the US Government Azure Resource Manager endpoint).
+    /// </summary>
+    public static GraphCloud UsGovDod { get; } = new("usgovdod", "AzureUSGovernmentDoD", "dod-graph.microsoft.us", "login.microsoftonline.us", "vault.usgovcloudapi.net", "management.usgovcloudapi.net");
 
-    /// <summary>Azure operated by 21Vianet: <c>microsoftgraph.chinacloudapi.cn</c>, <c>login.chinacloudapi.cn</c>, <c>vault.azure.cn</c>.</summary>
-    public static GraphCloud China { get; } = new("china", "AzureChinaCloud", "microsoftgraph.chinacloudapi.cn", "login.chinacloudapi.cn", "vault.azure.cn");
+    /// <summary>Azure operated by 21Vianet: <c>microsoftgraph.chinacloudapi.cn</c>, <c>login.chinacloudapi.cn</c>, <c>vault.azure.cn</c>, <c>management.chinacloudapi.cn</c>.</summary>
+    public static GraphCloud China { get; } = new("china", "AzureChinaCloud", "microsoftgraph.chinacloudapi.cn", "login.chinacloudapi.cn", "vault.azure.cn", "management.chinacloudapi.cn");
 
     /// <summary>Every supported cloud, public first.</summary>
     public static IReadOnlyList<GraphCloud> All { get; } = [Public, UsGov, UsGovDod, China];
@@ -55,10 +59,21 @@ public sealed record GraphCloud
     /// <summary>The DNS suffix of vault host names (<c>vault.azure.net</c> for the public cloud).</summary>
     public string KeyVaultSuffix { get; }
 
+    /// <summary>The Azure Resource Manager host name, without scheme (<c>management.azure.com</c> for the public cloud).</summary>
+    public string ResourceManagerHost { get; }
+
     /// <summary>The Graph origin: <c>https://{GraphHost}</c>.</summary>
     public string GraphOrigin => LoopbackPort == 0
         ? "https://" + GraphHost
         : "http://" + GraphHost + ":" + LoopbackPort.ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+    /// <summary>
+    /// The Azure Resource Manager origin: <c>https://{ResourceManagerHost}</c> (<c>https://management.azure.com</c> in the public cloud). It is both the
+    /// endpoint of the ARM REST API and the resource of its token (Learn: azure-resource-manager control-plane-and-data-plane).
+    /// </summary>
+    public string ResourceManagerOrigin => LoopbackPort == 0
+        ? "https://" + ResourceManagerHost
+        : "http://" + ResourceManagerHost + ":" + LoopbackPort.ToString(System.Globalization.CultureInfo.InvariantCulture);
 
     /// <summary>
     /// Non-zero only for the test-only cloud made by <see cref="LoopbackForTests"/>: the plain-http port of the in-process server. No public
@@ -67,14 +82,15 @@ public sealed record GraphCloud
     internal int LoopbackPort { get; }
 
     /// <summary>
-    /// TEST ONLY: a cloud whose Graph origin is <c>http://127.0.0.1:{port}</c>, so the production <see cref="HttpGraphClient.CreateHttpClient"/> settings can be
-    /// exercised against an in-process server. Internal (visible to the test assemblies only) and never part of <see cref="All"/> or <see cref="Parse"/>.
+    /// TEST ONLY: a cloud whose Graph origin and Azure Resource Manager origin are both <c>http://127.0.0.1:{port}</c>, so the production
+    /// <see cref="HttpGraphClient.CreateHttpClient"/> settings can be exercised against an in-process server. Internal (visible to the test assemblies only) and
+    /// never part of <see cref="All"/> or <see cref="Parse"/>.
     /// </summary>
     internal static GraphCloud LoopbackForTests(int port)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(port, 1);
         ArgumentOutOfRangeException.ThrowIfGreaterThan(port, 65535);
-        return new GraphCloud("loopback-test", "LoopbackTest", "127.0.0.1", "login.microsoftonline.com", "vault.azure.net", port);
+        return new GraphCloud("loopback-test", "LoopbackTest", "127.0.0.1", "login.microsoftonline.com", "vault.azure.net", "127.0.0.1", port);
     }
 
     /// <summary>The scope that requests a Graph token with every permission granted to the identity.</summary>
@@ -93,6 +109,12 @@ public sealed record GraphCloud
     public TokenScopes KeyVaultScopes => TokenScopes.Default(KeyVaultResource);
 
     /// <summary>
+    /// The <c>.default</c> scope set of Azure Resource Manager (<c>https://management.azure.com/.default</c> in the public cloud): the default token request of
+    /// the Resource Manager client (<see cref="ArmClient"/>).
+    /// </summary>
+    public TokenScopes ResourceManagerScopes => TokenScopes.Default(ResourceManagerOrigin);
+
+    /// <summary>
     /// The delegated base set of a plain <c>earm auth login</c>: <c>User.Read</c> alone, which every deployment run requests too. It is the one scope a user
     /// without an admin role can consent to (Learn: permissions-reference, admin consent "No"; <c>Organization.Read.All</c> needs admin consent), and it
     /// covers the signed-in profile and the preflight's <c>GET /organization</c> (Learn: organization-get, User.Read reads <c>id</c>, <c>displayName</c>
@@ -105,6 +127,13 @@ public sealed record GraphCloud
     /// it, <see cref="KeyVaultScopes"/> (<c>.default</c>) is obtained silently.
     /// </summary>
     public TokenScopes KeyVaultConsentScopes => TokenScopes.Explicit(KeyVaultResource, "user_impersonation");
+
+    /// <summary>
+    /// The delegated Azure Resource Manager scope (<c>https://management.azure.com/user_impersonation</c> in the public cloud), the one delegated permission ARM
+    /// exposes; it needs a one-time interactive consent, after which <see cref="ResourceManagerScopes"/> (<c>.default</c>) is obtained silently. What the
+    /// signed-in user may then do is decided by their Azure role assignments, not by the scope.
+    /// </summary>
+    public TokenScopes ResourceManagerConsentScopes => TokenScopes.Explicit(ResourceManagerOrigin, "user_impersonation");
 
     /// <summary>The cloud for a key (case-insensitive); null or empty means <see cref="Public"/>.</summary>
     /// <exception cref="GraphConfigurationException">The value is not one of the supported cloud keys; the message lists the valid values.</exception>

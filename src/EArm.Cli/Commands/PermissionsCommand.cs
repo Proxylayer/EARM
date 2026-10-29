@@ -155,6 +155,9 @@ internal static class PermissionsCommand
                 stdout.WriteLine(scopes.NeedsKeyVault
                     ? "Azure Key Vault: https://vault.azure.net/user_impersonation (the template has Key Vault parameter references)"
                     : "Azure Key Vault: not needed");
+                stdout.WriteLine(scopes.NeedsResourceManager
+                    ? "Azure Resource Manager: https://management.azure.com/user_impersonation (the template declares resources managed through Azure Resource Manager)"
+                    : "Azure Resource Manager: not needed");
                 return;
         }
     }
@@ -178,6 +181,7 @@ internal static class PermissionsCommand
             ["verb"] = VerbName(scopes.Verb),
             ["graphScopes"] = new JsonArray(scopes.GraphScopes.Select(s => (JsonNode?)JsonValue.Create(s)).ToArray()),
             ["needsKeyVault"] = scopes.NeedsKeyVault,
+            ["needsResourceManager"] = scopes.NeedsResourceManager,
             ["scopes"] = details,
         };
     }

@@ -8,39 +8,63 @@ using EArm.Graph.Auth;
 namespace EArm.Cli.Commands;
 
 /// <summary>
-/// The consents <c>earm auth login</c> obtains: one Microsoft Graph scope set (the sign-in) and optionally the Key Vault consent (a second interactive
-/// request as the same account). Graph = the base set (<see cref="GraphCloud.SignInScopes"/>: <c>User.Read</c>) plus
+/// The consents <c>earm auth login</c> obtains: one Microsoft Graph scope set (the sign-in) and optionally the Key Vault and Azure Resource Manager consents
+/// (each a further interactive request as the same account). Graph = the base set (<see cref="GraphCloud.SignInScopes"/>: <c>User.Read</c>) plus
 /// <c>--scopes</c> plus the scopes of <c>-f &lt;template&gt;</c> (union). Key Vault = <see cref="GraphCloud.KeyVaultConsentScopes"/> when the template
-/// resolves Key Vault references or <c>--scopes</c> names a Key Vault scope.
+/// resolves Key Vault references or <c>--scopes</c> names a Key Vault scope. Resource Manager = <see cref="GraphCloud.ResourceManagerConsentScopes"/> when the
+/// template declares a resource whose provider calls Azure Resource Manager or <c>--scopes</c> names a Resource Manager scope.
 /// </summary>
-internal sealed record LoginConsent(TokenScopes Graph, TokenScopes? KeyVault)
+internal sealed record LoginConsent(TokenScopes Graph, TokenScopes? KeyVault, TokenScopes? ResourceManager)
 {
-    /// <summary>The token requests in order: the Graph sign-in first, then the Key Vault consent.</summary>
-    public IReadOnlyList<TokenScopes> Requests => KeyVault is null ? [Graph] : [Graph, KeyVault];
+    /// <summary>The token requests in order: the Graph sign-in first, then the Key Vault consent, then the Resource Manager consent.</summary>
+    public IReadOnlyList<TokenScopes> Requests
+    {
+        get
+        {
+            var requests = new List<TokenScopes> { Graph };
+            if (KeyVault is not null)
+            {
+                requests.Add(KeyVault);
+            }
+
+            if (ResourceManager is not null)
+            {
+                requests.Add(ResourceManager);
+            }
+
+            return requests;
+        }
+    }
 
     /// <summary>The consents for <paramref name="cloud"/>.</summary>
     /// <param name="cloud">The cloud of the sign-in.</param>
     /// <param name="scopeArguments">
-    /// The <c>--scopes</c> values: short Graph names (<c>Group.ReadWrite.All</c>), Graph scopes qualified with this cloud's Graph origin, or this cloud's Key
-    /// Vault scope (<c>https://vault.azure.net/user_impersonation</c>). Each value may hold several, separated by commas or spaces.
+    /// The <c>--scopes</c> values: short Graph names (<c>Group.ReadWrite.All</c>), Graph scopes qualified with this cloud's Graph origin, this cloud's Key
+    /// Vault scope (<c>https://vault.azure.net/user_impersonation</c>) or this cloud's Resource Manager scope (<c>https://management.azure.com/user_impersonation</c>).
+    /// Each value may hold several, separated by commas or spaces.
     /// </param>
     /// <param name="template">The scopes of <c>-f</c>, or null.</param>
-    /// <exception cref="ArgumentException">A value is not a scope of Microsoft Graph or Key Vault in this cloud (or is <c>.default</c> / an OpenID Connect scope).</exception>
+    /// <exception cref="ArgumentException">A value is not a scope of Microsoft Graph, Key Vault or Resource Manager in this cloud (or is <c>.default</c> / an OpenID Connect scope).</exception>
     public static LoginConsent Build(GraphCloud cloud, IEnumerable<string> scopeArguments, RunScopeSet? template)
     {
         ArgumentNullException.ThrowIfNull(cloud);
         ArgumentNullException.ThrowIfNull(scopeArguments);
         var graph = new List<string>(cloud.SignInScopes.Names);
         var keyVault = new List<string>();
+        var resourceManager = new List<string>();
         foreach (var scope in Split(scopeArguments))
         {
             if (scope.StartsWith(cloud.KeyVaultResource + "/", StringComparison.OrdinalIgnoreCase))
             {
                 keyVault.Add(scope);
             }
+            else if (scope.StartsWith(cloud.ResourceManagerOrigin + "/", StringComparison.OrdinalIgnoreCase))
+            {
+                resourceManager.Add(scope);
+            }
             else if (scope.Contains("://", StringComparison.Ordinal) && !scope.StartsWith(cloud.GraphOrigin + "/", StringComparison.OrdinalIgnoreCase))
             {
-                throw new ArgumentException($"--scopes: '{scope}' is not a Microsoft Graph scope ({cloud.GraphOrigin}/...) or the Key Vault scope ({cloud.KeyVaultConsentScopes}) of the {cloud.Key} cloud.");
+                throw new ArgumentException($"--scopes: '{scope}' is not a Microsoft Graph scope ({cloud.GraphOrigin}/...), the Key Vault scope ({cloud.KeyVaultConsentScopes}) or the Azure Resource Manager scope ({cloud.ResourceManagerConsentScopes}) of the {cloud.Key} cloud.");
             }
             else
             {
@@ -55,13 +79,19 @@ internal sealed record LoginConsent(TokenScopes Graph, TokenScopes? KeyVault)
             {
                 keyVault.AddRange(cloud.KeyVaultConsentScopes.Scopes);
             }
+
+            if (template.NeedsResourceManager)
+            {
+                resourceManager.AddRange(cloud.ResourceManagerConsentScopes.Scopes);
+            }
         }
 
         try
         {
             return new LoginConsent(
                 TokenScopes.Explicit(cloud.GraphOrigin, graph),
-                keyVault.Count == 0 ? null : TokenScopes.Explicit(cloud.KeyVaultResource, keyVault));
+                keyVault.Count == 0 ? null : TokenScopes.Explicit(cloud.KeyVaultResource, keyVault),
+                resourceManager.Count == 0 ? null : TokenScopes.Explicit(cloud.ResourceManagerOrigin, resourceManager));
         }
         catch (ArgumentException ex)
         {

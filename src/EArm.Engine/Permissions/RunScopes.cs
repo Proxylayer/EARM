@@ -26,11 +26,15 @@ public enum RunVerb
 /// <summary>One delegated scope of a run, the resources that need it and why.</summary>
 public sealed record RunScope(string Name, IReadOnlyList<string> Resources, IReadOnlyList<string> Reasons);
 
-/// <summary>The delegated Microsoft Graph scopes and the Key Vault need of one run.</summary>
+/// <summary>The delegated Microsoft Graph scopes, the Key Vault need and the Azure Resource Manager need of one run.</summary>
 /// <param name="Verb">The verb the set was computed for.</param>
 /// <param name="Scopes">The scopes with their resources and reasons, sorted by name (case-insensitively).</param>
 /// <param name="NeedsKeyVault">True when the run resolves Key Vault parameter references (a separate <c>https://vault.azure.net</c> token).</param>
-public sealed record RunScopeSet(RunVerb Verb, IReadOnlyList<RunScope> Scopes, bool NeedsKeyVault)
+/// <param name="NeedsResourceManager">
+/// True when the template declares a resource whose provider calls Azure Resource Manager (<see cref="IResourceManagerProvider"/>: a separate
+/// <c>https://management.azure.com</c> token).
+/// </param>
+public sealed record RunScopeSet(RunVerb Verb, IReadOnlyList<RunScope> Scopes, bool NeedsKeyVault, bool NeedsResourceManager)
 {
     /// <summary>The short scope names (for example <c>Policy.ReadWrite.ConditionalAccess</c>), sorted; the Graph resource prefix is the token provider's job.</summary>
     public IReadOnlyList<string> GraphScopes { get; } = Scopes.Select(s => s.Name).ToList();
@@ -74,7 +78,7 @@ public static class RunScopes
         ArgumentNullException.ThrowIfNull(registry);
         if (verb == RunVerb.Validate)
         {
-            return new RunScopeSet(verb, [], false);
+            return new RunScopeSet(verb, [], false, false);
         }
 
         var expansion = OfflineTemplateExpansion.Run(document, catalog ?? ResourceTypeCatalog.Default);
@@ -93,7 +97,7 @@ public static class RunScopes
         ArgumentNullException.ThrowIfNull(registry);
         if (verb == RunVerb.Validate)
         {
-            return new RunScopeSet(verb, [], false);
+            return new RunScopeSet(verb, [], false, false);
         }
 
         var report = PermissionManifest.Build(expansion.Document.SourcePath ?? string.Empty, PermissionMode.Delegated, expansion, registry);
@@ -114,7 +118,8 @@ public static class RunScopes
         }
 
         scopes.Add(SignIn, ["(every deployment)"], ["sign-in: the signed-in user's profile (GET /me) and the preflight (GET /organization)"]);
-        return new RunScopeSet(verb, scopes.Build(), expansion.KeyVaultReferences.Any());
+        var needsResourceManager = expansion.Instances.Any(instance => registry.TryGet(instance.Type, out var provider) && provider is IResourceManagerProvider);
+        return new RunScopeSet(verb, scopes.Build(), expansion.KeyVaultReferences.Any(), needsResourceManager);
     }
 
     private sealed class ScopeAccumulator

@@ -132,7 +132,7 @@ what later runs will request:
 
 | Option | Meaning |
 |---|---|
-| `--scopes <list>` | Extra delegated scopes, space- or comma-separated: Microsoft Graph names (`Group.ReadWrite.All`), Graph scopes qualified with the cloud's Graph origin, or the Key Vault scope (`https://vault.azure.net/user_impersonation`). |
+| `--scopes <list>` | Extra delegated scopes, space- or comma-separated: Microsoft Graph names (`Group.ReadWrite.All`), Graph scopes qualified with the cloud's Graph origin, the Key Vault scope (`https://vault.azure.net/user_impersonation`), or the Azure Resource Manager scope (`https://management.azure.com/user_impersonation`). |
 | `-f`, `--template-file <template>` | Consent the scopes one run of the template requests (the set `earm permissions -f <template> --verb <verb>` lists), computed offline. When the template has Key Vault parameter references, a second interactive request consents `https://<vault suffix>/user_impersonation` as the same account. |
 | `-p`, `--parameters <value>` | Parameter values of `-f`, as for the deployment verbs (every form of the deployment verbs, several per `-p`; they decide copy counts and conditions). |
 | `--verb create\|whatif\|delete` | Which run of `-f` to consent for. Default `create`. |
@@ -156,7 +156,7 @@ the token's claims **without validating** them (display only; the token is never
 configure one) when nothing signs in.
 
 With `-f <template>` (and `-p`, `--verb` as for `login`, default `create`), it also lists the delegated scopes that run requires and those missing from the token's `scp`
-(`requiredScopes`, `missingScopes`, `keyVaultNeeded` with `-o json`), with the `earm auth login` command that consents them. Missing scopes do not change the exit code (0).
+(`requiredScopes`, `missingScopes`, `keyVaultNeeded`, `resourceManagerNeeded` with `-o json`), with the `earm auth login` command that consents them. Missing scopes do not change the exit code (0).
 `-f` with an app-only identity (`--auth default`, or a service principal token) exits 1: delegated scopes do not apply; see `earm permissions --mode app`.
 
 ### Consent

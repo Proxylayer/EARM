@@ -359,7 +359,7 @@ public sealed partial class HttpGraphClient : IGraphClient
     }
 
     /// <summary>True for the <see cref="HttpRequestError"/> kinds that occur before any byte of the request was written.</summary>
-    private static bool FailedBeforeSending(HttpRequestException ex)
+    internal static bool FailedBeforeSending(HttpRequestException ex)
     {
         return ex.HttpRequestError is HttpRequestError.NameResolutionError
             or HttpRequestError.ConnectionError

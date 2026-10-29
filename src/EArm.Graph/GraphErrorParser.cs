@@ -9,7 +9,8 @@ using System.Text.Json.Nodes;
 namespace EArm.Graph;
 
 /// <summary>
-/// Turns a Graph error response (real status, headers, <c>{"error":{...}}</c> body) into a <see cref="GraphException"/>.
+/// Turns a Graph error response (real status, headers, <c>{"error":{...}}</c> body) into a <see cref="GraphException"/>; an Azure Resource Manager error
+/// response has the same body shape (<c>{"error":{"code","message","details"}}</c>) and is read the same way.
 /// The status always comes from the HTTP response; the error code is informational.
 /// </summary>
 internal static class GraphErrorParser
@@ -23,8 +24,9 @@ internal static class GraphErrorParser
         ArgumentNullException.ThrowIfNull(timeProvider);
 
         var retryAfter = ParseRetryAfter(headers.RetryAfter, timeProvider);
-        var requestId = FirstHeader(headers, "request-id");
-        var echoedClientId = FirstHeader(headers, "client-request-id") ?? clientRequestId;
+        // Graph names its request id request-id; Azure Resource Manager (whose error body has the same {"error":{"code","message"}} shape) x-ms-request-id.
+        var requestId = FirstHeader(headers, "request-id") ?? FirstHeader(headers, "x-ms-request-id");
+        var echoedClientId = FirstHeader(headers, "client-request-id") ?? FirstHeader(headers, "x-ms-client-request-id") ?? clientRequestId;
         return FromBody(status, body, hint, retryAfter, requestId, echoedClientId);
     }
 
