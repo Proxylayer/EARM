@@ -127,6 +127,7 @@ public sealed class TokenScopesTests
         {
             Assert.Equal(cloud.GraphScope, Assert.Single(cloud.GraphScopes.Scopes));
             Assert.Equal(cloud.KeyVaultScope, Assert.Single(cloud.KeyVaultScopes.Scopes));
+            Assert.Equal(cloud.ResourceManagerOrigin + "/.default", Assert.Single(cloud.ResourceManagerScopes.Scopes));
         }
     }
 
@@ -272,5 +273,21 @@ public sealed class TokenScopesTests
         Assert.Equal(impersonation, new KeyVaultClient(http, tokens, Retry(), GraphCloud.Public, scopes: impersonation).Scopes);
         Assert.Throws<ArgumentException>(() => new KeyVaultClient(http, tokens, Retry(), GraphCloud.Public, scopes: TokenScopes.Default(Graph)));
         Assert.Throws<ArgumentException>(() => new KeyVaultClient(http, tokens, Retry(), GraphCloud.China, scopes: impersonation));
+    }
+
+    [Fact]
+    public void TheResourceManagerClientDefaultsToTheArmDotDefaultAndRefusesOtherResources()
+    {
+        using var http = new HttpClient(new ScriptedHttpHandler(), disposeHandler: false);
+        var tokens = new FakeTokenProvider();
+        var impersonation = GraphCloud.Public.ResourceManagerConsentScopes;
+
+        Assert.Equal(GraphCloud.Public.ResourceManagerScopes, new ArmClient(http, tokens, Retry(), GraphCloud.Public).Scopes);
+        Assert.Equal(GraphCloud.UsGov.ResourceManagerScopes, new ArmClient(http, tokens, Retry(), GraphCloud.UsGov).Scopes);
+        Assert.Equal(impersonation, new ArmClient(http, tokens, Retry(), GraphCloud.Public, scopes: impersonation).Scopes);
+        Assert.Throws<ArgumentException>(() => new ArmClient(http, tokens, Retry(), GraphCloud.Public, scopes: TokenScopes.Default(Graph)));
+        Assert.Throws<ArgumentException>(() => new ArmClient(http, tokens, Retry(), GraphCloud.Public, scopes: TokenScopes.Default(Vault)));
+        Assert.Throws<ArgumentException>(() => new ArmClient(http, tokens, Retry(), GraphCloud.China, scopes: impersonation));
+        Assert.Throws<ArgumentException>(() => new KeyVaultClient(http, tokens, Retry(), GraphCloud.Public, scopes: GraphCloud.Public.ResourceManagerScopes));
     }
 }

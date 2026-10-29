@@ -51,6 +51,44 @@ public sealed class GraphUrlAndCloudTests
         Assert.Equal(["public", "usgov", "usgovdod", "china"], GraphCloud.All.Select(static c => c.Key));
     }
 
+    [Theory]
+    [InlineData("public", "management.azure.com")]
+    [InlineData("usgov", "management.usgovcloudapi.net")]
+    [InlineData("usgovdod", "management.usgovcloudapi.net")]
+    [InlineData("china", "management.chinacloudapi.cn")]
+    public void TheCloudTableMapsKeysToResourceManagerHosts(string key, string host)
+    {
+        var cloud = GraphCloud.Parse(key);
+
+        Assert.Equal(host, cloud.ResourceManagerHost);
+        Assert.Equal("https://" + host, cloud.ResourceManagerOrigin);
+        Assert.True(cloud.ResourceManagerScopes.IsDefault);
+        Assert.Equal("https://" + host, cloud.ResourceManagerScopes.Resource);
+        Assert.Equal(["https://" + host + "/.default"], cloud.ResourceManagerScopes.Scopes);
+        Assert.False(cloud.ResourceManagerConsentScopes.IsDefault);
+        Assert.Equal("https://" + host, cloud.ResourceManagerConsentScopes.Resource);
+        Assert.Equal(["https://" + host + "/user_impersonation"], cloud.ResourceManagerConsentScopes.Scopes);
+    }
+
+    [Fact]
+    public void ThePublicResourceManagerScopesAreTheDocumentedStrings()
+    {
+        Assert.Equal("https://management.azure.com/.default", GraphCloud.Public.ResourceManagerScopes.ToString());
+        Assert.Equal("https://management.azure.com/user_impersonation", GraphCloud.Public.ResourceManagerConsentScopes.ToString());
+    }
+
+    [Fact]
+    public void TheLoopbackTestCloudPutsResourceManagerOnTheSamePlainHttpOrigin()
+    {
+        var loopback = GraphCloud.LoopbackForTests(1234);
+
+        Assert.Equal("127.0.0.1", loopback.ResourceManagerHost);
+        Assert.Equal("http://127.0.0.1:1234", loopback.ResourceManagerOrigin);
+        Assert.Equal(loopback.GraphOrigin, loopback.ResourceManagerOrigin);
+        Assert.Equal("http://127.0.0.1:1234/.default", loopback.ResourceManagerScopes.ToString());
+        Assert.All(GraphCloud.All, static c => Assert.StartsWith("https://", c.ResourceManagerOrigin, StringComparison.Ordinal));
+    }
+
     // ---- origin check -------------------------------------------------------------------------------------
 
     [Theory]
