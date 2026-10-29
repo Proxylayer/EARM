@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- The what-if footer names the Azure RBAC roles a template with Azure Resource Manager types needs (`Required Azure roles: …`, `requiredAzureRoles`
+  in the JSON) instead of only `Required permissions: none.`.
+- The per-phase timing lines (event 2090) are logged at Debug, so a run without `--timings` no longer prints them.
+
 ## [1.0.0] - 2026-10-28
 
 ### Added

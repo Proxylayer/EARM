@@ -139,6 +139,6 @@ public sealed class RunPhase : IDisposable
 /// <summary>Source-generated log messages of <see cref="RunTimings"/>.</summary>
 internal static partial class RunTimingsLog
 {
-    [LoggerMessage(EventId = 2090, Level = LogLevel.Information, Message = "Phase {Phase}: {ElapsedMs} ms, {Requests} Graph requests")]
+    [LoggerMessage(EventId = 2090, Level = LogLevel.Debug, Message = "Phase {Phase}: {ElapsedMs} ms, {Requests} Graph requests")]
     public static partial void PhaseTimed(ILogger logger, string phase, long elapsedMs, long requests);
 }

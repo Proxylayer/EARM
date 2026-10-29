@@ -96,6 +96,15 @@ public sealed partial class AzureRoleManagementPoliciesProvider : ProviderBase, 
         return [];
     }
 
+    /// <summary>The Azure RBAC roles that may write the policy at its scope (<c>Microsoft.Authorization/roleManagementPolicies/write</c>), for the what-if footer.</summary>
+    public IReadOnlyList<string> RequiredAzureRoles(ResourceInstance? desired)
+    {
+        var scope = desired?.Properties is { } properties && JsonObjects.GetString(properties, "scope") is { } declared
+            ? AzureRoleManagementPolicyRules.NormalizeScope(declared) ?? declared
+            : "the declared scope";
+        return [$"Owner, User Access Administrator or Role Based Access Control Administrator at '{scope}'"];
+    }
+
     // ---- prepare (sugar + live validation) ----
 
     /// <summary>Checks the declaration, resolves the <c>role</c> sugar to its role definition (at the scope) and normalises the scope and role definition id.</summary>

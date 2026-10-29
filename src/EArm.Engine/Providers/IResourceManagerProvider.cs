@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+
 namespace EArm.Engine.Providers;
 
 /// <summary>
@@ -10,4 +12,9 @@ namespace EArm.Engine.Providers;
 /// </summary>
 public interface IResourceManagerProvider
 {
+    /// <summary>
+    /// The Azure RBAC roles the signed-in identity needs for <paramref name="desired"/> (for example "Owner, User Access Administrator or Role Based Access Control
+    /// Administrator at scope '…'"), shown next to the Graph permissions in the what-if footer; none by default.
+    /// </summary>
+    IReadOnlyList<string> RequiredAzureRoles(ResourceInstance? desired) => [];
 }

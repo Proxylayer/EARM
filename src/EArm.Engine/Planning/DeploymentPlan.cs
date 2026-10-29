@@ -166,6 +166,27 @@ public sealed class DeploymentPlan
     /// <summary>Union of the providers' required Graph application permissions over every instance.</summary>
     public IReadOnlySet<string> RequiredPermissions { get; }
 
+    /// <summary>
+    /// Union of the Azure RBAC roles the Resource Manager providers need over every instance (<see cref="IResourceManagerProvider.RequiredAzureRoles"/>). Computed on
+    /// each read, so a report built after the what-if pass names the evaluated scopes (the instances' properties are not evaluated yet while planning).
+    /// </summary>
+    public IReadOnlySet<string> RequiredAzureRoles
+    {
+        get
+        {
+            var roles = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var instance in Instances.Where(i => !i.IsDeployment))
+            {
+                if (Registry.TryGet(instance.Type, out var provider) && provider is IResourceManagerProvider resourceManager)
+                {
+                    roles.UnionWith(resourceManager.RequiredAzureRoles(instance));
+                }
+            }
+
+            return roles;
+        }
+    }
+
     public PlanOptions Options { get; }
 
     public ChangeSummary Summary => ChangeSummary.Of(Changes);
