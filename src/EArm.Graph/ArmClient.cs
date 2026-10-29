@@ -278,7 +278,7 @@ public sealed class ArmClient
     internal Uri ParseNextLink(string nextLink)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(nextLink);
-        if (!Uri.TryCreate(nextLink, UriKind.Absolute, out var uri))
+        if (!GraphUrl.TryParseAbsolute(nextLink, out var uri))
         {
             throw new GraphTransportException(GraphTransportFailure.UnsafeUrl, "Refusing to follow the Azure Resource Manager nextLink: it is not an absolute URL.");
         }
