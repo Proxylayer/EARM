@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- `--timings` on `deployment create`, `what-if`, `validate` and `delete`: when the run ends, a table of its phases (milliseconds, Graph HTTP
+  requests, request-scheduler wait), the time from the process start to the first Graph write, and the total, on standard error whatever the
+  output format. Each phase is also logged as event 2090. See docs/cli.md.
+- Azure Resource Manager access: a separate `https://management.azure.com` token (consent `https://management.azure.com/user_impersonation`,
+  accepted by `earm auth login --scopes` and requested by `earm auth login -f` when the template needs it). `earm permissions` reports
+  `needsResourceManager` and `earm auth status -f` reports `resourceManagerNeeded`, next to the Key Vault need.
+
+### Changed
+
+- Key Vault parameter references are read up to four at a time, and the Complete-mode orphan report lists its types concurrently (up to the
+  run's parallelism); both still report in the same order as before.
+- Once Graph refuses the `uniqueName` alternate-key form of a group or application lookup in a run, the later lookups of that run go straight to
+  the `$filter` query.
+
 ## [0.3.1] - 2026-10-21
 
 ### Added
